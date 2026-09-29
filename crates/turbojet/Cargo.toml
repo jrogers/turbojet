@@ -1,0 +1,82 @@
+[package]
+name = "turbojet"
+description = "Turbojet: a FIX session engine with typed messages, storage, TLS, and acceptor/initiator transports"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "../../README.md"
+keywords = ["fix", "trading", "finance", "protocol", "tokio"]
+categories = ["network-programming", "finance"]
+# These tests need the repository's dictionaries/; the fuzz targets build only with cargo fuzz.
+exclude = ["tests/validation.rs", "tests/fixt.rs", "fuzz"]
+
+# Document every feature on docs.rs, so TLS, metrics and time-zone APIs appear.
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+chrono.workspace = true
+chrono-tz = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+rust_decimal.workspace = true
+tokio.workspace = true
+tokio-rustls = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
+tracing.workspace = true
+turbojet-dictionary = { workspace = true, optional = true }
+
+[features]
+# TLS transport for Acceptor and Initiator (rustls with the ring crypto provider).
+tls = ["dep:tokio-rustls", "dep:x509-parser"]
+# Per-session counters and gauges through the `metrics` facade; install a recorder to export them.
+metrics = ["dep:metrics"]
+# Named IANA time zones (e.g. America/New_York) for session schedules, with daylight saving.
+tz = ["dep:chrono-tz"]
+# Checking inbound application messages against a data dictionary (turbojet-dictionary).
+validation = ["dep:turbojet-dictionary"]
+
+[dev-dependencies]
+criterion.workspace = true
+metrics-util.workspace = true
+# The HTTP listener serves the gateway example's /metrics; benchmarks use the recorder alone.
+metrics-exporter-prometheus.workspace = true
+rcgen.workspace = true
+tempfile.workspace = true
+# Paused-clock tests of the connection timer.
+tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true, features = ["json"] }
+turbojet-fix42.workspace = true
+turbojet-fix43.workspace = true
+turbojet-fix44.workspace = true
+turbojet-fix50sp2.workspace = true
+
+# Benchmarks use criterion; keep the libtest bench harness out of `cargo bench` so criterion
+# options (e.g. `cargo bench -p turbojet -- --quick`) work.
+[lib]
+bench = false
+
+[[bench]]
+name = "codec"
+harness = false
+
+[[bench]]
+name = "session"
+harness = false
+
+[[bench]]
+name = "roundtrip"
+harness = false
+
+# The order-entry gateway: an Acceptor serving an Application. `test = true` makes `cargo test`
+# run its tests (which need the features, e.g. `cargo test --all-features`).
+[[example]]
+name = "gateway"
+required-features = ["tls", "metrics", "tz"]
+test = true
+
+# An Initiator that places and cancels an order on the gateway.
+[[example]]
+name = "client"
+required-features = ["tls"]

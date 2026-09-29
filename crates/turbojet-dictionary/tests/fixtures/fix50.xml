@@ -1,0 +1,15 @@
+<fix type='FIX' major='5' minor='0' servicepack='2'>
+ <header />
+ <messages>
+  <message name='NewOrderSingle' msgtype='D' msgcat='app'>
+   <field name='ClOrdID' required='Y' />
+   <field name='Text' required='N' />
+  </message>
+ </messages>
+ <trailer />
+ <components />
+ <fields>
+  <field number='11' name='ClOrdID' type='STRING' />
+  <field number='58' name='Text' type='STRING' />
+ </fields>
+</fix>

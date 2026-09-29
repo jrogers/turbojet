@@ -1,0 +1,46 @@
+[workspace]
+members = ["crates/*"]
+# Version 3 makes dependency resolution honour rust-version (prefers compatible releases).
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# File::try_lock (DiskStorage session locking) was stabilised in 1.89.
+rust-version = "1.89"
+license = "Apache-2.0"
+repository = "https://github.com/jrogers/turbojet"
+
+# Benchmarks build as one optimisation unit with fat LTO. With the default 16 codegen units,
+# inlining depends on how code happens to be partitioned, so unrelated edits can shift results by
+# 5-10% and masquerade as regressions. Only `cargo bench` uses this profile.
+[profile.bench]
+codegen-units = 1
+lto = "fat"
+
+[workspace.dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+chrono-tz = "0.10"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+metrics = "0.24"
+# Only the HTTP /metrics listener: the default push-gateway client pulls in aws-lc-rs.
+metrics-exporter-prometheus = { version = "0.18", default-features = false, features = ["http-listener"] }
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+rcgen = "0.14"
+roxmltree = "0.21"
+rust_decimal = { version = "1", default-features = false, features = ["std"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+x509-parser = { version = "0.18", default-features = false }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tempfile = "3"
+# Parses generated docs as rustdoc does, in turbojet-codegen's tests.
+pulldown-cmark = { version = "0.13", default-features = false }
+turbojet = { version = "0.1.0", path = "crates/turbojet" }
+turbojet-dictionary = { version = "0.1.0", path = "crates/turbojet-dictionary" }
+# Path only: turbojet dev-depends on it, and a version would force it onto crates.io first.
+turbojet-fix42 = { path = "crates/turbojet-fix42" }
+turbojet-fix43 = { path = "crates/turbojet-fix43" }
+turbojet-fix44 = { path = "crates/turbojet-fix44" }
+turbojet-fix50sp2 = { path = "crates/turbojet-fix50sp2" }

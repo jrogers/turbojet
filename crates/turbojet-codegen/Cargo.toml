@@ -1,0 +1,30 @@
+[package]
+name = "turbojet-codegen"
+description = "Generates Turbojet typed FIX messages from FIX Orchestra and QuickFIX data dictionaries"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "codegen"]
+categories = ["development-tools::build-utils", "finance"]
+# Repository-only tests: command.rs and official.rs run on the repository's dictionaries/, and the snapshots are
+# reviewed and regenerated in the repository. mini.xml stays: the unit tests use it.
+exclude = [
+    "tests/command.rs",
+    "tests/official.rs",
+    "tests/snapshot.rs",
+    "tests/fixtures/mini.rs",
+    "tests/fixtures/mini-lenient.rs",
+    "tests/fixtures/orchestra-mini.rs",
+    "tests/fixtures/orchestra-mini.xml",
+]
+
+[dependencies]
+turbojet-dictionary.workspace = true
+
+[dev-dependencies]
+pulldown-cmark.workspace = true
+tempfile.workspace = true
+turbojet.workspace = true

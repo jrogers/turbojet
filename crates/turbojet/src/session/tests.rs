@@ -1,0 +1,2776 @@
+use std::sync::Mutex;
+
+use super::*;
+use crate::fields::ApplVerId;
+use crate::peer::{ConnectionInfo, PeerCertificate};
+use crate::registry::SessionHandle;
+use crate::store::{MemoryStorage, SessionStorage};
+
+/// Records callbacks. Accepts `D` messages that carry Symbol(55), replying with an
+/// ExecutionReport; rejects everything else as unsupported.
+#[derive(Default)]
+struct TestApp {
+    received: Mutex<Vec<Message>>,
+    events: Mutex<Vec<String>>,
+    handles: Mutex<Vec<SessionHandle>>,
+    /// The ConnectionInfo seen by each verify_logon call.
+    connections: Mutex<Vec<ConnectionInfo>>,
+    refuse_logon: bool,
+    /// The callback that panics; `on_message` panics only for ClOrdID "PANIC".
+    panic_in: Option<&'static str>,
+    /// Leave outgoing Logons alone in `to_admin`, rather than setting Username(553).
+    keep_logon: bool,
+    /// `Context::maybe_redelivered` for each message `on_message` saw.
+    redelivered: Mutex<Vec<bool>>,
+}
+
+impl TestApp {
+    fn received(&self) -> usize {
+        self.received.lock().unwrap().len()
+    }
+
+    fn events(&self) -> Vec<String> {
+        self.events.lock().unwrap().clone()
+    }
+}
+
+impl Application for TestApp {
+    fn verify_logon(&self, _session: &SessionId, _logon: &Message, connection: &ConnectionInfo) -> Result<(), String> {
+        self.connections.lock().unwrap().push(connection.clone());
+        if self.panic_in == Some("verify_logon") {
+            panic!("verify_logon panicked");
+        }
+        if self.refuse_logon { Err("refused by test".into()) } else { Ok(()) }
+    }
+
+    fn to_admin(&self, _session: &SessionId, msg: &mut Message) {
+        if self.panic_in == Some("to_admin") && msg.msg_type() == MsgType::Heartbeat {
+            panic!("to_admin panicked");
+        }
+        if msg.msg_type() == MsgType::Logon && !self.keep_logon {
+            msg.set(tags::USERNAME, "user");
+        }
+    }
+
+    fn on_logon(&self, session: SessionHandle) {
+        self.events.lock().unwrap().push(format!("logon {}", session.id().target_comp_id));
+        self.handles.lock().unwrap().push(session);
+        if self.panic_in == Some("on_logon") {
+            panic!("on_logon panicked");
+        }
+    }
+
+    fn on_logout(&self, session: &SessionId) {
+        self.events.lock().unwrap().push(format!("logout {}", session.target_comp_id));
+        if self.panic_in == Some("on_logout") {
+            panic!("on_logout panicked");
+        }
+    }
+
+    fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        self.redelivered.lock().unwrap().push(ctx.maybe_redelivered());
+        if msg.msg_type() != MsgType::NewOrderSingle {
+            return Err(MessageReject::unsupported_message_type());
+        }
+        msg.get(tags::SYMBOL).ok_or_else(|| MessageReject::required_tag_missing(tags::SYMBOL))?;
+        if self.panic_in == Some("on_message") && msg.get(tags::CL_ORD_ID) == Some("PANIC") {
+            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "half-done"));
+            panic!("on_message panicked");
+        }
+        let mut received = self.received.lock().unwrap();
+        received.push(msg.clone());
+        ctx.send(
+            Message::new(MsgType::ExecutionReport)
+                .with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID))
+                .with(tags::EXEC_ID, format!("E{}", received.len())),
+        );
+        Ok(())
+    }
+}
+
+struct Harness {
+    config: SessionConfig,
+    registry: Arc<SessionRegistry>,
+    app: Arc<TestApp>,
+    t0: Instant,
+}
+
+impl Harness {
+    fn new() -> Self {
+        Self::with_storage(Arc::new(MemoryStorage::new()))
+    }
+
+    fn with_storage(storage: Arc<dyn SessionStorage>) -> Self {
+        Self {
+            config: SessionConfig::new("FIX.4.4", "GATEWAY"),
+            registry: Arc::new(SessionRegistry::new(storage)),
+            app: Arc::default(),
+            t0: Instant::now(),
+        }
+    }
+
+    fn session(&self) -> Session {
+        Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), self.t0).0
+    }
+
+    /// A logged-on acceptor session whose counterparty has sent MsgSeqNum 1.
+    fn logged_on(&self) -> Session {
+        let mut s = self.session();
+        let out = s.on_message(logon(1), self.t0);
+        assert_eq!(sent(&out)[0].msg_type(), MsgType::Logon);
+        s
+    }
+
+    fn initiator(&self, reset: bool) -> Session {
+        self.initiator_with(|config| config.reset_on_logon = reset)
+    }
+
+    /// An initiator with its config adjusted by `adjust`.
+    fn initiator_with(&self, adjust: impl FnOnce(&mut InitiatorConfig)) -> Session {
+        let mut config = InitiatorConfig::new(self.config.clone(), "CLIENT");
+        config.heartbeat_interval = Duration::from_secs(20);
+        adjust(&mut config);
+        Session::initiator(&config, self.registry.clone(), self.app.clone(), self.t0).0
+    }
+
+    fn at(&self, secs: u64) -> Instant {
+        self.t0 + Duration::from_secs(secs)
+    }
+}
+
+/// A message from the counterparty "CLIENT" to us, "GATEWAY".
+fn client(seq: u64, mtype: MsgType) -> Message {
+    Message::default()
+        .with(tags::BEGIN_STRING, "FIX.4.4")
+        .with(tags::MSG_TYPE, mtype)
+        .with(tags::SENDER_COMP_ID, "CLIENT")
+        .with(tags::TARGET_COMP_ID, "GATEWAY")
+        .with(tags::MSG_SEQ_NUM, seq)
+        .with(tags::SENDING_TIME, utc_timestamp())
+}
+
+fn logon(seq: u64) -> Message {
+    client(seq, MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, "30")
+}
+
+fn order(seq: u64, cl_ord_id: &str) -> Message {
+    client(seq, MsgType::NewOrderSingle)
+        .with(tags::CL_ORD_ID, cl_ord_id)
+        .with(tags::SYMBOL, "MSFT")
+        .with(tags::SIDE, "2")
+        .with(tags::ORDER_QTY, "10")
+        .with(tags::ORD_TYPE, "1")
+}
+
+fn sent(actions: &[Action]) -> Vec<&Message> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::Send(m) => Some(m),
+            Action::Disconnect => None,
+        })
+        .collect()
+}
+
+/// Message type names (e.g. "Logout") and "DISCONNECT", in order.
+fn types(actions: &[Action]) -> Vec<String> {
+    actions
+        .iter()
+        .map(|a| match a {
+            Action::Send(m) => format!("{:?}", m.msg_type()),
+            Action::Disconnect => "DISCONNECT".into(),
+        })
+        .collect()
+}
+
+// ---- Acceptor logon ----
+
+#[test]
+fn logon_reply_has_header_heartbeat_and_to_admin_fields() {
+    let h = Harness::new();
+    let mut s = h.session();
+    let out = s.on_message(logon(1), h.t0);
+    let reply = sent(&out)[0];
+    assert_eq!(reply.get(tags::SENDER_COMP_ID), Some("GATEWAY"));
+    assert_eq!(reply.get(tags::TARGET_COMP_ID), Some("CLIENT"));
+    assert_eq!(reply.get(tags::MSG_SEQ_NUM), Some("1"));
+    assert_eq!(reply.get(tags::HEART_BT_INT), Some("30"));
+    assert_eq!(reply.get(tags::USERNAME), Some("user"));
+    assert!(s.is_logged_on());
+    assert_eq!(h.app.events(), ["logon CLIENT"]);
+}
+
+#[test]
+fn first_message_must_be_logon() {
+    let h = Harness::new();
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(client(1, MsgType::Heartbeat), h.t0)), ["DISCONNECT"]);
+    assert!(h.app.events().is_empty());
+}
+
+#[test]
+fn logon_with_wrong_target_is_refused() {
+    let h = Harness::new();
+    let mut s = h.session();
+    let out = s.on_message(logon(1).with(tags::TARGET_COMP_ID, "OTHER"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+}
+
+#[test]
+fn application_can_refuse_logon() {
+    let mut h = Harness::new();
+    h.app = Arc::new(TestApp { refuse_logon: true, ..TestApp::default() });
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(logon(1), h.t0)), ["DISCONNECT"]);
+    assert!(h.registry.sessions().is_empty());
+}
+
+#[test]
+fn logon_with_an_empty_value_is_refused() {
+    let h = Harness::new();
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(logon(1).with(tags::TEXT, ""), h.t0)), ["DISCONNECT"]);
+    assert!(h.app.events().is_empty());
+}
+
+#[test]
+fn logon_timeout_disconnects() {
+    let h = Harness::new();
+    let mut s = h.session();
+    assert!(s.on_timer(h.at(9)).is_empty());
+    assert_eq!(types(&s.on_timer(h.at(10))), ["DISCONNECT"]);
+}
+
+#[test]
+fn concurrent_logon_refused_and_sequence_survives_reconnect() {
+    let h = Harness::new();
+    let mut first = h.logged_on();
+    first.on_message(client(2, MsgType::Heartbeat), h.t0);
+
+    let mut second = h.session();
+    assert_eq!(types(&second.on_message(logon(3), h.t0)), ["DISCONNECT"]);
+    drop(second);
+    drop(first);
+
+    // Reconnect without reset: sequence numbers continue.
+    let mut third = h.session();
+    let out = third.on_message(logon(3), h.t0);
+    assert_eq!(types(&out), ["Logon"]);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"));
+    drop(third);
+
+    // Reset on logon starts again from 1.
+    let mut fourth = h.session();
+    let out = fourth.on_message(logon(1).with(tags::RESET_SEQ_NUM_FLAG, "Y"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("1"));
+    assert_eq!(sent(&out)[0].get(tags::RESET_SEQ_NUM_FLAG), Some("Y"));
+}
+
+#[test]
+fn logon_with_seq_too_low_is_logged_out() {
+    let h = Harness::new();
+    let mut first = h.logged_on();
+    first.on_message(client(2, MsgType::Heartbeat), h.t0);
+    drop(first);
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(logon(1), h.t0)), ["Logout", "DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"], "second session never logged on");
+}
+
+// ---- Initiator logon ----
+
+#[test]
+fn initiator_sends_logon_on_connect() {
+    let h = Harness::new();
+    let mut s = h.initiator(true);
+    let out = s.on_connect(h.t0);
+    let logon = sent(&out)[0];
+    assert_eq!(logon.msg_type(), MsgType::Logon);
+    assert_eq!(logon.get(tags::SENDER_COMP_ID), Some("GATEWAY"));
+    assert_eq!(logon.get(tags::TARGET_COMP_ID), Some("CLIENT"));
+    assert_eq!(logon.get(tags::MSG_SEQ_NUM), Some("1"));
+    assert_eq!(logon.get(tags::HEART_BT_INT), Some("20"));
+    assert_eq!(logon.get(tags::RESET_SEQ_NUM_FLAG), Some("Y"));
+    assert_eq!(logon.get(tags::USERNAME), Some("user"));
+    assert!(!s.is_logged_on());
+}
+
+#[test]
+fn initiator_logs_on_after_reply_and_then_behaves_like_any_session() {
+    let h = Harness::new();
+    let mut s = h.initiator(true);
+    s.on_connect(h.t0);
+    assert!(s.on_message(logon(1), h.t0).is_empty());
+    assert!(s.is_logged_on());
+    assert_eq!(h.app.events(), ["logon CLIENT"]);
+
+    // The heartbeat interval is the one we requested.
+    assert_eq!(types(&s.on_timer(h.at(20))), ["Heartbeat"]);
+    let out = s.on_message(order(2, "A"), h.t0);
+    assert_eq!(types(&out), ["ExecutionReport"]);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("3"));
+}
+
+#[test]
+fn initiator_refuses_reply_from_wrong_counterparty() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    let out = s.on_message(logon(1).with(tags::SENDER_COMP_ID, "SOMEONE"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+    assert!(h.app.events().is_empty());
+}
+
+#[test]
+fn initiator_refuses_reply_with_an_empty_value() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    let out = s.on_message(logon(1).with(tags::TEXT, ""), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+    assert!(h.app.events().is_empty());
+}
+
+#[test]
+fn initiator_disconnects_when_logon_is_answered_with_logout() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    let out = s.on_message(client(1, MsgType::Logout).with(tags::TEXT, "bad password"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+}
+
+#[test]
+fn initiator_times_out_waiting_for_reply() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.at(5));
+    assert!(s.on_timer(h.at(14)).is_empty());
+    assert_eq!(types(&s.on_timer(h.at(15))), ["DISCONNECT"]);
+}
+
+#[test]
+fn initiator_without_reset_continues_sequence() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    s.on_message(logon(1), h.t0);
+    drop(s);
+    let mut s = h.initiator(false);
+    let out = s.on_connect(h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"));
+    assert_eq!(sent(&out)[0].get(tags::RESET_SEQ_NUM_FLAG), None);
+}
+
+// ---- Credentials ----
+
+#[test]
+fn initiator_sends_its_credentials() {
+    let mut h = Harness::new();
+    h.app = Arc::new(TestApp { keep_logon: true, ..TestApp::default() });
+    let mut s = h.initiator_with(|config| {
+        config.username = Some("trader".into());
+        config.password = Some("secret".into());
+    });
+    let out = s.on_connect(h.t0);
+    let logon = sent(&out)[0];
+    assert_eq!(logon.get(tags::USERNAME), Some("trader"));
+    assert_eq!(logon.get(tags::PASSWORD), Some("secret"));
+
+    // Without them, neither tag is sent.
+    let mut s = Harness { app: h.app.clone(), ..Harness::new() }.initiator(false);
+    let out = s.on_connect(h.t0);
+    assert_eq!((sent(&out)[0].get(tags::USERNAME), sent(&out)[0].get(tags::PASSWORD)), (None, None));
+}
+
+#[test]
+fn typed_logon_carries_credentials_to_verify_logon() {
+    let request = logon(1).with(tags::USERNAME, "trader").with(tags::PASSWORD, "secret");
+    let typed: Logon = request.parse().unwrap();
+    let password = typed.password.as_ref().map(Secret::expose);
+    assert_eq!((typed.username.as_deref(), password), (Some("trader"), Some("secret")));
+    let debug = format!("{typed:?}");
+    assert!(debug.contains("password: Some(***)") && !debug.contains("secret"), "{debug}");
+}
+
+// ---- NextExpectedMsgSeqNum(789) ----
+
+#[test]
+fn initiator_sends_next_expected_only_when_configured() {
+    let h = Harness::new();
+    let out = h.initiator(true).on_connect(h.t0);
+    assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), None);
+    drop(out);
+
+    let h = Harness::new();
+    let mut s = h.initiator_with(|config| config.next_expected_msg_seq_num = true);
+    let out = s.on_connect(h.t0);
+    assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), Some("1"));
+}
+
+#[test]
+fn acceptor_answers_next_expected_with_its_own() {
+    let h = Harness::new();
+    let mut s = h.session();
+    let out = s.on_message(logon(1).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "1"), h.t0);
+    assert_eq!(types(&out), ["Logon"]);
+    // Their Logon (1) is processed, so we next expect 2.
+    assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), Some("2"));
+
+    // A counterparty that doesn't send it doesn't get it.
+    let h = Harness::new();
+    let out = h.session().on_message(logon(1), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), None);
+}
+
+#[test]
+fn acceptor_resends_what_the_counterparty_missed() {
+    let h = Harness::new();
+    let mut first = h.logged_on(); // our 1: Logon
+    first.on_message(order(2, "A"), h.t0); // our 2: ExecutionReport
+    first.on_message(order(3, "B"), h.t0); // our 3: ExecutionReport
+    drop(first);
+
+    // They reconnect having received only our 1.
+    let mut s = h.session();
+    let out = s.on_message(logon(4).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0);
+    let msgs = sent(&out);
+    let seen: Vec<_> =
+        msgs.iter().map(|m| (m.msg_type(), m.get(tags::MSG_SEQ_NUM), m.get(tags::POSS_DUP_FLAG))).collect();
+    assert_eq!(
+        seen,
+        [
+            (MsgType::Logon, Some("4"), None),
+            (MsgType::ExecutionReport, Some("2"), Some("Y")),
+            (MsgType::ExecutionReport, Some("3"), Some("Y")),
+        ]
+    );
+    assert_eq!(msgs[1].get(tags::CL_ORD_ID), Some("A"));
+    assert!(s.is_logged_on());
+}
+
+#[test]
+fn next_expected_beyond_what_was_sent_logs_out() {
+    let h = Harness::new();
+    let mut s = h.session();
+    // Our reply would be our first message, so they can't expect 5.
+    let out = s.on_message(logon(1).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "5"), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert!(sent(&out)[0].get(tags::TEXT).unwrap().contains("NextExpectedMsgSeqNum(789) too high"));
+    assert!(h.app.events().is_empty(), "never logged on");
+}
+
+#[test]
+fn a_gap_at_logon_waits_for_the_counterparty_to_resend_when_both_use_next_expected() {
+    let h = Harness::new();
+    let mut s = h.session();
+    // We expect their 1; their Logon is 3.
+    let out = s.on_message(logon(3).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "1"), h.t0);
+    assert_eq!(types(&out), ["Logon"], "no ResendRequest: they resend from our 789");
+    assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), Some("1"));
+
+    // Their resend fills the gap.
+    let fill = gap_fill(1, 3);
+    assert!(s.on_message(fill, h.t0).is_empty());
+    // The Logon (3) wasn't consumed as a normal message, so 3 is next.
+    assert_eq!(types(&s.on_message(order(3, "A"), h.t0)), ["ExecutionReport"]);
+}
+
+#[test]
+fn a_counterparty_that_does_not_resend_still_gets_a_resend_request() {
+    let h = Harness::new();
+    let mut s = h.session();
+    s.on_message(logon(3).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "1"), h.t0);
+    // They carry on without resending: the next message out of sequence asks for it.
+    let out = s.on_message(order(4, "A"), h.t0);
+    assert_eq!(types(&out), ["ResendRequest"]);
+    assert_eq!(sent(&out)[0].get(tags::BEGIN_SEQ_NO), Some("1"));
+}
+
+#[test]
+fn initiator_resends_what_the_acceptor_missed() {
+    let h = Harness::new();
+    let configure = |config: &mut InitiatorConfig| config.next_expected_msg_seq_num = true;
+    let mut first = h.initiator_with(configure);
+    first.on_connect(h.t0); // our 1: Logon
+    first.on_message(logon(1), h.t0);
+    first.on_command(send_command("A"), h.t0); // our 2
+    first.on_command(send_command("B"), h.t0); // our 3
+    drop(first);
+
+    let mut s = h.initiator_with(configure);
+    let out = s.on_connect(h.t0); // our 4: Logon
+    assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), Some("2"));
+    // The acceptor got our 1 and our Logon, 4, but not 2 or 3.
+    let out = s.on_message(logon(2).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0);
+    let seen: Vec<_> = sent(&out).iter().map(|m| (m.get(tags::CL_ORD_ID), m.get(tags::MSG_SEQ_NUM))).collect();
+    assert_eq!(seen, [(Some("A"), Some("2")), (Some("B"), Some("3"))]);
+    assert!(s.is_logged_on());
+}
+
+#[test]
+fn initiator_logs_out_when_the_acceptor_expects_too_much() {
+    let h = Harness::new();
+    let mut s = h.initiator_with(|config| {
+        config.reset_on_logon = true;
+        config.next_expected_msg_seq_num = true;
+    });
+    s.on_connect(h.t0); // our 1: Logon
+    let out = s.on_message(logon(1).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "3"), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+}
+
+// ---- Heartbeats ----
+
+#[test]
+fn heartbeat_then_test_request_then_disconnect() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert!(s.on_timer(h.at(29)).is_empty());
+    assert_eq!(types(&s.on_timer(h.at(30))), ["Heartbeat"]);
+    // 30s heartbeat + 20% grace without hearing from the counterparty.
+    let out = s.on_timer(h.at(36));
+    assert_eq!(types(&out), ["TestRequest"]);
+    assert_eq!(sent(&out)[0].get(tags::TEST_REQ_ID), Some("TEST1"));
+    assert_eq!(types(&s.on_timer(h.at(66))), ["DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+}
+
+#[test]
+fn heartbeat_is_due_exactly_at_the_interval() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert!(s.on_timer(h.at(30) - Duration::from_millis(1)).is_empty());
+    assert_eq!(types(&s.on_timer(h.at(30))), ["Heartbeat"]);
+}
+
+#[test]
+fn inbound_message_satisfies_test_request() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_timer(h.at(36));
+    s.on_message(client(2, MsgType::Heartbeat).with(tags::TEST_REQ_ID, "TEST1"), h.at(40));
+    assert_eq!(types(&s.on_timer(h.at(66))), ["Heartbeat"]);
+}
+
+#[test]
+fn answers_test_request() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "abc"), h.t0);
+    let hb = sent(&out)[0];
+    assert_eq!(hb.msg_type(), MsgType::Heartbeat);
+    assert_eq!(hb.get(tags::TEST_REQ_ID), Some("abc"));
+}
+
+// ---- Sequencing and resends ----
+
+#[test]
+fn sequence_gap_triggers_single_resend_request() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(order(4, "A"), h.t0);
+    let req = sent(&out)[0];
+    assert_eq!(req.msg_type(), MsgType::ResendRequest);
+    assert_eq!(req.get(tags::BEGIN_SEQ_NO), Some("2"));
+    assert_eq!(req.get(tags::END_SEQ_NO), Some("0"));
+    assert!(s.on_message(order(5, "B"), h.t0).is_empty(), "no duplicate ResendRequest");
+    assert_eq!(h.app.received(), 0, "out-of-sequence messages are not delivered yet");
+
+    // Counterparty gap-fills 2..3: the queued 4 and 5 follow at once, as sent.
+    let fill = gap_fill(2, 4);
+    assert_eq!(types(&s.on_message(fill, h.t0)), ["ExecutionReport", "ExecutionReport"]);
+    assert!(s.resend.is_none());
+    let delivered = h.app.received.lock().unwrap().clone();
+    assert_eq!(delivered.iter().map(|m| m.get(tags::CL_ORD_ID).unwrap()).collect::<Vec<_>>(), ["A", "B"]);
+    assert!(delivered.iter().all(|m| m.get(tags::POSS_DUP_FLAG).is_none()), "the originals");
+    // Their resends (the request was open-ended) are duplicates now.
+    assert!(s.on_message(resend_of(order(4, "A")), h.t0).is_empty());
+    assert!(s.on_message(resend_of(order(5, "B")), h.t0).is_empty());
+    assert_eq!(h.app.received(), 2);
+}
+
+/// `msg` with `extra` added to its header, after SendingTime, where a counterparty puts them;
+/// `with` would append them after the body.
+fn with_header(msg: Message, extra: &[(u32, &str)]) -> Message {
+    let mut out = Message::default();
+    for (tag, value) in msg.fields() {
+        out.push(tag, value);
+        if tag == tags::SENDING_TIME {
+            for (tag, value) in extra {
+                out.push(*tag, *value);
+            }
+        }
+    }
+    out
+}
+
+/// `msg` as the counterparty resends it: PossDupFlag and OrigSendingTime (its SendingTime) added.
+fn resend_of(msg: Message) -> Message {
+    let sent = msg.get(tags::SENDING_TIME).unwrap().to_string();
+    with_header(msg, &[(tags::POSS_DUP_FLAG, "Y"), (tags::ORIG_SENDING_TIME, &sent)])
+}
+
+// ---- Stricter checks ----
+
+fn at_offset(msg: Message, secs: i64) -> Message {
+    let time = chrono::Utc::now() + chrono::TimeDelta::seconds(secs);
+    msg.with(tags::SENDING_TIME, time)
+}
+
+/// Session test case 2o: a SendingTime more than two minutes off either way is rejected, and the
+/// session logs out.
+#[test]
+fn inaccurate_sending_time_is_rejected_then_logged_out() {
+    for offset in [-121, 121] {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        let out = s.on_message(at_offset(client(2, MsgType::Heartbeat), offset), h.t0);
+        assert_eq!(types(&out), ["Reject", "Logout"], "{offset}");
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("10"));
+        assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("52"));
+        assert_eq!(sent(&out)[0].get(tags::REF_SEQ_NUM), Some("2"));
+        assert_eq!(s.peer().log.next_incoming(), 3, "it took its number");
+    }
+    // Within the limit, and with the check off.
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert!(s.on_message(at_offset(client(2, MsgType::Heartbeat), -100), h.t0).is_empty());
+    let mut h = Harness::new();
+    h.config.max_latency = None;
+    let mut s = h.logged_on();
+    assert!(s.on_message(at_offset(client(2, MsgType::Heartbeat), -3600), h.t0).is_empty());
+}
+
+/// Session test case 1d: a Logon with an inaccurate SendingTime is refused.
+#[test]
+fn logon_with_inaccurate_sending_time_is_refused() {
+    let h = Harness::new();
+    let mut s = h.session();
+    let out = s.on_message(logon(1).with(tags::SENDING_TIME, "20010101-00:00:00"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+}
+
+/// Session test case 2g: a resend without OrigSendingTime is rejected naming it; a duplicate
+/// doesn't take a number.
+#[test]
+fn poss_dup_without_orig_sending_time_is_rejected() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(client(2, MsgType::Heartbeat), h.t0);
+    let bare = client(2, MsgType::Heartbeat).with(tags::POSS_DUP_FLAG, "Y");
+    let out = s.on_message(bare, h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("122"));
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("1"));
+    assert_eq!(s.peer().log.next_incoming(), 3);
+    // In sequence, it's rejected like any other field, and takes its number.
+    let out = s.on_message(client(3, MsgType::Heartbeat).with(tags::POSS_DUP_FLAG, "Y"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("122"));
+    assert_eq!(s.peer().log.next_incoming(), 4);
+    // A proper resend is fine.
+    assert!(s.on_message(resend_of(client(2, MsgType::Heartbeat)), h.t0).is_empty());
+}
+
+/// Session test case 2f: an OrigSendingTime later than SendingTime is rejected, and the session
+/// logs out.
+#[test]
+fn orig_sending_time_after_sending_time_logs_out() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(client(2, MsgType::Heartbeat), h.t0);
+    let later = (chrono::Utc::now() + chrono::TimeDelta::seconds(10)).to_fix();
+    let out = s.on_message(resend_of(client(2, MsgType::Heartbeat)).with(tags::ORIG_SENDING_TIME, later), h.t0);
+    assert_eq!(types(&out), ["Reject", "Logout"]);
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("10"));
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("122"));
+}
+
+#[test]
+fn orig_sending_time_can_be_left_unchecked() {
+    let mut h = Harness::new();
+    h.config.check_orig_sending_time = false;
+    let mut s = h.logged_on();
+    assert!(s.on_message(client(2, MsgType::Heartbeat).with(tags::POSS_DUP_FLAG, "Y"), h.t0).is_empty());
+}
+
+/// Session test case 14g: a header field after the body is rejected, naming it.
+#[test]
+fn header_fields_after_the_body_are_rejected() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    // MsgSeqNum and SendingTime after ClOrdID.
+    let mut msg = Message::default();
+    for (tag, value) in [(8, "FIX.4.4"), (35, "D"), (49, "CLIENT"), (56, "GATEWAY"), (11, "A"), (55, "MSFT")] {
+        msg.push(tag, value);
+    }
+    msg.push(tags::MSG_SEQ_NUM, 2u64);
+    msg.push(tags::SENDING_TIME, utc_timestamp());
+    let out = s.on_message(msg.clone(), h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("14"));
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("34"));
+    assert_eq!(h.app.received(), 0);
+
+    let mut h = Harness::new();
+    h.config.check_header_order = false;
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.on_message(msg, h.t0)), ["ExecutionReport"]);
+}
+
+/// FIX 4.2 defines SessionRejectReason up to 11: a later reason is left out, and the Text says
+/// what's wrong.
+#[test]
+fn fix42_rejects_leave_out_reasons_added_later() {
+    let mut h = Harness::new();
+    h.config = SessionConfig::new("FIX.4.2", "GATEWAY");
+    let mut s = h.session();
+    s.on_message(logon(1).with(tags::BEGIN_STRING, "FIX.4.2"), h.t0);
+    let mut msg = Message::default();
+    for (tag, value) in [(8, "FIX.4.2"), (35, "D"), (49, "CLIENT"), (56, "GATEWAY"), (11, "A"), (55, "MSFT")] {
+        msg.push(tag, value);
+    }
+    msg.push(tags::MSG_SEQ_NUM, 2u64);
+    msg.push(tags::SENDING_TIME, utc_timestamp());
+    let out = s.on_message(msg, h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), None);
+    assert_eq!(reject.get(tags::REF_TAG_ID), Some("34"));
+    assert!(reject.get(tags::TEXT).unwrap().contains("out of required order"));
+}
+
+// ---- Routing fields ----
+
+/// Acceptance scenarios ReverseRoute: a session-level Reject goes back reverse-routed, skipping
+/// empty routing fields.
+#[test]
+fn rejects_are_reverse_routed() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let routed = |seq, extra: &[(u32, &str)]| with_header(order(seq, "A").with(tags::TEXT, ""), extra);
+    let out = s.on_message(routed(2, &[(tags::ON_BEHALF_OF_COMP_ID, "JCD"), (tags::ON_BEHALF_OF_SUB_ID, "CS")]), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::Reject);
+    assert_eq!(reject.get(tags::DELIVER_TO_COMP_ID), Some("JCD"));
+    assert_eq!(reject.get(tags::DELIVER_TO_SUB_ID), Some("CS"));
+    assert_eq!(misplaced_header_field(reject), None, "in the header");
+    let out = s.on_message(routed(3, &[(tags::DELIVER_TO_COMP_ID, "JCD")]), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::ON_BEHALF_OF_COMP_ID), Some("JCD"));
+}
+
+#[test]
+fn business_rejects_are_reverse_routed() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let msg = with_header(client(2, MsgType::from_code("U1")), &[(tags::ON_BEHALF_OF_COMP_ID, "JCD")]);
+    let out = s.on_message(msg, h.t0);
+    assert_eq!(sent(&out)[0].msg_type(), MsgType::BusinessMessageReject);
+    assert_eq!(sent(&out)[0].get(tags::DELIVER_TO_COMP_ID), Some("JCD"));
+}
+
+/// Routing fields an application sets go out in the header, not after the body.
+#[test]
+fn routing_fields_the_application_sets_go_in_the_header() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let report = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E1").with(tags::DELIVER_TO_COMP_ID, "JCD");
+    let out = s.on_command(Command::Send(report), h.t0);
+    let sent = sent(&out)[0];
+    assert_eq!(sent.get(tags::DELIVER_TO_COMP_ID), Some("JCD"));
+    assert_eq!(misplaced_header_field(sent), None, "{sent}");
+}
+
+// ---- Intraday sequence reset ----
+
+fn reset_logon() -> Message {
+    logon(1).with(tags::RESET_SEQ_NUM_FLAG, "Y")
+}
+
+/// A Logon with ResetSeqNumFlag=Y and MsgSeqNum 1 while logged on resets both sides: our Logon
+/// reply goes out at 1, and theirs counts as 1.
+#[test]
+fn a_reset_logon_while_logged_on_resets_both_sides() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    for seq in 2..=5 {
+        s.on_message(client(seq, MsgType::Heartbeat), h.t0);
+    }
+    s.on_message(order(6, "A"), h.t0); // our 2: ExecutionReport
+    let out = s.on_message(reset_logon(), h.t0);
+    assert_eq!(types(&out), ["Logon"]);
+    let reply = sent(&out)[0];
+    assert_eq!(reply.get(tags::MSG_SEQ_NUM), Some("1"));
+    assert_eq!(reply.get(tags::RESET_SEQ_NUM_FLAG), Some("Y"));
+    assert_eq!(reply.get(tags::HEART_BT_INT), Some("30"));
+    assert_eq!((s.peer().log.next_incoming(), s.peer().log.next_outgoing()), (2, 2));
+    assert!(s.peer_mut().log.sent_messages(1, u64::MAX).unwrap().is_empty(), "nothing old to resend");
+    // Both sides carry on from 2.
+    let out = s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "T"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"));
+    assert_eq!(h.app.events(), ["logon CLIENT"], "still the same logon");
+}
+
+#[test]
+fn a_reset_logon_ends_a_gap() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(5, "E"), h.t0); // gap: queued, ResendRequest for 2..
+    assert_eq!(types(&s.on_message(reset_logon(), h.t0)), ["Logon"]);
+    assert!(s.resend.is_none() && s.queued.is_empty());
+    assert_eq!(types(&s.on_message(order(2, "B"), h.t0)), ["ExecutionReport"]);
+    assert_eq!(h.app.received(), 1, "only B: the queued order belonged to the old numbering");
+}
+
+/// A reset Logon must be MsgSeqNum 1; otherwise a Logon while logged on is refused as before.
+#[test]
+fn a_reset_logon_at_another_number_is_refused() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(logon(2).with(tags::RESET_SEQ_NUM_FLAG, "Y"), h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    assert_eq!(s.peer().log.next_incoming(), 3);
+}
+
+// ---- At-least-once delivery ----
+
+/// Records the order of a store's writes.
+struct RecordingStorage {
+    inner: MemoryStorage,
+    writes: Arc<Mutex<Vec<String>>>,
+}
+
+struct RecordingLog {
+    inner: Box<dyn SessionLog>,
+    writes: Arc<Mutex<Vec<String>>>,
+}
+
+impl SessionStorage for RecordingStorage {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        Ok(Box::new(RecordingLog { inner: self.inner.open(id)?, writes: self.writes.clone() }))
+    }
+}
+
+impl SessionLog for RecordingLog {
+    fn next_outgoing(&self) -> u64 {
+        self.inner.next_outgoing()
+    }
+    fn next_incoming(&self) -> u64 {
+        self.inner.next_incoming()
+    }
+    fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+        self.writes.lock().unwrap().push(format!("incoming {seq}"));
+        self.inner.set_next_incoming(seq)
+    }
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+        self.writes.lock().unwrap().push(format!("outgoing {seq}"));
+        self.inner.record_outgoing(seq, msg)
+    }
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+        self.inner.sent_messages(begin, end)
+    }
+    fn reset(&mut self) -> io::Result<()> {
+        self.inner.reset()
+    }
+    fn in_flight(&self) -> Option<u64> {
+        self.inner.in_flight()
+    }
+    fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
+        self.writes.lock().unwrap().push(format!("in flight {seq}"));
+        self.inner.set_in_flight(seq)
+    }
+}
+
+/// The incoming number is saved once the application has handled the message and its replies
+/// are stored, so a crash before then gets the message resent. An application message is marked
+/// in flight first.
+#[test]
+fn the_incoming_number_is_saved_after_the_application() {
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let h = Harness::with_storage(Arc::new(RecordingStorage { inner: MemoryStorage::new(), writes: writes.clone() }));
+    let mut s = h.logged_on();
+    writes.lock().unwrap().clear();
+    s.on_message(order(2, "A"), h.t0);
+    assert_eq!(*writes.lock().unwrap(), ["in flight 2", "outgoing 2", "incoming 3"]);
+    // A session-level message isn't the application's: no marker.
+    writes.lock().unwrap().clear();
+    s.on_message(client(3, MsgType::Heartbeat), h.t0);
+    assert_eq!(*writes.lock().unwrap(), ["incoming 4"]);
+}
+
+/// After a crash while message 2 was with the application, its resend is marked as possibly
+/// handled already; later messages aren't.
+#[test]
+fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
+    let storage = Arc::new(MemoryStorage::new());
+    {
+        let id = SessionId {
+            begin_string: "FIX.4.4".into(),
+            sender_comp_id: "GATEWAY".into(),
+            target_comp_id: "CLIENT".into(),
+        };
+        let mut log = storage.open(&id).unwrap();
+        log.record_outgoing(1, None).unwrap(); // our Logon
+        log.set_next_incoming(2).unwrap();
+        log.set_in_flight(2).unwrap();
+    }
+    let h = Harness::with_storage(storage);
+    let mut s = h.session();
+    // The counterparty logs on at 3, having sent 2 before the crash: we ask for 2 again.
+    assert_eq!(types(&s.on_message(logon(3), h.t0)), ["Logon", "ResendRequest"]);
+    assert_eq!(types(&s.on_message(resend_of(order(2, "B")), h.t0)), ["ExecutionReport"]);
+    s.on_message(gap_fill(3, 4), h.t0);
+    s.on_message(order(4, "D"), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, false]);
+}
+
+// ---- Messages ahead of a gap ----
+
+fn gap_fill(seq: u64, new_seq_no: u64) -> Message {
+    resend_of(client(seq, MsgType::SequenceReset)).with(tags::GAP_FILL_FLAG, "Y").with(tags::NEW_SEQ_NO, new_seq_no)
+}
+
+/// Session test case 1a: a Logout that arrives during a gap is answered at once rather than
+/// queued behind it (the counterparty is leaving, so it's unlikely to resend first).
+#[test]
+fn a_logout_during_a_gap_is_answered_at_once() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.on_message(order(5, "E"), h.t0)), ["ResendRequest"]);
+    assert_eq!(types(&s.on_message(client(6, MsgType::Logout), h.t0)), ["Logout", "DISCONNECT"]);
+    assert_eq!(h.app.received(), 0);
+}
+
+#[test]
+fn a_resend_request_ahead_of_a_gap_is_answered_once() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our 1: Logon
+    s.on_message(order(2, "A"), h.t0); // our 2: ExecutionReport
+    let request = client(4, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "2").with(tags::END_SEQ_NO, "0");
+    // Answered now, so both sides can recover from a mutual gap, and our own request goes out.
+    assert_eq!(types(&s.on_message(request, h.t0)), ["ExecutionReport", "ResendRequest"]);
+    // Filling our gap reaches the queued ResendRequest: it takes its number, and isn't answered again.
+    assert!(s.on_message(gap_fill(3, 4), h.t0).is_empty());
+    assert_eq!(s.peer().log.next_incoming(), 5);
+}
+
+/// A message lost after the gap was noticed leaves a hole once the first resend completes; it
+/// gets its own ResendRequest, rather than waiting for the next message to reveal it.
+#[test]
+fn a_hole_behind_the_gap_gets_its_own_resend_request() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(4, "D"), h.t0); // ResendRequest from 2
+    s.on_message(order(6, "F"), h.t0); // queued; 5 is lost
+    let out = s.on_message(gap_fill(2, 4), h.t0);
+    assert_eq!(types(&out), ["ExecutionReport", "ResendRequest"]);
+    assert_eq!(sent(&out)[1].get(tags::BEGIN_SEQ_NO), Some("5"));
+    assert_eq!(types(&s.on_message(resend_of(order(5, "E")), h.t0)), ["ExecutionReport", "ExecutionReport"]);
+    assert!(s.resend.is_none());
+    assert_eq!(s.peer().log.next_incoming(), 7);
+}
+
+/// A gap fill past queued messages makes them duplicates: they're dropped.
+#[test]
+fn a_gap_fill_past_queued_messages_discards_them() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(4, "D"), h.t0);
+    assert!(s.on_message(gap_fill(2, 5), h.t0).is_empty());
+    assert_eq!(h.app.received(), 0);
+    assert_eq!(s.peer().log.next_incoming(), 5);
+    assert!(s.queued.is_empty());
+}
+
+/// The queue is bounded; what's dropped comes back with the open-ended resend.
+#[test]
+fn the_queue_is_bounded() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    for seq in 3..3 + MAX_QUEUED as u64 + 10 {
+        s.on_message(client(seq, MsgType::Heartbeat), h.t0);
+    }
+    assert_eq!(s.queued.len(), MAX_QUEUED);
+    s.on_message(client(2, MsgType::Heartbeat), h.t0);
+    assert_eq!(s.peer().log.next_incoming(), 3 + MAX_QUEUED as u64);
+}
+
+#[test]
+fn seq_num_too_low_logs_out_unless_poss_dup() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(client(2, MsgType::Heartbeat), h.t0);
+    assert!(s.on_message(resend_of(client(2, MsgType::Heartbeat)), h.t0).is_empty());
+    let out = s.on_message(client(2, MsgType::Heartbeat), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert!(sent(&out)[0].get(tags::TEXT).unwrap().contains("too low"));
+}
+
+#[test]
+fn resend_request_replays_app_messages_and_gap_fills_admin() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our seq 1: Logon
+    s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0); // our 2: Heartbeat
+    let er = s.on_message(order(3, "A"), h.t0); // our 3: ExecutionReport
+    let original = sent(&er)[0].clone();
+    s.on_message(client(4, MsgType::TestRequest).with(tags::TEST_REQ_ID, "y"), h.t0); // our 4: Heartbeat
+
+    let req = client(5, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0");
+    let out = s.on_message(req, h.t0);
+    let msgs = sent(&out);
+    assert_eq!(msgs.len(), 3);
+
+    assert_eq!(msgs[0].msg_type(), MsgType::SequenceReset);
+    assert_eq!(msgs[0].get(tags::MSG_SEQ_NUM), Some("1"));
+    assert_eq!(msgs[0].get(tags::NEW_SEQ_NO), Some("3"));
+    assert_eq!(msgs[0].get(tags::GAP_FILL_FLAG), Some("Y"));
+
+    assert_eq!(msgs[1].msg_type(), MsgType::ExecutionReport);
+    assert_eq!(msgs[1].get(tags::MSG_SEQ_NUM), Some("3"));
+    assert_eq!(msgs[1].get(tags::POSS_DUP_FLAG), Some("Y"));
+    assert_eq!(msgs[1].get(tags::ORIG_SENDING_TIME), original.get(tags::SENDING_TIME));
+    assert_eq!(msgs[1].get(tags::EXEC_ID), original.get(tags::EXEC_ID));
+    // PossDupFlag belongs in the header, ahead of any body field.
+    let pos = |m: &Message, tag| m.fields().position(|(t, _)| t == tag).unwrap();
+    assert!(pos(msgs[1], tags::POSS_DUP_FLAG) < pos(msgs[1], tags::CL_ORD_ID));
+
+    assert_eq!(msgs[2].get(tags::MSG_SEQ_NUM), Some("4"));
+    assert_eq!(msgs[2].get(tags::NEW_SEQ_NO), Some("5"));
+
+    // Resending does not consume new sequence numbers.
+    let out = s.on_message(client(6, MsgType::TestRequest).with(tags::TEST_REQ_ID, "z"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("5"));
+}
+
+// ---- Application messages and rejects ----
+
+#[test]
+fn application_session_reject_names_the_field() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let bad = client(2, MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "A");
+    let out = s.on_message(bad, h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::Reject);
+    assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
+    assert_eq!(reject.get(tags::REF_TAG_ID), Some("55"));
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("1"));
+    // The rejected message still consumed its sequence number.
+    assert!(s.on_message(client(3, MsgType::Heartbeat), h.t0).is_empty());
+}
+
+#[test]
+fn empty_value_is_rejected_before_the_application_sees_it() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(order(2, "A").with(tags::TEXT, ""), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::Reject);
+    assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
+    assert_eq!(reject.get(tags::REF_TAG_ID), Some("58"));
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("4"));
+    assert_eq!(h.app.received(), 0);
+    // The rejected message still consumed its sequence number.
+    assert_eq!(types(&s.on_message(order(3, "B"), h.t0)), ["ExecutionReport"]);
+}
+
+fn panicking(callback: &'static str) -> Harness {
+    let mut h = Harness::new();
+    h.app = Arc::new(TestApp { panic_in: Some(callback), ..TestApp::default() });
+    h
+}
+
+#[test]
+fn application_panic_is_answered_with_a_business_reject() {
+    let h = panicking("on_message");
+    let mut s = h.logged_on();
+    let out = s.on_message(order(2, "PANIC"), h.t0);
+    assert_eq!(types(&out), ["BusinessMessageReject"], "replies queued before the panic are discarded");
+    let reject = sent(&out)[0];
+    assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
+    assert_eq!(reject.get(tags::REF_MSG_TYPE), Some("D"));
+    assert_eq!(reject.get(tags::BUSINESS_REJECT_REASON), Some("4"), "application not available");
+    // The session carries on.
+    assert_eq!(types(&s.on_message(order(3, "A"), h.t0)), ["ExecutionReport"]);
+}
+
+#[test]
+fn panic_in_verify_logon_refuses_the_logon() {
+    let h = panicking("verify_logon");
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(logon(1), h.t0)), ["DISCONNECT"]);
+    assert!(h.registry.sessions().is_empty());
+}
+
+#[test]
+fn panic_in_on_logon_leaves_the_session_logged_on() {
+    let h = panicking("on_logon");
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(logon(1), h.t0)), ["Logon"]);
+    assert!(s.is_logged_on());
+    assert_eq!(types(&s.on_message(order(2, "A"), h.t0)), ["ExecutionReport"]);
+}
+
+#[test]
+fn panic_in_on_logout_still_disconnects() {
+    let h = panicking("on_logout");
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::Logout), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+}
+
+#[test]
+fn panic_in_to_admin_disconnects() {
+    let h = panicking("to_admin");
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "T"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"], "the Heartbeat isn't sent half-modified");
+}
+
+#[test]
+fn unsupported_message_type_gets_business_reject() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::from_code("G")), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::BusinessMessageReject);
+    assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
+    assert_eq!(reject.get(tags::REF_MSG_TYPE), Some("G"));
+    assert_eq!(reject.get(tags::BUSINESS_REJECT_REASON), Some("3"));
+}
+
+#[test]
+fn comp_id_mismatch_rejects_and_logs_out() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::Heartbeat).with(tags::SENDER_COMP_ID, "EVIL"), h.t0);
+    assert_eq!(types(&out), ["Reject", "Logout", "DISCONNECT"]);
+}
+
+/// Session test case 2i: a wrong BeginString ends the session with a Logout, and no Reject.
+#[test]
+fn wrong_begin_string_logs_out() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::Heartbeat).with(tags::BEGIN_STRING, "FIX.4.2"), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert!(sent(&out)[0].get(tags::TEXT).unwrap().contains("BeginString"));
+}
+
+/// A heartbeat from the counterparty with header field `without` left out.
+fn heartbeat_without(seq: u64, without: u32) -> Message {
+    let full = client(seq, MsgType::Heartbeat);
+    let mut msg = Message::default();
+    for (tag, value) in full.fields().filter(|(tag, _)| *tag != without) {
+        msg.push(tag, value);
+    }
+    msg
+}
+
+/// Session test case 14b: a missing required header field is rejected like any other, naming
+/// it, and the session carries on.
+#[test]
+fn missing_header_fields_are_rejected() {
+    for tag in [tags::TARGET_COMP_ID, tags::SENDER_COMP_ID, tags::SENDING_TIME] {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        let out = s.on_message(heartbeat_without(2, tag), h.t0);
+        assert_eq!(types(&out), ["Reject"], "without {tag}");
+        let reject = sent(&out)[0];
+        assert_eq!(reject.get(tags::REF_TAG_ID), Some(tag.to_string().as_str()));
+        assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("1"));
+        assert!(s.on_message(client(3, MsgType::Heartbeat), h.t0).is_empty(), "the session didn't carry on");
+    }
+}
+
+/// Session test case 14d: an empty TargetCompID is a tag without a value, not a CompID problem.
+#[test]
+fn empty_target_comp_id_is_rejected_as_without_a_value() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::Heartbeat).with(tags::TARGET_COMP_ID, ""), h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("56"));
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("4"));
+}
+
+#[test]
+fn counterparty_logout_is_acknowledged() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::Logout), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+}
+
+// ---- Handle commands ----
+
+#[test]
+fn handle_commands_reach_the_session() {
+    let h = Harness::new();
+    let (mut s, mut commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0);
+    s.on_message(logon(1), h.t0);
+
+    let handle = h.app.handles.lock().unwrap()[0].clone();
+    assert!(handle.is_connected());
+    handle.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "X")).unwrap();
+    let out = s.on_command(commands.try_recv().unwrap(), h.t0);
+    let msg = sent(&out)[0];
+    assert_eq!(msg.get(tags::MSG_SEQ_NUM), Some("2"));
+    assert_eq!(msg.get(tags::TARGET_COMP_ID), Some("CLIENT"));
+
+    handle.logout(Some("bye")).unwrap();
+    let out = s.on_command(commands.try_recv().unwrap(), h.t0);
+    assert_eq!(types(&out), ["Logout"]);
+    assert_eq!(types(&s.on_message(client(2, MsgType::Logout), h.t0)), ["DISCONNECT"]);
+
+    drop(s);
+    assert!(!handle.is_connected());
+    assert!(handle.send(Message::new(MsgType::ExecutionReport)).is_err());
+}
+
+#[test]
+fn handle_cannot_send_session_level_messages() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_command(Command::Send(Message::new(MsgType::SequenceReset)), h.t0);
+    assert!(out.is_empty());
+}
+
+#[test]
+fn application_poss_resend_is_sent_and_kept_on_resend() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our Logon reply is seq 1
+    let report = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E1").with(tags::POSS_RESEND, "Y");
+    let out = s.on_command(Command::Send(report), h.t0);
+    let first = sent(&out)[0];
+    assert_eq!(first.get(tags::POSS_RESEND), Some("Y"), "application's PossResend(97) is sent");
+    assert_eq!(first.get(tags::POSS_DUP_FLAG), None);
+
+    let req = client(2, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "2").with(tags::END_SEQ_NO, "0");
+    let out = s.on_message(req, h.t0);
+    let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ExecutionReport).expect("resent");
+    assert_eq!(resent.get(tags::POSS_DUP_FLAG), Some("Y"));
+    assert_eq!(resent.get(tags::POSS_RESEND), Some("Y"), "kept when resent");
+}
+
+#[test]
+fn message_with_soh_inside_a_value_is_not_sent() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our Logon reply is seq 1
+    let injected = Message::new(MsgType::ExecutionReport).with(tags::TEXT, "fine\x0139=8");
+    assert!(s.on_command(Command::Send(injected), h.t0).is_empty(), "would add a field on the wire");
+
+    let out = s.on_command(send_command("A"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"), "no sequence number used");
+}
+
+fn send_command(cl_ord_id: &str) -> Command {
+    Command::Send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, cl_ord_id))
+}
+
+#[test]
+fn commands_during_logon_are_queued_and_sent_in_order_after_it() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0); // our Logon is seq 1
+    assert!(s.on_command(send_command("A"), h.t0).is_empty());
+    assert!(s.on_command(send_command("B"), h.t0).is_empty());
+
+    let out = s.on_message(logon(1), h.t0);
+    let msgs = sent(&out);
+    let ids: Vec<_> = msgs.iter().map(|m| (m.get(tags::CL_ORD_ID), m.get(tags::MSG_SEQ_NUM))).collect();
+    assert_eq!(ids, [(Some("A"), Some("2")), (Some("B"), Some("3"))]);
+    assert_eq!(h.app.events(), ["logon CLIENT"], "on_logon runs before the queue is flushed");
+}
+
+#[test]
+fn queued_commands_follow_a_resend_request_triggered_by_logon() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    s.on_command(send_command("A"), h.t0);
+    // The counterparty's Logon is ahead of what we expect, so we ask for a resend first.
+    let out = s.on_message(logon(3), h.t0);
+    assert_eq!(types(&out), ["ResendRequest", "NewOrderSingle"]);
+}
+
+#[test]
+fn queued_logout_applies_after_queued_sends() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    s.on_command(send_command("A"), h.t0);
+    s.on_command(Command::Logout(Some("done".into())), h.t0);
+    s.on_command(send_command("B"), h.t0);
+
+    let out = s.on_message(logon(1), h.t0);
+    assert_eq!(types(&out), ["NewOrderSingle", "Logout"], "B was sent after the logout request");
+    assert_eq!(sent(&out)[1].get(tags::TEXT), Some("done"));
+}
+
+#[test]
+fn queued_commands_are_discarded_if_logon_fails() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    s.on_command(send_command("A"), h.t0);
+    assert_eq!(types(&s.on_timer(h.at(10))), ["DISCONNECT"]);
+    assert!(s.pending.is_empty());
+    assert!(s.on_message(logon(1), h.t0).is_empty(), "nothing is sent after close");
+}
+
+#[test]
+fn sends_after_logout_has_started_are_dropped() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_command(Command::Logout(None), h.t0);
+    assert!(s.on_command(send_command("A"), h.t0).is_empty());
+}
+
+// ---- Shutdown ----
+
+#[test]
+fn shutdown_logs_out_and_disconnects_on_the_reply() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_shutdown(Some("end of day"), h.t0);
+    assert_eq!(types(&out), ["Logout"]);
+    assert_eq!(sent(&out)[0].get(tags::TEXT), Some("end of day"));
+    assert_eq!(types(&s.on_message(client(2, MsgType::Logout), h.at(1))), ["DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+}
+
+#[test]
+fn shutdown_disconnects_after_the_logout_timeout() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_shutdown(None, h.t0);
+    let timeout = h.config.logout_timeout.as_secs();
+    assert!(s.on_timer(h.at(timeout - 1)).is_empty());
+    assert_eq!(types(&s.on_timer(h.at(timeout))), ["DISCONNECT"]);
+}
+
+#[test]
+fn shutdown_during_a_logout_changes_nothing() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_command(Command::Logout(None), h.t0);
+    assert!(s.on_shutdown(Some("again"), h.t0).is_empty());
+}
+
+#[test]
+fn shutdown_before_logon_disconnects() {
+    let h = Harness::new();
+    let mut acceptor = h.session();
+    assert_eq!(types(&acceptor.on_shutdown(None, h.t0)), ["DISCONNECT"]);
+
+    // An initiator whose Logon hasn't been answered.
+    let mut initiator = h.initiator(false);
+    assert_eq!(types(&initiator.on_connect(h.t0)), ["Logon"]);
+    assert_eq!(types(&initiator.on_shutdown(None, h.t0)), ["DISCONNECT"]);
+    assert!(h.app.events().is_empty());
+}
+
+// ---- Storage failures ----
+
+/// Storage whose logs fail every write after the first `ok_writes`.
+struct FailingStorage {
+    ok_writes: usize,
+}
+
+struct FailingLog {
+    inner: Box<dyn SessionLog>,
+    remaining: usize,
+}
+
+impl FailingLog {
+    fn write(&mut self) -> io::Result<()> {
+        if self.remaining == 0 {
+            return Err(io::Error::other("disk full"));
+        }
+        self.remaining -= 1;
+        Ok(())
+    }
+}
+
+impl SessionStorage for FailingStorage {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        Ok(Box::new(FailingLog { inner: MemoryStorage::new().open(id)?, remaining: self.ok_writes }))
+    }
+}
+
+impl SessionLog for FailingLog {
+    fn next_outgoing(&self) -> u64 {
+        self.inner.next_outgoing()
+    }
+    fn next_incoming(&self) -> u64 {
+        self.inner.next_incoming()
+    }
+    fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+        self.write()?;
+        self.inner.set_next_incoming(seq)
+    }
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+        self.write()?;
+        self.inner.record_outgoing(seq, msg)
+    }
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+        self.inner.sent_messages(begin, end)
+    }
+    fn reset(&mut self) -> io::Result<()> {
+        self.write()?;
+        self.inner.reset()
+    }
+    fn in_flight(&self) -> Option<u64> {
+        self.inner.in_flight()
+    }
+    fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
+        self.write()?;
+        self.inner.set_in_flight(seq)
+    }
+}
+
+fn failing_after(ok_writes: usize) -> Harness {
+    Harness::with_storage(Arc::new(FailingStorage { ok_writes }))
+}
+
+#[test]
+fn storage_failure_during_logon_disconnects_without_reply() {
+    let h = failing_after(0);
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(logon(1), h.t0)), ["DISCONNECT"]);
+    assert!(h.app.events().is_empty());
+}
+
+#[test]
+fn storage_failure_disconnects_before_delivering_the_message() {
+    // Logon uses two writes: our Logon reply and the incoming sequence number. The third, marking
+    // the order in flight, fails.
+    let h = failing_after(2);
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.on_message(order(2, "A"), h.t0)), ["DISCONNECT"]);
+    assert_eq!(h.app.received(), 0);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+}
+
+#[test]
+fn storage_failure_while_sending_suppresses_the_message() {
+    // The third write, storing the Heartbeat, fails; the TestRequest's number isn't saved either.
+    let h = failing_after(2);
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+}
+
+// ---- Typed session-message validation ----
+
+#[test]
+fn test_request_without_id_is_rejected() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(client(2, MsgType::TestRequest), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::Reject);
+    assert_eq!(reject.get(tags::REF_TAG_ID), Some("112"));
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("1"));
+}
+
+#[test]
+fn second_logon_is_rejected_without_a_post_4_2_reason() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(logon(2), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::Reject);
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), None);
+    assert_eq!(reject.get(tags::REF_MSG_TYPE), Some("A"));
+}
+
+#[test]
+fn logon_without_encrypt_method_is_refused() {
+    let h = Harness::new();
+    let mut s = h.session();
+    let mut logon = Message::default();
+    for (tag, value) in super::tests::logon(1).fields().filter(|(t, _)| *t != tags::ENCRYPT_METHOD) {
+        logon.push(tag, value);
+    }
+    assert_eq!(types(&s.on_message(logon, h.t0)), ["DISCONNECT"]);
+}
+
+#[test]
+fn malformed_resend_request_is_rejected() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let req = client(2, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "x").with(tags::END_SEQ_NO, "0");
+    let reject = s.on_message(req, h.t0);
+    assert_eq!(sent(&reject)[0].get(tags::SESSION_REJECT_REASON), Some("6"));
+}
+
+// ---- Connection info ----
+
+fn connection_info() -> ConnectionInfo {
+    ConnectionInfo::new(Some("10.0.0.7:4000".parse().unwrap()), vec![PeerCertificate::from_der(vec![0x30, 0x00])])
+}
+
+#[test]
+fn acceptor_passes_connection_info_to_verify_logon() {
+    let h = Harness::new();
+    let mut s = h.session();
+    s.set_connection_info(connection_info());
+    s.on_message(logon(1), h.t0);
+    assert_eq!(*h.app.connections.lock().unwrap(), [connection_info()]);
+}
+
+#[test]
+fn initiator_passes_connection_info_when_verifying_the_logon_reply() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.set_connection_info(connection_info());
+    s.on_connect(h.t0);
+    s.on_message(logon(1), h.t0);
+    assert_eq!(*h.app.connections.lock().unwrap(), [connection_info()]);
+}
+
+#[test]
+fn connection_info_defaults_to_nothing_known() {
+    let h = Harness::new();
+    let mut s = h.session();
+    s.on_message(logon(1), h.t0);
+    let seen = h.app.connections.lock().unwrap();
+    assert_eq!(seen[0].addr, None);
+    assert!(seen[0].peer_certificate().is_none());
+}
+
+// ---- Metrics ----
+
+#[cfg(feature = "metrics")]
+mod metrics_tests {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    use super::*;
+
+    const SESSION: &str = "FIX.4.4:GATEWAY->CLIENT";
+
+    /// One snapshot of the recorder. Taking a snapshot resets the recorder's counters, so read
+    /// every value from the same one.
+    struct Snapshot(Vec<(metrics_util::CompositeKey, DebugValue)>);
+
+    impl Snapshot {
+        fn take(recorder: &DebuggingRecorder) -> Self {
+            Self(
+                recorder
+                    .snapshotter()
+                    .snapshot()
+                    .into_vec()
+                    .into_iter()
+                    .map(|(key, _, _, value)| (key, value))
+                    .collect(),
+            )
+        }
+
+        /// The value of `name` for this session with the `extra` labels.
+        fn value(&self, name: &str, extra: &[(&str, &str)]) -> f64 {
+            let found = self.0.iter().find(|(key, _)| {
+                let key = key.key();
+                key.name() == name
+                    && key.labels().any(|l| l.key() == "session" && l.value() == SESSION)
+                    && extra.iter().all(|(k, v)| key.labels().any(|l| l.key() == *k && l.value() == *v))
+            });
+            match found.map(|(_, value)| value) {
+                Some(DebugValue::Counter(n)) => *n as f64,
+                Some(DebugValue::Gauge(g)) => g.into_inner(),
+                other => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn session_records_its_activity() {
+        let recorder = DebuggingRecorder::new();
+        let h = Harness::new();
+        ::metrics::with_local_recorder(&recorder, || {
+            let mut s = h.session();
+            s.on_message(logon(1), h.t0); // we send Logon (1)
+            s.on_message(order(2, "A"), h.t0); // ExecutionReport (2)
+            s.on_message(client(3, MsgType::from_code("G")), h.t0); // BusinessMessageReject (3)
+            s.on_message(client(4, MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "B"), h.t0); // Reject (4)
+            // Resend 1..: gap fill 1, resend 2 and 3, gap fill 4.
+            s.on_message(
+                client(5, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0"),
+                h.t0,
+            );
+            s.on_message(client(8, MsgType::Heartbeat), h.t0); // gap: ResendRequest (5)
+
+            let snapshot = Snapshot::take(&recorder);
+            let value = |name, extra| snapshot.value(name, extra);
+            assert_eq!(value("turbojet_messages_received_total", &[]), 6.0);
+            assert_eq!(value("turbojet_messages_sent_total", &[]), 9.0);
+            assert_eq!(value("turbojet_logons_total", &[]), 1.0);
+            assert_eq!(value("turbojet_session_logged_on", &[]), 1.0);
+            assert_eq!(value("turbojet_rejects_sent_total", &[("type", "session")]), 1.0);
+            assert_eq!(value("turbojet_rejects_sent_total", &[("type", "business")]), 1.0);
+            assert_eq!(value("turbojet_resend_requests_received_total", &[]), 1.0);
+            assert_eq!(value("turbojet_sequence_gaps_total", &[]), 1.0);
+            assert_eq!(value("turbojet_next_incoming_seq", &[]), 6.0, "8 is ahead of the gap");
+            assert_eq!(value("turbojet_next_outgoing_seq", &[]), 6.0);
+            assert_eq!(value("turbojet_disconnects_total", &[]), 0.0);
+
+            drop(s);
+            let after = Snapshot::take(&recorder);
+            assert_eq!(after.value("turbojet_disconnects_total", &[]), 1.0);
+            assert_eq!(after.value("turbojet_session_logged_on", &[]), 0.0);
+        });
+    }
+
+    #[test]
+    fn retrying_a_resend_request_is_not_a_new_gap() {
+        let recorder = DebuggingRecorder::new();
+        let h = Harness::new();
+        ::metrics::with_local_recorder(&recorder, || {
+            let mut s = h.logged_on();
+            s.on_message(order(5, "E"), h.t0); // gap: ResendRequest for 2..
+            assert!(types(&s.on_timer(h.at(60))).contains(&"ResendRequest".to_string()), "retried");
+            assert_eq!(Snapshot::take(&recorder).value("turbojet_sequence_gaps_total", &[]), 1.0);
+        });
+    }
+}
+
+// ---- Schedules ----
+
+mod schedule_tests {
+    use chrono::{DateTime, NaiveDateTime, Utc};
+
+    use super::*;
+    use crate::schedule::Clock;
+
+    /// A clock the test moves by hand.
+    #[derive(Clone)]
+    struct ManualClock(Arc<Mutex<DateTime<Utc>>>);
+
+    impl ManualClock {
+        fn at(time: &str) -> Self {
+            Self(Arc::new(Mutex::new(utc(time))))
+        }
+        fn set(&self, time: &str) {
+            *self.0.lock().unwrap() = utc(time);
+        }
+        fn clock(&self) -> Clock {
+            let now = self.0.clone();
+            Clock::from_fn(move || *now.lock().unwrap())
+        }
+    }
+
+    fn utc(time: &str) -> DateTime<Utc> {
+        NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S").unwrap().and_utc()
+    }
+
+    fn scheduled(schedule: &str, clock: &ManualClock) -> Harness {
+        scheduled_with(schedule, clock, Arc::new(MemoryStorage::new()))
+    }
+
+    fn scheduled_with(schedule: &str, clock: &ManualClock, storage: Arc<dyn SessionStorage>) -> Harness {
+        let mut h = Harness::with_storage(storage);
+        h.config.schedule = Some(schedule.parse().unwrap());
+        h.config.clock = clock.clock();
+        // The test clock is set to fixed dates, but messages carry the real time.
+        h.config.max_latency = None;
+        h
+    }
+
+    /// Our MsgSeqNum on the Logon reply.
+    fn logon_reply_seq(out: &[Action]) -> Option<&str> {
+        sent(out).first().filter(|m| m.msg_type() == MsgType::Logon).and_then(|m| m.get(tags::MSG_SEQ_NUM))
+    }
+
+    // 2026-09-28 is a Monday.
+
+    #[test]
+    fn acceptor_refuses_logon_outside_session_time() {
+        let clock = ManualClock::at("2026-09-28 07:00:00");
+        let h = scheduled("daily 08:00-17:00", &clock);
+        let mut s = h.session();
+        assert_eq!(types(&s.on_message(logon(1), h.t0)), ["DISCONNECT"]);
+        assert!(h.registry.sessions().is_empty());
+        assert!(h.app.events().is_empty());
+    }
+
+    #[test]
+    fn logs_out_when_the_period_ends() {
+        let clock = ManualClock::at("2026-09-28 16:59:00");
+        let h = scheduled("daily 08:00-17:00", &clock);
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(1), h.t0)), Some("1"));
+        assert!(s.on_timer(h.at(1)).is_empty(), "still inside the period");
+
+        clock.set("2026-09-28 17:00:00");
+        let out = s.on_timer(h.at(2));
+        assert_eq!(types(&out), ["Logout"]);
+        assert_eq!(sent(&out)[0].get(tags::TEXT), Some("End of session"));
+        assert_eq!(types(&s.on_message(client(2, MsgType::Logout), h.at(2))), ["DISCONNECT"]);
+    }
+
+    #[test]
+    fn sequence_numbers_reset_at_the_first_logon_of_a_new_period() {
+        let clock = ManualClock::at("2026-09-28 10:00:00");
+        let h = scheduled("daily 08:00-17:00", &clock);
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(1), h.t0)), Some("1"));
+        s.on_message(client(2, MsgType::Heartbeat), h.t0);
+        drop(s);
+
+        // Reconnecting in the same period continues the sequence.
+        clock.set("2026-09-28 11:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(3), h.t0)), Some("2"));
+        drop(s);
+
+        // The next day's first logon starts again at 1 on both sides.
+        clock.set("2026-09-29 09:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(1), h.t0)), Some("1"));
+        assert!(s.is_logged_on());
+    }
+
+    #[test]
+    fn continuous_session_logs_out_and_resets_at_the_daily_boundary() {
+        let clock = ManualClock::at("2026-09-28 23:59:59");
+        let h = scheduled("daily 00:00-00:00", &clock);
+        let mut s = h.session();
+        s.on_message(logon(1), h.t0);
+        s.on_message(client(2, MsgType::Heartbeat), h.t0);
+
+        clock.set("2026-09-29 00:00:00");
+        assert_eq!(types(&s.on_timer(h.at(1))), ["Logout"], "a new period began");
+        s.on_message(client(3, MsgType::Logout), h.at(1));
+        drop(s);
+
+        clock.set("2026-09-29 00:00:05");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(1), h.t0)), Some("1"));
+    }
+
+    #[test]
+    fn initiator_does_not_log_on_outside_session_time() {
+        let clock = ManualClock::at("2026-10-03 10:00:00"); // Saturday
+        let h = scheduled("daily 08:00-17:00 mon-fri", &clock);
+        let mut s = h.initiator(false);
+        assert_eq!(types(&s.on_connect(h.t0)), ["DISCONNECT"], "no Logon is sent");
+    }
+
+    #[test]
+    fn initiator_awaiting_logon_reply_disconnects_when_the_period_ends() {
+        let clock = ManualClock::at("2026-09-28 16:59:59");
+        let h = scheduled("daily 08:00-17:00", &clock);
+        let mut s = h.initiator(false);
+        assert_eq!(types(&s.on_connect(h.t0)), ["Logon"]);
+        clock.set("2026-09-28 17:00:00");
+        assert_eq!(types(&s.on_timer(h.at(1))), ["DISCONNECT"]);
+    }
+
+    #[test]
+    fn existing_state_without_a_creation_time_is_kept_until_the_next_period() {
+        // State written before creation times were recorded: sequence numbers but no timestamp.
+        let storage = Arc::new(MemoryStorage::new());
+        let id = SessionId {
+            begin_string: "FIX.4.4".into(),
+            sender_comp_id: "GATEWAY".into(),
+            target_comp_id: "CLIENT".into(),
+        };
+        {
+            let mut log = storage.open(&id).unwrap();
+            log.record_outgoing(4, None).unwrap();
+            log.set_next_incoming(7).unwrap();
+            assert_eq!(log.created_at(), None);
+        }
+        let clock = ManualClock::at("2026-09-28 10:00:00");
+        let h = scheduled_with("daily 08:00-17:00", &clock, storage);
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(7), h.t0)), Some("5"), "not reset on upgrade");
+        drop(s);
+
+        clock.set("2026-09-29 09:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(1), h.t0)), Some("1"), "reset in the next period");
+    }
+
+    /// A persistent store that, like many custom ones, doesn't record creation times: it
+    /// delegates everything except `created_at`/`set_created_at`, which keep their defaults.
+    struct NoCreationTimes(MemoryStorage);
+
+    struct NoCreationTimesLog(Box<dyn SessionLog>);
+
+    impl SessionStorage for NoCreationTimes {
+        fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+            Ok(Box::new(NoCreationTimesLog(self.0.open(id)?)))
+        }
+    }
+
+    impl SessionLog for NoCreationTimesLog {
+        fn next_outgoing(&self) -> u64 {
+            self.0.next_outgoing()
+        }
+        fn next_incoming(&self) -> u64 {
+            self.0.next_incoming()
+        }
+        fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+            self.0.set_next_incoming(seq)
+        }
+        fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+            self.0.record_outgoing(seq, msg)
+        }
+        fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+            self.0.sent_messages(begin, end)
+        }
+        fn reset(&mut self) -> io::Result<()> {
+            self.0.reset()
+        }
+    }
+
+    #[test]
+    fn stores_without_creation_times_never_reset_on_schedule() {
+        let clock = ManualClock::at("2026-09-28 10:00:00");
+        let h = scheduled_with("daily 08:00-17:00", &clock, Arc::new(NoCreationTimes(MemoryStorage::new())));
+        let mut s = h.session();
+        s.on_message(logon(1), h.t0);
+        s.on_message(client(2, MsgType::Heartbeat), h.t0);
+        drop(s);
+
+        clock.set("2026-09-29 09:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.on_message(logon(3), h.t0)), Some("2"), "sequence continues");
+    }
+}
+
+// ---- Operator control of sequence numbers ----
+
+mod operator_tests {
+    use super::*;
+    use crate::registry::{SequenceCommand, SequenceError, SequenceNumbers};
+
+    /// Sends an operator command to the session, returning its answer and anything it sent.
+    fn operate(
+        s: &mut Session,
+        command: SequenceCommand,
+        h: &Harness,
+    ) -> (Result<SequenceNumbers, SequenceError>, Vec<Action>) {
+        operate_at(s, command, h.t0)
+    }
+
+    fn operate_at(
+        s: &mut Session,
+        command: SequenceCommand,
+        now: Instant,
+    ) -> (Result<SequenceNumbers, SequenceError>, Vec<Action>) {
+        let (reply, mut answer) = tokio::sync::oneshot::channel();
+        let out = s.on_command(Command::Sequence(command, reply), now);
+        (answer.try_recv().expect("answered synchronously"), out)
+    }
+
+    fn numbers(next_incoming: u64, next_outgoing: u64) -> SequenceNumbers {
+        SequenceNumbers { next_incoming, next_outgoing }
+    }
+
+    #[test]
+    fn get_reports_the_live_numbers() {
+        let h = Harness::new();
+        let mut s = h.logged_on(); // they sent 1, we sent our Logon as 1
+        let (result, out) = operate(&mut s, SequenceCommand::Get, &h);
+        assert_eq!(result.unwrap(), numbers(2, 2));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn raising_next_outgoing_tells_the_counterparty_with_a_sequence_reset() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        let (result, out) = operate(&mut s, SequenceCommand::SetNextOutgoing(100), &h);
+        assert_eq!(result.unwrap(), numbers(2, 100));
+        let reset = sent(&out)[0];
+        assert_eq!(reset.msg_type(), MsgType::SequenceReset);
+        assert_eq!(reset.get(tags::NEW_SEQ_NO), Some("100"));
+        assert_eq!(reset.get(tags::GAP_FILL_FLAG), None, "reset mode, not gap fill");
+        // Our next message carries 100.
+        let out = s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
+        assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("100"));
+    }
+
+    #[test]
+    fn outgoing_numbers_never_move_backwards() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        for seq in [0, 1] {
+            let (result, out) = operate(&mut s, SequenceCommand::SetNextOutgoing(seq), &h);
+            assert!(matches!(result, Err(SequenceError::Invalid(_))), "{seq}: {result:?}");
+            assert!(out.is_empty());
+        }
+        // Setting the current value is a no-op, not an error.
+        assert_eq!(operate(&mut s, SequenceCommand::SetNextOutgoing(2), &h).0.unwrap(), numbers(2, 2));
+    }
+
+    #[test]
+    fn next_incoming_can_be_set_either_way() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        assert_eq!(operate(&mut s, SequenceCommand::SetNextIncoming(10), &h).0.unwrap(), numbers(10, 2));
+        assert!(s.on_message(client(10, MsgType::Heartbeat), h.t0).is_empty(), "10 is now in sequence");
+        assert_eq!(operate(&mut s, SequenceCommand::SetNextIncoming(5), &h).0.unwrap(), numbers(5, 2));
+        assert!(s.on_message(client(5, MsgType::Heartbeat), h.t0).is_empty());
+    }
+
+    fn numbers_after(s: &Session) -> SequenceNumbers {
+        SequenceNumbers { next_incoming: s.peer().log.next_incoming(), next_outgoing: s.peer().log.next_outgoing() }
+    }
+
+    #[test]
+    fn setting_incoming_to_a_queued_message_processes_it() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        s.on_message(order(5, "E"), h.t0); // gap: queued, ResendRequest for 2..
+        let (numbers, out) = operate(&mut s, SequenceCommand::SetNextIncoming(5), &h);
+        assert_eq!(types(&out), ["ExecutionReport"]);
+        // The reply gives the numbers after the queued order was processed and answered.
+        assert_eq!(numbers.unwrap(), numbers_after(&s));
+        assert_eq!(s.peer().log.next_incoming(), 6);
+        assert!(s.resend.is_none());
+    }
+
+    #[test]
+    fn skipping_incoming_past_a_gap_ends_the_resend() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        s.on_message(client(5, MsgType::Heartbeat), h.t0); // gap: ResendRequest for 2..
+        assert!(s.resend.is_some());
+        operate(&mut s, SequenceCommand::SetNextIncoming(6), &h).0.unwrap();
+        assert!(s.resend.is_none());
+        assert!(s.on_message(client(6, MsgType::Heartbeat), h.t0).is_empty());
+    }
+
+    #[test]
+    fn skipping_incoming_within_a_gap_restarts_the_resend_timeout() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        s.on_message(order(5, "E"), h.t0); // gap: ResendRequest for 2..
+        operate_at(&mut s, SequenceCommand::SetNextIncoming(4), h.at(50)).0.unwrap();
+        assert!(!types(&s.on_timer(h.at(60))).contains(&"ResendRequest".to_string()), "timed from 50 s");
+        // Keep the link up after the TestRequest sent at 60 s; a duplicate is no progress.
+        s.on_message(resend_of(client(1, MsgType::Heartbeat)), h.at(80));
+        let out = s.on_timer(h.at(110));
+        let retry = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ResendRequest).expect("retried");
+        assert_eq!(retry.get(tags::BEGIN_SEQ_NO), Some("4"));
+    }
+
+    #[test]
+    fn reset_is_refused_while_connected() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        assert!(matches!(operate(&mut s, SequenceCommand::Reset, &h).0, Err(SequenceError::Connected)));
+    }
+
+    #[test]
+    fn operator_commands_are_answered_during_logon_not_queued() {
+        let h = Harness::new();
+        let mut s = h.initiator(false);
+        s.on_connect(h.t0); // awaiting the Logon reply
+        let (result, out) = operate(&mut s, SequenceCommand::SetNextOutgoing(50), &h);
+        assert_eq!(result.unwrap(), numbers(1, 50));
+        assert!(out.is_empty(), "no SequenceReset before logon");
+    }
+}
+
+// ---- Malformed messages ----
+
+/// `msg` as the decoder delivers it with `raw` appended as a malformed body field.
+fn with_raw_field(msg: Message, raw: &[u8]) -> Message {
+    let wire = crate::codec::frame_with_raw_field(&msg, raw);
+    match crate::codec::decode(&wire) {
+        crate::codec::Decoded::Message(msg, _) => msg,
+        other => panic!("not decoded: {other:?}"),
+    }
+}
+
+#[test]
+fn a_malformed_message_is_rejected_and_its_sequence_number_used() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(with_raw_field(order(2, "A"), b"x5=1"), h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("0"));
+    assert_eq!(reject.get(tags::REF_TAG_ID), None);
+    assert_eq!(reject.get(tags::TEXT), Some("Invalid tag 'x5'"));
+    assert_eq!(h.app.received(), 0);
+    assert_eq!(types(&s.on_message(order(3, "B"), h.t0)), ["ExecutionReport"]);
+}
+
+#[test]
+fn a_non_utf8_value_is_rejected_naming_its_tag() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.on_message(with_raw_field(order(2, "A"), b"58=\xff"), h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("58"));
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("6"));
+    assert_eq!(h.app.received(), 0);
+}
+
+#[test]
+fn a_resent_malformed_message_no_longer_stalls_recovery() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    // 2 is lost; 3 reveals the gap and is queued.
+    assert_eq!(types(&s.on_message(order(3, "C"), h.t0)), ["ResendRequest"]);
+    // The resend of 2 is malformed: rejected, and recovery moves past it to the queued 3.
+    let resent = with_raw_field(resend_of(order(2, "B")), b"x5=1");
+    assert_eq!(types(&s.on_message(resent, h.t0)), ["Reject", "ExecutionReport"]);
+    assert!(s.on_message(resend_of(order(3, "C")), h.t0).is_empty(), "a duplicate now");
+    assert_eq!(types(&s.on_message(order(4, "D"), h.t0)), ["ExecutionReport"]);
+    assert_eq!(h.app.received(), 2, "C and D");
+    // The resend is over, so a new gap is requested afresh.
+    assert_eq!(types(&s.on_message(order(6, "F"), h.t0)), ["ResendRequest"]);
+}
+
+#[test]
+fn malformed_sequence_resets_are_rejected_not_applied() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    // Reset mode.
+    let reset = client(2, MsgType::SequenceReset).with(tags::NEW_SEQ_NO, "10");
+    assert_eq!(types(&s.on_message(with_raw_field(reset, b"x5=1"), h.t0)), ["Reject"]);
+    // Gap fill at the expected number: reset mode used no sequence number, so 2 is still in sequence.
+    let fill = client(2, MsgType::SequenceReset).with(tags::GAP_FILL_FLAG, "Y").with(tags::NEW_SEQ_NO, "10");
+    assert_eq!(types(&s.on_message(with_raw_field(fill, b"x5=1"), h.t0)), ["Reject"]);
+    // Neither applied: 3 is next, not 10.
+    assert_eq!(types(&s.on_message(order(3, "A"), h.t0)), ["ExecutionReport"]);
+}
+
+#[test]
+fn a_malformed_logon_is_refused_on_both_roles() {
+    let h = Harness::new();
+    let mut s = h.session();
+    assert_eq!(types(&s.on_message(with_raw_field(logon(1), b"x5=1"), h.t0)), ["DISCONNECT"]);
+    let mut i = h.initiator(false);
+    i.on_connect(h.t0);
+    assert_eq!(types(&i.on_message(with_raw_field(logon(1), b"x5=1"), h.t0)), ["DISCONNECT"]);
+    assert!(h.app.connections.lock().unwrap().is_empty(), "refused before verify_logon");
+}
+
+#[test]
+fn a_malformed_message_ahead_of_a_gap_triggers_a_resend() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    // Its content is ignored: the gap is handled as for any message, with no Reject.
+    assert_eq!(types(&s.on_message(with_raw_field(order(3, "C"), b"x5=1"), h.t0)), ["ResendRequest"]);
+}
+
+#[test]
+fn a_malformed_resend_request_is_rejected_not_answered() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our seq 1: Logon
+    s.on_message(order(2, "A"), h.t0); // our 2: ExecutionReport
+    let req = client(3, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0");
+    assert_eq!(types(&s.on_message(with_raw_field(req, b"x5=1"), h.t0)), ["Reject"]);
+}
+
+#[test]
+fn a_malformed_resend_request_ahead_of_a_gap_is_not_answered() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our seq 1: Logon
+    s.on_message(order(2, "A"), h.t0); // our 2: ExecutionReport
+    let req = client(5, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0");
+    // Only our own ResendRequest for the gap: no gap fill and nothing resent.
+    assert_eq!(types(&s.on_message(with_raw_field(req, b"x5=1"), h.t0)), ["ResendRequest"]);
+}
+
+// ---- Resend timeout ----
+
+#[test]
+fn an_unanswered_resend_request_is_retried_once_then_the_session_logs_out() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.on_message(order(5, "E"), h.t0)), ["ResendRequest"]);
+    let out = s.on_timer(h.at(60));
+    let retry = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ResendRequest).expect("retried");
+    assert_eq!(retry.get(tags::BEGIN_SEQ_NO), Some("2"));
+    assert_eq!(retry.get(tags::END_SEQ_NO), Some("0"));
+    // Any message, even a duplicate, keeps the link up after the TestRequest sent at 60 s, but isn't progress.
+    assert!(s.on_message(resend_of(client(1, MsgType::Heartbeat)), h.at(90)).is_empty());
+    let out = s.on_timer(h.at(120));
+    let logout = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::Logout).expect("logged out");
+    assert!(logout.get(tags::TEXT).unwrap().contains("ResendRequest from 2 unanswered"));
+}
+
+#[test]
+fn progress_restarts_the_resend_timeout() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(5, "E"), h.t0); // ResendRequest for 2..
+    s.on_message(resend_of(order(2, "B")), h.at(50));
+    // 60 s after the request, but only 10 s after progress: no retry.
+    assert!(!types(&s.on_timer(h.at(60))).contains(&"ResendRequest".to_string()));
+    let out = s.on_timer(h.at(110));
+    let retry = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ResendRequest).expect("retried");
+    assert_eq!(retry.get(tags::BEGIN_SEQ_NO), Some("3"), "from what's still missing");
+}
+
+#[test]
+fn a_completed_resend_has_no_timeout() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(3, "C"), h.t0); // ResendRequest for 2..
+    s.on_message(resend_of(order(2, "B")), h.t0);
+    s.on_message(resend_of(order(3, "C")), h.t0);
+    // No inbound traffic since: a TestRequest goes out at 60 s, but nothing about the resend.
+    let out = s.on_timer(h.at(60));
+    assert!(!types(&out).iter().any(|t| t == "ResendRequest" || t == "Logout"), "{:?}", types(&out));
+}
+
+#[test]
+fn progress_after_a_retry_allows_another_retry() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(5, "E"), h.t0); // ResendRequest for 2..
+    assert!(types(&s.on_timer(h.at(60))).contains(&"ResendRequest".to_string()), "retried");
+    s.on_message(resend_of(order(2, "B")), h.at(90)); // progress
+    let out = s.on_timer(h.at(150));
+    assert!(!types(&out).contains(&"Logout".to_string()), "{:?}", types(&out));
+    let retry = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ResendRequest).expect("retried again");
+    assert_eq!(retry.get(tags::BEGIN_SEQ_NO), Some("3"));
+    // Keep the link up after the TestRequest sent at 150 s; this is no progress.
+    s.on_message(resend_of(client(1, MsgType::Heartbeat)), h.at(180));
+    let out = s.on_timer(h.at(210));
+    let logout = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::Logout).expect("logged out");
+    assert!(logout.get(tags::TEXT).unwrap().contains("ResendRequest from 3 unanswered"));
+}
+
+// ---- Timer deadlines ----
+
+#[test]
+fn next_deadline_while_awaiting_logon_is_the_logon_timeout() {
+    let h = Harness::new();
+    let s = h.session();
+    assert_eq!(s.next_deadline(), Some(h.t0 + h.config.logon_timeout));
+}
+
+#[test]
+fn next_deadline_when_idle_is_the_heartbeat() {
+    let h = Harness::new();
+    let s = h.logged_on();
+    // The Heartbeat at 30 s comes before the TestRequest at 36 s.
+    assert_eq!(s.next_deadline(), Some(h.at(30)));
+}
+
+#[test]
+fn next_deadline_moves_with_sends_and_receives() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.on_timer(h.at(30))), ["Heartbeat"]);
+    // The next Heartbeat is due at 60 s; the TestRequest is still due at 36 s.
+    assert_eq!(s.next_deadline(), Some(h.at(36)));
+    s.on_message(client(2, MsgType::Heartbeat), h.at(35)); // TestRequest now due at 71 s
+    assert_eq!(s.next_deadline(), Some(h.at(60)));
+    s.on_command(send_command("A"), h.at(50)); // Heartbeat now due at 80 s
+    assert_eq!(s.next_deadline(), Some(h.at(71)));
+}
+
+#[test]
+fn next_deadline_waits_for_an_outstanding_test_request() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(client(2, MsgType::Heartbeat), h.at(29));
+    assert_eq!(types(&s.on_timer(h.at(30))), ["Heartbeat"]);
+    assert_eq!(types(&s.on_timer(h.at(60))), ["Heartbeat"]);
+    assert_eq!(s.next_deadline(), Some(h.at(65)), "36 s after the last message received");
+    // The TestRequest is a send too, so no Heartbeat goes with it.
+    assert_eq!(types(&s.on_timer(h.at(65))), ["TestRequest"]);
+    s.on_command(send_command("A"), h.at(80)); // Heartbeat now due at 110 s
+    assert_eq!(s.next_deadline(), Some(h.at(95)), "the answer is due within HeartBtInt");
+    s.on_message(client(3, MsgType::Heartbeat).with(tags::TEST_REQ_ID, "TEST1"), h.at(90));
+    assert_eq!(s.next_deadline(), Some(h.at(110)), "answered: the next TestRequest is due at 126 s");
+}
+
+#[test]
+fn next_deadline_includes_an_unanswered_resend_request() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.on_message(order(5, "E"), h.t0)), ["ResendRequest"]);
+    // Traffic both ways at 50 s puts the Heartbeat (80 s) and TestRequest (86 s) after the retry.
+    let keep_alive = |s: &mut Session, at| {
+        s.on_command(send_command("A"), at);
+        s.on_message(resend_of(client(1, MsgType::Heartbeat)), at);
+    };
+    keep_alive(&mut s, h.at(50));
+    assert_eq!(s.next_deadline(), Some(h.at(60)));
+    // Progress at 55 s restarts the timeout.
+    s.on_message(resend_of(order(2, "B")), h.at(55));
+    keep_alive(&mut s, h.at(100));
+    assert_eq!(s.next_deadline(), Some(h.at(115)));
+    let out = s.on_timer(h.at(115));
+    assert!(types(&out).contains(&"ResendRequest".to_string()), "{:?}", types(&out));
+}
+
+#[test]
+fn next_deadline_after_logout_is_the_logout_timeout() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_command(Command::Logout(None), h.at(3));
+    assert_eq!(s.next_deadline(), Some(h.at(3) + h.config.logout_timeout));
+}
+
+#[test]
+fn closed_session_has_no_deadline() {
+    let h = Harness::new();
+    let mut s = h.session();
+    assert_eq!(types(&s.on_timer(h.at(10))), ["DISCONNECT"]);
+    assert_eq!(s.next_deadline(), None);
+}
+
+/// `Duration::MAX` means "never": no deadline, rather than an overflow.
+#[test]
+fn a_timeout_of_duration_max_has_no_deadline() {
+    let mut h = Harness::new();
+    h.config.logon_timeout = Duration::MAX;
+    h.config.logout_timeout = Duration::MAX;
+    let mut s = h.session();
+    assert_eq!(s.next_deadline(), None);
+    assert!(s.on_timer(h.at(1_000_000)).is_empty());
+
+    s.on_message(logon(1), h.t0);
+    assert_eq!(s.next_deadline(), Some(h.at(30)), "the heartbeat deadlines are unaffected");
+    s.on_command(Command::Logout(None), h.at(1));
+    assert_eq!(s.next_deadline(), None);
+    assert!(s.on_timer(h.at(1_000_000)).is_empty());
+}
+
+#[test]
+fn initiator_heartbeat_interval_is_whole_seconds_from_1_to_3600() {
+    let config = |interval| {
+        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "GATEWAY"), "CLIENT");
+        config.heartbeat_interval = interval;
+        config
+    };
+    for secs in [1, 30, 3600] {
+        config(Duration::from_secs(secs)).check().unwrap();
+    }
+    for bad in [Duration::ZERO, Duration::from_millis(500), Duration::from_millis(1500), Duration::from_secs(3601)] {
+        let err = config(bad).check().unwrap_err();
+        assert!(err.contains("heartbeat_interval"), "{bad:?}: {err}");
+    }
+}
+
+#[test]
+#[should_panic(expected = "heartbeat_interval")]
+fn an_initiator_with_a_zero_heartbeat_interval_panics() {
+    Harness::new().initiator_with(|config| config.heartbeat_interval = Duration::ZERO);
+}
+
+/// Calls `on_timer` at each deadline in turn until the session closes, first letting `before`
+/// feed it events, and returns the number of deadlines. Checks that nothing happens just before
+/// each deadline, and that something does at it.
+fn walk_deadlines(s: &mut Session, mut before: impl FnMut(&mut Session, Instant)) -> usize {
+    let mut steps = 0;
+    while let Some(deadline) = s.next_deadline() {
+        before(s, deadline);
+        let Some(deadline) = s.next_deadline() else { break };
+        let early = s.on_timer(deadline - Duration::from_millis(1));
+        assert!(early.is_empty(), "acted early at step {steps}: {:?}", types(&early));
+        assert_eq!(s.next_deadline(), Some(deadline), "an early call moved the deadline at step {steps}");
+        s.on_timer(deadline);
+        let next = s.next_deadline();
+        assert!(next.is_none_or(|next| next > deadline), "no progress at step {steps}: {deadline:?} then {next:?}");
+        steps += 1;
+        assert!(steps < 100, "the session never closed");
+    }
+    steps
+}
+
+/// Calling `on_timer` at the deadline always acts, so the next deadline is later. Otherwise a
+/// driver sleeping until the deadline would spin.
+#[test]
+fn on_timer_at_the_deadline_always_makes_progress() {
+    let h = Harness::new();
+
+    // Waiting for a Logon that never comes.
+    assert_eq!(walk_deadlines(&mut h.session(), |_, _| {}), 1);
+
+    // A silent counterparty: Heartbeat, TestRequest, disconnect.
+    assert_eq!(walk_deadlines(&mut h.logged_on(), |_, _| {}), 3);
+
+    // A chatty counterparty that falls silent after 20 messages.
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let mut seq = 1;
+    let steps = walk_deadlines(&mut s, |s, deadline| {
+        if seq <= 20 {
+            seq += 1;
+            s.on_message(client(seq, MsgType::Heartbeat), deadline - Duration::from_secs(1));
+        }
+    });
+    assert!(steps > 20, "{steps}");
+
+    // An unanswered ResendRequest, over a link kept up: retry, logout, logout timeout.
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(5, "E"), h.t0);
+    let steps = walk_deadlines(&mut s, |s, deadline| {
+        s.on_message(resend_of(client(1, MsgType::Heartbeat)), deadline - Duration::from_secs(1));
+    });
+    assert!(steps > 3, "{steps}");
+
+    // Logging out, with no reply.
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_command(Command::Logout(None), h.t0);
+    assert_eq!(walk_deadlines(&mut s, |_, _| {}), 1);
+
+    // An initiator, from Logon to a silent counterparty.
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    s.on_message(logon(1), h.t0);
+    assert_eq!(walk_deadlines(&mut s, |_, _| {}), 3);
+
+    // The counterparty logs out mid-walk; the session answers and closes at once.
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let mut step = 0;
+    let steps = walk_deadlines(&mut s, |s, deadline| {
+        step += 1;
+        let mtype = if step == 5 { MsgType::Logout } else { MsgType::Heartbeat };
+        s.on_message(client(step + 1, mtype), deadline - Duration::from_secs(1));
+    });
+    assert_eq!(steps, 4);
+
+    // A resend that makes progress for a while, then stalls: retry, logout, logout timeout.
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_message(order(8, "H"), h.t0); // ResendRequest for 2..
+    let mut resent = 1;
+    let steps = walk_deadlines(&mut s, |s, deadline| {
+        let at = deadline - Duration::from_secs(1);
+        if resent < 6 {
+            resent += 1;
+            s.on_message(resend_of(order(resent, "R")), at);
+        } else {
+            s.on_message(resend_of(client(1, MsgType::Heartbeat)), at);
+        }
+    });
+    assert!(steps > 7, "{steps}");
+}
+
+// ---- FIXT.1.1 ----
+
+fn fixt_config(versions: &[ApplVerId]) -> SessionConfig {
+    versions.iter().fold(SessionConfig::new("FIXT.1.1", "GATEWAY"), |c, v| c.with_appl_ver_id(*v))
+}
+
+impl Harness {
+    fn fixt(versions: &[ApplVerId]) -> Self {
+        let mut h = Self::new();
+        h.config = fixt_config(versions);
+        h
+    }
+}
+
+/// A FIXT.1.1 Logon from CLIENT, with DefaultApplVerID `version` if given.
+fn fixt_logon(seq: u64, version: Option<&str>) -> Message {
+    let logon = logon(seq).with(tags::BEGIN_STRING, "FIXT.1.1");
+    match version {
+        Some(v) => logon.with(tags::DEFAULT_APPL_VER_ID, v),
+        None => logon,
+    }
+}
+
+#[test]
+fn fixt_configs_are_checked() {
+    assert_eq!(fixt_config(&[ApplVerId::Fix50Sp2]).check(), Ok(()));
+    assert_eq!(fixt_config(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]).check(), Ok(()));
+    let err = |c: SessionConfig| c.check().unwrap_err();
+    assert!(err(fixt_config(&[])).contains("with_appl_ver_id"));
+    assert!(err(fixt_config(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp2])).contains("twice"));
+    assert!(err(SessionConfig::new("FIX.4.4", "GATEWAY").with_appl_ver_id(ApplVerId::Fix44)).contains("FIXT"));
+    assert_eq!(SessionConfig::new("FIX.4.4", "GATEWAY").check(), Ok(()));
+}
+
+#[test]
+#[should_panic(expected = "with_appl_ver_id")]
+fn a_fixt_session_without_a_version_panics() {
+    let h = Harness::fixt(&[]);
+    h.session();
+}
+
+/// An initiator with several versions offers the first as DefaultApplVerID.
+#[test]
+fn a_fixt_initiator_offers_its_first_version() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let mut s = h.initiator(false);
+    let out = s.on_connect(h.t0);
+    assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), Some("9"));
+}
+
+#[test]
+fn handles_report_the_application_version_while_connected() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let handle = h.registry.handle(SessionId {
+        begin_string: "FIXT.1.1".into(),
+        sender_comp_id: "GATEWAY".into(),
+        target_comp_id: "CLIENT".into(),
+    });
+    assert_eq!(handle.appl_ver_id(), None);
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    assert_eq!(handle.appl_ver_id(), Some(ApplVerId::Fix50Sp2));
+    drop(s);
+    assert_eq!(handle.appl_ver_id(), None);
+}
+
+#[test]
+fn fix4_handles_have_no_application_version() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    let ids = h.registry.sessions();
+    assert_eq!(ids.len(), 1);
+    assert_eq!(h.registry.handle(ids[0].clone()).appl_ver_id(), None);
+}
+
+#[test]
+fn fixt_initiator_sends_its_version_and_logs_on_when_echoed() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let mut s = h.initiator(false);
+    let out = s.on_connect(h.t0);
+    assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), Some("9"));
+    assert_eq!(sent(&out)[0].get(tags::BEGIN_STRING), Some("FIXT.1.1"));
+    s.on_message(fixt_logon(1, Some("9")), h.t0);
+    assert!(s.is_logged_on());
+}
+
+#[test]
+fn fixt_initiator_refuses_a_reply_with_another_or_no_version() {
+    for version in [Some("8"), None] {
+        let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+        let mut s = h.initiator(false);
+        s.on_connect(h.t0);
+        let out = s.on_message(fixt_logon(1, version), h.t0);
+        assert_eq!(types(&out), ["DISCONNECT"], "{version:?}");
+        assert!(h.app.connections.lock().unwrap().is_empty(), "refused before verify_logon");
+    }
+}
+
+#[test]
+fn fixt_acceptor_echoes_a_supported_version() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]);
+    for (comp_id, version) in [("A", "8"), ("B", "9")] {
+        let mut s = h.session();
+        let out = s.on_message(fixt_logon(1, Some(version)).with(tags::SENDER_COMP_ID, comp_id), h.t0);
+        assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), Some(version));
+        assert!(s.is_logged_on());
+        let handle = h.registry.handle(s.session_id().unwrap().clone());
+        assert_eq!(handle.appl_ver_id().map(ApplVerId::code), Some(version));
+    }
+}
+
+#[test]
+fn fixt_acceptor_refuses_missing_unknown_or_unsupported_versions() {
+    // "42" is not an ApplVerID code, so the Logon itself fails to parse.
+    for version in [None, Some("42"), Some("6")] {
+        let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+        let mut s = h.session();
+        let out = s.on_message(fixt_logon(1, version), h.t0);
+        assert_eq!(types(&out), ["DISCONNECT"], "{version:?}");
+        assert!(h.app.connections.lock().unwrap().is_empty(), "refused before verify_logon");
+    }
+}
+
+#[test]
+fn fixt_acceptor_refusals_name_the_supported_versions() {
+    let refusal = |versions: &[ApplVerId]| {
+        Harness::fixt(versions).session().validate_logon_request(&fixt_logon(1, Some("6"))).err().unwrap()
+    };
+    assert_eq!(refusal(&[ApplVerId::Fix50Sp2]), "DefaultApplVerID(1137) must be '9', not '6'");
+    assert_eq!(
+        refusal(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]),
+        "DefaultApplVerID(1137) must be one of '8', '9', not '6'"
+    );
+}
+
+#[test]
+fn fix4_acceptors_ignore_default_appl_ver_id() {
+    let h = Harness::new();
+    let mut s = h.session();
+    let out = s.on_message(logon(1).with(tags::DEFAULT_APPL_VER_ID, "9"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), None);
+    assert!(s.is_logged_on());
+}
+
+#[test]
+fn fix4_logons_carry_no_application_version() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    assert_eq!(sent(&s.on_connect(h.t0))[0].get(tags::DEFAULT_APPL_VER_ID), None);
+}
+
+#[test]
+fn fix4_initiators_ignore_default_appl_ver_id_in_the_reply() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    s.on_message(logon(1).with(tags::DEFAULT_APPL_VER_ID, "9"), h.t0);
+    assert!(s.is_logged_on());
+}
+
+/// A logged-on FIXT acceptor using FIX 5.0 SP2.
+fn fixt_session(h: &Harness) -> Session {
+    let mut s = h.session();
+    s.on_message(fixt_logon(1, Some("9")), h.t0);
+    assert!(s.is_logged_on());
+    s
+}
+
+fn fixt_order(seq: u64, cl_ord_id: &str) -> Message {
+    order(seq, cl_ord_id).with(tags::BEGIN_STRING, "FIXT.1.1")
+}
+
+// ---- Per-message application versions ----
+
+/// A message may name, with ApplVerID(1128), any version the session supports.
+#[test]
+fn a_message_may_name_another_supported_version() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let mut s = fixt_session(&h);
+    let out = s.on_message(with_header(fixt_order(2, "A"), &[(tags::APPL_VER_ID, "8")]), h.t0);
+    assert_eq!(types(&out), ["ExecutionReport"]);
+    // FIX 5.0 isn't supported: rejected, naming the version it stated.
+    let out = s.on_message(with_header(fixt_order(3, "B"), &[(tags::APPL_VER_ID, "7")]), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("18"));
+    assert_eq!(reject.get(tags::REF_APPL_VER_ID), Some("7"));
+    assert_eq!(h.app.received(), 1);
+}
+
+/// A Reject or BusinessMessageReject names the version fields of the message it answers.
+#[test]
+fn rejects_name_the_version_of_the_message_they_answer() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let mut s = fixt_session(&h);
+    let versioned = |msg| {
+        with_header(msg, &[(tags::APPL_VER_ID, "8"), (tags::CSTM_APPL_VER_ID, "VENUE1"), (tags::APPL_EXT_ID, "99")])
+    };
+    let unsupported = client(2, MsgType::from_code("U1")).with(tags::BEGIN_STRING, "FIXT.1.1");
+    let out = s.on_message(versioned(unsupported), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.msg_type(), MsgType::BusinessMessageReject);
+    assert_eq!(reject.get(tags::REF_APPL_VER_ID), Some("8"));
+    assert_eq!(reject.get(tags::REF_CSTM_APPL_VER_ID), Some("VENUE1"));
+    assert_eq!(reject.get(tags::REF_APPL_EXT_ID), Some("99"));
+    let out = s.on_message(versioned(fixt_order(3, "A").with(tags::TEXT, "")), h.t0);
+    assert_eq!(sent(&out)[0].msg_type(), MsgType::Reject);
+    assert_eq!(sent(&out)[0].get(tags::REF_APPL_VER_ID), Some("8"));
+    // Without version fields, none are named.
+    let out = s.on_message(fixt_order(4, "A").with(tags::TEXT, ""), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::REF_APPL_VER_ID), None);
+}
+
+/// The application may send in any supported version; the default goes unstated, and a version
+/// the session doesn't support is dropped. CstmApplVerID and ApplExtID pass through.
+#[test]
+fn the_application_may_send_in_another_supported_version() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let mut s = fixt_session(&h);
+    let report =
+        |version| Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E").with(tags::APPL_VER_ID, version);
+    let out = s.on_command(Command::Send(report("8")), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::APPL_VER_ID), Some("8"));
+    assert_eq!(misplaced_header_field(sent(&out)[0]), None);
+    let out = s.on_command(Command::Send(report("9")), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::APPL_VER_ID), None, "the default goes unstated");
+    let next = s.peer().log.next_outgoing();
+    assert!(s.on_command(Command::Send(report("7")), h.t0).is_empty(), "not a supported version");
+    assert_eq!(s.peer().log.next_outgoing(), next, "and no number used");
+    let custom = Message::new(MsgType::ExecutionReport)
+        .with(tags::EXEC_ID, "E")
+        .with(tags::CSTM_APPL_VER_ID, "VENUE1")
+        .with(tags::APPL_EXT_ID, "99");
+    let out = s.on_command(Command::Send(custom), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::CSTM_APPL_VER_ID), Some("VENUE1"));
+    assert_eq!(sent(&out)[0].get(tags::APPL_EXT_ID), Some("99"));
+    assert_eq!(misplaced_header_field(sent(&out)[0]), None);
+}
+
+/// A message is resent in the version it was sent in, even after the counterparty logs on again
+/// with another default.
+#[test]
+fn resends_keep_the_version_they_were_sent_in() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let mut s = h.session();
+    s.on_message(fixt_logon(1, Some("8")), h.t0); // SP1 is the default this time
+    let out = s.on_message(fixt_order(2, "A"), h.t0); // our 2: an ExecutionReport in SP1
+    assert_eq!(sent(&out)[0].get(tags::APPL_VER_ID), None);
+    drop(s);
+
+    let mut s = h.session();
+    s.on_message(fixt_logon(3, Some("9")), h.t0); // now SP2
+    let request = client(4, MsgType::ResendRequest)
+        .with(tags::BEGIN_STRING, "FIXT.1.1")
+        .with(tags::BEGIN_SEQ_NO, "2")
+        .with(tags::END_SEQ_NO, "2");
+    let out = s.on_message(request, h.t0);
+    let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ExecutionReport).expect("resent");
+    assert_eq!(resent.get(tags::POSS_DUP_FLAG), Some("Y"));
+    assert_eq!(resent.get(tags::APPL_VER_ID), Some("8"), "stated, as it isn't the default now");
+    assert_eq!(misplaced_header_field(resent), None);
+}
+
+#[test]
+fn messages_in_another_application_version_are_rejected() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let mut s = fixt_session(&h);
+    let out = s.on_message(with_header(fixt_order(2, "A"), &[(tags::APPL_VER_ID, "8")]), h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.get(tags::REF_TAG_ID), Some("1128"));
+    assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("18"));
+    assert_eq!(h.app.received(), 0);
+
+    // Counted as received; the session's own version, stated or not, is delivered.
+    assert_eq!(
+        types(&s.on_message(with_header(fixt_order(3, "B"), &[(tags::APPL_VER_ID, "9")]), h.t0)),
+        ["ExecutionReport"]
+    );
+    assert_eq!(types(&s.on_message(fixt_order(4, "C"), h.t0)), ["ExecutionReport"]);
+    assert_eq!(h.app.received(), 2);
+}
+
+#[test]
+fn session_messages_are_handled_whatever_their_appl_ver_id() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let mut s = fixt_session(&h);
+    let request = client(2, MsgType::TestRequest).with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::TEST_REQ_ID, "T1");
+    let request = with_header(request, &[(tags::APPL_VER_ID, "8")]);
+    let out = s.on_message(request, h.t0);
+    let hb = sent(&out)[0];
+    assert_eq!(hb.msg_type(), MsgType::Heartbeat);
+    assert_eq!(hb.get(tags::TEST_REQ_ID), Some("T1"));
+    // The sequence number advanced: the next message is 3.
+    assert_eq!(types(&s.on_message(fixt_order(3, "A"), h.t0)), ["ExecutionReport"]);
+}
+
+#[test]
+fn fix4_sessions_ignore_appl_ver_id() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(
+        types(&s.on_message(with_header(order(2, "A"), &[(tags::APPL_VER_ID, "8")]), h.t0)),
+        ["ExecutionReport"]
+    );
+}
+
+/// An SP2-only session doesn't send SP1: the message is dropped rather than stripped of its
+/// version, which would change what it means.
+#[test]
+fn outbound_messages_in_an_unsupported_version_are_dropped() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let mut s = fixt_session(&h);
+    let out = s.on_command(Command::Send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "8")), h.t0);
+    assert!(out.is_empty());
+}
+
+// ---- Dictionary validation ----
+
+#[cfg(feature = "validation")]
+mod validation {
+    use super::*;
+
+    const DICT: &str = "<fix type='FIX' major='4' minor='4'>
+     <messages>
+      <message name='NewOrderSingle' msgtype='D' msgcat='app'>
+       <field name='ClOrdID' required='Y'/><field name='Symbol' required='Y'/>
+       <field name='Side' required='Y'/><field name='OrderQty' required='N'/>
+       <field name='OrdType' required='Y'/>
+      </message>
+     </messages>
+     <fields>
+      <field number='11' name='ClOrdID' type='STRING'/><field number='55' name='Symbol' type='STRING'/>
+      <field number='54' name='Side' type='CHAR'><value enum='1' description='BUY'/><value enum='2' description='SELL'/></field>
+      <field number='38' name='OrderQty' type='QTY'/><field number='40' name='OrdType' type='CHAR'/>
+     </fields>
+    </fix>";
+
+    fn harness() -> Harness {
+        let mut h = Harness::new();
+        let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
+        h.config = h.config.clone().with_dictionary(&dict);
+        h
+    }
+
+    #[test]
+    fn invalid_messages_are_rejected_and_not_delivered() {
+        let h = harness();
+        let mut s = h.logged_on();
+        let out = s.on_message(order(2, "A").with(tags::SIDE, "9"), h.t0);
+        assert_eq!(types(&out), ["Reject"]);
+        let reject = sent(&out)[0];
+        assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
+        assert_eq!(reject.get(tags::REF_TAG_ID), Some("54"));
+        assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("5"));
+        assert_eq!(h.app.received(), 0);
+
+        // It counted as received: the next message is 3, and a valid one is delivered.
+        assert_eq!(types(&s.on_message(order(3, "B"), h.t0)), ["ExecutionReport"]);
+        assert_eq!(h.app.received(), 1);
+    }
+
+    #[test]
+    fn session_messages_are_left_to_the_engine() {
+        let h = harness();
+        let mut s = h.logged_on();
+        // Heartbeat isn't in the dictionary, but it's the engine's to check.
+        assert!(s.on_message(client(2, MsgType::Heartbeat), h.t0).is_empty());
+        // An application message type the dictionary lacks is refused.
+        let out = s.on_message(client(3, MsgType::from_code("U7")), h.t0);
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("11"));
+    }
+
+    #[test]
+    fn dictionaries_bind_to_the_preceding_version() {
+        let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
+        let config = SessionConfig::new("FIXT.1.1", "GATEWAY")
+            .with_appl_ver_id(ApplVerId::Fix50Sp2)
+            .with_dictionary(&dict)
+            .with_appl_ver_id(ApplVerId::Fix50Sp1);
+        assert!(config.validator.is_none());
+        assert!(config.appl_versions[0].validator.is_some());
+        assert!(config.appl_versions[1].validator.is_none());
+        // A dictionary before any version is the bare validator, which FIXT sessions refuse.
+        let early =
+            SessionConfig::new("FIXT.1.1", "GATEWAY").with_dictionary(&dict).with_appl_ver_id(ApplVerId::Fix50Sp2);
+        assert!(early.check().unwrap_err().contains("before"));
+    }
+
+    #[test]
+    fn fixt_sessions_validate_with_the_negotiated_versions_dictionary() {
+        let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
+        // SP1 has the dictionary, SP2 none.
+        let mut h = Harness::new();
+        h.config = SessionConfig::new("FIXT.1.1", "GATEWAY")
+            .with_appl_ver_id(ApplVerId::Fix50Sp1)
+            .with_dictionary(&dict)
+            .with_appl_ver_id(ApplVerId::Fix50Sp2);
+        let bad = |seq| order(seq, "A").with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::SIDE, "9");
+
+        let mut sp1 = h.session();
+        sp1.on_message(fixt_logon(1, Some("8")).with(tags::SENDER_COMP_ID, "SP1"), h.t0);
+        assert!(sp1.is_logged_on());
+        let out = sp1.on_message(bad(2).with(tags::SENDER_COMP_ID, "SP1"), h.t0);
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("5"));
+
+        let mut sp2 = h.session();
+        sp2.on_message(fixt_logon(1, Some("9")), h.t0);
+        assert_eq!(types(&sp2.on_message(bad(2), h.t0)), ["ExecutionReport"]);
+        // A message stating SP1 on the SP2 session is checked against SP1's dictionary.
+        let out = sp2.on_message(with_header(bad(3), &[(tags::APPL_VER_ID, "8")]), h.t0);
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("5"));
+    }
+}

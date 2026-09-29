@@ -1,0 +1,16 @@
+[package]
+name = "turbojet-dictionary"
+description = "FIX data dictionaries in the QuickFIX and FIX Orchestra formats: load, validate and merge them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "protocol", "dictionary"]
+categories = ["parser-implementations", "finance"]
+# Loads the dictionaries in the repository's dictionaries/, which aren't packaged.
+exclude = ["tests/shipped.rs"]
+
+[dependencies]
+roxmltree.workspace = true

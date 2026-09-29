@@ -1,0 +1,6 @@
+The names and structure of this crate's generated code (fields and their tags, enumerated values
+and their names, repeating groups and messages) are taken from the FIX Orchestra file
+OrchestraFIX44.xml, © FIX Protocol Limited, from
+https://github.com/FIXTradingCommunity/orchestrations at commit
+cd24169a2abd8daba7c360987c7a46ca11873a12, licensed under the Apache License, Version 2.0 (see
+LICENSE). The file's documentation is not reproduced.

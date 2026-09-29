@@ -1,0 +1,27 @@
+# Scenarios expected to fail, with why: `version/script.def: reason`. A listed scenario that
+# passes fails its test, so this stays current.
+
+# After a BodyLength that's too long, Turbojet's codec resyncs on the next BeginString and keeps the
+# valid message that follows, where QuickFIX discards both; the script then sends that message again
+# without PossDupFlag, which is too low.
+fix42/2m_BodyLengthValueNotCorrect.def: resync keeps the valid message after a too-long BodyLength
+fix43/2m_BodyLengthValueNotCorrect.def: resync keeps the valid message after a too-long BodyLength
+fix44/2m_BodyLengthValueNotCorrect.def: resync keeps the valid message after a too-long BodyLength
+fix50sp2/2m_BodyLengthValueNotCorrect.def: resync keeps the valid message after a too-long BodyLength
+
+# Turbojet deviates from the spec's test case; to fix.
+
+# RefTagID(371) can't be negative in Turbojet, so a field `-1=HI` is rejected with reason 0 but no
+# RefTagID, where the script expects 371=-1.
+fix42/14a_BadField.def: no RefTagID for the negative tag -1
+fix43/14a_BadField.def: no RefTagID for the negative tag -1
+fix44/14a_BadField.def: no RefTagID for the negative tag -1
+
+# The script relies on QuickFIX behaviour outside the spec, or on QuickFIX's dictionaries.
+fix50sp2/14a_BadField.def: FIX 5.0 SP2 defines tag 999, so it's rejected as not defined for the message type (2), not as an invalid tag (0)
+fix42/8_OnlyAdminMessages.def: the script reuses MsgSeqNum 5 and 6 without PossDupFlag, which QuickFIX doesn't check on ResendRequest and Logout; the spec ends the session
+fix43/8_OnlyAdminMessages.def: the script reuses MsgSeqNum 5 and 6 without PossDupFlag, which QuickFIX doesn't check on ResendRequest and Logout; the spec ends the session
+fix44/8_OnlyAdminMessages.def: the script reuses MsgSeqNum 5 and 6 without PossDupFlag, which QuickFIX doesn't check on ResendRequest and Logout; the spec ends the session
+fix50sp2/8_OnlyAdminMessages.def: the script reuses MsgSeqNum 5 and 6 without PossDupFlag, which QuickFIX doesn't check on ResendRequest and Logout; the spec ends the session
+fix50sp2/2r_UnregisteredMsgType.def: QuickFIX puts DefaultApplVerID(1137), a Logon field, on a BusinessMessageReject
+fix50sp2/14i_RepeatingGroupCountNotEqual.def: Orchestra's FIX 5.0 SP2 restricts TradingSessionID(336) to codes, so its invalid value is reported before the group count

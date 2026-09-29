@@ -1,0 +1,14 @@
+[package]
+name = "turbojet-acceptance"
+description = "Session-level acceptance tests: QuickFIX's scripted FIX session scenarios, run against Turbojet"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+chrono.workspace = true
+turbojet = { workspace = true, features = ["validation"] }
+turbojet-dictionary.workspace = true

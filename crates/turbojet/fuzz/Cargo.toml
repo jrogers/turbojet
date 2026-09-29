@@ -1,0 +1,57 @@
+[package]
+name = "turbojet-fuzz"
+description = "cargo-fuzz targets for Turbojet's codec, message and session parsing"
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Kept out of the main workspace: it builds only on nightly, with cargo fuzz.
+[workspace]
+members = ["."]
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+# The operator's sequence commands reply on a oneshot channel.
+tokio = { version = "1", features = ["sync"] }
+turbojet = { path = ".." }
+turbojet-fix42 = { path = "../../turbojet-fix42" }
+turbojet-fix43 = { path = "../../turbojet-fix43" }
+turbojet-fix44 = { path = "../../turbojet-fix44" }
+turbojet-fix50sp2 = { path = "../../turbojet-fix50sp2" }
+
+# Symbols in stack traces.
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "message"
+path = "fuzz_targets/message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "typed"
+path = "fuzz_targets/typed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session"
+path = "fuzz_targets/session.rs"
+test = false
+doc = false
+bench = false

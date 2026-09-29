@@ -1,0 +1,235 @@
+//! A Turbojet session connected to the QuickFIX/J peer, in either role.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio::net::TcpListener;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
+use tracing_subscriber::EnvFilter;
+use turbojet::{
+    Acceptor, ApplVerId, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
+    MsgType, SessionConfig, SessionHandle, SessionId,
+};
+
+use crate::mailbox::{Mailbox, Missing};
+use crate::{EVENT_TIMEOUT, Peer, PeerConfig, QFJ, TJ};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    TjInitiator,
+    TjAcceptor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Version {
+    Fix42,
+    Fix43,
+    Fix44,
+    /// FIXT.1.1 carrying FIX 5.0 SP2.
+    Fixt,
+}
+
+impl Version {
+    pub fn begin_string(self) -> &'static str {
+        match self {
+            Self::Fix42 => "FIX.4.2",
+            Self::Fix43 => "FIX.4.3",
+            Self::Fix44 => "FIX.4.4",
+            Self::Fixt => "FIXT.1.1",
+        }
+    }
+}
+
+/// One cell of the matrix, handed to each scenario.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Setup {
+    pub role: Role,
+    pub version: Version,
+}
+
+/// Session settings a scenario may change. Both sides get the same ones, except as noted.
+#[derive(Debug, Clone)]
+pub struct Options {
+    pub heartbeat_secs: u32,
+    /// The initiator (whichever side it is) logs on with ResetSeqNumFlag=Y, every time it logs
+    /// on. The acceptor isn't configured to reset, so its ResetSeqNumFlag=Y is an echo.
+    pub reset_on_logon: bool,
+    /// How long the initiator (whichever side it is) waits before reconnecting.
+    pub reconnect_secs: u32,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 1 }
+    }
+}
+
+#[derive(Debug)]
+pub enum TjEvent {
+    LoggedOn(SessionHandle),
+    LoggedOut,
+    Message(Message),
+}
+
+/// Forwards Turbojet callbacks to the test and accepts every application message.
+struct Recorder {
+    events: mpsc::UnboundedSender<TjEvent>,
+}
+
+impl Application for Recorder {
+    fn on_logon(&self, session: SessionHandle) {
+        let _ = self.events.send(TjEvent::LoggedOn(session));
+    }
+
+    fn on_logout(&self, _session: &SessionId) {
+        let _ = self.events.send(TjEvent::LoggedOut);
+    }
+
+    fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        let _ = self.events.send(TjEvent::Message(msg.clone()));
+        Ok(())
+    }
+}
+
+/// Turbojet and QuickFIX/J, connected (or connecting) to each other.
+pub struct Pair {
+    pub setup: Setup,
+    pub peer: Peer,
+    /// Turbojet's session with the peer; usable once logged on.
+    pub handle: SessionHandle,
+    tj: Mailbox<TjEvent>,
+    task: JoinHandle<()>,
+    finished: bool,
+}
+
+impl Setup {
+    pub async fn start(self) -> Pair {
+        self.start_with(Options::default()).await
+    }
+
+    pub async fn start_with(self, options: Options) -> Pair {
+        tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_ansi(false)
+            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "turbojet=debug".into()))
+            .try_init()
+            .ok();
+        let (events, tj) = mpsc::unbounded_channel();
+        let app = Arc::new(Recorder { events });
+        let storage = Arc::new(MemoryStorage::new());
+        let begin_string = self.version.begin_string();
+        let mut session = SessionConfig::new(begin_string, TJ);
+        if self.version == Version::Fixt {
+            session = session.with_appl_ver_id(ApplVerId::Fix50Sp2);
+        }
+        let mut peer_config = PeerConfig {
+            acceptor: self.role == Role::TjInitiator,
+            begin_string,
+            port: None,
+            heartbeat_secs: options.heartbeat_secs,
+            reset_on_logon: options.reset_on_logon && self.role == Role::TjAcceptor,
+            reconnect_secs: options.reconnect_secs,
+        };
+        let (peer, handle, task) = match self.role {
+            Role::TjInitiator => {
+                let peer = Peer::spawn(peer_config).await;
+                let mut config = InitiatorConfig::new(session, QFJ);
+                config.heartbeat_interval = Duration::from_secs(options.heartbeat_secs.into());
+                config.reset_on_logon = options.reset_on_logon;
+                config.reconnect_interval = Duration::from_secs(options.reconnect_secs.into());
+                let addr = format!("127.0.0.1:{}", peer.port());
+                let initiator = Initiator::new(addr, config, storage, app);
+                let handle = initiator.handle();
+                (peer, handle, tokio::spawn(initiator.run()))
+            }
+            Role::TjAcceptor => {
+                let acceptor = Acceptor::new(session, storage, app);
+                let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                peer_config.port = Some(listener.local_addr().unwrap().port());
+                let handle = acceptor.session(QFJ);
+                let task = tokio::spawn(async move {
+                    if let Err(e) = acceptor.serve(listener).await {
+                        eprintln!("Turbojet acceptor stopped: {e}");
+                    }
+                });
+                (Peer::spawn(peer_config).await, handle, task)
+            }
+        };
+        Pair { setup: self, peer, handle, tj: Mailbox::new(tj), task, finished: false }
+    }
+}
+
+impl Pair {
+    /// Waits until both sides report the session logged on.
+    pub async fn logged_on(&mut self) {
+        self.tj_expect("logon", |e| matches!(e, TjEvent::LoggedOn(_))).await;
+        self.peer.logon().await;
+    }
+
+    pub async fn tj_logged_out(&mut self) {
+        self.tj_expect("logout", |e| matches!(e, TjEvent::LoggedOut)).await;
+    }
+
+    /// The next application message of `msg_type` Turbojet delivered that satisfies `pred`.
+    pub async fn tj_received_with(&mut self, msg_type: &str, pred: impl Fn(&Message) -> bool) -> Message {
+        let what = format!("message 35={msg_type}");
+        match self
+            .tj_expect(&what, |e| matches!(e, TjEvent::Message(m) if m.msg_type().code() == msg_type && pred(m)))
+            .await
+        {
+            TjEvent::Message(m) => m,
+            _ => unreachable!(),
+        }
+    }
+
+    pub async fn tj_received(&mut self, msg_type: &str) -> Message {
+        self.tj_received_with(msg_type, |_| true).await
+    }
+
+    async fn tj_expect(&mut self, what: &str, pred: impl FnMut(&TjEvent) -> bool) -> TjEvent {
+        match self.tj.expect(Instant::now() + EVENT_TIMEOUT, pred).await {
+            Ok(event) => event,
+            Err(Missing::Closed) => panic!("Turbojet's application went away waiting for {what}"),
+            Err(Missing::TimedOut) => panic!("timed out waiting for Turbojet {what}"),
+        }
+    }
+
+    /// Fails if Turbojet reports an event matching `pred`, already or `within`.
+    pub async fn tj_expect_none(&mut self, what: &str, pred: impl FnMut(&TjEvent) -> bool, within: Duration) {
+        if let Some(event) = self.tj.find_within(within, pred).await {
+            panic!("expected no Turbojet {what}, got {event:?}");
+        }
+    }
+
+    /// Fails on anything unexpected either side saw: see [`Peer::finish`]. Turbojet delivers
+    /// BusinessMessageRejects to the application, so an unconsumed one fails too. Every scenario
+    /// must end with this.
+    pub async fn finish(mut self) {
+        self.finished = true;
+        self.peer.finish().await;
+        for event in self.tj.drain() {
+            assert!(
+                !matches!(event, TjEvent::Message(m) if m.msg_type() == MsgType::BusinessMessageReject),
+                "Turbojet received {event:?}"
+            );
+        }
+    }
+}
+
+impl Drop for Pair {
+    fn drop(&mut self) {
+        // Stops the initiator or the accept loop; the acceptor's connection tasks end with the
+        // test's runtime.
+        self.task.abort();
+        if !std::thread::panicking() {
+            assert!(self.finished, "the scenario didn't call Pair::finish");
+            return;
+        }
+        eprintln!("---- unconsumed Turbojet events ----");
+        for event in self.tj.drain() {
+            eprintln!("{event:?}");
+        }
+    }
+}

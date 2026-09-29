@@ -1,0 +1,14 @@
+[package]
+name = "turbojet-fix44"
+description = "FIX 4.4 application messages for Turbojet, generated from the official FIX Orchestra repository"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "protocol", "fix44"]
+categories = ["network-programming", "finance"]
+
+[dependencies]
+turbojet.workspace = true

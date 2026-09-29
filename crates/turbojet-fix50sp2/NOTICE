@@ -1,0 +1,8 @@
+The names and structure of this crate's generated code (fields and their tags, enumerated values
+and their names, repeating groups and messages) are taken from OrchestraFIX50SP2.xml, converted
+from the FIX Unified Repository, 2010 Edition (https://www.fixtrading.org/standards/fix-repository/),
+an extract of the FIX 5.0 SP2 specification, and from FIXTSession.xml (FIXT 1.1), from
+https://github.com/FIXTradingCommunity/orchestrations at commit
+cd24169a2abd8daba7c360987c7a46ca11873a12. Both specifications are Copyright FIX Protocol Limited
+(https://www.fixtrading.org), and the FIX Trading Community licenses these files under the Apache
+License, Version 2.0 (see LICENSE). The specifications' documentation is not reproduced.

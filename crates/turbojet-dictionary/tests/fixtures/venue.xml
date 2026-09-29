@@ -1,0 +1,25 @@
+<fix>
+ <messages>
+  <message name='NewOrderSingle' msgtype='D' msgcat='app'>
+   <field name='ClOrdID' required='Y' />
+   <field name='Side' required='Y' />
+   <field name='VenueFlag' required='N' />
+  </message>
+  <message name='VenueAck' msgtype='U1' msgcat='app'>
+   <field name='ClOrdID' required='Y' />
+   <component name='VenueParties' required='N' />
+  </message>
+ </messages>
+ <components>
+  <component name='VenueParties'>
+   <component name='Parties' required='Y' />
+  </component>
+ </components>
+ <fields>
+  <field number='54' name='Side' type='CHAR'>
+   <value enum='2' description='SELL_ALL' />
+   <value enum='5' description='SELL_SHORT' />
+  </field>
+  <field number='5001' name='VenueFlag' type='BOOLEAN' />
+ </fields>
+</fix>

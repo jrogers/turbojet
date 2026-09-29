@@ -1,0 +1,13 @@
+FIX Orchestra files © FIX Protocol Limited, from
+https://github.com/FIXTradingCommunity/orchestrations at commit
+cd24169a2abd8daba7c360987c7a46ca11873a12, licensed under the Apache License, Version 2.0 (see
+LICENSE).
+
+OrchestraFIX43.xml and OrchestraFIX50SP2.xml are converted (by convert-unified.sh, with the FIX
+Trading Community's unified2orchestra.xslt from fix-orchestra v1.6) from the FIX Unified Repository, 2010 Edition
+(fix_repository_2010_edition_20200402), published by the FIX Trading Community at
+https://www.fixtrading.org/standards/fix-repository/. They are extracts of the FIX 4.3 and FIX 5.0
+SP2 specifications, which are Copyright FIX Protocol Limited (https://www.fixtrading.org); they
+carry the specifications' structure only, without their documentation text. The Community states the
+repository is licensed under the Apache License, Version 2.0 going forward; its files' own terms
+permit extracting portions of the specification with this reference.

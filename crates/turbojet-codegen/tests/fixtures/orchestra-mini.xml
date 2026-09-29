@@ -1,0 +1,191 @@
+<?xml version='1.0' encoding='UTF-8' ?>
+<fixr:repository xmlns:fixr="http://fixprotocol.io/2020/orchestra/repository" name="FIX.4.2" version="FIX.4.2_EP310">
+  <fixr:datatypes>
+    <fixr:datatype name="int" />
+    <fixr:datatype name="NumInGroup" baseType="int" />
+    <fixr:datatype name="float" />
+    <fixr:datatype name="Qty" baseType="float" />
+    <fixr:datatype name="Amt" baseType="float" />
+    <fixr:datatype name="char" />
+    <fixr:datatype name="String" />
+    <fixr:datatype name="UTCTimestamp" />
+  </fixr:datatypes>
+  <fixr:codeSets>
+    <fixr:codeSet id="21" name="HandlInstCodeSet" type="char">
+      <fixr:code id="21001" name="AutomatedExecutionNoIntervention" value="1">
+        <fixr:annotation>
+          <fixr:documentation purpose="SYNOPSIS">
+         Automated execution order, private, no Broker intervention
+      </fixr:documentation>
+        </fixr:annotation>
+      </fixr:code>
+      <fixr:code id="21002" name="AutomatedExecutionInterventionOK" value="2">
+        <fixr:annotation>
+          <fixr:documentation purpose="SYNOPSIS">Automated execution order, public, Broker intervention OK</fixr:documentation>
+        </fixr:annotation>
+      </fixr:code>
+      <fixr:code id="21003" name="ManualOrder" value="3" />
+    </fixr:codeSet>
+    <fixr:codeSet id="22" name="IDSourceCodeSet" type="String">
+      <fixr:code id="22001" name="CUSIP" value="1">
+        <fixr:annotation>
+          <fixr:documentation purpose="SYNOPSIS">CUSIP</fixr:documentation>
+        </fixr:annotation>
+      </fixr:code>
+      <fixr:code id="22004" name="ISINNumber" value="4">
+        <fixr:annotation>
+          <fixr:documentation purpose="SYNOPSIS">ISIN [ISO 6166]</fixr:documentation>
+        </fixr:annotation>
+      </fixr:code>
+    </fixr:codeSet>
+    <fixr:codeSet id="54" name="SideCodeSet" type="char">
+      <fixr:code id="54001" name="Buy" value="1" />
+      <fixr:code id="54002" name="Sell" value="2" />
+      <fixr:code id="54005" name="SellShort" value="5">
+        <fixr:annotation>
+          <fixr:documentation purpose="SYNOPSIS">Sell short</fixr:documentation>
+        </fixr:annotation>
+      </fixr:code>
+    </fixr:codeSet>
+  </fixr:codeSets>
+  <fixr:fields>
+    <fixr:field id="8" name="BeginString" type="String" />
+    <fixr:field id="10" name="CheckSum" type="String" />
+    <fixr:field id="11" name="ClOrdID" type="String">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Unique identifier for Order as assigned by institution. Uniqueness must be guaranteed within a single trading day.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="21" name="HandlInst" type="HandlInstCodeSet">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Instructions for order handling on Broker trading floor</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="22" name="IDSource" type="IDSourceCodeSet">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Identifies class of alternative SecurityID</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="35" name="MsgType" type="String" />
+    <fixr:field id="38" name="OrderQty" type="Qty">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Number of shares ordered.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="48" name="SecurityID" type="String" />
+    <fixr:field id="51" name="SendingDate" type="String" deprecated="FIX.4.0">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">*** DEPRECATED FIELD - See "Deprecated (Phased-out) Features and Supported Approach"
+No longer used. Included here for reference to prior versions.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="54" name="Side" type="SideCodeSet">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Side of order</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="55" name="Symbol" type="String">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Ticker symbol. Use "[N/A]" for products which do not have a symbol.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="58" name="Text" type="String" />
+    <fixr:field id="60" name="TransactTime" type="UTCTimestamp">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Time of execution/order creation (expressed in UTC (Universal Time Coordinated, also known as "GMT")</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="70" name="AllocID" type="String" />
+    <fixr:field id="78" name="NoAllocs" type="NumInGroup">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Number of repeating AllocAccount/AllocPrice entries.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+    <fixr:field id="79" name="AllocAccount" type="String" />
+    <fixr:field id="80" name="AllocShares" type="Qty" />
+    <fixr:field id="112" name="TestReqID" type="String" />
+    <fixr:field id="136" name="NoMiscFees" type="NumInGroup" />
+    <fixr:field id="137" name="MiscFeeAmt" type="Amt">
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">Miscellaneous fee value, e.g. (Qty * Price) * Rate, where:
+1. Qty &lt; 100 is a round lot
+- see http://www.fixtrading.org/ for details
+Refer to SettlDate[64] and &lt;Instrument&gt;. Order # 5.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:field>
+  </fixr:fields>
+  <fixr:components>
+    <fixr:component id="1001" name="StandardHeader">
+      <fixr:fieldRef id="8" presence="required" />
+      <fixr:fieldRef id="35" presence="required" />
+    </fixr:component>
+    <fixr:component id="1002" name="StandardTrailer">
+      <fixr:fieldRef id="10" presence="required" />
+    </fixr:component>
+    <fixr:component id="1003" name="Instrument">
+      <fixr:fieldRef id="55" presence="required" />
+      <fixr:fieldRef id="48" />
+      <fixr:fieldRef id="22" />
+    </fixr:component>
+  </fixr:components>
+  <fixr:groups>
+    <fixr:group id="2003" name="AllocGrp">
+      <fixr:numInGroup id="78" />
+      <fixr:fieldRef id="79" />
+      <fixr:fieldRef id="80" presence="required" />
+      <fixr:groupRef id="2010" />
+    </fixr:group>
+    <fixr:group id="2010" name="MiscFeesGrp">
+      <fixr:numInGroup id="136" />
+      <fixr:fieldRef id="137" />
+    </fixr:group>
+    <fixr:group id="2039" name="PreAllocGrp">
+      <fixr:numInGroup id="78" />
+      <fixr:fieldRef id="79" />
+      <fixr:fieldRef id="80" />
+    </fixr:group>
+  </fixr:groups>
+  <fixr:messages>
+    <fixr:message id="1" name="Heartbeat" msgType="0">
+      <fixr:structure>
+        <fixr:componentRef id="1001" presence="required" />
+        <fixr:fieldRef id="112" />
+        <fixr:componentRef id="1002" presence="required" />
+      </fixr:structure>
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">The Heartbeat monitors the status of the communication link.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:message>
+    <fixr:message id="14" name="NewOrderSingle" msgType="D">
+      <fixr:structure>
+        <fixr:componentRef id="1001" presence="required" />
+        <fixr:fieldRef id="11" presence="required" />
+        <fixr:groupRef id="2039" />
+        <fixr:fieldRef id="21" presence="required" />
+        <fixr:componentRef id="1003" presence="required" />
+        <fixr:fieldRef id="54" presence="required" />
+        <fixr:fieldRef id="60" presence="required" />
+        <fixr:fieldRef id="38" />
+        <fixr:fieldRef id="51" />
+        <fixr:componentRef id="1002" presence="required" />
+      </fixr:structure>
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">The new order message type is used by institutions wishing to electronically submit securities and forex orders to a broker for execution.
+The format of the new order message is as follows:</fixr:documentation>
+      </fixr:annotation>
+    </fixr:message>
+    <fixr:message id="18" name="Allocation" msgType="J">
+      <fixr:structure>
+        <fixr:componentRef id="1001" presence="required" />
+        <fixr:fieldRef id="70" presence="required" />
+        <fixr:fieldRef id="54" presence="required" />
+        <fixr:groupRef id="2003" presence="required" />
+        <fixr:fieldRef id="58" />
+        <fixr:componentRef id="1002" presence="required" />
+      </fixr:structure>
+      <fixr:annotation>
+        <fixr:documentation purpose="SYNOPSIS">The Allocation message provides the ability to specify how an order or set of orders should be subdivided amongst one or more accounts.</fixr:documentation>
+      </fixr:annotation>
+    </fixr:message>
+  </fixr:messages>
+</fixr:repository>

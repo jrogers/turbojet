@@ -1,0 +1,38 @@
+name: Fuzz
+
+# Fuzzes every target in crates/turbojet/fuzz for a while each night, rather than on every push;
+# CI only checks that they build. Run it by hand for a longer or shorter session.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: "600"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/turbojet/fuzz
+      - run: scripts/fuzz.sh ${{ inputs.seconds || 600 }}
+      # The inputs that failed, to replay locally (see crates/turbojet/fuzz/README.md).
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: fuzz-artifacts
+          path: crates/turbojet/fuzz/artifacts/

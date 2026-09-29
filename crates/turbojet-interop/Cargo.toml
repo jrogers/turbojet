@@ -1,0 +1,15 @@
+[package]
+name = "turbojet-interop"
+description = "Interoperability tests: Turbojet sessions against QuickFIX/J"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+tempfile.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true
+turbojet.workspace = true
