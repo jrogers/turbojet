@@ -68,12 +68,7 @@ published on crates.io on 2026-09-29.
 
 ## 1. Following up the first release
 
-- **Fix the README on crates.io** (S). `turbojet` uses the repository's README, and crates.io
-  resolves its relative links and logo against the crate's directory (`crates/turbojet/`), so they
-  all lead to missing pages there. The published README also predates the crates.io badge. Make
-  the links absolute and release 0.1.1.
-- **Link the API docs** (S). Link docs.rs from the README once every crate's docs have built
-  there; `turbojet-fix50sp2`'s were still building on 2026-09-29.
+Nothing left: the crates.io and docs.rs pages are linked and render correctly.
 
 ## 2. Protocol completeness
 
