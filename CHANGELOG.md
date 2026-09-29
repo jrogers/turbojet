@@ -2,6 +2,10 @@
 
 Notable changes to the published crates.
 
+## `turbojet` 0.1.1 (2026-09-29)
+
+- The README's links and logo work on crates.io, and it shows the crates.io badge.
+
 ## 0.1.0 (2026-09-29)
 
 The first release.

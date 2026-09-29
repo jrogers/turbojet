@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/logo.svg" width="120" alt=""></p>
+<p align="center"><img src="https://raw.githubusercontent.com/jrogers/turbojet/main/assets/logo.svg" width="120" alt=""></p>
 
 <h1 align="center">turbojet</h1>
 
@@ -13,28 +13,28 @@
 > QuickFIX/J, in CI; passes 221 of QuickFIX's 235 scripted session acceptance scenarios (the rest
 > are listed with their reasons); and has its parsers and session state machine fuzzed. It hasn't
 > been certified with any venue or run against a real counterparty, its APIs will change before
-> 1.0, and it has known gaps (see [ROADMAP.md](ROADMAP.md)). Don't use it to trade real money or to
+> 1.0, and it has known gaps (see [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md)). Don't use it to trade real money or to
 > connect to real counterparties without testing it thoroughly yourself. It is provided as is,
 > without warranty of any kind; see the licenses below.
 
-**Turbojet** ([`crates/turbojet`](crates/turbojet)) is a FIX engine in Rust (tokio): codec,
+**Turbojet** ([`crates/turbojet`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet)) is a FIX engine in Rust (tokio): codec,
 session layer, storage, `Acceptor` and `Initiator`, with typed messages for FIX 4.2, 4.3, 4.4 and
 5.0 SP2. Its examples are an order-entry gateway (an `Application` served by an `Acceptor`, in
-[`examples/gateway`](crates/turbojet/examples/gateway)) and a client for it (an `Initiator`).
+[`examples/gateway`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet/examples/gateway)) and a client for it (an `Initiator`).
 The gateway needs the `tls`, `metrics` and `tz` features, the client `tls`.
 
 Typed application messages are generated from FIX data dictionaries:
-[`turbojet-dictionary`](crates/turbojet-dictionary) loads FIX Orchestra and QuickFIX-format XML
-and merges venue customisations onto it, [`turbojet-codegen`](crates/turbojet-codegen) generates
+[`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary) loads FIX Orchestra and QuickFIX-format XML
+and merges venue customisations onto it, [`turbojet-codegen`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-codegen) generates
 messages, groups and enums from it (from a `build.rs`, or as a command), and
-[`turbojet-fix42`](crates/turbojet-fix42), [`turbojet-fix43`](crates/turbojet-fix43),
-[`turbojet-fix44`](crates/turbojet-fix44) and [`turbojet-fix50sp2`](crates/turbojet-fix50sp2) are
+[`turbojet-fix42`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix42), [`turbojet-fix43`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix43),
+[`turbojet-fix44`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix44) and [`turbojet-fix50sp2`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix50sp2) are
 every FIX 4.2, 4.3, 4.4 and 5.0 SP2 application message, generated from the FIX Trading
 Community's official data and checked in.
 
 CI runs Turbojet's sessions against QuickFIX/J, in both roles, on FIX 4.2, 4.3 and 4.4 and on
-FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](crates/turbojet-interop)), and through QuickFIX's
-235 scripted session acceptance scenarios ([`turbojet-acceptance`](crates/turbojet-acceptance)).
+FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), and through QuickFIX's
+235 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
 
 ```sh
 cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --comp-id GATEWAY \
@@ -68,7 +68,7 @@ Turbojet aims to be a FIX engine that a trading or order execution system can bu
   transports are traits or plain streams you can replace.
 - **Tested.** CI tests every feature combination and the minimum supported Rust version, and
   checks every dependency's licence and known advisories. Planned work is in
-  [ROADMAP.md](ROADMAP.md). Until a 1.0 release, APIs may still change (see the warning above).
+  [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md). Until a 1.0 release, APIs may still change (see the warning above).
 
 ## Using the engine
 
@@ -496,7 +496,7 @@ discards messages (storage is measured separately). Session benchmarks restart t
 
 ## Limitations
 
-See [ROADMAP.md](ROADMAP.md) for the planned work. In brief:
+See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for the planned work. In brief:
 
 - Gateway orders live in memory; a restart keeps session state but forgets orders, and orders
   are acknowledged but not routed or matched.
@@ -508,13 +508,13 @@ See [ROADMAP.md](ROADMAP.md) for the planned work. In brief:
 
 ## Releases and security
 
-Releases and what changed in each are in [CHANGELOG.md](CHANGELOG.md). Report security problems
-privately, as [SECURITY.md](SECURITY.md) describes, not in a public issue. CI checks every
-dependency's licence and known advisories with `cargo deny` ([deny.toml](deny.toml)).
+Releases and what changed in each are in [CHANGELOG.md](https://github.com/jrogers/turbojet/blob/main/CHANGELOG.md). Report security problems
+privately, as [SECURITY.md](https://github.com/jrogers/turbojet/blob/main/SECURITY.md) describes, not in a public issue. CI checks every
+dependency's licence and known advisories with `cargo deny` ([deny.toml](https://github.com/jrogers/turbojet/blob/main/deny.toml)).
 
 ## License
 
-Licensed under the Apache License, Version 2.0 ([LICENSE](LICENSE) or
+Licensed under the Apache License, Version 2.0 ([LICENSE](https://github.com/jrogers/turbojet/blob/main/LICENSE) or
 <http://www.apache.org/licenses/LICENSE-2.0>).
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in
@@ -523,13 +523,13 @@ additional terms or conditions.
 
 ### Third-party data
 
-The FIX Orchestra files in [`dictionaries/orchestra`](dictionaries/orchestra) are © FIX Protocol
+The FIX Orchestra files in [`dictionaries/orchestra`](https://github.com/jrogers/turbojet/tree/main/dictionaries/orchestra) are © FIX Protocol
 Limited and licensed under the Apache License, Version 2.0 (see the `LICENSE` and `NOTICE` there);
 `OrchestraFIX43.xml` and `OrchestraFIX50SP2.xml` are converted from the FIX Unified Repository,
 as the `NOTICE` there explains. The generated crates take their names and structure from them, but
 don't reproduce their documentation; see their `NOTICE` files.
 
 The session acceptance scripts in
-[`crates/turbojet-acceptance/definitions`](crates/turbojet-acceptance/definitions) are QuickFIX's,
+[`crates/turbojet-acceptance/definitions`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance/definitions) are QuickFIX's,
 under the QuickFIX Software License (the `LICENSE` there). This product includes software developed
 by quickfixengine.org (http://www.quickfixengine.org/).
