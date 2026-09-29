@@ -63,17 +63,17 @@ later, with:
   resent (`Context::maybe_redelivered`).
 
 It has been tested against one other FIX engine (QuickFIX/J) and QuickFIX's scripted session
-scenarios, but not yet with any venue or real counterparty.
+scenarios, but not yet with any venue or real counterparty. Version 0.1.0 of all seven crates was
+published on crates.io on 2026-09-29.
 
-## 1. Before a first release
+## 1. Following up the first release
 
-Needed before Turbojet is published or connected to a real counterparty.
-
-- **Publish** (S). The crate names were free on crates.io on 2026-09-29, and `cargo package
-  --workspace` packages and verifies all seven. On the day: date the 0.1.0 entry in
-  `CHANGELOG.md`, make this repository public, turn on GitHub's private vulnerability reporting
-  (see `SECURITY.md`), and `cargo publish --workspace`. Then check how crates.io renders the
-  README, and link the API docs on docs.rs from it once they have built there.
+- **Fix the README on crates.io** (S). `turbojet` uses the repository's README, and crates.io
+  resolves its relative links and logo against the crate's directory (`crates/turbojet/`), so they
+  all lead to missing pages there. The published README also predates the crates.io badge. Make
+  the links absolute and release 0.1.1.
+- **Link the API docs** (S). Link docs.rs from the README once every crate's docs have built
+  there; `turbojet-fix50sp2`'s were still building on 2026-09-29.
 
 ## 2. Protocol completeness
 
