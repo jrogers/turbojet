@@ -70,12 +70,10 @@ scenarios, but not yet with any venue or real counterparty.
 Needed before Turbojet is published or connected to a real counterparty.
 
 - **Publish** (S). The crate names were free on crates.io on 2026-09-29, and `cargo package
-  --workspace` packages and verifies all seven. The public repository keeps this one's URL,
-  github.com/jrogers/turbojet, which the crates' metadata and the README's badge name. On the day:
-  rename this repository (it keeps the history), squash the history into a fresh public
-  repository at the old URL, turn on GitHub's private vulnerability reporting (see `SECURITY.md`),
-  date the 0.1.0 entry in `CHANGELOG.md`, and `cargo publish --workspace`. Then link the API docs
-  on docs.rs from the README, once they have built there.
+  --workspace` packages and verifies all seven. On the day: date the 0.1.0 entry in
+  `CHANGELOG.md`, make this repository public, turn on GitHub's private vulnerability reporting
+  (see `SECURITY.md`), and `cargo publish --workspace`. Then check how crates.io renders the
+  README, and link the API docs on docs.rs from it once they have built there.
 
 ## 2. Protocol completeness
 
