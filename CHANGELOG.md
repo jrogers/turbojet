@@ -2,7 +2,7 @@
 
 Notable changes to the published crates.
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-09-29)
 
 The first release.
 
