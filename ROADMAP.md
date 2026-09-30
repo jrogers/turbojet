@@ -30,6 +30,9 @@ later, with:
   which the gateway does on SIGINT and SIGTERM;
 - a malformed body field (no `=`, an invalid tag, non-UTF-8 data) answered with a Reject rather
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
+- data fields (RawData, XmlData, the Encoded* fields, a venue's own) carrying any bytes, SOH
+  included: decoded by the length their Length field gives, stored and resent intact, checked on
+  the way out, and typed as `Vec<u8>`;
 - memory and disk session storage, session schedules, and operator control of sequence numbers;
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 1.2 µs per order → ack of session processing, and 490k msg/s
@@ -42,9 +45,9 @@ later, with:
   session state machine (`crates/turbojet/fuzz`, `scripts/fuzz.sh`), fuzzed nightly in CI;
 - sessions tested against QuickFIX/J in CI (`turbojet-interop`), with Turbojet as initiator and as
   acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2: logon and logout, reconnection,
-  heartbeats and TestRequests, application messages, gap fills and resends in each direction,
-  SequenceReset-Reset and MsgSeqNum too low. They found Heartbeats going out a second late,
-  since fixed.
+  heartbeats and TestRequests, application messages (one with XmlData containing SOH), gap fills
+  and resends in each direction, SequenceReset-Reset and MsgSeqNum too low. They found Heartbeats
+  going out a second late, since fixed.
 - QuickFIX's 235 scripted session acceptance scenarios, which cover the FIX specification's
   session test cases, run on every build (`turbojet-acceptance`). They found four deviations from
   the spec's test cases, since fixed; 221 pass, and the 14 that fail are listed with their reasons
@@ -120,13 +123,11 @@ Orchestra.
 
 ## 4. Encoding and data types
 
-- **Binary data fields** (M). Length-prefixed fields (RawData 95/96, XmlData, SecureData, the
-  Encoded* fields) may contain the SOH delimiter, but the codec splits on SOH and mangles them.
-  Decoding needs to use the preceding length field to consume the value.
-- **Non-UTF-8 text** (S). Values must be UTF-8 today; a value in another encoding
-  (MessageEncoding 347) in a body field is rejected with SessionRejectReason 6. In a header field
-  the session relies on (MsgType, the CompIDs, MsgSeqNum, SendingTime), the message is ignored as
-  garbled.
+- **Non-UTF-8 text** (S). Text in another encoding (MessageEncoding 347) belongs in the Encoded*
+  data fields, which carry it intact but only as bytes: nothing decodes it. Decoding by
+  MessageEncoding (Shift_JIS, say) would need an encoding crate. Outside data fields, a value
+  that isn't UTF-8 is rejected with SessionRejectReason 6, and in a header field the session
+  relies on (MsgType, the CompIDs, MsgSeqNum, SendingTime) the message is ignored as garbled.
 - **More field types** (S). UTCTimeOnly, UTCDateOnly, LocalMktDate, MonthYear,
   MultipleValueString, single-`char` fields, and microsecond/nanosecond timestamps (output is
   currently always milliseconds). Generated messages carry the date and time types as `String`

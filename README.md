@@ -505,7 +505,6 @@ See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for t
   grows until a sequence reset, with no rotation.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
-- No raw-data fields (tags containing SOH).
 
 ## Releases and security
 

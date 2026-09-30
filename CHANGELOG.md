@@ -2,6 +2,36 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- Data fields carry any bytes, including SOH and bytes that aren't UTF-8: RawData, SecureData,
+  XmlData, the Encoded* fields and the rest FIX pairs with a Length field (`DataFields`), and a
+  venue's own (`SessionConfig::with_data_field`, or from the session's dictionary). Each is decoded
+  by the length its Length field gives, stored and resent intact, and read with
+  `Message::get_bytes` or `Message::fields_bytes`; `Message::set_data` writes one with its length.
+- A data field whose Length field doesn't give its length is rejected (SessionRejectReason 6, or 5
+  from validation), and an outbound message with one isn't sent, as with SOH in any other field.
+- Breaking: `Message::get` and `Message::fields` leave out a data field whose value isn't UTF-8.
+- Breaking: `fix_message!` and `fix_group!` declare data fields as `data` or `opt_data`, with both
+  tags (`LEN => DATA`), holding `Vec<u8>`; `GroupSpec` has a `lengths` field for them.
+  `SessionConfig` has a `data_fields` field, and `SessionLog` a provided `set_data_fields` method.
+- Logs show binary values by their length, and redact RawData, SecureData, EncryptedPassword and
+  EncryptedNewPassword.
+- `DiskStorage` checks only each stored message's framing when it opens; the message is parsed
+  when it's read for a resend.
+- Decoding is about 45% faster.
+
+### `turbojet-dictionary`
+
+- `Dictionary::data_fields` pairs each data field with the Length field listed before it.
+
+### `turbojet-codegen` and the version crates
+
+- Breaking: data fields are generated as `Vec<u8>` (`data` or `opt_data`), and their Length fields
+  are no longer fields of their own.
+
 ## `turbojet` 0.1.1 (2026-09-29)
 
 - The README's links and logo work on crates.io, and it shows the crates.io badge.
