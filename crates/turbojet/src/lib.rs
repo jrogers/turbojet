@@ -132,7 +132,7 @@
 //!     tokio::spawn(client.clone().run());
 //!
 //!     let session = logged_on.recv().await.expect("logged on");
-//!     let mut order = NewOrderSingle::new("order-1", Side::Buy, chrono::Utc::now(), OrdType::Market);
+//!     let mut order = NewOrderSingle::new("order-1", Side::Buy, turbojet::fields::UtcTimestamp::now(), OrdType::Market);
 //!     order.symbol = Some("ACME".into());
 //!     order.order_qty = Some(Decimal::from(100));
 //!     session.send(order)?;

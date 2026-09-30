@@ -21,10 +21,11 @@ use crate::admin::{
 };
 use crate::application::{Application, Context, MessageReject};
 use crate::fields::{
-    ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Secret, SessionRejectReason, ToFix, UtcTimestamp,
+    ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
+    UtcTimestamp,
 };
 use crate::initiator::InitiatorConfig;
-use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags, utc_timestamp};
+use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags};
 use crate::peer::ConnectionInfo;
 use crate::registry::{
     Command, CommandReceiver, CommandSender, SequenceCommand, SequenceError, SequenceNumbers, SessionRegistry,
@@ -74,6 +75,9 @@ pub struct SessionConfig {
     pub check_orig_sending_time: bool,
     /// Reject a message with a header field after a body field (14). On by default.
     pub check_header_order: bool,
+    /// How SendingTime(52) is written, on resends and gap fills too: milliseconds by default.
+    /// A resend's OrigSendingTime(122) is copied as it was first sent.
+    pub timestamp_precision: Precision,
     /// The data fields: each is as long as the Length field before it says, and may contain SOH
     /// and bytes that aren't UTF-8. The standard ones by default; add a venue's own with
     /// [`with_data_field`](Self::with_data_field).
@@ -103,6 +107,7 @@ impl SessionConfig {
             max_latency: Some(Duration::from_secs(120)),
             check_orig_sending_time: true,
             check_header_order: true,
+            timestamp_precision: Precision::Millis,
             data_fields: DataFields::standard(),
             appl_versions: Vec::new(),
             #[cfg(feature = "validation")]
@@ -998,14 +1003,14 @@ impl Session {
         let period = self.period;
         let log = &mut self.peer_mut().log;
         match (log.created_at(), period) {
-            (Some(created), Some(period)) if created < period.start => {
+            (Some(created), Some(period)) if created.time() < period.start => {
                 info!(%created, period_start = %period.start, "new session period: resetting sequence numbers");
                 log.reset()?;
-                log.set_created_at(now)?;
+                log.set_created_at(now.into())?;
             }
             (Some(_), _) => {}
             (None, _) => {
-                log.set_created_at(now)?;
+                log.set_created_at(now.into())?;
                 if period.is_some() && log.created_at().is_none() {
                     warn!("session store does not record creation times; sequence numbers will not reset on schedule");
                 }
@@ -1028,7 +1033,7 @@ impl Session {
         let now = self.config.clock.now();
         let log = &mut self.peer_mut().log;
         log.reset()?;
-        log.set_created_at(now)?;
+        log.set_created_at(now.into())?;
         self.update_sequence_gauges();
         Ok(())
     }
@@ -1222,7 +1227,7 @@ impl Session {
         let max = self.config.max_latency?;
         let sent: UtcTimestamp = msg.opt_field(tags::SENDING_TIME).ok()??;
         let now = self.config.clock.now();
-        let off = (now - sent).abs().to_std().unwrap_or(Duration::MAX);
+        let off = (now - sent.time()).abs().to_std().unwrap_or(Duration::MAX);
         (off > max).then(|| format!("SendingTime accuracy problem: {}s from our clock", off.as_secs()))
     }
 
@@ -1441,7 +1446,7 @@ impl Session {
     fn resend(&mut self, begin: u64, end: u64, now: Instant) {
         info!(begin, end, "resending messages");
 
-        let now_ts = utc_timestamp();
+        let now_ts = UtcTimestamp::now().with_precision(self.config.timestamp_precision).to_fix();
         let stored = match self.peer_mut().log.sent_messages(begin, end) {
             Ok(stored) => stored,
             Err(e) => return self.storage_failed(e),
@@ -1601,7 +1606,8 @@ impl Session {
             return;
         }
         let seq = self.peer().log.next_outgoing();
-        let msg = self.frame(&body, seq, chrono::Utc::now(), None);
+        let sending_time = UtcTimestamp::now().with_precision(self.config.timestamp_precision);
+        let msg = self.frame(&body, seq, sending_time, None);
         // With more than one version, the default may differ on a later connection, so the stored
         // copy states its version for resends to keep.
         let versioned;

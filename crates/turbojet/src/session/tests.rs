@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::fields::ApplVerId;
+use crate::message::utc_timestamp;
 use crate::peer::{ConnectionInfo, PeerCertificate};
 use crate::registry::SessionHandle;
 use crate::store::{MemoryStorage, SessionStorage};
@@ -614,7 +615,7 @@ fn resend_of(msg: Message) -> Message {
 // ---- Stricter checks ----
 
 fn at_offset(msg: Message, secs: i64) -> Message {
-    let time = chrono::Utc::now() + chrono::TimeDelta::seconds(secs);
+    let time = UtcTimestamp::now() + chrono::TimeDelta::seconds(secs);
     msg.with(tags::SENDING_TIME, time)
 }
 
@@ -679,7 +680,7 @@ fn orig_sending_time_after_sending_time_logs_out() {
     let h = Harness::new();
     let mut s = h.logged_on();
     s.on_message(client(2, MsgType::Heartbeat), h.t0);
-    let later = (chrono::Utc::now() + chrono::TimeDelta::seconds(10)).to_fix();
+    let later = (UtcTimestamp::now() + chrono::TimeDelta::seconds(10)).to_fix();
     let out = s.on_message(resend_of(client(2, MsgType::Heartbeat)).with(tags::ORIG_SENDING_TIME, later), h.t0);
     assert_eq!(types(&out), ["Reject", "Logout"]);
     assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("10"));
@@ -1332,6 +1333,23 @@ fn venue_data_fields_are_resent_intact_from_disk() {
     let out = s.on_message(logon(2).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0);
     let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ExecutionReport).expect("resent");
     assert_eq!(resent.get_bytes(5001), Some(&b"\xfe\x0110=000\x01"[..]));
+}
+
+#[test]
+fn sending_time_is_written_at_the_configured_precision() {
+    let mut h = Harness::new();
+    h.config.timestamp_precision = Precision::Micros;
+    let mut s = h.logged_on(); // our 1: Logon
+    let out = s.on_command(send_command("A"), h.t0);
+    let sending_time = sent(&out)[0].get(tags::SENDING_TIME).unwrap().to_string();
+    assert_eq!(sending_time.len(), "YYYYMMDD-HH:MM:SS.ffffff".len(), "{sending_time}");
+
+    // A resend keeps the original as OrigSendingTime, and is itself sent in microseconds.
+    let req = client(2, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "2").with(tags::END_SEQ_NO, "0");
+    let out = s.on_message(req, h.t0);
+    let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::NewOrderSingle).expect("resent");
+    assert_eq!(resent.get(tags::ORIG_SENDING_TIME), Some(sending_time.as_str()));
+    assert_eq!(resent.get(tags::SENDING_TIME).unwrap().len(), sending_time.len());
 }
 
 fn send_command(cl_ord_id: &str) -> Command {

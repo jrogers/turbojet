@@ -9,10 +9,10 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use chrono::Utc;
 use tracing::info;
 use turbojet::MessageReject;
 use turbojet::fields::Decimal;
+use turbojet::fields::UtcTimestamp;
 use turbojet::message::tags;
 use turbojet_fix42::{
     CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, NewOrderSingle, OrdRejReason, OrdStatus,
@@ -275,7 +275,7 @@ impl OrderManager {
                 );
                 report.ord_rej_reason = Some(OrdRejReason::UnknownOrder);
                 report.account = request.account.clone();
-                report.transact_time = Some(Utc::now());
+                report.transact_time = Some(UtcTimestamp::now());
                 report.text = Some(format!("Unknown order '{}'", request.cl_ord_id));
                 report
             }
@@ -311,7 +311,7 @@ impl OrderManager {
         report.ord_type = Some(order.ord_type);
         report.price = order.price;
         report.time_in_force = order.time_in_force;
-        report.transact_time = Some(Utc::now());
+        report.transact_time = Some(UtcTimestamp::now());
         report
     }
 
@@ -359,7 +359,7 @@ mod tests {
             HandlInst::AutomatedExecutionNoIntervention,
             "AAPL",
             Side::Buy,
-            Utc::now(),
+            UtcTimestamp::now(),
             OrdType::Limit,
         );
         order.order_qty = Some(dec("100"));
@@ -368,7 +368,7 @@ mod tests {
     }
 
     fn cancel(cl_ord_id: &str, orig: &str) -> OrderCancelRequest {
-        OrderCancelRequest::new(orig, cl_ord_id, "AAPL", Side::Buy, Utc::now())
+        OrderCancelRequest::new(orig, cl_ord_id, "AAPL", Side::Buy, UtcTimestamp::now())
     }
 
     #[test]
@@ -459,7 +459,7 @@ mod tests {
             order.handl_inst,
             order.symbol,
             order.side,
-            Utc::now(),
+            UtcTimestamp::now(),
             order.ord_type,
         );
         request.order_qty = Some(dec(qty));

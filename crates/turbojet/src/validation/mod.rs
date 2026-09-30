@@ -19,7 +19,10 @@ use std::sync::Arc;
 
 use turbojet_dictionary::{Dictionary, Field, FieldType, Member, Protocol, Release};
 
-use crate::fields::{Decimal, FromFix, MsgType, SessionRejectReason, UtcTimestamp};
+use crate::fields::{
+    Decimal, FromFix, MonthYear, MsgType, NaiveDate, SessionRejectReason, TzTimeOnly, TzTimestamp, UtcTimeOnly,
+    UtcTimestamp,
+};
 use crate::message::{Message, is_header_or_trailer, tags};
 
 #[cfg(test)]
@@ -484,8 +487,13 @@ fn in_format(ty: &FieldType, value: &str) -> bool {
         | FieldType::Amt
         | FieldType::Percentage => Decimal::from_fix(value).is_ok(),
         FieldType::Boolean => bool::from_fix(value).is_ok(),
-        FieldType::Char => value.chars().count() == 1,
+        FieldType::Char => char::from_fix(value).is_ok(),
         FieldType::UtcTimestamp => UtcTimestamp::from_fix(value).is_ok(),
+        FieldType::UtcTimeOnly => UtcTimeOnly::from_fix(value).is_ok(),
+        FieldType::UtcDateOnly | FieldType::UtcDate | FieldType::LocalMktDate => NaiveDate::from_fix(value).is_ok(),
+        FieldType::MonthYear => MonthYear::from_fix(value).is_ok(),
+        FieldType::TzTimeOnly => TzTimeOnly::from_fix(value).is_ok(),
+        FieldType::TzTimestamp => TzTimestamp::from_fix(value).is_ok(),
         _ => true,
     }
 }

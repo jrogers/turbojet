@@ -5,13 +5,13 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 use turbojet::admin::{Logon, ResendRequest};
 use turbojet::codec::{Decoded, decode, encode};
 use turbojet::fields::EncryptMethod;
+use turbojet::fields::UtcTimestamp;
 use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::{Acceptor, DiskStorage, MemoryStorage, MsgType, SessionConfig, SessionId, SessionStorage};
 use turbojet_fix42::{
@@ -138,7 +138,7 @@ fn limit_order(cl_ord_id: &str, qty: &str, price: &str) -> NewOrderSingle {
         HandlInst::AutomatedExecutionNoIntervention,
         "AAPL",
         Side::Buy,
-        Utc::now(),
+        UtcTimestamp::now(),
         OrdType::Limit,
     );
     order.order_qty = Some(qty.parse().unwrap());
@@ -147,7 +147,7 @@ fn limit_order(cl_ord_id: &str, qty: &str, price: &str) -> NewOrderSingle {
 }
 
 fn cancel(cl_ord_id: &str, orig_cl_ord_id: &str) -> OrderCancelRequest {
-    OrderCancelRequest::new(orig_cl_ord_id, cl_ord_id, "AAPL", Side::Buy, Utc::now())
+    OrderCancelRequest::new(orig_cl_ord_id, cl_ord_id, "AAPL", Side::Buy, UtcTimestamp::now())
 }
 
 #[tokio::test]

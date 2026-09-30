@@ -257,7 +257,7 @@ pub fn is_header_or_trailer(tag: u32) -> bool {
 
 /// Current time in FIX UTCTimestamp format with milliseconds.
 pub fn utc_timestamp() -> String {
-    chrono::Utc::now().to_fix()
+    crate::fields::UtcTimestamp::now().to_fix()
 }
 
 /// A FIX message: an ordered list of tag/value fields.

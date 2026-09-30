@@ -15,6 +15,8 @@ const DICT: &str = "<fix type='FIX' major='4' minor='4'>
    <field name='OrderQty' required='N'/>
    <field name='ExecInst' required='N'/>
    <field name='TransactTime' required='N'/>
+   <field name='TradeDate' required='N'/>
+   <field name='MaturityMonthYear' required='N'/>
    <component name='Instrument' required='Y'/>
    <group name='NoAllocs' required='N'>
     <field name='AllocAccount' required='Y'/>
@@ -47,6 +49,8 @@ const DICT: &str = "<fix type='FIX' major='4' minor='4'>
    <value enum='1' description='NOT_HELD'/><value enum='G' description='ALL_OR_NONE'/>
   </field>
   <field number='60' name='TransactTime' type='UTCTIMESTAMP'/>
+  <field number='75' name='TradeDate' type='LOCALMKTDATE'/>
+  <field number='200' name='MaturityMonthYear' type='MONTHYEAR'/>
   <field number='55' name='Symbol' type='STRING'/>
   <field number='78' name='NoAllocs' type='NUMINGROUP'/>
   <field number='79' name='AllocAccount' type='STRING'/>
@@ -123,9 +127,10 @@ fn required_tags_including_components_and_group_entries() {
 #[test]
 fn values_and_formats() {
     let v = validator();
+    assert_eq!(v.validate(&msg("11=A|54=1|75=20261231|200=202612w3|55=AAPL|")), Ok(()));
     assert_eq!(failure(&v, "11=A|54=9|55=AAPL|"), (Some(54), Some(SessionRejectReason::ValueIsIncorrect)));
     assert_eq!(failure(&v, "11=A|54=1|18=1 Z|55=AAPL|"), (Some(18), Some(SessionRejectReason::ValueIsIncorrect)));
-    for bad in ["38=ten|", "38=1e3|", "60=yesterday|"] {
+    for bad in ["38=ten|", "38=1e3|", "60=yesterday|", "75=20261301|", "200=202613|"] {
         let body = format!("11=A|54=1|{bad}55=AAPL|");
         assert_eq!(failure(&v, &body).1, Some(SessionRejectReason::IncorrectDataFormat), "{bad}");
     }

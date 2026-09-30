@@ -202,14 +202,15 @@ mod tests {
                     HandlInst::AutomatedExecutionNoIntervention,
                     "AAPL",
                     Side::Buy,
-                    chrono::Utc::now(),
+                    turbojet::fields::UtcTimestamp::now(),
                     OrdType::Market,
                 );
                 order.order_qty = Some(qty.into());
                 order
             };
-            let cancel =
-                |id: &str, orig: &str| OrderCancelRequest::new(orig, id, "AAPL", Side::Buy, chrono::Utc::now());
+            let cancel = |id: &str, orig: &str| {
+                OrderCancelRequest::new(orig, id, "AAPL", Side::Buy, turbojet::fields::UtcTimestamp::now())
+            };
             let mut ctx = Context::new(&session);
             let messages: [Message; 4] =
                 [order("A", 10).into(), order("B", 0).into(), cancel("X", "A").into(), cancel("Y", "missing").into()];

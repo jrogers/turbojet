@@ -102,7 +102,7 @@ pub(crate) fn apply_sequence_command(
         }
         SequenceCommand::Reset => {
             log.reset()?;
-            log.set_created_at(clock.now())?;
+            log.set_created_at(clock.now().into())?;
         }
     }
     Ok(SequenceNumbers { next_incoming: log.next_incoming(), next_outgoing: log.next_outgoing() })

@@ -5,8 +5,8 @@ use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use chrono::Utc;
 use turbojet::fields::Decimal;
+use turbojet::fields::UtcTimestamp;
 use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, MessageReject, SessionId};
@@ -21,7 +21,7 @@ pub fn new_order_single(cl_ord_id: u64) -> NewOrderSingle {
         HandlInst::AutomatedExecutionNoIntervention,
         "AAPL",
         Side::Buy,
-        Utc::now(),
+        UtcTimestamp::now(),
         OrdType::Limit,
     );
     order.account = Some("ACCT-001".into());
@@ -56,7 +56,7 @@ pub fn ack(order: NewOrderSingle, id: u64) -> ExecutionReport {
     report.ord_type = Some(order.ord_type);
     report.price = order.price;
     report.time_in_force = order.time_in_force;
-    report.transact_time = Some(Utc::now());
+    report.transact_time = Some(UtcTimestamp::now());
     report
 }
 

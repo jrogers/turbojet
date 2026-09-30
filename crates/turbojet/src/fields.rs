@@ -6,14 +6,14 @@ use std::fmt::{self, Write as _};
 use std::str::FromStr;
 
 use std::borrow::Cow;
-use std::cell::Cell;
-
-use chrono::{DateTime, Datelike, NaiveDateTime, Timelike, Utc};
 
 pub use rust_decimal::Decimal;
 
-/// UTCTimestamp.
-pub type UtcTimestamp = DateTime<Utc>;
+mod time;
+
+pub use time::{
+    DayOrWeek, MonthYear, NaiveDate, NaiveTime, Precision, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
+};
 
 /// Why a raw field value could not be converted to its type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,6 +211,42 @@ impl FromFix for String {
     }
 }
 
+/// char: exactly one character.
+impl FromFix for char {
+    fn from_fix(s: &str) -> Result<Self, ValueError> {
+        let mut chars = s.chars();
+        match (chars.next(), chars.next()) {
+            (Some(c), None) => Ok(c),
+            _ => Err(ValueError::Format),
+        }
+    }
+}
+
+impl ToFix for char {
+    fn write_fix(&self, out: &mut String) {
+        out.push(*self)
+    }
+}
+
+/// MultipleCharValue, MultipleStringValue and MultipleValueString: values separated by single
+/// spaces, e.g. ExecInst(18) `1 G`. An empty value, or a doubled space, is a format error.
+impl<T: FromFix> FromFix for Vec<T> {
+    fn from_fix(s: &str) -> Result<Self, ValueError> {
+        s.split(' ').map(|value| if value.is_empty() { Err(ValueError::Format) } else { T::from_fix(value) }).collect()
+    }
+}
+
+impl<T: ToFix> ToFix for Vec<T> {
+    fn write_fix(&self, out: &mut String) {
+        for (i, value) in self.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            value.write_fix(out);
+        }
+    }
+}
+
 macro_rules! unsigned {
     ($($ty:ty),*) => {$(
         impl FromFix for $ty {
@@ -288,79 +324,6 @@ impl ToFix for Decimal {
     fn write_fix(&self, out: &mut String) {
         write!(out, "{self}").expect("writing to a String cannot fail")
     }
-}
-
-/// `YYYYMMDD-HH:MM:SS` with an optional fraction of 1 to 9 digits; always sent with milliseconds.
-impl FromFix for UtcTimestamp {
-    fn from_fix(s: &str) -> Result<Self, ValueError> {
-        let b = s.as_bytes();
-        let digits = |range: std::ops::Range<usize>| b.get(range).is_some_and(|d| d.iter().all(u8::is_ascii_digit));
-        let shape = b.len() >= 17
-            && digits(0..8)
-            && b[8] == b'-'
-            && digits(9..11)
-            && b[11] == b':'
-            && digits(12..14)
-            && b[14] == b':'
-            && digits(15..17)
-            && (b.len() == 17 || (b[17] == b'.' && (19..=27).contains(&b.len()) && digits(18..b.len())));
-        if !shape {
-            return Err(ValueError::Format);
-        }
-        NaiveDateTime::parse_from_str(s, "%Y%m%d-%H:%M:%S%.f").map(|t| t.and_utc()).map_err(|_| ValueError::Format)
-    }
-}
-
-impl ToFix for UtcTimestamp {
-    fn write_fix(&self, out: &mut String) {
-        let millis = self.timestamp_subsec_millis();
-        // Leap seconds and years outside 0..=9999 are rare enough to leave to chrono.
-        if millis >= 1000 || !(0..=9999).contains(&self.year()) {
-            write!(out, "{}", self.format("%Y%m%d-%H:%M:%S%.3f")).expect("writing to a String cannot fail");
-            return;
-        }
-        out.push_str(std::str::from_utf8(&seconds_prefix(self)).expect("ASCII"));
-        out.push('.');
-        out.push(char::from(b'0' + (millis / 100) as u8));
-        out.push(char::from(b'0' + (millis / 10 % 10) as u8));
-        out.push(char::from(b'0' + (millis % 10) as u8));
-    }
-}
-
-thread_local! {
-    /// The most recently formatted second on this thread: (Unix seconds, `YYYYMMDD-HH:MM:SS`).
-    static SECONDS_PREFIX: Cell<(i64, [u8; 17])> = const { Cell::new((i64::MIN, [0; 17])) };
-}
-
-/// `YYYYMMDD-HH:MM:SS` for `time`, which must have a four-digit year. Cached per thread, since
-/// a busy session formats the same second many times.
-fn seconds_prefix(time: &UtcTimestamp) -> [u8; 17] {
-    let seconds = time.timestamp();
-    SECONDS_PREFIX.with(|cache| {
-        let (cached_seconds, prefix) = cache.get();
-        if cached_seconds == seconds {
-            return prefix;
-        }
-        let mut prefix = [0u8; 17];
-        let mut put = |at: usize, value: u32, width: usize| {
-            let mut value = value;
-            for i in (at..at + width).rev() {
-                prefix[i] = b'0' + (value % 10) as u8;
-                value /= 10;
-            }
-        };
-        put(0, time.year() as u32, 4);
-        put(4, time.month(), 2);
-        put(6, time.day(), 2);
-        put(9, time.hour(), 2);
-        put(12, time.minute(), 2);
-        put(15, time.second(), 2);
-        prefix[8] = b'-';
-        prefix[11] = b':';
-        prefix[14] = b':';
-        cache.set((seconds, prefix));
-        prefix
-    })
 }
 
 /// Defines [`MsgType`] from one table of variants and codes.
@@ -671,80 +634,32 @@ mod tests {
     }
 
     #[test]
-    fn timestamps_accept_fractions_and_render_millis() {
-        let t = UtcTimestamp::from_fix("20260927-03:20:48").unwrap();
-        assert_eq!(t.to_fix(), "20260927-03:20:48.000");
-        let t = UtcTimestamp::from_fix("20260927-03:20:48.544123").unwrap();
-        assert_eq!(t.to_fix(), "20260927-03:20:48.544");
-        for bad in ["20260927-3:20:48", "2026-09-27T03:20:48", "20260927-03:20:48.", "20261327-03:20:48"] {
-            assert_eq!(UtcTimestamp::from_fix(bad), Err(ValueError::Format), "{bad}");
-        }
-    }
-
-    /// What chrono produced before the hand-written formatter.
-    fn chrono_format(t: &UtcTimestamp) -> String {
-        t.format("%Y%m%d-%H:%M:%S%.3f").to_string()
-    }
-
-    #[test]
-    fn timestamp_formatting_matches_chrono() {
-        use chrono::TimeZone;
-        // Deterministic pseudo-random instants from 1970 to 2199, with arbitrary nanoseconds.
-        let mut state = 0x2545_f491_4f6c_dd1du64;
-        let mut next = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        for _ in 0..20_000 {
-            let seconds = (next() % 7_258_118_400) as i64; // up to 2200-01-01
-            let nanos = (next() % 1_000_000_000) as u32;
-            let t = Utc.timestamp_opt(seconds, nanos).unwrap();
-            assert_eq!(t.to_fix(), chrono_format(&t), "{t:?}");
-            // And again, now from the cache.
-            assert_eq!(t.to_fix(), chrono_format(&t), "{t:?} (cached)");
-        }
-    }
-
-    #[test]
-    fn timestamp_edge_cases_match_chrono() {
-        use chrono::{NaiveDate, TimeZone};
-        let at = |y, mo, d, h, mi, s, ns| {
-            NaiveDate::from_ymd_opt(y, mo, d).unwrap().and_hms_nano_opt(h, mi, s, ns).unwrap().and_utc()
-        };
-        let cases = [
-            at(1970, 1, 1, 0, 0, 0, 0),
-            at(2026, 12, 31, 23, 59, 59, 999_999_999), // truncated, not rounded, to .999
-            at(2024, 2, 29, 12, 0, 0, 1_000_000),
-            at(9999, 12, 31, 23, 59, 59, 0),
-            at(10_000, 1, 1, 0, 0, 0, 0),                // five-digit year: chrono fallback
-            at(2016, 12, 31, 23, 59, 59, 1_500_000_000), // leap second: chrono fallback
-            Utc.timestamp_opt(-86_400, 0).unwrap(),      // before the epoch
-        ];
-        for t in cases {
-            assert_eq!(t.to_fix(), chrono_format(&t), "{t:?}");
-        }
-    }
-
-    #[test]
-    fn timestamp_cache_is_per_second_and_per_thread() {
-        let base = UtcTimestamp::from_fix("20260927-03:20:48.544").unwrap();
-        let next_second = base + chrono::Duration::milliseconds(700);
-        assert_eq!(base.to_fix(), "20260927-03:20:48.544");
-        assert_eq!(next_second.to_fix(), "20260927-03:20:49.244");
-        assert_eq!(base.to_fix(), "20260927-03:20:48.544", "going back a second refreshes the cache");
-        let other = std::thread::spawn(move || (base + chrono::Duration::days(1)).to_fix()).join().unwrap();
-        assert_eq!(other, "20260928-03:20:48.544");
-        assert_eq!(base.to_fix(), "20260927-03:20:48.544");
-    }
-
-    #[test]
     fn integers_and_booleans() {
         assert_eq!(u64::from_fix("42"), Ok(42));
         assert_eq!(u64::from_fix("-1"), Err(ValueError::Format));
         assert_eq!(u64::from_fix("4x"), Err(ValueError::Format));
         assert_eq!(bool::from_fix("Y"), Ok(true));
         assert_eq!(bool::from_fix("yes"), Err(ValueError::Incorrect));
+    }
+
+    #[test]
+    fn chars_are_one_character() {
+        assert_eq!(char::from_fix("A"), Ok('A'));
+        assert_eq!('A'.to_fix(), "A");
+        for bad in ["", "AB"] {
+            assert_eq!(char::from_fix(bad), Err(ValueError::Format), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn lists_are_separated_by_single_spaces() {
+        let list: Vec<Code<EncryptMethod>> = Vec::from_fix("0 Z").unwrap();
+        assert_eq!(list, [Code::Known(EncryptMethod::None), Code::Unknown("Z".into())]);
+        assert_eq!(list.to_fix(), "0 Z");
+        assert_eq!(Vec::<String>::from_fix("A"), Ok(vec!["A".to_string()]));
+        for bad in ["", " 0", "0 ", "0  1"] {
+            assert_eq!(Vec::<String>::from_fix(bad), Err(ValueError::Format), "{bad:?}");
+        }
+        assert_eq!(Vec::<EncryptMethod>::from_fix("0 Z"), Err(ValueError::Incorrect), "an unknown code");
     }
 }

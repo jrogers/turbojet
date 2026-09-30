@@ -13,8 +13,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use tokio::sync::mpsc;
+use turbojet::fields::UtcTimestamp;
 use turbojet::tls;
 use turbojet::{
     Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType, SessionConfig,
@@ -155,7 +155,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         HandlInst::AutomatedExecutionNoIntervention,
         "AAPL",
         Side::Buy,
-        Utc::now(),
+        UtcTimestamp::now(),
         OrdType::Limit,
     );
     order.order_qty = Some("100".parse()?);
@@ -165,7 +165,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     reply(&mut events).await?;
 
     let (orig_cl_ord_id, cl_ord_id) = ("ORD1", "CXL1");
-    send(&session, OrderCancelRequest::new(orig_cl_ord_id, cl_ord_id, "AAPL", Side::Buy, Utc::now()))?;
+    send(&session, OrderCancelRequest::new(orig_cl_ord_id, cl_ord_id, "AAPL", Side::Buy, UtcTimestamp::now()))?;
     reply(&mut events).await?;
 
     session.logout(None)?;
