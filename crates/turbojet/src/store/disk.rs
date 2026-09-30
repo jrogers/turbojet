@@ -120,14 +120,16 @@ impl DiskLog {
 
     fn write_seqnums(&mut self) -> io::Result<()> {
         let in_flight = self.in_flight.unwrap_or(0);
-        let record = format!("{:020} {:020} {in_flight:020}\n", self.next_outgoing, self.next_incoming);
+        // Always 63 bytes, since a u64 has at most 20 digits: formatted on the stack, not allocated.
+        let mut record = [0u8; 63];
+        writeln!(&mut record[..], "{:020} {:020} {in_flight:020}", self.next_outgoing, self.next_incoming)?;
         // In place, in one system call where the platform allows it.
         #[cfg(unix)]
-        std::os::unix::fs::FileExt::write_all_at(&self.seqnums, record.as_bytes(), 0)?;
+        std::os::unix::fs::FileExt::write_all_at(&self.seqnums, &record, 0)?;
         #[cfg(not(unix))]
         {
             self.seqnums.seek(SeekFrom::Start(0))?;
-            self.seqnums.write_all(record.as_bytes())?;
+            self.seqnums.write_all(&record)?;
         }
         if self.sync {
             self.seqnums.sync_data()?;

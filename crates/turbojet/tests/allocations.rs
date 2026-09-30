@@ -288,7 +288,7 @@ type Budget = [(Stage, u64, u64); Stage::ALL.len()];
 const MEMORY_BUDGET: Budget =
     [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 1166, 0)];
 const DISK_BUDGET: Budget =
-    [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 3166, 9000)];
+    [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 166, 0)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
