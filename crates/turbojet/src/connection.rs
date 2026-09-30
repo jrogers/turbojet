@@ -578,4 +578,33 @@ mod tests {
         let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
         assert!(closed.expect("did not close").is_ok());
     }
+
+    /// The Logout that answers the peer's Logout is queued in the same call that closes the
+    /// session; it still reaches the peer before the connection closes.
+    #[tokio::test]
+    async fn a_logout_sent_while_closing_reaches_the_peer() {
+        let (ours, mut peer) = duplex(1 << 20);
+        let registry = Arc::new(SessionRegistry::default());
+        let now = Instant::now().into_std();
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        let mut burst = from_peer(1, logon);
+        burst.extend(from_peer(2, Message::new(MsgType::Logout)));
+        peer.write_all(&burst).await.unwrap();
+
+        let mut received = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut received)).await;
+        closed.expect("did not close").unwrap();
+        let mut sent = Vec::new();
+        let mut rest = received.as_slice();
+        while let Decoded::Message(msg, len) = crate::codec::decode(rest) {
+            sent.push(msg.msg_type());
+            rest = &rest[len..];
+        }
+        assert_eq!(sent, [MsgType::Logon, MsgType::Logout], "{}", String::from_utf8_lossy(&received));
+        assert!(rest.is_empty(), "trailing bytes: {}", String::from_utf8_lossy(rest));
+    }
 }
