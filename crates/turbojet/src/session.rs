@@ -1667,7 +1667,7 @@ impl Session {
             + target.len()
             + orig_sending_time.map_or(0, str::len);
         let mut msg = Message::default();
-        msg.reserve(header_bytes + body.segments_len(in_body), 8 + body.fields().count());
+        msg.reserve(header_bytes + body.segments_len(in_body), 8 + body.field_count());
         msg.push(tags::BEGIN_STRING, self.config.begin_string.as_str());
         msg.push(tags::MSG_TYPE, body.msg_type());
         msg.push(tags::SENDER_COMP_ID, self.config.sender_comp_id.as_str());

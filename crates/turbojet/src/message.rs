@@ -275,11 +275,17 @@ pub struct Message {
     /// `tag=value<SOH>` segments. May contain stale segments left behind by [`Message::set`].
     buf: String,
     fields: Vec<Field>,
+    /// What few messages have, boxed to keep the rest small: they're moved around a lot.
+    rare: Option<Box<Rare>>,
+}
+
+#[derive(Clone, Default)]
+struct Rare {
     /// The values of data fields that aren't UTF-8, back to back: the fields whose `start` is
-    /// [`BINARY`]. Empty, and unallocated, in most messages.
+    /// [`BINARY`].
     bin: Vec<u8>,
     /// Set only by [`Message::from_frame`], for a message received with a malformed body field.
-    defect: Option<Box<Defect>>,
+    defect: Option<Defect>,
 }
 
 /// A body field an inbound message couldn't carry, found while decoding it. The session answers
@@ -322,12 +328,7 @@ impl Message {
     /// Like [`Message::new`], reserving room for about `bytes` of encoded fields and `fields`
     /// fields, to avoid reallocating as fields are added.
     pub fn with_capacity(msg_type: MsgType, bytes: usize, fields: usize) -> Self {
-        let mut msg = Self {
-            buf: String::with_capacity(bytes),
-            fields: Vec::with_capacity(fields),
-            bin: Vec::new(),
-            defect: None,
-        };
+        let mut msg = Self { buf: String::with_capacity(bytes), fields: Vec::with_capacity(fields), rare: None };
         msg.push(tags::MSG_TYPE, msg_type);
         msg
     }
@@ -428,7 +429,9 @@ impl Message {
         if let Some(text) = text {
             msg.buf = text.to_owned();
         }
-        msg.defect = defect.map(Box::new);
+        if let Some(defect) = defect {
+            msg.rare.get_or_insert_default().defect = Some(defect);
+        }
         if let Some(defect) = msg.defect()
             && (defect.tag.is_some_and(|tag| TRUSTED_HEADER.contains(&tag))
                 || TRUSTED_HEADER.iter().any(|&tag| msg.get(tag).is_none()))
@@ -440,19 +443,24 @@ impl Message {
 
     /// The defect recorded by [`Message::from_frame`], if the message had a malformed body field.
     pub(crate) fn defect(&self) -> Option<&Defect> {
-        self.defect.as_deref()
+        self.rare.as_ref()?.defect.as_ref()
     }
 
     /// Whether decoding found a malformed body field, which the session rejects. Public for the
     /// fuzz targets, not part of the API.
     #[doc(hidden)]
     pub fn is_malformed(&self) -> bool {
-        self.defect.is_some()
+        self.defect().is_some()
     }
 
     /// The fields in order, as `(tag, raw value)`, leaving out data fields that aren't UTF-8.
     pub fn fields(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
         self.fields.iter().filter_map(|f| Some((f.tag, self.text(f)?)))
+    }
+
+    /// The number of fields, including binary ones.
+    pub(crate) fn field_count(&self) -> usize {
+        self.fields.len()
     }
 
     /// Every field in order, as `(tag, value bytes)`, including data fields that aren't UTF-8.
@@ -657,23 +665,24 @@ impl Message {
     /// whose value contains SOH, which would end it early.
     pub(crate) fn invalid_data_field(&self, data: &DataFields) -> Option<u32> {
         let mut soh_in_data = 0;
-        let mut text_fields = 0;
-        let mut previous: Option<&Field> = None;
-        for f in &self.fields {
-            if data.is_data(f.tag) {
-                let length = previous
-                    .filter(|p| Some(p.tag) == data.length_tag(f.tag))
-                    .and_then(|p| parse_length(self.bytes(p)));
-                if length != Some(self.bytes(f).len()) {
-                    return Some(f.tag);
-                }
-                if !f.is_binary() {
-                    soh_in_data += self.bytes(f).iter().filter(|&&b| b == SOH).count();
-                }
+        for (i, f) in self.fields.iter().enumerate() {
+            if !data.is_data(f.tag) {
+                continue;
             }
-            text_fields += usize::from(!f.is_binary());
-            previous = Some(f);
+            let length = i
+                .checked_sub(1)
+                .map(|before| &self.fields[before])
+                .filter(|before| Some(before.tag) == data.length_tag(f.tag))
+                .and_then(|before| parse_length(self.bytes(before)));
+            if length != Some(self.bytes(f).len()) {
+                return Some(f.tag);
+            }
+            if !f.is_binary() {
+                soh_in_data += self.bytes(f).iter().filter(|&&b| b == SOH).count();
+            }
         }
+        let binary = if self.rare.is_some() { self.fields.iter().filter(|f| f.is_binary()).count() } else { 0 };
+        let text_fields = self.fields.len() - binary;
         // Every text segment, live or stale, ends with one SOH. With no stale segments and no SOH
         // in any other value, the buffer holds exactly one per field plus those inside data
         // fields: a single fast count settles the common case. Summed as bytes, 255 at a time so
@@ -712,7 +721,10 @@ impl Message {
     /// The field's value as bytes.
     fn bytes(&self, field: &Field) -> &[u8] {
         let range = field.value as usize..field.end as usize;
-        if field.is_binary() { &self.bin[range] } else { &self.buf.as_bytes()[range] }
+        match &self.rare {
+            Some(rare) if field.is_binary() => &rare.bin[range],
+            _ => &self.buf.as_bytes()[range],
+        }
     }
 
     /// Writes data field `tag`: into the buffer if `value` is UTF-8, else into [`Message::bin`].
@@ -720,9 +732,10 @@ impl Message {
         match std::str::from_utf8(value) {
             Ok(text) => self.write_segment(tag, text),
             Err(_) => {
-                let start = self.bin.len();
-                self.bin.extend_from_slice(value);
-                Field { tag, start: BINARY, value: start as u32, end: self.bin.len() as u32 }
+                let bin = &mut self.rare.get_or_insert_default().bin;
+                let start = bin.len();
+                bin.extend_from_slice(value);
+                Field { tag, start: BINARY, value: start as u32, end: bin.len() as u32 }
             }
         }
     }
