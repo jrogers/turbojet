@@ -890,7 +890,9 @@ pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
     let (count, end) = check_group(fields.msg, index, fields.end, tag, spec)?;
     let group = Group::new(fields.msg, index + 1, end, count);
     // Each entry is parsed now, in order, so a bad one fails the parse as `take_group` does; the
-    // entries are parsed again as the group is iterated.
+    // entries are parsed again as the group is iterated. Not inside the walk above: a structural
+    // error anywhere in the group must win over an earlier entry's conversion error, as it does
+    // in `take_group`, which scans the whole group before converting any entry.
     let mut parsed = 0usize;
     for entry in group.entries() {
         G::from_fields(entry)?;
@@ -1328,6 +1330,9 @@ pub trait FixGroupRef<'a>: Copy + Sized {
     type Owned: FixGroup;
 
     /// Reads one entry from its fields.
+    ///
+    /// Must be a pure function of the entry: a [`Group`] parses each entry once when it's
+    /// checked and again as it's iterated, and expects the same result.
     fn from_fields(entry: Fields<'a>) -> Result<Self, FieldError>;
 
     /// The owned entry.
@@ -1336,6 +1341,9 @@ pub trait FixGroupRef<'a>: Copy + Sized {
 
 /// A repeating group parsed without allocating: its entries were checked when the message was
 /// parsed, and are read again as they're iterated.
+///
+/// A nested group is walked again at each level, both when checked and when iterated; for the
+/// depths FIX uses, the cost stays linear in the group's size.
 pub struct Group<'a, G> {
     /// The message, or `None` for an absent group.
     msg: Option<&'a Message>,
@@ -1347,7 +1355,7 @@ pub struct Group<'a, G> {
     _entry: PhantomData<fn() -> G>,
 }
 
-impl<'a, G: FixGroupRef<'a>> Group<'a, G> {
+impl<'a, G> Group<'a, G> {
     /// An absent group, with no entries.
     pub fn empty() -> Self {
         Group { msg: None, start: 0, end: 0, count: 0, _entry: PhantomData }
@@ -1355,14 +1363,8 @@ impl<'a, G: FixGroupRef<'a>> Group<'a, G> {
 
     /// The group whose `count` entries, already checked, span `start..end` of `msg`'s fields.
     pub(crate) fn new(msg: &'a Message, start: usize, end: usize, count: u32) -> Self {
-        assert!(start <= end && end <= msg.fields.len(), "entries {start}..{end} out of bounds");
-        assert_eq!(count == 0, start == end, "entries {start}..{end} for a count of {count}");
+        check_range(msg.fields.len(), start, end, count);
         Group { msg: Some(msg), start, end, count, _entry: PhantomData }
-    }
-
-    /// The entries, in order.
-    pub fn iter(&self) -> GroupIter<'a, G> {
-        GroupIter { entries: self.entries() }
     }
 
     /// How many entries there are.
@@ -1374,6 +1376,13 @@ impl<'a, G: FixGroupRef<'a>> Group<'a, G> {
     pub fn is_empty(&self) -> bool {
         self.count == 0
     }
+}
+
+impl<'a, G: FixGroupRef<'a>> Group<'a, G> {
+    /// The entries, in order.
+    pub fn iter(&self) -> GroupIter<'a, G> {
+        GroupIter { entries: self.entries(), _entry: PhantomData }
+    }
 
     /// The owned entries.
     pub fn into_owned(self) -> Vec<G::Owned> {
@@ -1381,8 +1390,23 @@ impl<'a, G: FixGroupRef<'a>> Group<'a, G> {
     }
 
     /// Each entry's fields, in order.
-    fn entries(&self) -> Entries<'a, G> {
-        Entries { msg: self.msg, next: self.start, end: self.end, remaining: self.len(), _entry: PhantomData }
+    fn entries(&self) -> Entries<'a> {
+        let spec: &'static GroupSpec = &<G::Owned as FixGroup>::SPEC;
+        Entries { msg: self.msg, next: self.start, end: self.end, remaining: self.len(), spec }
+    }
+}
+
+/// Asserts that `count` entries can span `start..end` of a message's `len` fields: each entry
+/// takes at least one. Out of line, so the panic's formatting isn't repeated for every group.
+#[inline(never)]
+fn check_range(len: usize, start: usize, end: usize, count: u32) {
+    assert!(start <= end && end <= len, "entries {start}..{end} out of bounds of {len} fields");
+    assert_eq!(count == 0, start == end, "entries {start}..{end} for a count of {count}");
+}
+
+impl<G> Default for Group<'_, G> {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -1407,6 +1431,8 @@ impl<'a, G: FixGroupRef<'a> + PartialEq> PartialEq for Group<'a, G> {
     }
 }
 
+impl<'a, G: FixGroupRef<'a> + Eq> Eq for Group<'a, G> {}
+
 impl<'a, G: FixGroupRef<'a>> IntoIterator for Group<'a, G> {
     type Item = G;
     type IntoIter = GroupIter<'a, G>;
@@ -1427,7 +1453,8 @@ impl<'a, G: FixGroupRef<'a>> IntoIterator for &Group<'a, G> {
 
 /// The entries of a [`Group`], in order.
 pub struct GroupIter<'a, G> {
-    entries: Entries<'a, G>,
+    entries: Entries<'a>,
+    _entry: PhantomData<fn() -> G>,
 }
 
 impl<'a, G: FixGroupRef<'a>> Iterator for GroupIter<'a, G> {
@@ -1446,18 +1473,20 @@ impl<'a, G: FixGroupRef<'a>> ExactSizeIterator for GroupIter<'a, G> {}
 
 impl<'a, G: FixGroupRef<'a>> std::iter::FusedIterator for GroupIter<'a, G> {}
 
-/// The fields of each entry of a checked group of `G`, found again by walking it.
-struct Entries<'a, G> {
+/// The fields of each entry of a checked group, found again by walking it. Not generic over the
+/// entry type, so one walk serves every group.
+struct Entries<'a> {
     msg: Option<&'a Message>,
     next: usize,
     end: usize,
     remaining: usize,
-    _entry: PhantomData<fn() -> G>,
+    spec: &'static GroupSpec,
 }
 
-impl<'a, G: FixGroupRef<'a>> Iterator for Entries<'a, G> {
+impl<'a> Iterator for Entries<'a> {
     type Item = Fields<'a>;
 
+    #[inline(never)]
     fn next(&mut self) -> Option<Fields<'a>> {
         if self.remaining == 0 {
             debug_assert_eq!(self.next, self.end, "the count covers the group");
@@ -1465,7 +1494,7 @@ impl<'a, G: FixGroupRef<'a>> Iterator for Entries<'a, G> {
         }
         let msg = self.msg.expect("a group with entries has its message");
         let start = self.next;
-        let end = entry_end(msg, start, self.end, &<G::Owned as FixGroup>::SPEC).expect("checked when parsed");
+        let end = entry_end(msg, start, self.end, self.spec).expect("checked when parsed");
         self.next = end;
         self.remaining -= 1;
         Some(Fields { msg, start, end, excluded: Vec::new() })
@@ -2016,7 +2045,7 @@ mod tests {
     }
 
     /// `SubId`'s borrowed form, written as `fix_group!` will generate it.
-    #[derive(Debug, Clone, Copy, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct SubIdRef<'a> {
         id: &'a str,
         kind: Option<u32>,
@@ -2038,7 +2067,7 @@ mod tests {
     }
 
     /// `Party`'s borrowed form, with a nested group.
-    #[derive(Debug, Clone, Copy, PartialEq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct PartyRef<'a> {
         id: &'a str,
         source: Option<&'a str>,
@@ -2128,27 +2157,30 @@ mod tests {
 
     #[test]
     fn a_borrowed_group_fails_as_the_owned_one_does() {
+        let count = |declared, found| FieldErrorKind::IncorrectNumInGroup { declared, found };
+        let format = |raw: &str| FieldErrorKind::IncorrectFormat(raw.into());
+        let out_of_order = FieldErrorKind::RepeatingGroupOutOfOrder;
         let cases = [
             // Malformed: the count is wrong, an entry is out of order, the count isn't a number.
-            "35=D|453=3|448=A|448=B|55=X|",
-            "35=D|453=2|447=D|448=A|",
-            "35=D|453=x|448=A|",
+            ("35=D|453=3|448=A|448=B|55=X|", 453, count(3, 2)),
+            ("35=D|453=2|447=D|448=A|", 447, out_of_order),
+            ("35=D|453=x|448=A|", 453, format("x")),
             // A nested group is malformed.
-            "35=D|453=1|448=A|802=2|523=a1|55=X|",
-            // An entry fails to convert, the second of three; and in a nested group.
-            "35=D|453=3|448=A|448=B|452=x|448=C|452=y|",
-            "35=D|453=1|448=A|802=1|523=a1|803=z|",
+            ("35=D|453=1|448=A|802=2|523=a1|55=X|", 802, count(2, 1)),
+            // An entry fails to convert, the second of three, and the first failure wins; and in a
+            // nested group.
+            ("35=D|453=3|448=A|448=B|452=x|448=C|452=y|", 452, format("x")),
+            ("35=D|453=1|448=A|802=1|523=a1|803=z|", 803, format("z")),
+            // A structural error wins over an earlier entry's conversion error.
+            ("35=D|453=2|448=A|452=x|448=B|448=C|", 453, count(2, 3)),
+            ("35=D|453=2|448=A|802=1|523=a|803=z|448=B|448=C|", 453, count(2, 3)),
+            ("35=D|453=2|448=A|802=1|523=a|803=z|448=B|802=2|523=b|", 802, count(2, 1)),
         ];
-        for text in cases {
+        for (text, tag, kind) in cases {
             let msg = raw(text);
             let error = take_both::<PartyRef<'_>>(&msg, NO_PARTY_IDS).unwrap_err();
-            assert_ne!(error.tag, 0, "{text}");
+            assert_eq!(error, FieldError { tag, kind }, "{text}");
         }
-        let msg = raw("35=D|453=3|448=A|448=B|452=x|448=C|452=y|");
-        assert_eq!(
-            take_both::<PartyRef<'_>>(&msg, NO_PARTY_IDS).unwrap_err(),
-            FieldError { tag: 452, kind: FieldErrorKind::IncorrectFormat("x".into()) }
-        );
     }
 
     #[test]
@@ -2178,6 +2210,7 @@ mod tests {
         assert_eq!(format!("{group:?}"), "[]");
         assert!(group.into_owned().is_empty());
         assert_eq!(group, Group::empty());
+        assert_eq!(group, Group::default());
     }
 
     #[test]
