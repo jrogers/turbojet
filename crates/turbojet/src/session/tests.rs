@@ -1266,6 +1266,58 @@ fn message_with_soh_inside_a_value_is_not_sent() {
     assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"), "no sequence number used");
 }
 
+#[test]
+fn data_fields_may_contain_soh_and_bytes_that_are_not_utf8() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let bytes = b"\xff\x0139=8\x01";
+    let report = Message::new(MsgType::ExecutionReport)
+        .with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, bytes)
+        .with(tags::TEXT, "after");
+    let out = s.on_command(Command::Send(report), h.t0);
+    let msg = sent(&out)[0];
+    assert_eq!(msg.get_bytes(tags::RAW_DATA), Some(&bytes[..]));
+
+    // What goes on the wire decodes to the same message.
+    let wire = crate::codec::encode(msg).unwrap();
+    let crate::codec::Decoded::Message(decoded, _) = crate::codec::decode(&wire) else { panic!("garbled") };
+    assert!(decoded.defect().is_none());
+    assert_eq!(decoded.get_bytes(tags::RAW_DATA), Some(&bytes[..]));
+    assert_eq!(decoded.get(tags::TEXT), Some("after"));
+}
+
+#[test]
+fn a_data_field_without_its_length_is_not_sent() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our Logon reply is seq 1
+    for report in [
+        Message::new(MsgType::ExecutionReport).with(tags::RAW_DATA, "a\x01b"),
+        Message::new(MsgType::ExecutionReport).with(tags::RAW_DATA_LENGTH, 2u64).with(tags::RAW_DATA, "a\x01b"),
+        Message::new(MsgType::ExecutionReport).with(tags::RAW_DATA_LENGTH, 3u64).with(tags::TEXT, "x").with(
+            tags::RAW_DATA,
+            "a\x01b",
+        ),
+    ] {
+        assert!(s.on_command(Command::Send(report.clone()), h.t0).is_empty(), "{report}");
+    }
+    let out = s.on_command(send_command("A"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"), "no sequence number used");
+}
+
+#[test]
+fn venue_data_fields_are_sent_when_configured() {
+    let venue = Message::new(MsgType::ExecutionReport).with_data(5000, 5001, b"a\x01b");
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert!(s.on_command(Command::Send(venue.clone()), h.t0).is_empty(), "5001 isn't a data field");
+
+    let mut h = Harness::new();
+    h.config = h.config.with_data_field(5000, 5001);
+    let mut s = h.logged_on();
+    let out = s.on_command(Command::Send(venue), h.t0);
+    assert_eq!(sent(&out)[0].get(5001), Some("a\x01b"));
+}
+
 fn send_command(cl_ord_id: &str) -> Command {
     Command::Send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, cl_ord_id))
 }

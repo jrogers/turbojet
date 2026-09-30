@@ -24,7 +24,7 @@ use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Secret, SessionRejectReason, ToFix, UtcTimestamp,
 };
 use crate::initiator::InitiatorConfig;
-use crate::message::{FieldError, Message, is_header_or_trailer, tags, utc_timestamp};
+use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags, utc_timestamp};
 use crate::peer::ConnectionInfo;
 use crate::registry::{
     Command, CommandReceiver, CommandSender, SequenceCommand, SequenceError, SequenceNumbers, SessionRegistry,
@@ -74,6 +74,10 @@ pub struct SessionConfig {
     pub check_orig_sending_time: bool,
     /// Reject a message with a header field after a body field (14). On by default.
     pub check_header_order: bool,
+    /// The data fields: each is as long as the Length field before it says, and may contain SOH
+    /// and bytes that aren't UTF-8. The standard ones by default; add a venue's own with
+    /// [`with_data_field`](Self::with_data_field).
+    pub data_fields: DataFields,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
     pub appl_versions: Vec<ApplVersion>,
@@ -99,10 +103,25 @@ impl SessionConfig {
             max_latency: Some(Duration::from_secs(120)),
             check_orig_sending_time: true,
             check_header_order: true,
+            data_fields: DataFields::standard(),
             appl_versions: Vec::new(),
             #[cfg(feature = "validation")]
             validator: None,
         }
+    }
+
+    /// Adds a venue's data field `data_tag`, whose length in bytes is given by Length field
+    /// `length_tag` just before it. The standard data fields, such as RawData(96), are known
+    /// already.
+    ///
+    /// ```
+    /// # use turbojet::SessionConfig;
+    /// let config = SessionConfig::new("FIX.4.4", "VENUE").with_data_field(5000, 5001);
+    /// ```
+    #[must_use]
+    pub fn with_data_field(mut self, length_tag: u32, data_tag: u32) -> Self {
+        self.data_fields = self.data_fields.with(length_tag, data_tag);
+        self
     }
 
     /// FIXT.1.1 sessions: supports application version `id`. An initiator sends its first as
@@ -1560,9 +1579,14 @@ impl Session {
         if admin && guarded("to_admin", || self.app.to_admin(&self.peer().id, &mut body)).is_none() {
             return self.close();
         }
-        // SOH ends a field on the wire, so a value containing one would add fields of its own.
-        if let Some(tag) = body.value_with_soh() {
-            warn!(msg_type = %body.msg_type(), tag, "dropping message: a value contains SOH");
+        // SOH ends a field on the wire, so a value containing one would add fields of its own,
+        // unless it's a data field whose length is given just before it.
+        if let Some(tag) = body.invalid_data_field(&self.config.data_fields) {
+            warn!(
+                msg_type = %body.msg_type(),
+                tag,
+                "dropping message: a value contains SOH, or a data field doesn't follow its length"
+            );
             return;
         }
         let seq = self.peer().log.next_outgoing();

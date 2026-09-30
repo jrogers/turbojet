@@ -645,21 +645,46 @@ impl Message {
         out.len() - before
     }
 
-    /// The first tag whose value contains SOH, which on the wire would end the field early.
-    pub(crate) fn value_with_soh(&self) -> Option<u32> {
-        // Every segment, live or stale, ends with one SOH. With no stale segments and no SOH in
-        // any value, that's exactly one per field: a single fast count settles the common case.
-        // Summed as bytes, 255 at a time so the sum can't overflow, which vectorises well.
+    /// The first field that would be misread on the wire: a data field in `data` that doesn't
+    /// directly follow its Length field, or whose length that field misstates, or another field
+    /// whose value contains SOH, which would end it early.
+    pub(crate) fn invalid_data_field(&self, data: &DataFields) -> Option<u32> {
+        let mut soh_in_data = 0;
+        let mut text_fields = 0;
+        let mut previous: Option<&Field> = None;
+        for f in &self.fields {
+            if data.is_data(f.tag) {
+                let length = previous
+                    .filter(|p| Some(p.tag) == data.length_tag(f.tag))
+                    .and_then(|p| parse_length(self.bytes(p)));
+                if length != Some(self.bytes(f).len()) {
+                    return Some(f.tag);
+                }
+                if !f.is_binary() {
+                    soh_in_data += self.bytes(f).iter().filter(|&&b| b == SOH).count();
+                }
+            }
+            text_fields += usize::from(!f.is_binary());
+            previous = Some(f);
+        }
+        // Every text segment, live or stale, ends with one SOH. With no stale segments and no SOH
+        // in any other value, the buffer holds exactly one per field plus those inside data
+        // fields: a single fast count settles the common case. Summed as bytes, 255 at a time so
+        // the sum can't overflow, which vectorises well.
         let count: usize = self
             .buf
             .as_bytes()
             .chunks(255)
             .map(|chunk| chunk.iter().map(|&b| u8::from(b == SOH)).sum::<u8>() as usize)
             .sum();
-        if count == self.fields.len() {
+        if count == text_fields + soh_in_data {
             return None;
         }
-        self.fields().find(|(_, value)| value.as_bytes().contains(&SOH)).map(|(tag, _)| tag)
+        self.fields
+            .iter()
+            .filter(|f| !data.is_data(f.tag))
+            .find(|f| self.bytes(f).contains(&SOH))
+            .map(|f| f.tag)
     }
 
     /// The encoded length of the fields for which `keep` is true.
