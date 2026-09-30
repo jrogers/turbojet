@@ -50,7 +50,9 @@ pub trait SessionLog: Send {
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()>;
 
     /// Records that outgoing `seq` has been used, storing `msg`, the message as sent (encoded,
-    /// header and trailer included), for resends when given.
+    /// header and trailer included), for resends when given. On a FIXT session supporting more
+    /// than one application version, a message in the default version is stored with its
+    /// ApplVerID(1128) stated, so its bytes differ from those sent by that field.
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()>;
 
     /// Stored messages with sequence numbers in `begin..=end`, in ascending order, as they were

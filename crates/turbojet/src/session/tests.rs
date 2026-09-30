@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use super::*;
-use crate::codec::{decode, encode};
+use crate::codec::{decode, decode_stored, encode};
 use crate::fields::{ApplVerId, FromFix};
 use crate::message::utc_timestamp;
 use crate::peer::{ConnectionInfo, PeerCertificate};
@@ -218,7 +218,7 @@ fn taken(s: &mut Session, was_closed: bool) -> Vec<Action> {
     let mut actions = Vec::new();
     let mut rest = s.output();
     while !rest.is_empty() {
-        match decode_with(rest, s.data_fields()) {
+        match decode_stored(rest, s.data_fields()) {
             Decoded::Message(msg, len) => {
                 actions.push(Action::Send(msg));
                 rest = &rest[len..];
@@ -1640,6 +1640,44 @@ fn storage_failure_while_sending_suppresses_the_message() {
     let mut s = h.logged_on();
     let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
     assert_eq!(types(&out), ["DISCONNECT"]);
+}
+
+/// Nothing limits what the session sends, so what it stored is resent whatever its size; the
+/// 64 KiB limit on BodyLength(9) is for input from the counterparty.
+#[test]
+fn a_stored_message_over_64_kib_is_resent() {
+    let storage = Arc::new(MemoryStorage::new());
+    let text = "x".repeat(70 * 1024);
+    {
+        let id = SessionId {
+            begin_string: "FIX.4.4".into(),
+            sender_comp_id: "GATEWAY".into(),
+            target_comp_id: "CLIENT".into(),
+        };
+        let report = Message::default()
+            .with(tags::BEGIN_STRING, "FIX.4.4")
+            .with(tags::MSG_TYPE, MsgType::ExecutionReport)
+            .with(tags::SENDER_COMP_ID, "GATEWAY")
+            .with(tags::TARGET_COMP_ID, "CLIENT")
+            .with(tags::MSG_SEQ_NUM, 1u64)
+            .with(tags::SENDING_TIME, "20260930-12:00:00.000")
+            .with(tags::TEXT, text.as_str());
+        storage.open(&id).unwrap().record_outgoing(1, Some(&encode(&report).unwrap())).unwrap();
+    }
+    let h = Harness::with_storage(storage);
+    let mut s = h.logged_on(); // our 2: Logon
+    let req = client(2, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0");
+    let out = s.recv(req, h.t0);
+    assert_eq!(types(&out), ["ExecutionReport", "SequenceReset"]);
+    assert_eq!(sent(&out)[0].get(tags::TEXT), Some(text.as_str()));
+}
+
+/// The outbound log never shows bytes it can't decode, which redaction couldn't cover.
+#[test]
+fn outbound_log_shows_no_content_it_cannot_decode() {
+    let logged = Outbound(b"8=FIX.4.4\x019=5\x01554=secret\x01", &DataFields::standard()).to_string();
+    assert!(!logged.contains("secret"), "{logged}");
+    assert_eq!(logged, "<25 bytes that don't decode>");
 }
 
 /// Stores check only a stored message's framing; one whose fields don't parse can't be resent,

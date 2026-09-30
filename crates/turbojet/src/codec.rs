@@ -2,7 +2,8 @@
 
 use crate::message::{DataFields, FieldError, FieldErrorKind, Message, SOH, tags};
 
-/// Upper bound on BodyLength(9), to stop a bad length from buffering unbounded input.
+/// Upper bound on BodyLength(9) from the counterparty, to stop a bad length from buffering
+/// unbounded input. Messages Turbojet stored itself aren't held to it (see [`frame_stored`]).
 const MAX_BODY_LENGTH: usize = 64 * 1024;
 /// Longest BeginString or BodyLength field we wait for before declaring the input garbled.
 const MAX_HEADER_FIELD_LEN: usize = 32;
@@ -44,6 +45,20 @@ pub fn decode_with(buf: &[u8], data: &DataFields) -> Decoded {
         Ok(total) => total,
         Err(d) => return d,
     };
+    parse_framed(buf, total, data)
+}
+
+/// [`decode_with`] for a message Turbojet encoded and stored itself: trusted to be as long as it
+/// says, since nothing limits what an application sends.
+pub(crate) fn decode_stored(buf: &[u8], data: &DataFields) -> Decoded {
+    let total = match frame_stored(buf) {
+        Ok(total) => total,
+        Err(d) => return d,
+    };
+    parse_framed(buf, total, data)
+}
+
+fn parse_framed(buf: &[u8], total: usize, data: &DataFields) -> Decoded {
     match Message::from_frame(&buf[..total], data) {
         Ok(msg) => Decoded::Message(msg, total),
         Err(reason) => garbled(buf, reason),
@@ -54,13 +69,22 @@ pub fn decode_with(buf: &[u8], data: &DataFields) -> Decoded {
 /// BodyLength and MsgType first, and the CheckSum where BodyLength puts it. Otherwise
 /// [`Decoded::Incomplete`] or [`Decoded::Garbled`]. The body isn't parsed.
 pub(crate) fn frame(buf: &[u8]) -> Result<usize, Decoded> {
+    frame_within(buf, MAX_BODY_LENGTH)
+}
+
+/// [`frame`] for a message Turbojet encoded and stored itself, whatever its BodyLength(9).
+pub(crate) fn frame_stored(buf: &[u8]) -> Result<usize, Decoded> {
+    frame_within(buf, usize::MAX)
+}
+
+fn frame_within(buf: &[u8], max_body_len: usize) -> Result<usize, Decoded> {
     if buf.is_empty() {
         return Err(Decoded::Incomplete);
     }
     let (_, len_start) = header_field(buf, 0, b"8=")?;
     let (len_soh, body_start) = header_field(buf, len_start, b"9=")?;
     let body_len = match parse_digits(&buf[len_start + 2..len_soh]) {
-        Some(n) if n <= MAX_BODY_LENGTH => n,
+        Some(n) if n <= max_body_len => n,
         _ => return Err(garbled(buf, "invalid BodyLength(9)".into())),
     };
 

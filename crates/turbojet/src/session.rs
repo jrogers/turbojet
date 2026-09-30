@@ -21,7 +21,7 @@ use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
 use crate::application::{Application, Context, MessageReject};
-use crate::codec::{Decoded, decode_with, push_digits, push_trailer};
+use crate::codec::{Decoded, decode_stored, push_digits, push_trailer};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
     UtcTimestamp,
@@ -438,8 +438,8 @@ impl Session {
     }
 
     /// Encoded messages to write to the counterparty, in order, since the last
-    /// [`clear_output`](Self::clear_output). Once [`is_closed`](Self::is_closed), write them, then
-    /// close the connection.
+    /// [`clear_output`](Self::clear_output): it grows until cleared. Once
+    /// [`is_closed`](Self::is_closed), write them, then close the connection.
     pub fn output(&self) -> &[u8] {
         &self.output
     }
@@ -1467,7 +1467,7 @@ impl Session {
         // before any is resent.
         let mut originals = Vec::with_capacity(stored.len());
         for (seq, bytes) in stored {
-            match decode_with(&bytes, &self.config.data_fields) {
+            match decode_stored(&bytes, &self.config.data_fields) {
                 Decoded::Message(msg, len) if len == bytes.len() && msg.defect().is_none() => {
                     originals.push((seq, msg))
                 }
@@ -1579,6 +1579,8 @@ impl Session {
         }
     }
 
+    /// Ends the session. The driver writes the output, then closes the connection, so nothing may
+    /// add to the output once closed: `send` and `resend` check, and `emit` asserts it.
     fn close(&mut self) {
         if self.status != Status::Closed {
             self.status = Status::Closed;
@@ -1829,9 +1831,10 @@ struct Outbound<'a>(&'a [u8], &'a DataFields);
 
 impl fmt::Display for Outbound<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match decode_with(self.0, self.1) {
+        match decode_stored(self.0, self.1) {
             Decoded::Message(msg, _) => write!(f, "{}", msg.redacted()),
-            _ => f.write_str(&String::from_utf8_lossy(self.0)),
+            // Never the bytes themselves: redaction needs the fields.
+            _ => write!(f, "<{} bytes that don't decode>", self.0.len()),
         }
     }
 }

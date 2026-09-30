@@ -22,7 +22,13 @@ Notable changes to the published crates.
 - Breaking: `SessionLog::record_outgoing` takes the message as sent, encoded (`&[u8]`), and
   `SessionLog::sent_messages` returns those bytes: stores no longer encode or decode messages.
   `DiskStorage` checks only each stored message's framing, when it opens and when it reads one
-  back; the session parses a message when it resends it.
+  back; the session parses a message when it resends it. On a FIXT session supporting more than
+  one application version, a message in the default version is stored with ApplVerID(1128) stated.
+- `DiskStorage` opens a session that has sent a message over 64 KiB, and the session resends it:
+  the 64 KiB limit on BodyLength(9) applies only to what the counterparty sends. It used to refuse
+  to open the session.
+- Outbound messages are logged as they were encoded, BodyLength(9) and CheckSum(10) included, as
+  inbound ones are.
 - Typed dates and times: `UtcTimeOnly`, `NaiveDate` (UTCDateOnly, UTCDate and LocalMktDate),
   `MonthYear`, `TzTimeOnly` and `TzTimestamp`; `char`; and space-separated lists as `Vec<T>`.
 - Timestamps and times keep their precision (seconds, milliseconds, microseconds or nanoseconds):

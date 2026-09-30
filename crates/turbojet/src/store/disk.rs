@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use super::{SessionId, SessionLog, SessionStorage};
-use crate::codec::{Decoded, frame};
+use crate::codec::{Decoded, frame_stored};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
 
 /// Stores each session's state in files under one directory.
@@ -21,7 +21,8 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 ///   while the session is open, so two gateway processes cannot share a session.
 /// - `<name>.created`: when the state was created or last reset, as a FIX UTCTimestamp, once
 ///   recorded; used by session schedules. Replaced atomically.
-/// - `<name>.body`: sent application messages, appended as they were sent. Opening the log scans
+/// - `<name>.body`: sent application messages, appended as the session stores them (see
+///   [`SessionLog::record_outgoing`]), whatever their size. Opening the log scans
 ///   it to index sequence numbers by file offset; resends then read messages back from disk.
 ///
 /// Recovery on open: a partially written message at the end of the body file (from a crash
@@ -173,7 +174,7 @@ impl SessionLog for DiskLog {
             self.body.seek(SeekFrom::Start(offset))?;
             let mut bytes = vec![0; len];
             self.body.read_exact(&mut bytes)?;
-            match frame(&bytes) {
+            match frame_stored(&bytes) {
                 Ok(n) if n == len => messages.push((seq, bytes)),
                 _ => return Err(invalid_data(format!("stored message {seq} at offset {offset} is corrupt"))),
             }
@@ -268,7 +269,7 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>,
     loop {
         // Only the framing and MsgSeqNum are checked: the store never parses the body, which
         // takes the session's data fields. The session parses a message when it resends it.
-        match frame(&buf[consumed..]) {
+        match frame_stored(&buf[consumed..]) {
             Ok(len) => {
                 let seq = msg_seq_num(&buf[consumed..consumed + len]).ok_or_else(|| {
                     invalid_data(format!("{}: message at offset {offset} has no valid MsgSeqNum", path.display()))
@@ -422,6 +423,26 @@ mod tests {
         fs::write(body_path(&dir, "A"), b"not a fix message at all, clearly corrupt").unwrap();
         let err = storage(&dir).open(&id("A")).err().expect("open should fail");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// The 64 KiB limit on BodyLength(9) is for input from the counterparty: what the session
+    /// sent is stored, reopened and read back whatever its size.
+    #[test]
+    fn stored_messages_over_64_kib_survive_reopening() {
+        use crate::message::{Message, tags};
+        let dir = tempfile::tempdir().unwrap();
+        let big = crate::codec::encode(
+            &Message::default()
+                .with(tags::BEGIN_STRING, "FIX.4.4")
+                .with(tags::MSG_TYPE, "8")
+                .with(tags::MSG_SEQ_NUM, 1u64)
+                .with(tags::TEXT, "x".repeat(70 * 1024)),
+        )
+        .unwrap();
+        storage(&dir).open(&id("A")).unwrap().record_outgoing(1, Some(&big)).unwrap();
+        let mut log = storage(&dir).open(&id("A")).unwrap();
+        assert_eq!(log.next_outgoing(), 2);
+        assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, big)]);
     }
 
     /// The store checks a stored message's framing, not its fields: parsing them is the session's
