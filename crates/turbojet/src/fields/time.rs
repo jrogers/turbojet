@@ -9,7 +9,7 @@ use std::ops::{Add, Deref, Sub};
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeDelta, Timelike, Utc};
 pub use chrono::{NaiveDate, NaiveTime};
 
-use super::{FromFix, ToFix, ValueError};
+use super::{FromFix, ToFix, ValueError, push_ascii};
 
 /// How many digits of a second a time is written with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -193,7 +193,7 @@ impl ToFix for UtcTimestamp {
         if t.nanosecond() >= 1_000_000_000 || !(0..=9999).contains(&t.year()) {
             return write_with_chrono(out, t, self.precision);
         }
-        out.push_str(std::str::from_utf8(&seconds_prefix(t)).expect("ASCII"));
+        push_ascii(out, &seconds_prefix(t));
         push_fraction(out, t.nanosecond(), self.precision);
     }
 }
@@ -269,7 +269,7 @@ fn push_fraction(out: &mut String, nanos: u32, precision: Precision) {
     let mut digits = [0u8; 10];
     digits[0] = b'.';
     put_digits(&mut digits[1..=width], value);
-    out.push_str(std::str::from_utf8(&digits[..=width]).expect("ASCII"));
+    push_ascii(out, &digits[..=width]);
 }
 
 /// `HH:MM:SS` with the fraction `precision` asks for.
@@ -281,9 +281,9 @@ fn push_time(out: &mut String, time: NaiveTime, precision: Option<Precision>) {
     let second = if time.nanosecond() >= 1_000_000_000 { 60 } else { time.second() };
     put_digits(&mut hms[6..8], second);
     match precision {
-        None => out.push_str(std::str::from_utf8(&hms[..5]).expect("ASCII")),
+        None => push_ascii(out, &hms[..5]),
         Some(precision) => {
-            out.push_str(std::str::from_utf8(&hms).expect("ASCII"));
+            push_ascii(out, &hms);
             // A leap second's extra second is the `60` already written.
             push_fraction(out, time.nanosecond() % 1_000_000_000, precision);
         }
@@ -305,7 +305,7 @@ fn push_date(out: &mut String, date: NaiveDate) {
         put_digits(&mut digits[0..4], date.year() as u32);
         put_digits(&mut digits[4..6], date.month());
         put_digits(&mut digits[6..8], date.day());
-        out.push_str(std::str::from_utf8(&digits).expect("ASCII"));
+        push_ascii(out, &digits);
     } else {
         write!(out, "{}", date.format("%Y%m%d")).expect("writing to a String cannot fail");
     }
@@ -380,7 +380,7 @@ fn push_offset(out: &mut String, offset: FixedOffset) {
     put_digits(&mut digits[0..2], minutes / 60);
     put_digits(&mut digits[3..5], minutes % 60);
     let len = if minutes.is_multiple_of(60) { 2 } else { 5 };
-    out.push_str(std::str::from_utf8(&digits[..len]).expect("ASCII"));
+    push_ascii(out, &digits[..len]);
 }
 
 /// UTCTimeOnly: a time of day in UTC, and the precision it's written with. It dereferences to
@@ -574,7 +574,7 @@ impl ToFix for MonthYear {
                 8
             }
         };
-        out.push_str(std::str::from_utf8(&digits[..len]).expect("ASCII"));
+        push_ascii(out, &digits[..len]);
     }
 }
 

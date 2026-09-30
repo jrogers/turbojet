@@ -190,6 +190,13 @@ impl ToFix for String {
     }
 }
 
+/// Appends `ascii`, which the caller has just written as ASCII (digits, punctuation), without
+/// the UTF-8 check `str::from_utf8` would make.
+fn push_ascii(out: &mut String, ascii: &[u8]) {
+    debug_assert!(ascii.is_ascii());
+    out.extend(ascii.iter().map(|&b| char::from(b)));
+}
+
 /// Appends the decimal digits of `n` without allocating.
 fn write_unsigned(out: &mut String, mut n: u64) {
     let mut digits = [0u8; 20];
@@ -202,7 +209,7 @@ fn write_unsigned(out: &mut String, mut n: u64) {
             break;
         }
     }
-    out.push_str(std::str::from_utf8(&digits[start..]).expect("ASCII digits"));
+    push_ascii(out, &digits[start..]);
 }
 
 impl FromFix for String {
