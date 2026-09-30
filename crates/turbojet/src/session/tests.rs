@@ -1921,9 +1921,19 @@ mod schedule_tests {
         let mut h = Harness::with_storage(storage);
         h.config.schedule = Some(schedule.parse().unwrap());
         h.config.clock = clock.clock();
-        // The test clock is set to fixed dates, but messages carry the real time.
+        // The test clock is set to fixed dates, and the counterparty's messages carry the real time.
         h.config.max_latency = None;
         h
+    }
+
+    /// Outbound SendingTime(52) is the session's clock, as the check on inbound uses.
+    #[test]
+    fn sending_time_comes_from_the_clock() {
+        let clock = ManualClock::at("2026-09-28 09:00:00");
+        let h = scheduled("daily 08:00-17:00", &clock);
+        let mut s = h.session();
+        let out = s.recv(logon(1), h.t0);
+        assert_eq!(sent(&out)[0].get(tags::SENDING_TIME), Some("20260928-09:00:00.000"));
     }
 
     /// Our MsgSeqNum on the Logon reply.

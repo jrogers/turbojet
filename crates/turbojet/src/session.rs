@@ -8,12 +8,14 @@
 //! persisted through a [`SessionLog`] before the corresponding message is handed to the driver.
 //! Application messages are delivered to an [`Application`].
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -64,8 +66,9 @@ pub struct SessionConfig {
     /// When the session may be logged on, and when its sequence numbers reset. `None` (the
     /// default) means always, with sequence numbers reset only on request.
     pub schedule: Option<SessionSchedule>,
-    /// Wall-clock time for the schedule, for store creation times and for checking SendingTime.
-    /// Replace it in tests.
+    /// Wall-clock time for the schedule, for store creation times, for checking inbound
+    /// SendingTime and for stamping outbound SendingTime. Read at most once per call into the
+    /// session. Replace it in tests.
     pub clock: Clock,
     /// How far an inbound message's SendingTime(52) may be from `clock`, either way. A message
     /// further off is rejected (SessionRejectReason 10) and the session logs out; a Logon is
@@ -329,6 +332,9 @@ pub struct Session {
     header: String,
     /// Scratch space for the stored copy of a message, when it differs from the one sent.
     stored: Vec<u8>,
+    /// `config.clock`'s time, read at most once per call into the session (see
+    /// [`wall_clock`](Self::wall_clock)).
+    wall_clock: Cell<Option<DateTime<Utc>>>,
 }
 
 impl Session {
@@ -405,6 +411,7 @@ impl Session {
             output: Vec::new(),
             pending: Vec::new(),
             header: String::new(),
+            wall_clock: Cell::new(None),
             stored: Vec::new(),
         };
         (session, receiver)
@@ -456,6 +463,7 @@ impl Session {
 
     /// The transport is connected. An initiator sends Logon; an acceptor waits.
     pub fn on_connect(&mut self, now: Instant) {
+        self.wall_clock.set(None);
         if let Role::Initiator { target_comp_id, heartbeat, reset_on_logon, .. } = self.role.clone() {
             self.start_logon(target_comp_id, heartbeat, reset_on_logon, now);
         }
@@ -463,6 +471,7 @@ impl Session {
 
     /// A message was decoded from the transport.
     pub fn on_message(&mut self, msg: Message, now: Instant) {
+        self.wall_clock.set(None);
         self.last_received = now;
         self.test_request_sent = None;
         match self.status {
@@ -483,6 +492,7 @@ impl Session {
     /// Commands that arrive while logon is in progress are queued and applied, in order, as soon
     /// as it completes. Once logout has started, sends are dropped and logged.
     pub fn on_command(&mut self, command: Command, now: Instant) {
+        self.wall_clock.set(None);
         // Operator requests are answered straight away, even mid-logon: they must not wait in the
         // queue for a logon that may never complete.
         let command = match command {
@@ -504,6 +514,7 @@ impl Session {
     /// on the counterparty's reply, or after the logout timeout), and one that hasn't logged on
     /// yet disconnects. A session already logging out carries on.
     pub fn on_shutdown(&mut self, text: Option<&str>, now: Instant) {
+        self.wall_clock.set(None);
         match self.status {
             Status::Active => self.logout(text, now),
             Status::AwaitingLogon => {
@@ -582,6 +593,7 @@ impl Session {
     /// least once a second so the end of a scheduled session is noticed. Calling it early is
     /// harmless: it acts only on what is due.
     pub fn on_timer(&mut self, now: Instant) {
+        self.wall_clock.set(None);
         if self.period_ended() {
             match self.status {
                 Status::Active => {
@@ -1232,7 +1244,7 @@ impl Session {
     fn sending_time_problem(&self, msg: &Message) -> Option<String> {
         let max = self.config.max_latency?;
         let sent: UtcTimestamp = msg.opt_field(tags::SENDING_TIME).ok()??;
-        let now = self.config.clock.now();
+        let now = self.wall_clock();
         let off = (now - sent.time()).abs().to_std().unwrap_or(Duration::MAX);
         (off > max).then(|| format!("SendingTime accuracy problem: {}s from our clock", off.as_secs()))
     }
@@ -1458,7 +1470,7 @@ impl Session {
         }
         info!(begin, end, "resending messages");
 
-        let now_ts = UtcTimestamp::now().with_precision(self.config.timestamp_precision).to_fix();
+        let now_ts = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision).to_fix();
         let stored = match self.peer_mut().log.sent_messages(begin, end) {
             Ok(stored) => stored,
             Err(e) => return self.storage_failed(e),
@@ -1639,7 +1651,7 @@ impl Session {
             return;
         }
         let seq = self.peer().log.next_outgoing();
-        let sending_time = UtcTimestamp::now().with_precision(self.config.timestamp_precision);
+        let sending_time = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision);
         let mut output = std::mem::take(&mut self.output);
         let start = output.len();
         self.frame_into(&body, seq, sending_time, None, false, &mut output);
@@ -1814,6 +1826,17 @@ impl Session {
         body.write_segments(out, in_body);
         push_trailer(out, start);
         self.header = header;
+    }
+
+    /// The wall-clock time for this call into the session: `config.clock` read once, for both
+    /// checking inbound SendingTime(52) and stamping outbound. A call is over in microseconds.
+    fn wall_clock(&self) -> DateTime<Utc> {
+        if let Some(now) = self.wall_clock.get() {
+            return now;
+        }
+        let now = self.config.clock.now();
+        self.wall_clock.set(Some(now));
+        now
     }
 
     fn peer(&self) -> &Peer {

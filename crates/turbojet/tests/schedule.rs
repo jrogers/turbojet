@@ -70,12 +70,15 @@ async fn next(rx: &mut mpsc::UnboundedReceiver<Event>) -> Event {
 
 #[tokio::test]
 async fn initiator_waits_for_its_session_to_start() {
-    let (addr, mut server) = start_acceptor(SessionConfig::new("FIX.4.2", "SERVER")).await;
+    // The client's messages carry its manual clock's fixed dates, and its counterparty's the real
+    // time: neither side checks SendingTime.
+    let mut server = SessionConfig::new("FIX.4.2", "SERVER");
+    server.max_latency = None;
+    let (addr, mut server) = start_acceptor(server).await;
     let clock = ManualClock::at("2026-10-03 10:00:00");
     let mut session = SessionConfig::new("FIX.4.2", "CLIENT");
     session.schedule = Some("daily 08:00-17:00 mon-fri".parse().unwrap());
     session.clock = clock.clock();
-    // The manual clock is set to fixed dates, but messages carry the real time.
     session.max_latency = None;
     let (app, mut client) = recorder();
     let mut config = InitiatorConfig::new(session, "SERVER");
@@ -101,17 +104,16 @@ async fn acceptor_logs_the_client_out_when_the_period_ends() {
     let mut config = SessionConfig::new("FIX.4.2", "SERVER");
     config.schedule = Some("daily 08:00-17:00".parse().unwrap());
     config.clock = clock.clock();
-    // The manual clock is set to fixed dates, but messages carry the real time.
+    // The server's messages carry its manual clock's fixed dates, and the client's the real time:
+    // neither side checks SendingTime.
     config.max_latency = None;
     let (addr, mut server) = start_acceptor(config).await;
 
     let (app, mut client) = recorder();
-    let initiator = Initiator::new(
-        addr,
-        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
-        Arc::new(MemoryStorage::new()),
-        app,
-    );
+    let mut client_config = SessionConfig::new("FIX.4.2", "CLIENT");
+    client_config.max_latency = None;
+    let initiator =
+        Initiator::new(addr, InitiatorConfig::new(client_config, "SERVER"), Arc::new(MemoryStorage::new()), app);
     let handle = initiator.handle();
     let connection = tokio::spawn(async move { initiator.connect_once().await });
     assert_eq!(next(&mut client).await, Event::LoggedOn);
