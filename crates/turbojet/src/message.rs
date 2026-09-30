@@ -1075,51 +1075,106 @@ fn scan_group(
     count_tag: u32,
     spec: &GroupSpec,
 ) -> Result<(Vec<(usize, usize)>, usize), FieldError> {
+    // Sized from the count, as before the walk was shared, capped so a hostile count can't
+    // reserve much; the walk itself validates the count.
+    let capacity = msg.text(&msg.fields[position]).and_then(|count| count.parse::<usize>().ok()).unwrap_or(0);
+    let mut entries = Vec::with_capacity(capacity.min(64));
+    let (count, end) = walk_group(msg, position, limit, count_tag, spec, |start, end| entries.push((start, end)))?;
+    debug_assert_eq!(usize::try_from(count).ok(), Some(entries.len()));
+    Ok((entries, end))
+}
+
+/// Checks the group whose NumInGroup field is at `position`, within fields before `limit`, as
+/// [`scan_group`] does but without collecting its entries. Returns the count and the index just
+/// past the group.
+#[inline(never)]
+pub(crate) fn check_group(
+    msg: &Message,
+    position: usize,
+    limit: usize,
+    count_tag: u32,
+    spec: &GroupSpec,
+) -> Result<(u32, usize), FieldError> {
+    walk_group(msg, position, limit, count_tag, spec, |_, _| {})
+}
+
+/// Walks the group whose NumInGroup field is at `position`, calling `on_entry` with each entry's
+/// index range, and checks that the count matches. Returns the count and the index just past the
+/// group. The one walk behind [`scan_group`] and [`check_group`].
+fn walk_group(
+    msg: &Message,
+    position: usize,
+    limit: usize,
+    count_tag: u32,
+    spec: &GroupSpec,
+    mut on_entry: impl FnMut(usize, usize),
+) -> Result<(u32, usize), FieldError> {
     let fields = &msg.fields;
+    debug_assert!(limit <= fields.len());
+    debug_assert!(position < limit);
+    debug_assert_eq!(fields[position].tag, count_tag);
     let count: u32 =
         convert(count_tag, Some(msg.text(&fields[position]).unwrap_or_default()))?.expect("value is present");
     let delimiter = spec.delimiter();
-    let mut entries = Vec::with_capacity(count.min(64) as usize);
+    let mut found = 0usize;
     let mut i = position + 1;
+    // Bounded by `limit`: each entry takes at least its delimiter.
     while i < limit && fields[i].tag == delimiter {
-        let start = i;
-        let mut seen = 1u64; // the delimiter, member 0
-        // A delimiter can itself be a nested group's NumInGroup (FIX Latest has groups whose
-        // entries start with one), which takes its entries with it.
-        i = match spec.fields[0].1 {
-            Some(nested) => scan_group(msg, i, limit, delimiter, nested)?.1,
-            None => i + 1,
-        };
-        while i < limit {
-            let tag = fields[i].tag;
-            if tag == delimiter {
-                break;
-            }
-            let Some((index, nested)) = spec.member(tag) else { break };
-            if index < 64 {
-                if seen & (1 << index) != 0 {
-                    return Err(FieldError { tag, kind: FieldErrorKind::RepeatingGroupOutOfOrder });
-                }
-                seen |= 1 << index;
-            }
-            i = match nested {
-                Some(nested) => scan_group(msg, i, limit, tag, nested)?.1,
-                None => i + 1,
-            };
-        }
-        entries.push((start, i));
+        let end = entry_end(msg, i, limit, spec)?;
+        on_entry(i, end);
+        found += 1;
+        i = end;
     }
-    if entries.len() != count as usize {
+    debug_assert!(i <= limit);
+    let declared = usize::try_from(count).expect("a u32 fits in usize");
+    if found != declared {
         // A member where the delimiter should be means the entry is out of order.
-        if entries.len() < count as usize && i < limit && spec.member(fields[i].tag).is_some() {
+        if found < declared && i < limit && spec.member(fields[i].tag).is_some() {
             return Err(FieldError { tag: fields[i].tag, kind: FieldErrorKind::RepeatingGroupOutOfOrder });
         }
         return Err(FieldError {
             tag: count_tag,
-            kind: FieldErrorKind::IncorrectNumInGroup { declared: count, found: entries.len() },
+            kind: FieldErrorKind::IncorrectNumInGroup { declared: count, found },
         });
     }
-    Ok((entries, i))
+    Ok((count, i))
+}
+
+/// The index just past the entry whose delimiter is at `start`, within fields before `limit`.
+/// The entry runs until the next delimiter or a tag that isn't a member; nested groups are
+/// checked, not collected.
+fn entry_end(msg: &Message, start: usize, limit: usize, spec: &GroupSpec) -> Result<usize, FieldError> {
+    let fields = &msg.fields;
+    let delimiter = spec.delimiter();
+    debug_assert!(start < limit);
+    debug_assert_eq!(fields[start].tag, delimiter);
+    let mut seen = 1u64; // the delimiter, member 0
+    // A delimiter can itself be a nested group's NumInGroup (FIX Latest has groups whose entries
+    // start with one), which takes its entries with it.
+    let mut i = match spec.fields[0].1 {
+        Some(nested) => check_group(msg, start, limit, delimiter, nested)?.1,
+        None => start + 1,
+    };
+    while i < limit {
+        let tag = fields[i].tag;
+        if tag == delimiter {
+            break;
+        }
+        let Some((index, nested)) = spec.member(tag) else { break };
+        if index < 64 {
+            if seen & (1 << index) != 0 {
+                return Err(FieldError { tag, kind: FieldErrorKind::RepeatingGroupOutOfOrder });
+            }
+            seen |= 1 << index;
+        }
+        i = match nested {
+            Some(nested) => check_group(msg, i, limit, tag, nested)?.1,
+            None => i + 1,
+        };
+    }
+    debug_assert!(i > start);
+    debug_assert!(i <= limit);
+    Ok(i)
 }
 
 /// Header fields a message can't be trusted without: [`Message::from_frame`] fails when one of
@@ -1663,6 +1718,90 @@ mod tests {
         }
         let err = raw("35=D|453=3|448=A|448=B|").group(453, &PARTIES).unwrap_err();
         assert_eq!(err.to_string(), "NumInGroup tag 453 declares 3 entries but 2 were found");
+    }
+
+    // A group whose delimiter is itself a nested NumInGroup, as some FIX Latest groups are:
+    // NoOuter(900) { NoPartySubIDs(802) { PartySubID(523), PartySubIDType(803) }, Symbol(55) }
+    const LED_BY_GROUP: GroupSpec = GroupSpec { fields: &[(802, Some(&SUB_IDS)), (55, None)], lengths: &[0, 0] };
+
+    /// `check_group` on the group `count_tag` introduces in `text`, after checking that it agrees
+    /// with `scan_group`: the same count and end, or the same error.
+    fn check_agrees_with_scan(text: &str, count_tag: u32, spec: &GroupSpec) -> Result<(u32, usize), FieldError> {
+        let msg = raw(text);
+        let position = msg.fields.iter().position(|f| f.tag == count_tag).unwrap();
+        let limit = msg.fields.len();
+        let checked = check_group(&msg, position, limit, count_tag, spec);
+        let scanned = scan_group(&msg, position, limit, count_tag, spec)
+            .map(|(entries, end)| (u32::try_from(entries.len()).unwrap(), end));
+        assert_eq!(checked, scanned, "{text}");
+        checked
+    }
+
+    #[test]
+    fn check_group_counts_entries_and_finds_the_end_without_collecting() {
+        let cases: [(&str, u32, &GroupSpec, (u32, usize)); 6] = [
+            // Flat, three entries, followed by a non-member field.
+            ("35=D|453=3|448=A|447=D|448=B|448=C|452=1|55=X|", 453, &PARTIES, (3, 7)),
+            // Nested groups inside entries.
+            (WITH_PARTIES, 453, &PARTIES, (2, 13)),
+            // The delimiter is a nested NumInGroup, which takes its entries with it.
+            ("35=X|900=2|802=1|523=a|803=1|55=A|802=2|523=b|523=c|55=B|58=end|", 900, &LED_BY_GROUP, (2, 10)),
+            // No entries.
+            ("35=D|453=0|55=AAPL|", 453, &PARTIES, (0, 2)),
+            // The group runs to the end of the message.
+            ("35=D|453=2|448=A|452=1|448=B|", 453, &PARTIES, (2, 5)),
+            // A nested group runs to the end of the message.
+            ("35=D|453=1|448=A|802=2|523=a1|523=a2|", 453, &PARTIES, (1, 6)),
+        ];
+        for (text, count_tag, spec, expected) in cases {
+            assert_eq!(check_agrees_with_scan(text, count_tag, spec), Ok(expected), "{text}");
+        }
+    }
+
+    #[test]
+    fn check_group_rejects_malformed_groups_as_scan_group_does() {
+        let out_of_order = FieldErrorKind::RepeatingGroupOutOfOrder;
+        let cases: [(&str, u32, &GroupSpec, u32, FieldErrorKind); 8] = [
+            (
+                "35=D|453=3|448=A|448=B|55=X|",
+                453,
+                &PARTIES,
+                453,
+                FieldErrorKind::IncorrectNumInGroup { declared: 3, found: 2 },
+            ),
+            (
+                "35=D|453=1|448=A|448=B|55=X|",
+                453,
+                &PARTIES,
+                453,
+                FieldErrorKind::IncorrectNumInGroup { declared: 1, found: 2 },
+            ),
+            // A member where the delimiter should be.
+            ("35=D|453=2|447=D|448=A|", 453, &PARTIES, 447, out_of_order.clone()),
+            ("35=D|453=1|452=1|448=A|55=X|", 453, &PARTIES, 452, out_of_order.clone()),
+            // A member repeated within an entry.
+            ("35=D|453=1|448=A|452=1|452=2|55=X|", 453, &PARTIES, 452, out_of_order.clone()),
+            // A nested group's count is wrong.
+            (
+                "35=D|453=1|448=A|802=2|523=a1|55=X|",
+                453,
+                &PARTIES,
+                802,
+                FieldErrorKind::IncorrectNumInGroup { declared: 2, found: 1 },
+            ),
+            // A delimiting nested group's count is wrong.
+            (
+                "35=X|900=1|802=2|523=a|55=A|",
+                900,
+                &LED_BY_GROUP,
+                802,
+                FieldErrorKind::IncorrectNumInGroup { declared: 2, found: 1 },
+            ),
+            ("35=D|453=x|448=A|", 453, &PARTIES, 453, FieldErrorKind::IncorrectFormat("x".into())),
+        ];
+        for (text, count_tag, spec, tag, kind) in cases {
+            assert_eq!(check_agrees_with_scan(text, count_tag, spec), Err(FieldError { tag, kind }), "{text}");
+        }
     }
 
     #[test]
