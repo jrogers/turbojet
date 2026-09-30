@@ -2,7 +2,7 @@
 //! the session layer. Enumerations whose value sets differ by FIX version live in the generated
 //! version crates, e.g. `turbojet-fix42`.
 
-use std::fmt::{self, Write as _};
+use std::fmt;
 use std::str::FromStr;
 
 use std::borrow::Cow;
@@ -328,8 +328,42 @@ impl FromFix for Decimal {
 }
 
 impl ToFix for Decimal {
+    /// As `Display` writes it, without the formatting machinery: the mantissa's digits, with the
+    /// point `scale` digits from the right and at least one digit before it.
     fn write_fix(&self, out: &mut String) {
-        write!(out, "{self}").expect("writing to a String cannot fail")
+        if self.is_sign_negative() {
+            out.push('-');
+        }
+        // A 96-bit mantissa has at most 29 digits; the scale is at most 28.
+        let mut digits = [b'0'; 40];
+        let mut start = digits.len();
+        let mantissa = self.mantissa().unsigned_abs();
+        if let Ok(mut n) = u64::try_from(mantissa) {
+            loop {
+                start -= 1;
+                digits[start] = b'0' + (n % 10) as u8;
+                n /= 10;
+                if n == 0 {
+                    break;
+                }
+            }
+        } else {
+            let mut n = mantissa;
+            while n > 0 {
+                start -= 1;
+                digits[start] = b'0' + (n % 10) as u8;
+                n /= 10;
+            }
+        }
+        let scale = self.scale() as usize;
+        // Leading zeros (already in the buffer) up to one digit before the point.
+        start = start.min(digits.len() - scale - 1);
+        let point = digits.len() - scale;
+        push_ascii(out, &digits[start..point]);
+        if scale > 0 {
+            out.push('.');
+            push_ascii(out, &digits[point..]);
+        }
     }
 }
 
@@ -560,6 +594,35 @@ fix_enum! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Decimals are written as `Display` writes them: every scale, sign and size of mantissa.
+    #[test]
+    fn decimals_are_written_as_display_writes_them() {
+        let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let mut values = vec![Decimal::ZERO, Decimal::from_parts(0, 0, 0, true, 2), Decimal::MAX, Decimal::MIN];
+        for scale in 0..=28 {
+            for _ in 0..200 {
+                let (lo, mid, hi) = (next() as u32, next() as u32, next() as u32);
+                // Mantissas of 32, 64 and 96 bits, and small ones that need leading zeros.
+                let (lo, mid, hi) = match next() % 4 {
+                    0 => (lo, 0, 0),
+                    1 => (lo, mid, 0),
+                    2 => (lo, mid, hi),
+                    _ => (lo % 1000, 0, 0),
+                };
+                values.push(Decimal::from_parts(lo, mid, hi, next() % 2 == 0, scale));
+            }
+        }
+        for d in values {
+            assert_eq!(d.to_fix(), d.to_string(), "{d:?}");
+        }
+    }
 
     #[test]
     fn application_versions_use_fixt_codes() {
