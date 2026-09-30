@@ -495,6 +495,26 @@ Round trips are initiator → acceptor application → initiator application, us
 discards messages (storage is measured separately). Session benchmarks restart the session every
 10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
 
+A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
+count changes, up or down, so both regressions and improvements show up in CI:
+
+```sh
+cargo test -p turbojet --test allocations -- --nocapture   # prints the table
+```
+
+| Stage | Allocations | Reallocs | Bytes |
+|---|---|---|---|
+| Decode | 2 | 0 | 508 |
+| Session | 6 | 0 | 911 |
+| Application (typed parse and ack) | 8 | 2 | 3,138 |
+| Store (memory) | 2.2 | 0 | 693 |
+| Encode | 0 | 0 | 0 |
+| Engine (all but the application) | 10.2 | 0 | 2,113 |
+
+Means of 1,000 orders after 100 warm-up, 2026-09-30. Store allocations are fractional because
+the in-memory store's map allocates a node every few messages. Debug and release builds count
+the same.
+
 ## Limitations
 
 See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for the planned work. In brief:

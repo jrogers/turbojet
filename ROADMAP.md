@@ -40,6 +40,9 @@ later, with:
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 1.2 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
+- a count of heap allocations, reallocs and bytes per order → ack, by stage (decode, session,
+  application, store, encode), checked against an exact budget on every build
+  (`tests/allocations.rs`);
 - GitHub Actions CI on every push: clippy and tests for each feature combination, the 1.89
   minimum Rust version, `cargo fmt --check`, rustdoc with warnings as errors, a compile check
   of the benchmarks, a check that the generated crates match their dictionaries, and a check
@@ -140,12 +143,10 @@ The long-term goal is that a message in steady state, from the read buffer throu
 and application and back out to the socket, is neither copied nor allocated beyond what the
 application itself asks for. Some of this is already done: a `Message` keeps all its fields in
 one buffer with an offset index (two allocations, not one per field), outgoing messages are
-encoded into one reused batch buffer, and raw group access is zero-copy. What remains, per
-message:
-
-- **Count allocations first** (S). A counting global allocator in the benchmarks, reporting
-  allocations and bytes copied per order → ack, and a test that fails if the steady-state count
-  goes over a budget, so each step below is measured and regressions are caught.
+encoded into one reused batch buffer, and raw group access is zero-copy. Allocations per order →
+ack are counted by stage (`tests/allocations.rs`), and the build fails if a count changes, so each
+step below shows up as a lower budget: as of 2026-09-30 the engine makes about 10 per order
+(decode 2, session 6, store 2), and the example application 8. What remains, per message:
 - **Borrowed inbound messages** (M). Decoding copies each frame out of the read buffer into an
   owned `Message`. Decode instead into a view borrowing the read buffer, with its field index in
   reused storage, and hand applications that; they copy into an owned `Message` only to keep
