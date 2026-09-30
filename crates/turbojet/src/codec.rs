@@ -424,6 +424,26 @@ mod tests {
     }
 
     #[test]
+    fn decode_into_garbles_a_frame_it_refuses_after_framing() {
+        let body = b"35=D\x0149=\xff\x0156=B\x0134=1\x0152=20260928-12:00:00\x0111=A\x01";
+        let mut stream = format!("8=FIX.4.4\x019={}\x01", body.len()).into_bytes();
+        stream.extend_from_slice(body);
+        let sum = checksum(&stream);
+        stream.extend_from_slice(format!("10={sum:03}\x01").as_bytes());
+        let good = encode(&sample()).unwrap();
+        stream.extend_from_slice(&good);
+
+        let mut msg = Message::default();
+        let data = DataFields::standard();
+        let Decoded::Garbled { skip, reason } = decode(&stream) else { panic!("decoded") };
+        assert_eq!(decode_into(&stream, &data, &mut msg), DecodedInto::Garbled { skip, reason });
+        let rest = &stream[skip..];
+        assert_eq!(decode_into(rest, &data, &mut msg), DecodedInto::Message(good.len()));
+        let Decoded::Message(expected, _) = decode(rest) else { panic!() };
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
     fn data_fields_round_trip_with_soh_and_bytes_that_are_not_utf8() {
         let msg = sample()
             .with(tags::SENDING_TIME, "20260930-12:00:00")
