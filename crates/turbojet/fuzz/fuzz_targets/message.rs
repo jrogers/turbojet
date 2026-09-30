@@ -5,7 +5,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use turbojet::codec::{Decoded, decode};
-use turbojet::fields::UtcTimestamp;
+use turbojet::fields::{FromFix, MonthYear, NaiveDate, ToFix, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 use turbojet::message::tags;
 use turbojet_fuzz::{frame, round_trip};
 
@@ -32,7 +32,27 @@ fuzz_target!(|body: &[u8]| {
     let _ = msg.opt_field::<UtcTimestamp>(tags::ORIG_SENDING_TIME);
     let _ = msg.opt_field::<bool>(tags::POSS_DUP_FLAG);
     let _ = msg.opt_field::<i64>(tags::HEART_BT_INT);
+    // Any value that parses as one of the field types writes out as something that parses back
+    // to the same value, and writes the same way again.
+    for (_, value) in msg.fields() {
+        stable::<UtcTimestamp>(value);
+        stable::<UtcTimeOnly>(value);
+        stable::<NaiveDate>(value);
+        stable::<MonthYear>(value);
+        stable::<TzTimeOnly>(value);
+        stable::<TzTimestamp>(value);
+        stable::<char>(value);
+        stable::<Vec<String>>(value);
+    }
     let _ = msg.to_string();
     let _ = msg.redacted().to_string();
     round_trip(&msg);
 });
+
+fn stable<T: FromFix + ToFix + PartialEq + std::fmt::Debug>(value: &str) {
+    let Ok(parsed) = T::from_fix(value) else { return };
+    let written = parsed.to_fix();
+    let again = T::from_fix(&written).unwrap_or_else(|e| panic!("{value:?} wrote {written:?}, which fails: {e:?}"));
+    assert_eq!(again, parsed, "{value:?} wrote {written:?}");
+    assert_eq!(again.to_fix(), written, "{value:?}");
+}
