@@ -863,11 +863,11 @@ impl SessionLog for RecordingLog {
         self.writes.lock().unwrap().push(format!("incoming {seq}"));
         self.inner.set_next_incoming(seq)
     }
-    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         self.writes.lock().unwrap().push(format!("outgoing {seq}"));
         self.inner.record_outgoing(seq, msg)
     }
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         self.inner.sent_messages(begin, end)
     }
     fn reset(&mut self) -> io::Result<()> {
@@ -1498,11 +1498,11 @@ impl SessionLog for FailingLog {
         self.write()?;
         self.inner.set_next_incoming(seq)
     }
-    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         self.write()?;
         self.inner.record_outgoing(seq, msg)
     }
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         self.inner.sent_messages(begin, end)
     }
     fn reset(&mut self) -> io::Result<()> {
@@ -1548,6 +1548,40 @@ fn storage_failure_while_sending_suppresses_the_message() {
     let mut s = h.logged_on();
     let out = s.on_message(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
     assert_eq!(types(&out), ["DISCONNECT"]);
+}
+
+/// Stores check only a stored message's framing; one whose fields don't parse can't be resent,
+/// and ends the session like any other storage failure.
+#[test]
+fn a_stored_message_that_does_not_parse_disconnects_on_a_resend() {
+    let storage = Arc::new(MemoryStorage::new());
+    {
+        let id = SessionId {
+            begin_string: "FIX.4.4".into(),
+            sender_comp_id: "GATEWAY".into(),
+            target_comp_id: "CLIENT".into(),
+        };
+        let report = Message::default()
+            .with(tags::BEGIN_STRING, "FIX.4.4")
+            .with(tags::MSG_TYPE, MsgType::ExecutionReport)
+            .with(tags::SENDER_COMP_ID, "GATEWAY")
+            .with(tags::TARGET_COMP_ID, "CLIENT")
+            .with(tags::MSG_SEQ_NUM, 1u64)
+            .with(tags::SENDING_TIME, "20260930-12:00:00.000")
+            .with(tags::EXEC_ID, "E1");
+        // Make ExecID(17) non-UTF-8, with a valid CheckSum so the framing is intact.
+        let mut bytes = encode(&report).unwrap();
+        let at = bytes.windows(5).position(|w| w == b"\x0117=E").unwrap() + 4;
+        bytes[at] = 0xff;
+        let trailer = bytes.len() - 7;
+        let sum = crate::codec::checksum(&bytes[..trailer]);
+        bytes[trailer..].copy_from_slice(format!("10={sum:03}\x01").as_bytes());
+        storage.open(&id).unwrap().record_outgoing(1, Some(&bytes)).unwrap();
+    }
+    let h = Harness::with_storage(storage);
+    let mut s = h.logged_on(); // our 2: Logon
+    let req = client(2, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0");
+    assert_eq!(types(&s.on_message(req, h.t0)), ["DISCONNECT"]);
 }
 
 // ---- Typed session-message validation ----
@@ -1903,10 +1937,10 @@ mod schedule_tests {
         fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
             self.0.set_next_incoming(seq)
         }
-        fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+        fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
             self.0.record_outgoing(seq, msg)
         }
-        fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+        fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
             self.0.sent_messages(begin, end)
         }
         fn reset(&mut self) -> io::Result<()> {

@@ -13,7 +13,6 @@ use std::time::Instant;
 use counting::{Counts, Stage};
 use turbojet::codec::{Decoded, decode, encode, encode_into};
 use turbojet::fields::UtcTimestamp;
-use turbojet::message::DataFields;
 use turbojet::session::Action;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, MemoryStorage, Message, MessageReject, SessionId};
@@ -55,10 +54,10 @@ impl SessionLog for StagedLog {
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
         counting::in_stage(Stage::Store, || self.0.set_next_incoming(seq))
     }
-    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         counting::in_stage(Stage::Store, || self.0.record_outgoing(seq, msg))
     }
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         counting::in_stage(Stage::Store, || self.0.sent_messages(begin, end))
     }
     fn reset(&mut self) -> io::Result<()> {
@@ -75,9 +74,6 @@ impl SessionLog for StagedLog {
     }
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
         counting::in_stage(Stage::Store, || self.0.set_created_at(at))
-    }
-    fn set_data_fields(&mut self, data: &DataFields) {
-        counting::in_stage(Stage::Store, || self.0.set_data_fields(data))
     }
 }
 
@@ -296,9 +292,9 @@ fn report(counts: &[Counts; Stage::ALL.len()]) -> String {
 /// can move them without a change to Turbojet.
 const BUDGET: [(Stage, u64, u64); Stage::ALL.len()] = [
     (Stage::Decode, 2000, 0),
-    (Stage::Session, 3000, 0),
+    (Stage::Session, 4000, 0),
     (Stage::Application, 8000, 2000),
-    (Stage::Store, 2166, 0),
+    (Stage::Store, 1166, 0),
     (Stage::Encode, 0, 0),
 ];
 

@@ -16,11 +16,13 @@ Notable changes to the published crates.
 - Breaking: `Message::get` and `Message::fields` leave out a data field whose value isn't UTF-8.
 - Breaking: `fix_message!` and `fix_group!` declare data fields as `data` or `opt_data`, with both
   tags (`LEN => DATA`), holding `Vec<u8>`; `GroupSpec` has a `lengths` field for them.
-  `SessionConfig` has a `data_fields` field, and `SessionLog` a provided `set_data_fields` method.
+  `SessionConfig` has a `data_fields` field.
 - Logs show binary values by their length, and redact RawData, SecureData, EncryptedPassword and
   EncryptedNewPassword.
-- `DiskStorage` checks only each stored message's framing when it opens; the message is parsed
-  when it's read for a resend.
+- Breaking: `SessionLog::record_outgoing` takes the message as sent, encoded (`&[u8]`), and
+  `SessionLog::sent_messages` returns those bytes: stores no longer encode or decode messages.
+  `DiskStorage` checks only each stored message's framing, when it opens and when it reads one
+  back; the session parses a message when it resends it.
 - Typed dates and times: `UtcTimeOnly`, `NaiveDate` (UTCDateOnly, UTCDate and LocalMktDate),
   `MonthYear`, `TzTimeOnly` and `TzTimestamp`; `char`; and space-separated lists as `Vec<T>`.
 - Timestamps and times keep their precision (seconds, milliseconds, microseconds or nanoseconds):

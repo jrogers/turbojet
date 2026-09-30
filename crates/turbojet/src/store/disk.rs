@@ -8,9 +8,8 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use super::{SessionId, SessionLog, SessionStorage};
-use crate::codec::{Decoded, decode_with, encode, frame};
+use crate::codec::{Decoded, frame};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
-use crate::message::{DataFields, Message};
 
 /// Stores each session's state in files under one directory.
 ///
@@ -22,7 +21,7 @@ use crate::message::{DataFields, Message};
 ///   while the session is open, so two gateway processes cannot share a session.
 /// - `<name>.created`: when the state was created or last reset, as a FIX UTCTimestamp, once
 ///   recorded; used by session schedules. Replaced atomically.
-/// - `<name>.body`: sent application messages, appended in wire format. Opening the log scans
+/// - `<name>.body`: sent application messages, appended as they were sent. Opening the log scans
 ///   it to index sequence numbers by file offset; resends then read messages back from disk.
 ///
 /// Recovery on open: a partially written message at the end of the body file (from a crash
@@ -70,8 +69,6 @@ struct DiskLog {
     created_path: PathBuf,
     created_at: Option<UtcTimestamp>,
     sync: bool,
-    /// The session's data fields, to decode stored messages with.
-    data: DataFields,
 }
 
 impl DiskLog {
@@ -118,7 +115,6 @@ impl DiskLog {
             created_path,
             created_at,
             sync,
-            data: DataFields::standard(),
         })
     }
 
@@ -155,10 +151,9 @@ impl SessionLog for DiskLog {
         self.write_seqnums()
     }
 
-    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
-        if let Some(msg) = msg {
-            let bytes = encode(msg).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-            self.body.write_all(&bytes)?;
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
+        if let Some(bytes) = msg {
+            self.body.write_all(bytes)?;
             if self.sync {
                 self.body.sync_data()?;
             }
@@ -169,15 +164,15 @@ impl SessionLog for DiskLog {
         self.write_seqnums()
     }
 
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         let extents: Vec<(u64, Extent)> = self.index.range(begin..=end).map(|(s, e)| (*s, *e)).collect();
         let mut messages = Vec::with_capacity(extents.len());
         for (seq, (offset, len)) in extents {
             self.body.seek(SeekFrom::Start(offset))?;
             let mut bytes = vec![0; len];
             self.body.read_exact(&mut bytes)?;
-            match decode_with(&bytes, &self.data) {
-                Decoded::Message(msg, _) if msg.defect().is_none() => messages.push((seq, msg)),
+            match frame(&bytes) {
+                Ok(n) if n == len => messages.push((seq, bytes)),
                 _ => return Err(invalid_data(format!("stored message {seq} at offset {offset} is corrupt"))),
             }
         }
@@ -229,10 +224,6 @@ impl SessionLog for DiskLog {
         self.created_at = Some(at);
         Ok(())
     }
-
-    fn set_data_fields(&mut self, data: &DataFields) {
-        self.data = data.clone();
-    }
 }
 
 fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
@@ -273,9 +264,8 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>,
     // would shift the rest of the buffer every time.
     let mut consumed = 0;
     loop {
-        // Only the framing and MsgSeqNum are checked here: the body can only be parsed knowing the
-        // session's data fields, which the log is told once it's open. It's parsed when a message
-        // is read for a resend.
+        // Only the framing and MsgSeqNum are checked: the store never parses the body, which
+        // takes the session's data fields. The session parses a message when it resends it.
         match frame(&buf[consumed..]) {
             Ok(len) => {
                 let seq = msg_seq_num(&buf[consumed..consumed + len]).ok_or_else(|| {
@@ -335,7 +325,6 @@ fn invalid_data(msg: String) -> io::Error {
 mod tests {
     use super::super::conformance::{app_message, check, id};
     use super::*;
-    use crate::message::tags;
 
     fn storage(dir: &tempfile::TempDir) -> DiskStorage {
         DiskStorage::new(dir.path(), false).unwrap()
@@ -362,7 +351,7 @@ mod tests {
         }
         let mut log = storage(&dir).open(&id("A")).unwrap();
         assert_eq!((log.next_outgoing(), log.next_incoming()), (2, 3));
-        assert_eq!(log.sent_messages(1, 1).unwrap()[0].1.get(tags::EXEC_ID), Some("E1"));
+        assert_eq!(log.sent_messages(1, 1).unwrap()[0].1, app_message(1));
     }
 
     /// A record written before the in-flight field was added still reads, and gains the field
@@ -399,7 +388,7 @@ mod tests {
         }
         let path = body_path(&dir, "A");
         let good_len = fs::metadata(&path).unwrap().len();
-        let partial = &encode(&app_message(2)).unwrap()[..20];
+        let partial = &app_message(2)[..20];
         OpenOptions::new().append(true).open(&path).unwrap().write_all(partial).unwrap();
 
         let mut log = storage(&dir).open(&id("A")).unwrap();
@@ -417,7 +406,7 @@ mod tests {
             log.record_outgoing(1, Some(&app_message(1))).unwrap();
         }
         // Simulate a crash between the body append and the seqnums update.
-        let bytes = encode(&app_message(2)).unwrap();
+        let bytes = app_message(2);
         OpenOptions::new().append(true).open(body_path(&dir, "A")).unwrap().write_all(&bytes).unwrap();
 
         let log = storage(&dir).open(&id("A")).unwrap();
@@ -433,16 +422,13 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }
 
+    /// The store checks a stored message's framing, not its fields: parsing them is the session's
+    /// job.
     #[test]
-    fn stored_message_with_a_malformed_field_is_corrupt() {
+    fn stored_message_with_a_malformed_field_is_returned_as_stored() {
         let dir = tempfile::tempdir().unwrap();
         let mut log = storage(&dir).open(&id("A")).unwrap();
-        // A full header, so the message isn't refused for lacking one.
-        let msg = app_message(1)
-            .with(tags::SENDER_COMP_ID, "GW")
-            .with(tags::TARGET_COMP_ID, "A")
-            .with(tags::SENDING_TIME, "20260929-12:00:00.000");
-        log.record_outgoing(1, Some(&msg)).unwrap();
+        log.record_outgoing(1, Some(&app_message(1))).unwrap();
         // Make ExecID(17) non-UTF-8, with a valid CheckSum so only the field is at fault.
         let path = body_path(&dir, "A");
         let mut bytes = fs::read(&path).unwrap();
@@ -453,11 +439,10 @@ mod tests {
         bytes[trailer..].copy_from_slice(format!("10={sum:03}\x01").as_bytes());
         fs::write(&path, &bytes).unwrap();
 
-        assert_eq!(log.sent_messages(1, 1).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, bytes.clone())]);
         drop(log);
-        // Opening checks only the framing, which is intact.
         let mut log = storage(&dir).open(&id("A")).unwrap();
-        assert_eq!(log.sent_messages(1, 1).unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, bytes)]);
     }
 
     #[test]

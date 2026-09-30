@@ -145,11 +145,11 @@ impl SessionLog for DiscardLog {
         self.seq.lock().unwrap().1 = seq;
         Ok(())
     }
-    fn record_outgoing(&mut self, seq: u64, _msg: Option<&Message>) -> io::Result<()> {
+    fn record_outgoing(&mut self, seq: u64, _msg: Option<&[u8]>) -> io::Result<()> {
         self.seq.lock().unwrap().0 = seq + 1;
         Ok(())
     }
-    fn sent_messages(&mut self, _begin: u64, _end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn sent_messages(&mut self, _begin: u64, _end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         Ok(Vec::new())
     }
     fn reset(&mut self) -> io::Result<()> {

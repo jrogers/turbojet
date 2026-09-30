@@ -11,7 +11,6 @@ pub use disk::DiskStorage;
 pub use memory::MemoryStorage;
 
 use crate::fields::UtcTimestamp;
-use crate::message::{DataFields, Message};
 
 /// Identifies a FIX session from the gateway's side.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -50,11 +49,13 @@ pub trait SessionLog: Send {
     /// [`in_flight`](SessionLog::in_flight).
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()>;
 
-    /// Records that outgoing `seq` has been used, storing `msg` for resends when given.
-    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()>;
+    /// Records that outgoing `seq` has been used, storing `msg`, the message as sent (encoded,
+    /// header and trailer included), for resends when given.
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()>;
 
-    /// Stored messages with sequence numbers in `begin..=end`, in ascending order.
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>>;
+    /// Stored messages with sequence numbers in `begin..=end`, in ascending order, as they were
+    /// given to `record_outgoing`.
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>>;
 
     /// Resets both sequence numbers to 1, discards stored messages, and clears
     /// [`created_at`](SessionLog::created_at) and [`in_flight`](SessionLog::in_flight).
@@ -86,27 +87,25 @@ pub trait SessionLog: Send {
     fn set_created_at(&mut self, _at: UtcTimestamp) -> io::Result<()> {
         Ok(())
     }
-
-    /// Tells the log the session's data fields ([`SessionConfig::data_fields`]), for a store that
-    /// decodes what it stored to know how long each data value is. The session calls it once it
-    /// has opened the log. The default does nothing.
-    ///
-    /// [`SessionConfig::data_fields`]: crate::SessionConfig::data_fields
-    fn set_data_fields(&mut self, _data: &DataFields) {}
 }
 
 /// Behaviour every [`SessionStorage`] implementation must satisfy.
 #[cfg(test)]
 pub(crate) mod conformance {
     use super::*;
+    use crate::codec::encode;
     use crate::fields::MsgType;
-    use crate::message::tags;
+    use crate::message::{Message, tags};
 
     pub fn id(target: &str) -> SessionId {
         SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: target.into() }
     }
 
-    pub fn app_message(seq: u64) -> Message {
+    pub fn app_message(seq: u64) -> Vec<u8> {
+        encode(&message(seq)).unwrap()
+    }
+
+    fn message(seq: u64) -> Message {
         Message::default()
             .with(tags::BEGIN_STRING, "FIX.4.4")
             .with(tags::MSG_TYPE, MsgType::ExecutionReport)
@@ -130,7 +129,7 @@ pub(crate) mod conformance {
         let sent = log.sent_messages(1, 4).unwrap();
         let seqs: Vec<u64> = sent.iter().map(|(s, _)| *s).collect();
         assert_eq!(seqs, [2, 4]);
-        assert_eq!(sent[1].1.get(tags::EXEC_ID), Some("E4"));
+        assert_eq!(sent[1].1, app_message(4));
         assert_eq!(log.sent_messages(3, 3).unwrap().len(), 0);
 
         // Sessions are independent.
@@ -181,22 +180,17 @@ pub(crate) mod conformance {
         assert_eq!(storage.open(&id("C")).unwrap().in_flight(), None, "reset persists");
 
         // Data fields, a venue's own too, come back byte for byte.
-        let data = DataFields::standard().with(5000, 5001);
-        let msg = app_message(1).with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01").with_data(
+        let msg = message(1).with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01").with_data(
             5000,
             5001,
             b"a\x01\xfe",
         );
         {
             let mut log = storage.open(&id("D")).unwrap();
-            log.set_data_fields(&data);
-            log.record_outgoing(1, Some(&msg)).unwrap();
+            log.record_outgoing(1, Some(&encode(&msg).unwrap())).unwrap();
         }
         let mut log = storage.open(&id("D")).unwrap();
-        log.set_data_fields(&data);
         let sent = log.sent_messages(1, 1).unwrap();
-        for tag in [tags::RAW_DATA_LENGTH, tags::RAW_DATA, 5000, 5001] {
-            assert_eq!(sent[0].1.get_bytes(tag), msg.get_bytes(tag), "{tag}");
-        }
+        assert_eq!(sent[0].1, encode(&msg).unwrap());
     }
 }

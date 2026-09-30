@@ -6,13 +6,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{SessionId, SessionLog, SessionStorage};
 use crate::fields::UtcTimestamp;
-use crate::message::Message;
 
 #[derive(Debug)]
 struct State {
     next_outgoing: u64,
     next_incoming: u64,
-    sent: BTreeMap<u64, Message>,
+    sent: BTreeMap<u64, Vec<u8>>,
     created_at: Option<UtcTimestamp>,
     in_flight: Option<u64>,
 }
@@ -70,16 +69,16 @@ impl SessionLog for MemoryLog {
         Ok(())
     }
 
-    fn record_outgoing(&mut self, seq: u64, msg: Option<&Message>) -> io::Result<()> {
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         let mut state = self.state();
         if let Some(msg) = msg {
-            state.sent.insert(seq, msg.clone());
+            state.sent.insert(seq, msg.to_vec());
         }
         state.next_outgoing = seq + 1;
         Ok(())
     }
 
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         Ok(self.state().sent.range(begin..=end).map(|(seq, m)| (*seq, m.clone())).collect())
     }
 

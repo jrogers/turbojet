@@ -20,6 +20,7 @@ use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
 use crate::application::{Application, Context, MessageReject};
+use crate::codec::{Decoded, decode_with, encode};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
     UtcTimestamp,
@@ -959,8 +960,7 @@ impl Session {
     /// Claims the session in the registry and opens its log. Closes on failure.
     fn bind(&mut self, id: SessionId, heartbeat: Duration) -> bool {
         match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id()) {
-            Ok(mut log) => {
-                log.set_data_fields(&self.config.data_fields);
+            Ok(log) => {
                 // Label the driver's span (see `connection::run`), so every later log line, from
                 // the engine or the application, carries the session ID.
                 tracing::Span::current().record("id", tracing::field::display(&id));
@@ -1453,8 +1453,22 @@ impl Session {
             Ok(stored) => stored,
             Err(e) => return self.storage_failed(e),
         };
+        // Stores keep the bytes as sent; they're parsed here, with the session's data fields, all
+        // before any is resent.
+        let mut originals = Vec::with_capacity(stored.len());
+        for (seq, bytes) in stored {
+            match decode_with(&bytes, &self.config.data_fields) {
+                Decoded::Message(msg, len) if len == bytes.len() && msg.defect().is_none() => {
+                    originals.push((seq, msg))
+                }
+                _ => {
+                    let e = io::Error::new(io::ErrorKind::InvalidData, format!("stored message {seq} is corrupt"));
+                    return self.storage_failed(e);
+                }
+            }
+        }
         let mut next = begin;
-        for (seq, original) in stored {
+        for (seq, original) in originals {
             if seq > next {
                 self.send_gap_fill(next, seq, &now_ts);
             }
@@ -1621,7 +1635,8 @@ impl Session {
             }
             _ => Some(&msg),
         };
-        if let Err(e) = self.peer_mut().log.record_outgoing(seq, stored) {
+        let stored = stored.map(|m| encode(m).expect("the session sets BeginString on every message it sends"));
+        if let Err(e) = self.peer_mut().log.record_outgoing(seq, stored.as_deref()) {
             return self.storage_failed(e);
         }
         self.peer().metrics.next_outgoing(seq + 1);
