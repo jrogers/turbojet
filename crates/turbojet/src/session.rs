@@ -20,7 +20,7 @@ use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
 use crate::application::{Application, Context, MessageReject};
-use crate::codec::{Decoded, decode_with, encode};
+use crate::codec::{Decoded, decode_with, encode, push_digits, push_trailer};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
     UtcTimestamp,
@@ -332,6 +332,8 @@ pub struct Session {
     outbox: Vec<Action>,
     /// Handle commands received while logon is in progress, applied in order once it completes.
     pending: Vec<Command>,
+    /// Scratch space for [`frame_into`](Self::frame_into)'s header, kept to reuse its allocation.
+    header: String,
 }
 
 impl Session {
@@ -407,6 +409,7 @@ impl Session {
             test_req_counter: 0,
             outbox: Vec::new(),
             pending: Vec::new(),
+            header: String::new(),
         };
         (session, receiver)
     }
@@ -1717,6 +1720,70 @@ impl Session {
         msg.extend_from(body, |tag| is_header_or_trailer(tag) && !set_by_session(tag));
         msg.extend_from(body, in_body);
         msg
+    }
+
+    /// Appends `body` framed as a message to send, encoded, to `out`: the bytes encoding
+    /// [`frame`](Self::frame)'s message gives, written in one pass. With `state_version`,
+    /// ApplVerID(1128) is written even when it's the session's default (for the stored copy of a
+    /// multi-version session).
+    #[cfg_attr(not(test), allow(dead_code))]
+    fn frame_into(
+        &mut self,
+        body: &Message,
+        seq: u64,
+        sending_time: impl ToFix,
+        orig_sending_time: Option<&str>,
+        state_version: bool,
+        out: &mut Vec<u8>,
+    ) {
+        fn field(header: &mut String, prefix: &str, value: impl ToFix) {
+            header.push_str(prefix);
+            value.write_fix(header);
+            header.push('\x01');
+        }
+        // The header after BodyLength, in the order and on the terms `frame` uses; reused so
+        // that it doesn't allocate.
+        let mut header = std::mem::take(&mut self.header);
+        header.clear();
+        field(&mut header, "35=", body.msg_type());
+        field(&mut header, "49=", self.config.sender_comp_id.as_str());
+        field(&mut header, "56=", self.peer().id.target_comp_id.as_str());
+        field(&mut header, "34=", seq);
+        if orig_sending_time.is_some() {
+            field(&mut header, "43=", "Y");
+        }
+        if let Some(poss_resend) = body.get(tags::POSS_RESEND) {
+            field(&mut header, "97=", poss_resend);
+        }
+        field(&mut header, "52=", sending_time);
+        if let Some(orig) = orig_sending_time {
+            field(&mut header, "122=", orig);
+        }
+        let version = match (self.appl_ver_id(), body.get(tags::APPL_VER_ID)) {
+            (Some(default), Some(stated)) if state_version || stated != default.code() => Some(stated),
+            (Some(default), None) if state_version => Some(default.code()),
+            _ => None,
+        };
+        if let Some(version) = version {
+            field(&mut header, "1128=", version);
+        }
+
+        let kept_header = |tag| is_header_or_trailer(tag) && !set_by_session(tag);
+        let in_body = |tag| !is_header_or_trailer(tag);
+        let body_len = header.len() + body.segments_len(kept_header) + body.segments_len(in_body);
+        let begin_string = self.config.begin_string.as_bytes();
+        let start = out.len();
+        out.reserve(begin_string.len() + body_len + 24);
+        out.extend_from_slice(b"8=");
+        out.extend_from_slice(begin_string);
+        out.extend_from_slice(b"\x019=");
+        push_digits(out, body_len);
+        out.push(b'\x01');
+        out.extend_from_slice(header.as_bytes());
+        body.write_segments(out, kept_header);
+        body.write_segments(out, in_body);
+        push_trailer(out, start);
+        self.header = header;
     }
 
     fn peer(&self) -> &Peer {

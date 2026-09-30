@@ -4,6 +4,7 @@
 
 use std::fmt;
 
+use crate::codec::push_digits;
 use crate::fields::{FromFix, MsgType, SessionRejectReason, ToFix, ValueError};
 
 mod data;
@@ -649,7 +650,7 @@ impl Message {
         let before = out.len();
         for f in self.fields.iter().filter(|f| keep(f.tag)) {
             if f.is_binary() {
-                out.extend_from_slice(f.tag.to_string().as_bytes());
+                push_digits(out, f.tag as usize);
                 out.push(b'=');
                 out.extend_from_slice(self.bytes(f));
                 out.push(SOH);
@@ -706,11 +707,7 @@ impl Message {
 
     /// The encoded length of `tag=value<SOH>`.
     fn segment_len(&self, f: &Field) -> usize {
-        if f.is_binary() {
-            f.tag.to_string().len() + (f.end - f.value) as usize + 2
-        } else {
-            (f.end - f.start + 1) as usize
-        }
+        if f.is_binary() { digits(f.tag) + (f.end - f.value) as usize + 2 } else { (f.end - f.start + 1) as usize }
     }
 
     /// The field's value, unless it's binary.
@@ -751,6 +748,11 @@ impl Message {
         self.buf.push('\x01');
         Field { tag, start: start as u32, value: value_start as u32, end: end as u32 }
     }
+}
+
+/// The number of decimal digits in `n`.
+fn digits(n: u32) -> usize {
+    n.checked_ilog10().map_or(1, |log| log as usize + 1)
 }
 
 /// Converts an optional raw value to `T`, reporting failures against `tag`.

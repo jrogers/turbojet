@@ -1,7 +1,8 @@
 use std::sync::Mutex;
 
 use super::*;
-use crate::fields::ApplVerId;
+use crate::codec::decode;
+use crate::fields::{ApplVerId, FromFix};
 use crate::message::utc_timestamp;
 use crate::peer::{ConnectionInfo, PeerCertificate};
 use crate::registry::SessionHandle;
@@ -2795,6 +2796,111 @@ fn outbound_messages_in_an_unsupported_version_are_dropped() {
     let mut s = fixt_session(&h);
     let out = s.on_command(Command::Send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "8")), h.t0);
     assert!(out.is_empty());
+}
+
+// ---- Framing ----
+
+/// The bytes `frame_into` appends to a buffer already holding some.
+fn framed_into(
+    s: &mut Session,
+    body: &Message,
+    seq: u64,
+    sending_time: impl ToFix,
+    orig: Option<&str>,
+    state_version: bool,
+) -> Vec<u8> {
+    let mut out = b"junk".to_vec();
+    s.frame_into(body, seq, sending_time, orig, state_version, &mut out);
+    assert_eq!(&out[..4], b"junk");
+    out.split_off(4)
+}
+
+/// Checks that `frame_into` writes what encoding `frame`'s message gives, with SendingTime as a
+/// string and as a timestamp, and as sent and resent.
+fn assert_frames_alike(s: &mut Session, body: &Message) {
+    let micros = UtcTimestamp::from_fix("20260930-12:00:01.123456").unwrap();
+    for orig in [None, Some("20260930-12:00:00.000")] {
+        let expected = encode(&s.frame(body, 12, "20260930-12:00:01.000", orig)).unwrap();
+        assert_eq!(framed_into(s, body, 12, "20260930-12:00:01.000", orig, false), expected);
+        let expected = encode(&s.frame(body, 12345, micros, orig)).unwrap();
+        assert_eq!(framed_into(s, body, 12345, micros, orig, false), expected);
+    }
+}
+
+fn app_order() -> Message {
+    Message::new(MsgType::NewOrderSingle)
+        .with(tags::CL_ORD_ID, "A")
+        .with(tags::SYMBOL, "MSFT")
+        .with(tags::SIDE, "2")
+        .with(tags::ORDER_QTY, "10")
+        .with(tags::ORD_TYPE, "1")
+}
+
+#[test]
+fn frame_into_writes_what_frame_and_encode_do() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let bodies = [
+        app_order(),
+        app_order().with(tags::POSS_RESEND, "Y"),
+        app_order()
+            .with(tags::ON_BEHALF_OF_COMP_ID, "HUB")
+            .with(tags::DELIVER_TO_COMP_ID, "DESK")
+            .with(tags::SENDER_SUB_ID, "TRADER"),
+        app_order().with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"a\x01b\xffc"),
+        // Fields the session sets itself are replaced or dropped.
+        app_order()
+            .with(tags::BEGIN_STRING, "FIX.4.2")
+            .with(tags::BODY_LENGTH, "999")
+            .with(tags::MSG_SEQ_NUM, "77")
+            .with(tags::SENDER_COMP_ID, "SOMEONE")
+            .with(tags::SENDING_TIME, "20000101-00:00:00")
+            .with(tags::CHECK_SUM, "000"),
+    ];
+    for body in &bodies {
+        assert_frames_alike(&mut s, body);
+    }
+}
+
+#[test]
+fn frame_into_writes_what_frame_and_encode_do_on_fixt() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50]);
+    let mut s = fixt_session(&h);
+    let bodies = [
+        app_order(),
+        app_order().with(tags::APPL_VER_ID, "9"),
+        app_order().with(tags::APPL_VER_ID, "7"),
+        app_order().with(tags::APPL_VER_ID, "7").with(tags::CSTM_APPL_VER_ID, "CUSTOM").with(tags::APPL_EXT_ID, "2"),
+    ];
+    for body in &bodies {
+        assert_frames_alike(&mut s, body);
+    }
+}
+
+/// For the stored copy of a multi-version session's message, the version is stated even when
+/// it's the default.
+#[test]
+fn frame_into_can_state_the_default_version() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50]);
+    let mut s = fixt_session(&h);
+    let bytes = framed_into(&mut s, &app_order(), 12, "20260930-12:00:01.000", None, true);
+    let Decoded::Message(msg, len) = decode(&bytes) else { panic!("didn't decode: {bytes:?}") };
+    assert_eq!(len, bytes.len());
+    assert_eq!(msg.get(tags::APPL_VER_ID), Some("9"));
+    assert!(misplaced_header_field(&msg).is_none());
+    // Otherwise, it's the message frame gives.
+    let expected = s.frame(&app_order(), 12, "20260930-12:00:01.000", None);
+    let fields = |m: &Message| {
+        m.fields()
+            .filter(|(tag, _)| !matches!(*tag, tags::APPL_VER_ID | tags::BODY_LENGTH | tags::CHECK_SUM))
+            .map(|(tag, value)| (tag, value.to_string()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(fields(&msg), fields(&expected));
+    // A stated version is kept as stated.
+    let bytes = framed_into(&mut s, &app_order().with(tags::APPL_VER_ID, "7"), 12, "20260930-12:00:01.000", None, true);
+    let expected = encode(&s.frame(&app_order().with(tags::APPL_VER_ID, "7"), 12, "20260930-12:00:01.000", None));
+    assert_eq!(bytes, expected.unwrap());
 }
 
 // ---- Dictionary validation ----

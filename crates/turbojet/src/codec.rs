@@ -112,12 +112,18 @@ pub fn encode_into(msg: &Message, out: &mut Vec<u8>) -> Result<(), FieldError> {
     push_digits(out, body_len);
     out.push(SOH);
     msg.write_segments(out, in_body);
-    let sum = checksum(&out[start..]);
-    out.extend_from_slice(&[b'1', b'0', b'=', b'0' + sum / 100, b'0' + sum / 10 % 10, b'0' + sum % 10, SOH]);
+    push_trailer(out, start);
     Ok(())
 }
 
-fn push_digits(out: &mut Vec<u8>, mut n: usize) {
+/// Appends the CheckSum(10) field for the message that starts at `out[start]`.
+pub(crate) fn push_trailer(out: &mut Vec<u8>, start: usize) {
+    let sum = checksum(&out[start..]);
+    out.extend_from_slice(&[b'1', b'0', b'=', b'0' + sum / 100, b'0' + sum / 10 % 10, b'0' + sum % 10, SOH]);
+}
+
+/// Appends the decimal digits of `n` without allocating.
+pub(crate) fn push_digits(out: &mut Vec<u8>, mut n: usize) {
     let mut digits = [0u8; 20];
     let mut start = digits.len();
     loop {
