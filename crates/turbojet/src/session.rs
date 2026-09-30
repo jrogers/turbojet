@@ -1345,8 +1345,10 @@ impl Session {
         } else if let Err(e) = self.peer_mut().log.set_in_flight(seq_num) {
             return self.storage_failed(e);
         }
-        let id = self.peer().id.clone();
-        let mut ctx = Context::new(&id);
+        // Borrows the peer field alone (not `self.peer()`), so the application can be called
+        // without cloning the SessionId for every message.
+        let id = &self.peer.as_ref().expect("session is not bound before logon").id;
+        let mut ctx = Context::new(id);
         if redelivered {
             ctx = ctx.redelivery();
         }

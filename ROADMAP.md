@@ -145,8 +145,8 @@ application itself asks for. Some of this is already done: a `Message` keeps all
 one buffer with an offset index (two allocations, not one per field), outgoing messages are
 encoded into one reused batch buffer, and raw group access is zero-copy. Allocations per order →
 ack are counted by stage (`tests/allocations.rs`), and the build fails if a count changes, so each
-step below shows up as a lower budget: as of 2026-09-30 the engine makes about 11 per order
-(decode 2, session 6, store 2, and the reply list the application's first send grows), and the
+step below shows up as a lower budget: as of 2026-09-30 the engine makes about 8 per order
+(decode 2, session 3, store 2, and the reply list the application's first send grows), and the
 example application 7. What remains, per message:
 - **Borrowed inbound messages** (M). Decoding copies each frame out of the read buffer into an
   owned `Message`. Decode instead into a view borrowing the read buffer, with its field index in

@@ -296,7 +296,7 @@ fn report(counts: &[Counts; Stage::ALL.len()]) -> String {
 /// can move them without a change to Turbojet.
 const BUDGET: [(Stage, u64, u64); Stage::ALL.len()] = [
     (Stage::Decode, 2000, 0),
-    (Stage::Session, 6000, 0),
+    (Stage::Session, 3000, 0),
     (Stage::Application, 8000, 2000),
     (Stage::Store, 2166, 0),
     (Stage::Encode, 0, 0),

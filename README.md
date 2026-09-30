@@ -505,16 +505,16 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 | Stage | Allocations | Reallocs | Bytes |
 |---|---|---|---|
 | Decode | 2 | 0 | 508 |
-| Session | 6 | 0 | 911 |
+| Session | 3 | 0 | 891 |
 | Application (typed parse and ack)¹ | 8 | 2 | 3,138 |
 | Store (memory) | 2.2 | 0 | 693 |
 | Encode | 0 | 0 | 0 |
-| Engine (all but the application) | 10.2 | 0 | 2,113 |
+| Engine (all but the application) | 7.2 | 0 | 2,093 |
 
 Means of 1,000 orders after 100 warm-up, 2026-09-30. Store allocations are fractional because
 the in-memory store's map allocates a node every few messages. Debug and release builds count
 the same. ¹ Includes one of the engine's: the reply list that `Context::send` pushes onto, so the
-engine's own count is about 11.
+engine's own count is about 8.
 
 ## Limitations
 
