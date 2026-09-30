@@ -12,7 +12,7 @@ pub use rust_decimal::Decimal;
 mod borrowed;
 mod time;
 
-pub use borrowed::{CodeRef, FieldRef, SecretRef};
+pub use borrowed::{CodeRef, FieldRef, List, SecretRef};
 pub use time::{
     DayOrWeek, MonthYear, NaiveDate, NaiveTime, Precision, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
 };

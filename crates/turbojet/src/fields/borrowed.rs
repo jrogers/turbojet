@@ -2,6 +2,7 @@
 //! them keeps its strings in the raw [`Message`](crate::Message) rather than copying them.
 
 use std::fmt;
+use std::marker::PhantomData;
 
 use super::{
     Code, Decimal, FixEnum, MonthYear, MsgType, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
@@ -174,6 +175,84 @@ impl<'a, E: FixEnum + fmt::Debug + PartialEq + 'a> FieldRef<'a> for Code<E> {
     }
 }
 
+/// A multi-value field (MultipleCharValue, MultipleStringValue) parsed without allocating: its
+/// values were checked when the message was parsed, and are read again as they're iterated.
+///
+/// ```
+/// use turbojet::fields::{EncryptMethod, FieldRef};
+///
+/// let methods = Vec::<EncryptMethod>::parse_ref("0 1").unwrap();
+/// assert_eq!(methods.len(), 2);
+/// assert_eq!(methods.iter().collect::<Vec<_>>(), [EncryptMethod::None, EncryptMethod::PKCS]);
+/// ```
+pub struct List<'a, T> {
+    raw: &'a str,
+    _value: PhantomData<fn() -> T>,
+}
+
+impl<'a, T: FieldRef<'a>> List<'a, T> {
+    /// The values, in order.
+    pub fn iter(&self) -> impl Iterator<Item = T::Ref> + use<'a, T> {
+        self.raw.split(' ').map(|value| T::parse_ref(value).expect("checked when parsed"))
+    }
+
+    /// How many values there are.
+    pub fn len(&self) -> usize {
+        self.raw.split(' ').count()
+    }
+
+    /// Whether there are none: never, for a parsed list, as an empty field is a format error.
+    pub fn is_empty(&self) -> bool {
+        self.raw.is_empty()
+    }
+
+    /// The values as they were sent, separated by spaces.
+    pub fn as_str(&self) -> &'a str {
+        self.raw
+    }
+}
+
+impl<T> Clone for List<'_, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for List<'_, T> {}
+
+impl<'a, T: FieldRef<'a>> fmt::Debug for List<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
+    }
+}
+
+/// Compares values, not their text.
+impl<'a, T: FieldRef<'a>> PartialEq for List<'a, T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().eq(other.iter())
+    }
+}
+
+/// Split as [`FromFix`](super::FromFix) splits `Vec<T>`: an empty value, or a doubled space, is a
+/// format error.
+impl<'a, T: FieldRef<'a> + 'a> FieldRef<'a> for Vec<T> {
+    type Ref = List<'a, T>;
+
+    fn parse_ref(s: &'a str) -> Result<List<'a, T>, ValueError> {
+        for value in s.split(' ') {
+            if value.is_empty() {
+                return Err(ValueError::Format);
+            }
+            T::parse_ref(value)?;
+        }
+        Ok(List { raw: s, _value: PhantomData })
+    }
+
+    fn into_owned(list: List<'a, T>) -> Self {
+        list.iter().map(T::into_owned).collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -267,5 +346,62 @@ mod tests {
         assert_eq!(unknown.to_string(), "Z");
         assert!(unknown != Side::Buy);
         assert_eq!(Code::into_owned(unknown), Code::<Side>::from_fix("Z").unwrap());
+    }
+
+    /// Checks `Vec<T>::parse_ref` against `Vec<T>::from_fix`, element by element.
+    fn lists_parse_as_owned<T>(values: &[&str])
+    where
+        T: for<'a> FieldRef<'a> + FromFix + PartialEq + fmt::Debug,
+    {
+        for &s in values {
+            let list = Vec::<T>::parse_ref(s);
+            let owned = Vec::<T>::from_fix(s);
+            assert_eq!(list.map(|_| ()), owned.as_ref().map(|_| ()).map_err(|e| *e), "{s:?}");
+            if let (Ok(list), Ok(owned)) = (list, owned) {
+                assert_eq!(list.len(), owned.len(), "{s:?}");
+                assert!(!list.is_empty(), "{s:?}");
+                assert_eq!(list.iter().map(T::into_owned).collect::<Vec<_>>(), owned, "{s:?}");
+                assert_eq!(Vec::<T>::into_owned(list), owned, "{s:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn lists_are_checked_when_parsed_and_read_as_iterated() {
+        let list = Vec::<Side>::parse_ref("1 2 1").unwrap();
+        assert_eq!(list.iter().collect::<Vec<_>>(), [Side::Buy, Side::Sell, Side::Buy]);
+        assert_eq!((list.len(), list.is_empty(), list.as_str()), (3, false, "1 2 1"));
+        assert_eq!(Vec::into_owned(list), Vec::<Side>::from_fix("1 2 1").unwrap());
+
+        let edges = ["1", "1 2", "", " ", " 1", "1 ", "1  2", "1 3", "3 x", "1 2 "];
+        lists_parse_as_owned::<Side>(&edges);
+        lists_parse_as_owned::<String>(&edges);
+        lists_parse_as_owned::<Code<Side>>(&["1 Z", "Z  1", ""]);
+        lists_parse_as_owned::<char>(&["A B", "A BC", "AB A"]);
+        assert_eq!(Vec::<Side>::parse_ref("1 3"), Err(ValueError::Incorrect));
+        assert_eq!(Vec::<Side>::parse_ref("1  2"), Err(ValueError::Format));
+    }
+
+    #[test]
+    fn lists_of_strings_borrow_the_input() {
+        let input = "G 1";
+        let list = Vec::<String>::parse_ref(input).unwrap();
+        let values: Vec<&str> = list.iter().collect();
+        assert_eq!(values, ["G", "1"]);
+        assert!(std::ptr::eq(values[0].as_ptr(), input.as_ptr()));
+        assert!(std::ptr::eq(list.as_str(), input));
+    }
+
+    #[test]
+    fn lists_show_and_compare_their_values() {
+        let list = Vec::<Code<Side>>::parse_ref("1 Z").unwrap();
+        assert_eq!(format!("{list:?}"), r#"[Known(Buy), Unknown("Z")]"#);
+        assert_eq!(format!("{:?}", Vec::<Secret>::parse_ref("a b").unwrap()), "[***, ***]");
+        assert_eq!(list, Vec::<Code<Side>>::parse_ref("1 Z").unwrap());
+        assert_ne!(list, Vec::<Code<Side>>::parse_ref("1 Y").unwrap());
+        assert_ne!(list, Vec::<Code<Side>>::parse_ref("1").unwrap());
+        assert_ne!(list, Vec::<Code<Side>>::parse_ref("1 Z 1").unwrap());
+        let copy = list;
+        assert_eq!(copy, list);
     }
 }
