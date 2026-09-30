@@ -21,7 +21,9 @@ use turbojet::{Application, Context, MemoryStorage, Message, MessageReject, Sess
 #[global_allocator]
 static ALLOCATOR: counting::Counting = counting::Counting;
 
-/// The benchmarks' application, its allocations attributed to the application stage.
+/// The benchmarks' application, its allocations attributed to the application stage. That includes
+/// one of the engine's: the first `Context::send` grows the context's reply `Vec`. `Acker` overrides
+/// only `on_message`; the other callbacks run at logon and logout, outside the counted orders.
 #[derive(Default)]
 struct StagedApp(common::Acker);
 
@@ -288,8 +290,10 @@ fn report(counts: &[Counts; Stage::ALL.len()]) -> String {
     table
 }
 
-/// Allocations and reallocs per stage, totalled over COUNTED orders, in debug builds. Exact: a
-/// change in either direction fails, so an improvement is locked in by lowering the budget here.
+/// Allocations and reallocs per stage, totalled over COUNTED orders. Exact: a change in either
+/// direction fails, so an improvement is locked in by lowering the budget here. Counts also depend
+/// on std and dependencies (Vec growth, BTreeMap node size), so a toolchain or dependency update
+/// can move them without a change to Turbojet.
 const BUDGET: [(Stage, u64, u64); Stage::ALL.len()] = [
     (Stage::Decode, 2000, 0),
     (Stage::Session, 6000, 0),
@@ -303,10 +307,6 @@ fn order_to_ack_allocates_exactly_its_budget() {
     let counts = order_to_ack();
     let table = report(&counts);
     println!("{table}");
-    if !cfg!(debug_assertions) {
-        println!("Budgets are for debug builds; not checked.");
-        return;
-    }
     let mut problems = Vec::new();
     for (stage, allocs, reallocs) in BUDGET {
         let c = counts[stage as usize];

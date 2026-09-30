@@ -1,4 +1,4 @@
-//! Shared fixtures for the benchmarks.
+//! Shared fixtures for the benchmarks, and for `tests/allocations.rs`.
 #![allow(dead_code)]
 
 use std::io;
