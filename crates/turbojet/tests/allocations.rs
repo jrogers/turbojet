@@ -1,6 +1,7 @@
 //! Heap allocations per order → ack, wire to wire (decode, then the session, application and
-//! store; the session encodes the ack), against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints the
-//! per-stage table.
+//! store; the session encodes the ack), with the memory store and the disk store (without fsync),
+//! each against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints
+//! a per-stage table for each store.
 
 #[path = "../benches/common/mod.rs"]
 mod common;
@@ -14,7 +15,7 @@ use counting::{Counts, Stage};
 use turbojet::codec::{Decoded, decode, encode};
 use turbojet::fields::UtcTimestamp;
 use turbojet::store::{SessionLog, SessionStorage};
-use turbojet::{Application, Context, MemoryStorage, Message, MessageReject, SessionId};
+use turbojet::{Application, Context, DiskStorage, MemoryStorage, Message, MessageReject, SessionId};
 
 #[global_allocator]
 static ALLOCATOR: counting::Counting = counting::Counting;
@@ -31,10 +32,10 @@ impl Application for StagedApp {
     }
 }
 
-/// `MemoryStorage`, its allocations attributed to the store stage.
-struct StagedStorage(MemoryStorage);
+/// A store, its allocations attributed to the store stage.
+struct StagedStorage<S>(S);
 
-impl SessionStorage for StagedStorage {
+impl<S: SessionStorage> SessionStorage for StagedStorage<S> {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Ok(Box::new(StagedLog(self.0.open(id)?)))
     }
@@ -221,10 +222,11 @@ const WARM_UP: u64 = 100;
 const COUNTED: u64 = 1_000;
 
 /// Per-stage counts over COUNTED orders, each decoded from bytes, processed by a logged-on
-/// session, acknowledged by the application, and the ack recorded in the store and encoded by the
-/// session into its output, which is cleared after each order as the connection driver does.
-fn order_to_ack() -> [Counts; Stage::ALL.len()] {
-    let storage = Arc::new(StagedStorage(MemoryStorage::new()));
+/// session with `storage`, acknowledged by the application, and the ack recorded in the store and
+/// encoded by the session into its output, which is cleared after each order as the connection
+/// driver does.
+fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.len()] {
+    let storage = Arc::new(StagedStorage(storage));
     let mut session = common::logged_on(storage, Arc::new(StagedApp::default()));
     let wire: Vec<Vec<u8>> = common::orders(WARM_UP + COUNTED).iter().map(|o| encode(o).unwrap()).collect();
     let now = Instant::now();
@@ -246,14 +248,14 @@ fn order_to_ack() -> [Counts; Stage::ALL.len()] {
     counting::take()
 }
 
-/// A table of per-order counts by stage, with the engine's share (all but the application) and
-/// the total.
-fn report(counts: &[Counts; Stage::ALL.len()]) -> String {
+/// A table of per-order counts by stage with `store`, with the engine's share (all but the
+/// application) and the total.
+fn report(store: &str, counts: &[Counts; Stage::ALL.len()]) -> String {
     let per = |n: u64| n as f64 / COUNTED as f64;
     let mut engine = Counts::ZERO;
     let mut total = Counts::ZERO;
     let mut table = format!(
-        "Allocations per order → ack ({} build, mean of {COUNTED} after {WARM_UP} warm-up)\n\n{:<12} {:>8} {:>8} {:>8}\n",
+        "Allocations per order → ack, {store} store ({} build, mean of {COUNTED} after {WARM_UP} warm-up)\n\n{:<12} {:>8} {:>8} {:>8}\n",
         if cfg!(debug_assertions) { "debug" } else { "release" },
         "stage",
         "allocs",
@@ -276,31 +278,45 @@ fn report(counts: &[Counts; Stage::ALL.len()]) -> String {
     table
 }
 
-/// Allocations and reallocs per stage, totalled over COUNTED orders. Exact: a change in either
-/// direction fails, so an improvement is locked in by lowering the budget here. Counts also depend
-/// on std and dependencies (Vec growth, BTreeMap node size), so a toolchain or dependency update
-/// can move them without a change to Turbojet.
-const BUDGET: [(Stage, u64, u64); Stage::ALL.len()] =
+/// Allocations and reallocs per stage, totalled over COUNTED orders.
+type Budget = [(Stage, u64, u64); Stage::ALL.len()];
+
+/// Budgets with each store. Exact: a change in either direction fails, so an improvement is
+/// locked in by lowering the budget here. Counts also depend on std and dependencies (Vec growth,
+/// BTreeMap node size), so a toolchain or dependency update can move them without a change to
+/// Turbojet.
+const MEMORY_BUDGET: Budget =
     [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 1166, 0)];
+const DISK_BUDGET: Budget =
+    [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 3166, 9000)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
-    let counts = order_to_ack();
-    let table = report(&counts);
-    println!("{table}");
+    let dir = tempfile::tempdir().unwrap();
+    let disk = DiskStorage::new(dir.path(), false).unwrap();
+    let runs =
+        [("memory", order_to_ack(MemoryStorage::new()), MEMORY_BUDGET), ("disk", order_to_ack(disk), DISK_BUDGET)];
+    let mut tables = Vec::new();
     let mut problems = Vec::new();
-    for (stage, allocs, reallocs) in BUDGET {
-        let c = counts[stage as usize];
-        for (what, actual, budget) in [("allocations", c.allocs, allocs), ("reallocs", c.reallocs, reallocs)] {
-            if actual > budget {
-                problems.push(format!("{}: {actual} {what} over {COUNTED} orders, budget {budget}", stage.name()));
-            } else if actual < budget {
-                problems.push(format!(
-                    "{}: {actual} {what} over {COUNTED} orders, fewer than the budget of {budget}: lower it",
-                    stage.name()
-                ));
+    for (store, counts, budget) in runs {
+        let table = report(store, &counts);
+        println!("{table}");
+        tables.push(table);
+        for (stage, allocs, reallocs) in budget {
+            let c = counts[stage as usize];
+            for (what, actual, budget) in [("allocations", c.allocs, allocs), ("reallocs", c.reallocs, reallocs)] {
+                let stage = stage.name();
+                if actual > budget {
+                    problems.push(format!(
+                        "{store} store, {stage}: {actual} {what} over {COUNTED} orders, budget {budget}"
+                    ));
+                } else if actual < budget {
+                    problems.push(format!(
+                        "{store} store, {stage}: {actual} {what} over {COUNTED} orders, fewer than the budget of {budget}: lower it"
+                    ));
+                }
             }
         }
     }
-    assert!(problems.is_empty(), "{}\n\n{table}", problems.join("\n"));
+    assert!(problems.is_empty(), "{}\n\n{}", problems.join("\n"), tables.join("\n"));
 }
