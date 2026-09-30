@@ -4,7 +4,7 @@
 use std::fmt;
 
 use super::{
-    Code, Decimal, FixEnum, MonthYear, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
+    Code, Decimal, FixEnum, MonthYear, MsgType, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
     ValueError,
 };
 
@@ -46,6 +46,19 @@ impl<'a> FieldRef<'a> for String {
 
     fn into_owned(value: &'a str) -> Self {
         value.to_owned()
+    }
+}
+
+/// The borrowed form is the code; [`MsgType::from_code`] gives the type.
+impl<'a> FieldRef<'a> for MsgType {
+    type Ref = &'a str;
+
+    fn parse_ref(s: &'a str) -> Result<&'a str, ValueError> {
+        Ok(s)
+    }
+
+    fn into_owned(code: &'a str) -> Self {
+        Self::from_code(code)
     }
 }
 
@@ -213,6 +226,16 @@ mod tests {
         let s = String::parse_ref(input).unwrap();
         assert!(std::ptr::eq(s.as_ptr(), input.as_ptr()));
         assert_eq!(String::into_owned(s), String::from_fix(input).unwrap());
+    }
+
+    #[test]
+    fn msg_types_borrow_their_code() {
+        for input in ["D", "U1"] {
+            let code = MsgType::parse_ref(input).unwrap();
+            assert!(std::ptr::eq(code.as_ptr(), input.as_ptr()));
+            assert_eq!(MsgType::into_owned(code), MsgType::from_fix(input).unwrap(), "{input:?}");
+        }
+        assert_eq!(MsgType::into_owned("D"), MsgType::NewOrderSingle);
     }
 
     #[test]
