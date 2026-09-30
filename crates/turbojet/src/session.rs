@@ -23,7 +23,7 @@ use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
 use crate::application::{Application, Context, MessageReject};
-use crate::codec::{Decoded, decode_stored, push_digits, push_trailer};
+use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
     UtcTimestamp,
@@ -1311,6 +1311,7 @@ impl Session {
             return;
         }
         self.queued.entry(seq_num).or_insert_with(|| Queued { msg: msg.clone(), answered });
+        debug_assert!(self.queued.len() <= MAX_QUEUED);
     }
 
     /// After the incoming sequence may have moved: processes queued messages now in sequence,
@@ -1335,6 +1336,10 @@ impl Session {
         }
         let Some(peer) = &self.peer else { return };
         let next = peer.log.next_incoming();
+        if matches!(self.status, Status::Active | Status::LoggingOut { .. }) {
+            // Whatever is still queued is ahead of the gap.
+            debug_assert!(self.queued.first_key_value().is_none_or(|(&seq_num, _)| seq_num > next));
+        }
         if let Some(resend) = &mut self.resend {
             if next > resend.target {
                 info!("resend complete");
@@ -1681,6 +1686,7 @@ impl Session {
             return self.storage_failed(e);
         }
         self.output = output;
+        debug_assert_eq!(self.peer().log.next_outgoing(), seq + 1, "recording a message uses its number");
         self.peer().metrics.next_outgoing(seq + 1);
         self.last_sent = now;
         self.emit(start);
@@ -1691,6 +1697,8 @@ impl Session {
     fn emit(&mut self, start: usize) {
         // The driver writes the output, then closes: anything added once closed would still go out.
         debug_assert!(self.status != Status::Closed, "a closed session sends nothing");
+        // Exactly one message, framed as the counterparty will frame it.
+        debug_assert_eq!(frame_stored(&self.output[start..]), Ok(self.output.len() - start));
         self.peer().metrics.message_sent();
         debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&self.output[start..], &self.config.data_fields));
     }

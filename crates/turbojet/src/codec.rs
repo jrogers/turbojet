@@ -10,6 +10,9 @@ const MAX_HEADER_FIELD_LEN: usize = 32;
 /// `10=NNN<SOH>`
 const TRAILER_LEN: usize = 7;
 
+const _: () = assert!(TRAILER_LEN == b"10=000\x01".len());
+const _: () = assert!(MAX_HEADER_FIELD_LEN < MAX_BODY_LENGTH);
+
 /// The result of [`decode`].
 #[derive(Debug, PartialEq)]
 pub enum Decoded {
@@ -109,6 +112,8 @@ fn frame_within(buf: &[u8], max_body_len: usize) -> Result<usize, Decoded> {
     if !buf[body_start..].starts_with(b"35=") {
         return Err(garbled(buf, "MsgType(35) is not the third field".into()));
     }
+    debug_assert!(total <= buf.len());
+    debug_assert_eq!(buf[total - 1], SOH);
     Ok(total)
 }
 
@@ -137,6 +142,8 @@ pub fn encode_into(msg: &Message, out: &mut Vec<u8>) -> Result<(), FieldError> {
     out.push(SOH);
     msg.write_segments(out, in_body);
     push_trailer(out, start);
+    // What we encode, we can frame: the pair of the checks decoding makes.
+    debug_assert_eq!(frame_stored(&out[start..]), Ok(out.len() - start));
     Ok(())
 }
 

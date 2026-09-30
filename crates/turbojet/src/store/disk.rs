@@ -156,6 +156,8 @@ impl SessionLog for DiskLog {
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         if let Some(bytes) = msg {
+            // One whole message, as sent_messages checks when reading it back.
+            debug_assert_eq!(frame_stored(bytes), Ok(bytes.len()));
             self.body.write_all(bytes)?;
             if self.sync {
                 self.body.sync_data()?;

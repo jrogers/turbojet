@@ -5,6 +5,7 @@ use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{SessionId, SessionLog, SessionStorage};
+use crate::codec::frame_stored;
 use crate::fields::UtcTimestamp;
 
 #[derive(Debug)]
@@ -72,6 +73,7 @@ impl SessionLog for MemoryLog {
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         let mut state = self.state();
         if let Some(msg) = msg {
+            debug_assert_eq!(frame_stored(msg), Ok(msg.len()), "one whole message");
             state.sent.insert(seq, msg.to_vec());
         }
         state.next_outgoing = seq + 1;
