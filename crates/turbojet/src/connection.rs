@@ -7,9 +7,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
 
-use crate::codec::{Decoded, decode_with, encode_into};
+use crate::codec::{Decoded, decode_with};
 use crate::registry::CommandReceiver;
-use crate::session::{Action, Session};
+use crate::session::Session;
 use crate::shutdown::Signal;
 use crate::telemetry;
 
@@ -31,8 +31,8 @@ const MAX_TIMER_SLEEP: Duration = Duration::from_secs(1);
 /// Runs `session` over `stream` until either side disconnects.
 ///
 /// Each wake-up (a read from the peer, a batch of handle commands, or a timer deadline) can produce
-/// several outgoing messages; they are encoded into one buffer and written with a single write
-/// and flush.
+/// several outgoing messages; the session encodes them into one buffer, written with a single
+/// write and flush.
 ///
 /// Works with any transport (plain TCP, TLS, in-memory duplex), so custom transports can reuse
 /// the engine without going through [`Acceptor`](crate::Acceptor) or
@@ -88,8 +88,6 @@ where
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut buf = Vec::with_capacity(READ_BUFFER_SIZE);
-    // Every message in a batch is encoded here, then written at once. Reused across batches.
-    let mut out = Vec::with_capacity(8 * 1024);
     // Bytes read before the session is bound (an acceptor's Logon) are attributed once it is.
     let mut unattributed_bytes = 0;
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
@@ -97,41 +95,28 @@ where
     let mut stuck = None;
 
     // A connection made once shutdown has started closes without logging on.
-    let mut actions = match shutdown.as_ref().and_then(Signal::started_now) {
+    match shutdown.as_ref().and_then(Signal::started_now) {
         Some(text) => {
             shutdown = None;
-            session.on_shutdown(text.as_deref(), Instant::now().into_std())
+            session.on_shutdown(text.as_deref(), Instant::now().into_std());
         }
         None => session.on_connect(Instant::now().into_std()),
-    };
+    }
     loop {
         *logged_on |= session.has_logged_on();
-        let mut disconnect = false;
-        out.clear();
-        for action in actions {
-            match action {
-                Action::Send(msg) => {
-                    debug!(target: "turbojet::messages", direction = "out", "{}", msg.redacted());
-                    encode_into(&msg, &mut out).expect("the session sets BeginString on every message it sends");
-                }
-                // Anything queued before the disconnect (e.g. a Logout) is still sent.
-                Action::Disconnect => {
-                    disconnect = true;
-                    break;
-                }
-            }
-        }
         if let Some(metrics) = session.metrics() {
             metrics.bytes_received(std::mem::take(&mut unattributed_bytes));
-            metrics.bytes_sent(out.len());
+            metrics.bytes_sent(session.output().len());
         }
-        if !out.is_empty() {
-            writer.write_all(&out).await?;
+        // Everything the session sent, a Logout before a close included, goes out in one write.
+        if !session.output().is_empty() {
+            writer.write_all(session.output()).await?;
             // Buffering transports (TLS in particular) may hold written data until flushed;
             // without this, replies can sit unsent while the driver waits for the peer.
             writer.flush().await?;
+            session.clear_output();
         }
-        if disconnect {
+        if session.is_closed() {
             // Release the session (and its store) before the peer sees the close, so an
             // immediate reconnect can log on again.
             drop(session);
@@ -147,7 +132,7 @@ where
             timer.as_mut().reset(deadline);
         }
 
-        actions = tokio::select! {
+        tokio::select! {
             read = reader.read_buf(&mut buf) => {
                 let read = read?;
                 if read == 0 {
@@ -158,14 +143,13 @@ where
                 // partial message at the end stays for the next read. The messages arrived
                 // together, so they share one timestamp.
                 let now = Instant::now().into_std();
-                let mut actions = Vec::new();
                 let mut consumed = 0;
                 loop {
                     match decode_with(&buf[consumed..], session.data_fields()) {
                         Decoded::Message(msg, len) => {
                             consumed += len;
                             debug!(target: "turbojet::messages", direction = "in", "{}", msg.redacted());
-                            actions.extend(session.on_message(msg, now));
+                            session.on_message(msg, now);
                         }
                         Decoded::Incomplete => break,
                         Decoded::Garbled { skip, reason } => {
@@ -176,32 +160,29 @@ where
                     }
                 }
                 buf.drain(..consumed);
-                actions
             }
             Some(command) = commands.recv() => {
                 let now = Instant::now().into_std();
-                let mut actions = session.on_command(command, now);
+                session.on_command(command, now);
                 // Take whatever else is already queued, so a burst of sends becomes one write.
                 for _ in 1..MAX_COMMANDS_PER_BATCH {
                     let Ok(command) = commands.try_recv() else { break };
-                    actions.extend(session.on_command(command, now));
+                    session.on_command(command, now);
                 }
-                actions
             }
             // Once only: after that the session's logout (or its timeout) ends the connection.
             text = async { shutdown.as_mut().unwrap().started().await }, if shutdown.is_some() => {
                 shutdown = None;
-                session.on_shutdown(text.as_deref(), Instant::now().into_std())
+                session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
             () = &mut timer => {
                 let now = Instant::now();
                 timer.as_mut().reset(now + MAX_TIMER_SLEEP);
-                let actions = session.on_timer(now.into_std());
+                session.on_timer(now.into_std());
                 // A deadline on_timer left in the past waits for the ceiling rather than spin.
                 stuck = session.next_deadline().map(Instant::from_std).filter(|deadline| *deadline <= now);
-                actions
             }
-        };
+        }
     }
 }
 

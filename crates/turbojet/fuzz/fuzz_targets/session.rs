@@ -14,7 +14,6 @@ use tokio::sync::oneshot;
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::{tags, utc_timestamp};
 use turbojet::registry::{Command, SequenceCommand};
-use turbojet::session::Action;
 use turbojet::{
     ApplVerId, Application, Context, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType, Session,
     SessionConfig, SessionRegistry,
@@ -154,10 +153,16 @@ impl Application for App {
     }
 }
 
-/// Checks what the session did. Returns false once it has disconnected.
-fn check(actions: Vec<Action>, next_out: &mut u64) -> bool {
-    for action in actions {
-        let Action::Send(msg) = action else { return false };
+/// Checks what the session sent, and takes it from its output. Returns false once it has
+/// disconnected.
+fn check(session: &mut Session, next_out: &mut u64) -> bool {
+    let mut rest = session.output();
+    while !rest.is_empty() {
+        // The engine must never send garbage.
+        let Decoded::Message(msg, len) = decode(rest) else {
+            panic!("the session sent something that doesn't decode: {:?}", String::from_utf8_lossy(rest))
+        };
+        rest = &rest[len..];
         round_trip(&msg);
         let seq: u64 = msg.field(tags::MSG_SEQ_NUM).unwrap();
         // A Logon with ResetSeqNumFlag (answering an intraday reset) starts again at 1.
@@ -175,7 +180,8 @@ fn check(actions: Vec<Action>, next_out: &mut u64) -> bool {
             *next_out = msg.field(tags::NEW_SEQ_NO).unwrap();
         }
     }
-    true
+    session.clear_output();
+    !session.is_closed()
 }
 
 /// A message from the counterparty, with a valid header except for the fields `omit` leaves out.
@@ -213,7 +219,8 @@ fuzz_target!(|input: Input| {
         let mut config = InitiatorConfig::new(config, "CLIENT");
         config.heartbeat_interval = Duration::from_secs(heartbeat.into());
         let (mut session, commands) = Session::initiator(&config, registry, Arc::new(App), now);
-        assert!(check(session.on_connect(now), &mut next_out));
+        session.on_connect(now);
+        assert!(check(&mut session, &mut next_out));
         (session, commands)
     } else {
         Session::acceptor(config, registry, Arc::new(App), now)
@@ -226,13 +233,14 @@ fuzz_target!(|input: Input| {
     }
     push_fields(&mut fields, &input.logon, 1, next_out);
     let Some(logon) = inbound(&begin_string, "A", 1, false, 0, &fields) else { return };
-    if !check(session.on_message(logon, now), &mut next_out) || session.is_closed() {
+    session.on_message(logon, now);
+    if !check(&mut session, &mut next_out) {
         return;
     }
 
     let mut next_in: u64 = 2;
     for step in input.steps {
-        let actions = match step {
+        match step {
             Step::Inbound(msg) => {
                 let msg_type = MSG_TYPES[usize::from(msg.msg_type) % MSG_TYPES.len()];
                 let seq = msg.seq.resolve(next_in);
@@ -242,15 +250,15 @@ fuzz_target!(|input: Input| {
                     continue;
                 };
                 next_in = next_in.max(seq + 1);
-                session.on_message(msg, now)
+                session.on_message(msg, now);
             }
             Step::Elapse(secs) => {
                 now += Duration::from_secs(secs.into());
-                session.on_timer(now)
+                session.on_timer(now);
             }
             Step::Send => {
                 let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "X").with(tags::SYMBOL, "AAPL");
-                session.on_command(Command::Send(order), now)
+                session.on_command(Command::Send(order), now);
             }
             Step::Logout => session.on_command(Command::Logout(None), now),
             Step::Sequence(request) => {
@@ -261,8 +269,8 @@ fuzz_target!(|input: Input| {
                     Sequence::Reset => SequenceCommand::Reset,
                 };
                 let (reply, mut numbers) = oneshot::channel();
-                let actions = session.on_command(Command::Sequence(request, reply), now);
-                if !check(actions, &mut next_out) {
+                session.on_command(Command::Sequence(request, reply), now);
+                if !check(&mut session, &mut next_out) {
                     break;
                 }
                 // The operator may move either number anywhere, backwards included.
@@ -270,10 +278,9 @@ fuzz_target!(|input: Input| {
                     next_in = numbers.next_incoming;
                     next_out = numbers.next_outgoing;
                 }
-                Vec::new()
             }
-        };
-        if !check(actions, &mut next_out) || session.is_closed() {
+        }
+        if !check(&mut session, &mut next_out) {
             break;
         }
     }

@@ -460,6 +460,7 @@ impl Message {
     }
 
     /// The number of fields, including binary ones.
+    #[cfg(test)]
     pub(crate) fn field_count(&self) -> usize {
         self.fields.len()
     }
@@ -626,6 +627,7 @@ impl Message {
     }
 
     /// Appends `other`'s fields for which `keep` is true, copying their encoded form verbatim.
+    #[cfg(test)]
     pub(crate) fn extend_from(&mut self, other: &Message, keep: impl Fn(u32) -> bool) {
         for f in other.fields.iter().filter(|f| keep(f.tag)) {
             if f.is_binary() {

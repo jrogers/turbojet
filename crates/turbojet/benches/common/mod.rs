@@ -80,7 +80,7 @@ pub fn with_header(sender: &str, target: &str, seq: u64, body: Message) -> Messa
 }
 
 /// A logged-on FIX 4.2 acceptor session with `storage` and `app`, whose counterparty's next
-/// MsgSeqNum is 2.
+/// MsgSeqNum is 2, and whose output (the Logon reply) has been cleared.
 pub fn logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Session {
     let registry = Arc::new(SessionRegistry::new(storage));
     let (mut session, _commands) =
@@ -96,6 +96,7 @@ pub fn logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) ->
     };
     session.on_message(with_header("CLIENT", "GATEWAY", 1, logon.into()), Instant::now());
     assert!(session.is_logged_on());
+    session.clear_output();
     session
 }
 

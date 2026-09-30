@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::codec::{Decoded, decode, encode};
-use turbojet::session::Action;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{DiskStorage, MemoryStorage, Message, SessionId};
 
@@ -50,7 +49,9 @@ fn session(c: &mut Criterion) {
                 |(mut session, orders)| {
                     let now = Instant::now();
                     for order in orders {
-                        black_box(session.on_message(order, now));
+                        session.on_message(order, now);
+                        black_box(session.output());
+                        session.clear_output();
                     }
                 },
             )
@@ -71,7 +72,9 @@ fn session(c: &mut Criterion) {
                 |(mut session, orders, _dir)| {
                     let now = Instant::now();
                     for order in orders {
-                        black_box(session.on_message(order, now));
+                        session.on_message(order, now);
+                        black_box(session.output());
+                        session.clear_output();
                     }
                 },
             )
@@ -98,15 +101,17 @@ fn session(c: &mut Criterion) {
                 |(mut session, orders)| {
                     let now = Instant::now();
                     for order in orders {
-                        black_box(session.on_message(order, now));
+                        session.on_message(order, now);
+                        black_box(session.output());
+                        session.clear_output();
                     }
                 },
             )
         })
     });
 
-    // The same, plus decoding the order from bytes and encoding the reply: the full CPU cost of
-    // a message, wire to wire, excluding the socket.
+    // The same, plus decoding the order from bytes (the session encodes the reply): the full CPU
+    // cost of a message, wire to wire, excluding the socket.
     group.bench_function("order to ack, wire to wire (memory store)", |b| {
         b.iter_custom(|iters| {
             chunked(
@@ -119,11 +124,9 @@ fn session(c: &mut Criterion) {
                     let now = Instant::now();
                     for bytes in wire {
                         let Decoded::Message(msg, _) = decode(&bytes) else { panic!("bad order") };
-                        for action in session.on_message(msg, now) {
-                            if let Action::Send(reply) = action {
-                                black_box(encode(&reply).unwrap());
-                            }
-                        }
+                        session.on_message(msg, now);
+                        black_box(session.output());
+                        session.clear_output();
                     }
                 },
             )

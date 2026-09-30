@@ -9,10 +9,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, TimeDelta, Utc};
-use turbojet::codec::{Decoded, decode, encode};
+use turbojet::codec::{Decoded, decode};
 use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
-use turbojet::session::Action;
 use turbojet::{
     ApplVerId, Application, Clock, ConnectionInfo, Context, MemoryStorage, Message, MessageReject, Session,
     SessionConfig, SessionId, SessionRegistry,
@@ -381,12 +380,12 @@ impl Runner {
         let now = self.time.now();
         let (mut session, commands) =
             Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), now);
-        let actions = session.on_connect(now);
+        session.on_connect(now);
         self.connections.retain(|(other, _)| *other != id);
         let conn = Connection { session: Some(session), _commands: commands, buf: Vec::new(), sent: VecDeque::new() };
         self.connections.push((id, conn));
         self.log(id, "counterparty connects".into());
-        self.apply(id, actions);
+        self.apply(id);
         Ok(())
     }
 
@@ -410,8 +409,8 @@ impl Runner {
             match decode(&conn.buf) {
                 Decoded::Message(msg, len) => {
                     conn.buf.drain(..len);
-                    let actions = session.on_message(msg, now);
-                    self.apply(id, actions);
+                    session.on_message(msg, now);
+                    self.apply(id);
                 }
                 Decoded::Incomplete => break,
                 Decoded::Garbled { skip, reason } => {
@@ -426,23 +425,27 @@ impl Runner {
         Ok(())
     }
 
-    /// Carries out what a session asked for: queues what it sent, and closes the connection on
-    /// Disconnect (ignoring anything after, as the driver does).
-    fn apply(&mut self, id: u32, actions: Vec<Action>) {
-        for action in actions {
-            match action {
-                Action::Send(msg) => {
-                    let wire = encode(&msg).unwrap();
-                    self.log(id, format!("<- {}", printable(&String::from_utf8_lossy(&wire))));
-                    let Decoded::Message(msg, _) = decode(&wire) else { panic!("the engine sent garbage: {msg}") };
-                    self.connection(id).unwrap().sent.push_back(msg);
-                }
-                Action::Disconnect => {
-                    self.log(id, "engine disconnects".into());
-                    self.connection(id).unwrap().session = None;
-                    return;
-                }
-            }
+    /// Carries out what a session asked for, as the driver does: queues each message in its
+    /// output, then closes the connection if the session has closed.
+    fn apply(&mut self, id: u32) {
+        let conn = self.connection(id).unwrap();
+        let Some(session) = conn.session.as_mut() else { return };
+        let output = session.output().to_vec();
+        session.clear_output();
+        let closed = session.is_closed();
+        let mut rest = output.as_slice();
+        while !rest.is_empty() {
+            let Decoded::Message(msg, len) = decode(rest) else {
+                panic!("the engine sent garbage: {}", printable(&String::from_utf8_lossy(rest)))
+            };
+            let (wire, after) = rest.split_at(len);
+            rest = after;
+            self.log(id, format!("<- {}", printable(&String::from_utf8_lossy(wire))));
+            self.connection(id).unwrap().sent.push_back(msg);
+        }
+        if closed {
+            self.log(id, "engine disconnects".into());
+            self.connection(id).unwrap().session = None;
         }
     }
 
@@ -495,12 +498,12 @@ impl Runner {
         let ids: Vec<u32> = self.connections.iter().map(|(id, _)| *id).collect();
         for id in ids {
             let Some(session) = self.connection(id).unwrap().session.as_mut() else { continue };
-            let actions = session.on_timer(next);
-            if !actions.is_empty() {
+            session.on_timer(next);
+            if !session.output().is_empty() || session.is_closed() {
                 let elapsed = next - self.time.start;
                 self.log(id, format!("   (timer at +{:.1}s)", elapsed.as_secs_f64()));
             }
-            self.apply(id, actions);
+            self.apply(id);
         }
     }
 

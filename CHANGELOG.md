@@ -35,6 +35,12 @@ Notable changes to the published crates.
 - Validation checks the format of every date and time type, and of MonthYear: a malformed one is
   rejected (SessionRejectReason 6) where it used to pass.
 - Decoding is about 45% faster, and parsing a typed message with timestamps about 40% faster.
+- Breaking: `Session` writes what it sends, encoded, to one buffer it reuses: `Session::output`
+  and `Session::clear_output` replace the `Vec<Action>` its methods returned (they now return
+  nothing), and `Session::is_closed` replaces `Action::Disconnect`. `Action` is gone.
+- Messages are encoded once, straight from the body into the session's output, and stored as
+  those bytes: `DiskStorage` no longer encodes each one a second time, and acknowledging an order
+  allocates about 4 fewer times.
 
 ### `turbojet-dictionary`
 

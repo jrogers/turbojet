@@ -1,5 +1,5 @@
-//! Heap allocations per order → ack, wire to wire (decode, session, application, store, encode),
-//! against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints the
+//! Heap allocations per order → ack, wire to wire (decode, then the session, application and
+//! store; the session encodes the ack), against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints the
 //! per-stage table.
 
 #[path = "../benches/common/mod.rs"]
@@ -11,9 +11,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use counting::{Counts, Stage};
-use turbojet::codec::{Decoded, decode, encode, encode_into};
+use turbojet::codec::{Decoded, decode, encode};
 use turbojet::fields::UtcTimestamp;
-use turbojet::session::Action;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, MemoryStorage, Message, MessageReject, SessionId};
 
@@ -88,11 +87,10 @@ mod counting {
         Session,
         Application,
         Store,
-        Encode,
     }
 
     impl Stage {
-        pub const ALL: [Stage; 5] = [Stage::Decode, Stage::Session, Stage::Application, Stage::Store, Stage::Encode];
+        pub const ALL: [Stage; 4] = [Stage::Decode, Stage::Session, Stage::Application, Stage::Store];
 
         pub fn name(self) -> &'static str {
             match self {
@@ -100,7 +98,6 @@ mod counting {
                 Stage::Session => "session",
                 Stage::Application => "application",
                 Stage::Store => "store",
-                Stage::Encode => "encode",
             }
         }
     }
@@ -198,7 +195,7 @@ fn counts_allocations_reallocs_and_bytes_by_stage() {
     counting::set_counting(false);
     let counts = counting::take();
     assert_eq!(counts[Stage::Decode as usize], Counts { allocs: 1, reallocs: 1, bytes: 20 });
-    assert_eq!(counts[Stage::Encode as usize], Counts::ZERO);
+    assert_eq!(counts[Stage::Store as usize], Counts::ZERO);
 }
 
 #[test]
@@ -224,14 +221,13 @@ const WARM_UP: u64 = 100;
 const COUNTED: u64 = 1_000;
 
 /// Per-stage counts over COUNTED orders, each decoded from bytes, processed by a logged-on
-/// session, acknowledged by the application, recorded in the store and the ack encoded, as the
-/// connection driver does it (`encode_into` a reused buffer).
+/// session, acknowledged by the application, and the ack recorded in the store and encoded by the
+/// session into its output, which is cleared after each order as the connection driver does.
 fn order_to_ack() -> [Counts; Stage::ALL.len()] {
     let storage = Arc::new(StagedStorage(MemoryStorage::new()));
     let mut session = common::logged_on(storage, Arc::new(StagedApp::default()));
     let wire: Vec<Vec<u8>> = common::orders(WARM_UP + COUNTED).iter().map(|o| encode(o).unwrap()).collect();
     let now = Instant::now();
-    let mut out = Vec::new();
     for (i, bytes) in wire.iter().enumerate() {
         if i as u64 == WARM_UP {
             counting::take();
@@ -241,16 +237,10 @@ fn order_to_ack() -> [Counts; Stage::ALL.len()] {
             Decoded::Message(msg, _) => msg,
             _ => panic!("order {i} didn't decode"),
         });
-        let actions = counting::in_stage(Stage::Session, || session.on_message(msg, now));
-        out.clear();
-        counting::in_stage(Stage::Encode, || {
-            for action in &actions {
-                if let Action::Send(reply) = action {
-                    encode_into(reply, &mut out).unwrap();
-                }
-            }
-        });
+        counting::in_stage(Stage::Session, || session.on_message(msg, now));
+        let out = session.output();
         assert!(out.starts_with(b"8=FIX.4.2\x01") && out.windows(5).any(|w| w == b"\x0135=8"), "order {i}: no ack");
+        session.clear_output();
     }
     counting::set_counting(false);
     counting::take()
@@ -290,13 +280,8 @@ fn report(counts: &[Counts; Stage::ALL.len()]) -> String {
 /// direction fails, so an improvement is locked in by lowering the budget here. Counts also depend
 /// on std and dependencies (Vec growth, BTreeMap node size), so a toolchain or dependency update
 /// can move them without a change to Turbojet.
-const BUDGET: [(Stage, u64, u64); Stage::ALL.len()] = [
-    (Stage::Decode, 2000, 0),
-    (Stage::Session, 4000, 0),
-    (Stage::Application, 8000, 2000),
-    (Stage::Store, 1166, 0),
-    (Stage::Encode, 0, 0),
-];
+const BUDGET: [(Stage, u64, u64); Stage::ALL.len()] =
+    [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 1166, 0)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {

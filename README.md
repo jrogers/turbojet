@@ -144,7 +144,8 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 - `fix_message!`, `fix_group!`, `fix_enum!` – define your own typed messages, groups and enums
 - `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`
 - `session::Session` – sans-IO state machine for either role; feed it messages and commands,
-  call its timer when its next deadline falls due, carry out the `Action`s it returns
+  call its timer when its next deadline falls due, write the encoded messages it leaves in
+  `output`, and close the connection once it `is_closed`
 - `connection::run` – drives a `Session` over any `AsyncRead + AsyncWrite`;
   `Acceptor::accept_stream` / `Initiator::run_stream` take such streams too
 - `tls` (feature `tls`) – TLS transport, see below

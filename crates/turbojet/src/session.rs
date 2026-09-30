@@ -2,10 +2,11 @@
 //!
 //! [`Session`] is a sans-IO state machine that plays either the acceptor or the initiator role.
 //! A driver (see [`crate::connection`]) feeds it inbound messages and handle commands, calls its
-//! timer when its next deadline falls due, and carries out the [`Action`]s it returns, so the
-//! protocol logic is deterministic and testable without sockets. Sequence numbers and sent
-//! messages are persisted through a [`SessionLog`] before the corresponding message is handed to
-//! the driver. Application messages are delivered to an [`Application`].
+//! timer when its next deadline falls due, writes the encoded messages it leaves in
+//! [`Session::output`], and closes the connection once [`Session::is_closed`], so the protocol
+//! logic is deterministic and testable without sockets. Sequence numbers and sent messages are
+//! persisted through a [`SessionLog`] before the corresponding message is handed to the driver.
+//! Application messages are delivered to an [`Application`].
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -20,7 +21,7 @@ use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
 use crate::application::{Application, Context, MessageReject};
-use crate::codec::{Decoded, decode_with, encode, push_digits, push_trailer};
+use crate::codec::{Decoded, decode_with, push_digits, push_trailer};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
     UtcTimestamp,
@@ -225,15 +226,6 @@ impl SessionConfig {
     }
 }
 
-/// What a [`Session`] asks its transport to do, in order.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Action {
-    /// Encode this message and write it to the counterparty.
-    Send(Message),
-    /// Close the connection, after writing what was sent before it.
-    Disconnect,
-}
-
 #[derive(Debug, Clone)]
 enum Role {
     /// Waits for the counterparty's Logon and learns its CompID from it.
@@ -329,11 +321,14 @@ pub struct Session {
     /// The schedule period the session logged on in, if it has a schedule.
     period: Option<Period>,
     test_req_counter: u64,
-    outbox: Vec<Action>,
+    /// Encoded messages for the driver to write, in order; see [`output`](Self::output).
+    output: Vec<u8>,
     /// Handle commands received while logon is in progress, applied in order once it completes.
     pending: Vec<Command>,
     /// Scratch space for [`frame_into`](Self::frame_into)'s header, kept to reuse its allocation.
     header: String,
+    /// Scratch space for the stored copy of a message, when it differs from the one sent.
+    stored: Vec<u8>,
 }
 
 impl Session {
@@ -407,9 +402,10 @@ impl Session {
             store_failed: false,
             period: None,
             test_req_counter: 0,
-            outbox: Vec::new(),
+            output: Vec::new(),
             pending: Vec::new(),
             header: String::new(),
+            stored: Vec::new(),
         };
         (session, receiver)
     }
@@ -435,10 +431,22 @@ impl Session {
         self.status == Status::Active
     }
 
-    /// Whether the session has ended. It has asked for [`Action::Disconnect`], and ignores
-    /// anything further.
+    /// Whether the session has ended: write what's in [`output`](Self::output), then close the
+    /// connection. It ignores further events.
     pub fn is_closed(&self) -> bool {
         self.status == Status::Closed
+    }
+
+    /// Encoded messages to write to the counterparty, in order, since the last
+    /// [`clear_output`](Self::clear_output). Once [`is_closed`](Self::is_closed), write them, then
+    /// close the connection.
+    pub fn output(&self) -> &[u8] {
+        &self.output
+    }
+
+    /// Empties [`output`](Self::output), keeping its capacity, once it's been written.
+    pub fn clear_output(&mut self) {
+        self.output.clear()
     }
 
     /// Whether the session has logged on at any point, even if it has since logged out.
@@ -447,15 +455,14 @@ impl Session {
     }
 
     /// The transport is connected. An initiator sends Logon; an acceptor waits.
-    pub fn on_connect(&mut self, now: Instant) -> Vec<Action> {
+    pub fn on_connect(&mut self, now: Instant) {
         if let Role::Initiator { target_comp_id, heartbeat, reset_on_logon, .. } = self.role.clone() {
             self.start_logon(target_comp_id, heartbeat, reset_on_logon, now);
         }
-        std::mem::take(&mut self.outbox)
     }
 
     /// A message was decoded from the transport.
-    pub fn on_message(&mut self, msg: Message, now: Instant) -> Vec<Action> {
+    pub fn on_message(&mut self, msg: Message, now: Instant) {
         self.last_received = now;
         self.test_request_sent = None;
         match self.status {
@@ -469,20 +476,19 @@ impl Session {
         if let Some(peer) = &self.peer {
             peer.metrics.message_received();
         }
-        std::mem::take(&mut self.outbox)
     }
 
     /// Carries out a command from a [`SessionHandle`](crate::SessionHandle).
     ///
     /// Commands that arrive while logon is in progress are queued and applied, in order, as soon
     /// as it completes. Once logout has started, sends are dropped and logged.
-    pub fn on_command(&mut self, command: Command, now: Instant) -> Vec<Action> {
+    pub fn on_command(&mut self, command: Command, now: Instant) {
         // Operator requests are answered straight away, even mid-logon: they must not wait in the
         // queue for a logon that may never complete.
         let command = match command {
             Command::Sequence(request, reply) => {
                 let _ = reply.send(self.apply_sequence(request, now));
-                return std::mem::take(&mut self.outbox);
+                return;
             }
             other => other,
         };
@@ -492,13 +498,12 @@ impl Session {
         } else {
             self.apply_command(command, now);
         }
-        std::mem::take(&mut self.outbox)
     }
 
     /// The application is shutting down: a logged-on session logs out with `text` (disconnecting
     /// on the counterparty's reply, or after the logout timeout), and one that hasn't logged on
     /// yet disconnects. A session already logging out carries on.
-    pub fn on_shutdown(&mut self, text: Option<&str>, now: Instant) -> Vec<Action> {
+    pub fn on_shutdown(&mut self, text: Option<&str>, now: Instant) {
         match self.status {
             Status::Active => self.logout(text, now),
             Status::AwaitingLogon => {
@@ -507,7 +512,6 @@ impl Session {
             }
             Status::LoggingOut { .. } | Status::Closed => {}
         }
-        std::mem::take(&mut self.outbox)
     }
 
     fn apply_command(&mut self, command: Command, now: Instant) {
@@ -577,7 +581,7 @@ impl Session {
     /// Drives timeouts and heartbeats. Call it at [`next_deadline`](Self::next_deadline), and at
     /// least once a second so the end of a scheduled session is noticed. Calling it early is
     /// harmless: it acts only on what is due.
-    pub fn on_timer(&mut self, now: Instant) -> Vec<Action> {
+    pub fn on_timer(&mut self, now: Instant) {
         if self.period_ended() {
             match self.status {
                 Status::Active => {
@@ -612,7 +616,6 @@ impl Session {
             }
             Status::Closed => {}
         }
-        std::mem::take(&mut self.outbox)
     }
 
     /// When [`on_timer`](Self::on_timer) next has something to do: a logon or logout timeout, a
@@ -1449,6 +1452,10 @@ impl Session {
     /// Resends `begin..=end` as stored, gap-filling what wasn't stored (session messages), without
     /// using new sequence numbers.
     fn resend(&mut self, begin: u64, end: u64, now: Instant) {
+        // A closed session sends nothing further (the Logon before it may have failed to store).
+        if self.status == Status::Closed {
+            return;
+        }
         info!(begin, end, "resending messages");
 
         let now_ts = UtcTimestamp::now().with_precision(self.config.timestamp_precision).to_fix();
@@ -1476,8 +1483,11 @@ impl Session {
                 self.send_gap_fill(next, seq, &now_ts);
             }
             let orig_time = original.get(tags::SENDING_TIME).unwrap_or(&now_ts).to_string();
-            let resent = self.frame(&original, seq, &now_ts, Some(&orig_time));
-            self.emit(resent);
+            let mut output = std::mem::take(&mut self.output);
+            let start = output.len();
+            self.frame_into(&original, seq, &now_ts, Some(&orig_time), false, &mut output);
+            self.output = output;
+            self.emit(start);
             next = seq + 1;
         }
         if next <= end {
@@ -1488,8 +1498,11 @@ impl Session {
 
     fn send_gap_fill(&mut self, seq: u64, new_seq_no: u64, now_ts: &str) {
         let body = SequenceReset { gap_fill_flag: Some(true), new_seq_no }.into();
-        let msg = self.frame(&body, seq, now_ts, Some(now_ts));
-        self.emit(msg);
+        let mut output = std::mem::take(&mut self.output);
+        let start = output.len();
+        self.frame_into(&body, seq, now_ts, Some(now_ts), false, &mut output);
+        self.output = output;
+        self.emit(start);
     }
 
     fn request_resend(&mut self, from: u64, received: u64, now: Instant) {
@@ -1573,7 +1586,6 @@ impl Session {
             if let Some(peer) = &self.peer {
                 peer.metrics.logged_off();
             }
-            self.outbox.push(Action::Disconnect);
             self.discard_pending();
             self.notify_logout();
         }
@@ -1626,31 +1638,45 @@ impl Session {
         }
         let seq = self.peer().log.next_outgoing();
         let sending_time = UtcTimestamp::now().with_precision(self.config.timestamp_precision);
-        let msg = self.frame(&body, seq, sending_time, None);
+        let mut output = std::mem::take(&mut self.output);
+        let start = output.len();
+        self.frame_into(&body, seq, sending_time, None, false, &mut output);
         // With more than one version, the default may differ on a later connection, so the stored
         // copy states its version for resends to keep.
-        let versioned;
-        let stored = match self.appl_ver_id() {
-            _ if admin => None,
-            Some(default) if self.config.appl_versions.len() > 1 && msg.get(tags::APPL_VER_ID).is_none() => {
-                versioned = msg.clone().with(tags::APPL_VER_ID, default.code());
-                Some(&versioned)
-            }
-            _ => Some(&msg),
+        let mut stored = std::mem::take(&mut self.stored);
+        let unstated = match (self.appl_ver_id(), body.get(tags::APPL_VER_ID)) {
+            (Some(_), None) => true,
+            (Some(default), Some(stated)) => stated == default.code(),
+            (None, _) => false,
         };
-        let stored = stored.map(|m| encode(m).expect("the session sets BeginString on every message it sends"));
-        if let Err(e) = self.peer_mut().log.record_outgoing(seq, stored.as_deref()) {
+        let copy = if admin {
+            None
+        } else if self.config.appl_versions.len() > 1 && unstated {
+            stored.clear();
+            self.frame_into(&body, seq, sending_time, None, true, &mut stored);
+            Some(stored.as_slice())
+        } else {
+            Some(&output[start..])
+        };
+        let recorded = self.peer_mut().log.record_outgoing(seq, copy);
+        self.stored = stored;
+        if let Err(e) = recorded {
+            // It isn't sent.
+            output.truncate(start);
+            self.output = output;
             return self.storage_failed(e);
         }
+        self.output = output;
         self.peer().metrics.next_outgoing(seq + 1);
         self.last_sent = now;
-        self.emit(msg);
+        self.emit(start);
     }
 
-    /// Queues a framed message for the driver to write.
-    fn emit(&mut self, msg: Message) {
+    /// Counts and logs the message the output holds from `start`, just framed, for the driver to
+    /// write.
+    fn emit(&mut self, start: usize) {
         self.peer().metrics.message_sent();
-        self.outbox.push(Action::Send(msg));
+        debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&self.output[start..], &self.config.data_fields));
     }
 
     fn set_next_incoming(&mut self, seq: u64) {
@@ -1678,10 +1704,8 @@ impl Session {
         self.close();
     }
 
-    /// Builds a message with a standard header followed by the body fields of `body`.
-    /// `orig_sending_time` marks the message as a possible duplicate. FIXT's ApplVerID(1128),
-    /// CstmApplVerID(1129) and ApplExtID(1156) in `body` are dropped, since the session's application
-    /// version applies.
+    /// The reference for [`frame_into`](Self::frame_into): the framed message as a `Message`.
+    #[cfg(test)]
     fn frame(&self, body: &Message, seq: u64, sending_time: impl ToFix, orig_sending_time: Option<&str>) -> Message {
         let target = self.peer().id.target_comp_id.as_str();
         let in_body = |tag| !is_header_or_trailer(tag);
@@ -1722,11 +1746,14 @@ impl Session {
         msg
     }
 
-    /// Appends `body` framed as a message to send, encoded, to `out`: the bytes encoding
-    /// [`frame`](Self::frame)'s message gives, written in one pass. With `state_version`,
-    /// ApplVerID(1128) is written even when it's the session's default (for the stored copy of a
-    /// multi-version session).
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Appends `body` framed as a message to send, encoded, to `out`, in one pass: BeginString and
+    /// BodyLength; the standard header in order (MsgType, the CompIDs, MsgSeqNum, PossDupFlag and
+    /// OrigSendingTime when `orig_sending_time` marks it a possible duplicate, PossResend if
+    /// `body` has it, SendingTime); on FIXT sessions, ApplVerID(1128) only when `body` states one
+    /// that isn't the default; header fields the sender set, such as routing, CstmApplVerID(1129)
+    /// and ApplExtID(1156); then the body fields, and CheckSum. Header fields the session sets
+    /// itself are taken from it, not `body`. With `state_version`, ApplVerID(1128) is written even
+    /// when it's the session's default (for the stored copy of a multi-version session).
     fn frame_into(
         &mut self,
         body: &Message,
@@ -1741,8 +1768,7 @@ impl Session {
             value.write_fix(header);
             header.push('\x01');
         }
-        // The header after BodyLength, in the order and on the terms `frame` uses; reused so
-        // that it doesn't allocate.
+        // The header after BodyLength; reused so that it doesn't allocate.
         let mut header = std::mem::take(&mut self.header);
         header.clear();
         field(&mut header, "35=", body.msg_type());
@@ -1792,6 +1818,19 @@ impl Session {
 
     fn peer_mut(&mut self) -> &mut Peer {
         self.peer.as_mut().expect("session is not bound before logon")
+    }
+}
+
+/// An encoded message displayed for the log, decoded, with its passwords masked (see
+/// [`Message::redacted`]).
+struct Outbound<'a>(&'a [u8], &'a DataFields);
+
+impl fmt::Display for Outbound<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match decode_with(self.0, self.1) {
+            Decoded::Message(msg, _) => write!(f, "{}", msg.redacted()),
+            _ => f.write_str(&String::from_utf8_lossy(self.0)),
+        }
     }
 }
 
