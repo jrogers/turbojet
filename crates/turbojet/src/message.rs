@@ -285,7 +285,7 @@ struct Rare {
     /// The values of data fields that aren't UTF-8, back to back: the fields whose `start` is
     /// [`BINARY`].
     bin: Vec<u8>,
-    /// Set only by [`Message::from_frame`], for a message received with a malformed body field.
+    /// Set only by [`Message::read_frame`], for a message received with a malformed body field.
     defect: Option<Defect>,
 }
 
@@ -379,14 +379,21 @@ impl Message {
     /// would be dropped too; empty values are kept for the same reason. Fails only when the header
     /// can't be trusted: a defect in MsgType, SenderCompID, TargetCompID, MsgSeqNum or SendingTime,
     /// or one of them missing from a message with a defect.
+    ///
+    /// Decodes into `self`, replacing what it held but keeping its allocations, so a message
+    /// reused for each frame decodes without allocating once it has grown. After an error its
+    /// contents are unspecified.
     #[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
-    pub(crate) fn from_frame(frame: &[u8], data: &DataFields) -> Result<Self, String> {
+    pub(crate) fn read_frame(&mut self, frame: &[u8], data: &DataFields) -> Result<(), String> {
         let body = frame.strip_suffix(&[SOH]).ok_or("message does not end with SOH")?;
         // Normally the whole frame is UTF-8 and is used as it is, fields indexing into it.
         // Otherwise the text buffer is rebuilt field by field, with non-UTF-8 data values set
         // apart and other non-UTF-8 values kept lossily.
         let text = std::str::from_utf8(frame).ok();
-        let mut msg = Self { fields: Vec::with_capacity(body.len() / 8), ..Self::default() };
+        self.buf.clear();
+        self.fields.clear();
+        self.fields.reserve(body.len() / 8);
+        self.rare = None;
         let mut defect = None;
         // The last field's tag and value, for a data field to find its length in.
         let mut previous: Option<(u32, &[u8])> = None;
@@ -431,8 +438,8 @@ impl Message {
             } else {
                 let bytes = &body[value..end];
                 match std::str::from_utf8(bytes) {
-                    Ok(text) => msg.write_segment(tag, text),
-                    Err(_) if data.is_data(tag) => msg.write_data(tag, bytes),
+                    Ok(text) => self.write_segment(tag, text),
+                    Err(_) if data.is_data(tag) => self.write_data(tag, bytes),
                     Err(_) => {
                         if TRUSTED_HEADER.contains(&tag) {
                             return Err(format!("Tag {tag} value is not UTF-8"));
@@ -442,30 +449,37 @@ impl Message {
                             reason: SessionRejectReason::IncorrectDataFormat,
                             text: format!("Tag {tag} value is not UTF-8"),
                         });
-                        msg.write_segment(tag, &*String::from_utf8_lossy(bytes))
+                        self.write_segment(tag, &*String::from_utf8_lossy(bytes))
                     }
                 }
             };
-            msg.fields.push(field);
+            self.fields.push(field);
             previous = Some((tag, &body[value..end]));
             start = end + 1;
         }
         if let Some(text) = text {
-            msg.buf = text.to_owned();
+            self.buf.push_str(text);
         }
         if let Some(defect) = defect {
-            msg.rare.get_or_insert_default().defect = Some(defect);
+            self.rare.get_or_insert_default().defect = Some(defect);
         }
-        if let Some(defect) = msg.defect()
+        if let Some(defect) = self.defect()
             && (defect.tag.is_some_and(|tag| TRUSTED_HEADER.contains(&tag))
-                || TRUSTED_HEADER.iter().any(|&tag| msg.get(tag).is_none()))
+                || TRUSTED_HEADER.iter().any(|&tag| self.get(tag).is_none()))
         {
             return Err(defect.text.clone());
         }
+        Ok(())
+    }
+
+    /// [`read_frame`](Self::read_frame) into a new message.
+    pub(crate) fn from_frame(frame: &[u8], data: &DataFields) -> Result<Self, String> {
+        let mut msg = Self::default();
+        msg.read_frame(frame, data)?;
         Ok(msg)
     }
 
-    /// The defect recorded by [`Message::from_frame`], if the message had a malformed body field.
+    /// The defect recorded by [`Message::read_frame`], if the message had a malformed body field.
     pub(crate) fn defect(&self) -> Option<&Defect> {
         self.rare.as_ref()?.defect.as_ref()
     }
@@ -1482,6 +1496,62 @@ mod tests {
         frame.extend_from_slice(raw);
         frame.extend_from_slice(b"\x0110=000\x01");
         frame
+    }
+
+    /// Decodes `frames` one after another into one message, checking each against a fresh decode:
+    /// same fields (as text and as bytes) and same defect, whatever the previous message left.
+    fn read_frames_into_one(frames: &[Vec<u8>]) {
+        let data = DataFields::standard();
+        let mut scratch = Message::default();
+        for (i, frame) in frames.iter().enumerate() {
+            let fresh = Message::from_frame(frame, &data);
+            let reused = scratch.read_frame(frame, &data).map(|()| &scratch);
+            match (fresh, reused) {
+                (Ok(fresh), Ok(reused)) => {
+                    assert_eq!(&fresh, reused, "frame {i}");
+                    assert!(fresh.fields().eq(reused.fields()), "frame {i}: text fields");
+                    assert_eq!(fresh.defect(), reused.defect(), "frame {i}: defect");
+                }
+                (Err(fresh), Err(reused)) => assert_eq!(fresh, reused, "frame {i}"),
+                (fresh, reused) => panic!("frame {i}: fresh {fresh:?}, reused {reused:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_reused_message_keeps_nothing_from_the_last() {
+        let data = encode(
+            &Message::new(MsgType::NewOrderSingle)
+                .with(tags::BEGIN_STRING, "FIX.4.2")
+                .with(tags::SENDER_COMP_ID, "THEM")
+                .with(tags::TARGET_COMP_ID, "US")
+                .with(tags::MSG_SEQ_NUM, 3u64)
+                .with(tags::SENDING_TIME, "20260928-12:00:00")
+                .with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\xfe"),
+        )
+        .unwrap();
+        assert!(from_frame(&data).unwrap().get(tags::RAW_DATA).is_none(), "the data field is binary");
+        let clean = header_frame(b"38=100");
+        let long = header_frame(&b"58=x\x01".repeat(40)[..199]);
+        read_frames_into_one(&[
+            header_frame(b"x5=A"),       // a defect...
+            clean.clone(),               // ...gone from the next message
+            data,                        // a binary data field...
+            clean.clone(),               // ...gone too
+            long,                        // a long message...
+            clean.clone(),               // ...leaves no fields past the short one's end
+            header_frame(b"58=caf\xe9"), // not UTF-8: the buffer is rebuilt field by field
+            clean,
+        ]);
+    }
+
+    #[test]
+    fn a_reused_message_survives_a_frame_it_refuses() {
+        // A defect in MsgSeqNum can't be trusted: the frame is refused.
+        let refused =
+            b"8=FIX.4.2\x019=5\x0135=D\x0149=THEM\x0156=US\x0134=x\xff\x0152=20260928-12:00:00\x0110=000\x01".to_vec();
+        assert!(from_frame(&refused).is_err());
+        read_frames_into_one(&[header_frame(b"38=100"), refused, header_frame(b"38=200")]);
     }
 
     #[test]
