@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use tracing::warn;
 
 use super::{SessionId, SessionLog, SessionStorage};
-use crate::codec::{Decoded, decode, encode};
+use crate::codec::{Decoded, decode_with, encode, frame};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
-use crate::message::{Message, tags};
+use crate::message::{DataFields, Message};
 
 /// Stores each session's state in files under one directory.
 ///
@@ -70,6 +70,8 @@ struct DiskLog {
     created_path: PathBuf,
     created_at: Option<UtcTimestamp>,
     sync: bool,
+    /// The session's data fields, to decode stored messages with.
+    data: DataFields,
 }
 
 impl DiskLog {
@@ -116,6 +118,7 @@ impl DiskLog {
             created_path,
             created_at,
             sync,
+            data: DataFields::standard(),
         })
     }
 
@@ -173,7 +176,7 @@ impl SessionLog for DiskLog {
             self.body.seek(SeekFrom::Start(offset))?;
             let mut bytes = vec![0; len];
             self.body.read_exact(&mut bytes)?;
-            match decode(&bytes) {
+            match decode_with(&bytes, &self.data) {
                 Decoded::Message(msg, _) if msg.defect().is_none() => messages.push((seq, msg)),
                 _ => return Err(invalid_data(format!("stored message {seq} at offset {offset} is corrupt"))),
             }
@@ -226,6 +229,10 @@ impl SessionLog for DiskLog {
         self.created_at = Some(at);
         Ok(())
     }
+
+    fn set_data_fields(&mut self, data: &DataFields) {
+        self.data = data.clone();
+    }
 }
 
 fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
@@ -266,20 +273,19 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>,
     // would shift the rest of the buffer every time.
     let mut consumed = 0;
     loop {
-        match decode(&buf[consumed..]) {
-            Decoded::Message(msg, len) => {
-                if let Some(defect) = msg.defect() {
-                    let (path, text) = (path.display(), &defect.text);
-                    return Err(invalid_data(format!("{path}: corrupt message at offset {offset}: {text}")));
-                }
-                let seq = msg.field::<u64>(tags::MSG_SEQ_NUM).map_err(|_| {
+        // Only the framing and MsgSeqNum are checked here: the body can only be parsed knowing the
+        // session's data fields, which the log is told once it's open. It's parsed when a message
+        // is read for a resend.
+        match frame(&buf[consumed..]) {
+            Ok(len) => {
+                let seq = msg_seq_num(&buf[consumed..consumed + len]).ok_or_else(|| {
                     invalid_data(format!("{}: message at offset {offset} has no valid MsgSeqNum", path.display()))
                 })?;
                 index.insert(seq, (offset, len));
                 consumed += len;
                 offset += len as u64;
             }
-            Decoded::Incomplete => {
+            Err(Decoded::Incomplete) => {
                 let n = file.read(&mut chunk)?;
                 if n == 0 {
                     return Ok((index, offset));
@@ -288,11 +294,20 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>,
                 consumed = 0;
                 buf.extend_from_slice(&chunk[..n]);
             }
-            Decoded::Garbled { reason, .. } => {
+            Err(Decoded::Garbled { reason, .. }) => {
                 return Err(invalid_data(format!("{}: corrupt message at offset {offset}: {reason}", path.display())));
             }
+            Err(Decoded::Message(..)) => unreachable!("frame doesn't decode"),
         }
     }
+}
+
+/// MsgSeqNum(34) of a framed message the session stored, whose standard header, with MsgSeqNum,
+/// precedes any data field.
+fn msg_seq_num(frame: &[u8]) -> Option<u64> {
+    let start = frame.windows(4).position(|w| w == b"\x0134=")? + 4;
+    let end = start + frame[start..].iter().position(|&b| b == crate::message::SOH)?;
+    u64::from_fix(std::str::from_utf8(&frame[start..end]).ok()?).ok()
 }
 
 /// `BEGINSTRING-SENDER-TARGET`, with anything other than ASCII alphanumerics, `.` and `_`
@@ -320,6 +335,7 @@ fn invalid_data(msg: String) -> io::Error {
 mod tests {
     use super::super::conformance::{app_message, check, id};
     use super::*;
+    use crate::message::tags;
 
     fn storage(dir: &tempfile::TempDir) -> DiskStorage {
         DiskStorage::new(dir.path(), false).unwrap()
@@ -439,8 +455,9 @@ mod tests {
 
         assert_eq!(log.sent_messages(1, 1).unwrap_err().kind(), io::ErrorKind::InvalidData);
         drop(log);
-        let err = storage(&dir).open(&id("A")).err().expect("open should fail");
-        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        // Opening checks only the framing, which is intact.
+        let mut log = storage(&dir).open(&id("A")).unwrap();
+        assert_eq!(log.sent_messages(1, 1).unwrap_err().kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]

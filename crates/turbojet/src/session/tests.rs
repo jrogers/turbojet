@@ -1318,6 +1318,22 @@ fn venue_data_fields_are_sent_when_configured() {
     assert_eq!(sent(&out)[0].get(5001), Some("a\x01b"));
 }
 
+#[test]
+fn venue_data_fields_are_resent_intact_from_disk() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut h = Harness::with_storage(Arc::new(crate::store::DiskStorage::new(dir.path(), false).unwrap()));
+    h.config = h.config.with_data_field(5000, 5001);
+    let report = Message::new(MsgType::ExecutionReport).with_data(5000, 5001, b"\xfe\x0110=000\x01");
+    let mut first = h.logged_on(); // our 1: Logon
+    assert_eq!(sent(&first.on_command(Command::Send(report), h.t0)).len(), 1, "our 2");
+    drop(first);
+
+    let mut s = h.session();
+    let out = s.on_message(logon(2).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0);
+    let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ExecutionReport).expect("resent");
+    assert_eq!(resent.get_bytes(5001), Some(&b"\xfe\x0110=000\x01"[..]));
+}
+
 fn send_command(cl_ord_id: &str) -> Command {
     Command::Send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, cl_ord_id))
 }

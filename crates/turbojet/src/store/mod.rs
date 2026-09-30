@@ -11,7 +11,7 @@ pub use disk::DiskStorage;
 pub use memory::MemoryStorage;
 
 use crate::fields::UtcTimestamp;
-use crate::message::Message;
+use crate::message::{DataFields, Message};
 
 /// Identifies a FIX session from the gateway's side.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -86,6 +86,13 @@ pub trait SessionLog: Send {
     fn set_created_at(&mut self, _at: UtcTimestamp) -> io::Result<()> {
         Ok(())
     }
+
+    /// Tells the log the session's data fields ([`SessionConfig::data_fields`]), for a store that
+    /// decodes what it stored to know how long each data value is. The session calls it once it
+    /// has opened the log. The default does nothing.
+    ///
+    /// [`SessionConfig::data_fields`]: crate::SessionConfig::data_fields
+    fn set_data_fields(&mut self, _data: &DataFields) {}
 }
 
 /// Behaviour every [`SessionStorage`] implementation must satisfy.
@@ -172,5 +179,22 @@ pub(crate) mod conformance {
         assert_eq!(log.in_flight(), None);
         drop(log);
         assert_eq!(storage.open(&id("C")).unwrap().in_flight(), None, "reset persists");
+
+        // Data fields, a venue's own too, come back byte for byte.
+        let data = DataFields::standard().with(5000, 5001);
+        let msg = app_message(1)
+            .with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01")
+            .with_data(5000, 5001, b"a\x01\xfe");
+        {
+            let mut log = storage.open(&id("D")).unwrap();
+            log.set_data_fields(&data);
+            log.record_outgoing(1, Some(&msg)).unwrap();
+        }
+        let mut log = storage.open(&id("D")).unwrap();
+        log.set_data_fields(&data);
+        let sent = log.sent_messages(1, 1).unwrap();
+        for tag in [tags::RAW_DATA_LENGTH, tags::RAW_DATA, 5000, 5001] {
+            assert_eq!(sent[0].1.get_bytes(tag), msg.get_bytes(tag), "{tag}");
+        }
     }
 }

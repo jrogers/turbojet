@@ -40,48 +40,52 @@ pub fn decode(buf: &[u8]) -> Decoded {
 /// [`decode`], knowing the data fields in `data`: each value is as long as its Length field says,
 /// and may contain SOH.
 pub fn decode_with(buf: &[u8], data: &DataFields) -> Decoded {
-    if buf.is_empty() {
-        return Decoded::Incomplete;
+    let total = match frame(buf) {
+        Ok(total) => total,
+        Err(d) => return d,
+    };
+    match Message::from_frame(&buf[..total], data) {
+        Ok(msg) => Decoded::Message(msg, total),
+        Err(reason) => garbled(buf, reason),
     }
-    let (_, len_start) = match header_field(buf, 0, b"8=") {
-        Ok(v) => v,
-        Err(d) => return d,
-    };
-    let (len_soh, body_start) = match header_field(buf, len_start, b"9=") {
-        Ok(v) => v,
-        Err(d) => return d,
-    };
+}
+
+/// The length of the message at the front of `buf`, if its framing is valid: BeginString,
+/// BodyLength and MsgType first, and the CheckSum where BodyLength puts it. Otherwise
+/// [`Decoded::Incomplete`] or [`Decoded::Garbled`]. The body isn't parsed.
+pub(crate) fn frame(buf: &[u8]) -> Result<usize, Decoded> {
+    if buf.is_empty() {
+        return Err(Decoded::Incomplete);
+    }
+    let (_, len_start) = header_field(buf, 0, b"8=")?;
+    let (len_soh, body_start) = header_field(buf, len_start, b"9=")?;
     let body_len = match parse_digits(&buf[len_start + 2..len_soh]) {
         Some(n) if n <= MAX_BODY_LENGTH => n,
-        _ => return garbled(buf, "invalid BodyLength(9)".into()),
+        _ => return Err(garbled(buf, "invalid BodyLength(9)".into())),
     };
 
     let trailer_start = body_start + body_len;
     let total = trailer_start + TRAILER_LEN;
     if buf.len() < total {
-        return Decoded::Incomplete;
+        return Err(Decoded::Incomplete);
     }
     let trailer = &buf[trailer_start..total];
     if &trailer[..3] != b"10=" || trailer[6] != SOH {
-        return garbled(buf, "BodyLength(9) does not match message".into());
+        return Err(garbled(buf, "BodyLength(9) does not match message".into()));
     }
     let Some(received) = parse_digits(&trailer[3..6]) else {
-        return garbled(buf, "invalid CheckSum(10)".into());
+        return Err(garbled(buf, "invalid CheckSum(10)".into()));
     };
     let computed = checksum(&buf[..trailer_start]);
     if received != computed as usize {
-        return garbled(buf, format!("CheckSum mismatch: received {received}, computed {computed}"));
+        return Err(garbled(buf, format!("CheckSum mismatch: received {received}, computed {computed}")));
     }
 
     // BeginString, BodyLength and MsgType must be the first three fields.
     if !buf[body_start..].starts_with(b"35=") {
-        return garbled(buf, "MsgType(35) is not the third field".into());
+        return Err(garbled(buf, "MsgType(35) is not the third field".into()));
     }
-
-    match Message::from_frame(&buf[..total], data) {
-        Ok(msg) => Decoded::Message(msg, total),
-        Err(reason) => garbled(buf, reason),
-    }
+    Ok(total)
 }
 
 /// Encodes a message, computing BodyLength(9) and CheckSum(10). BeginString(8) is taken from the

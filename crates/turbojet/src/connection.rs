@@ -7,7 +7,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
 
-use crate::codec::{Decoded, decode, encode_into};
+use crate::codec::{Decoded, decode_with, encode_into};
 use crate::registry::CommandReceiver;
 use crate::session::{Action, Session};
 use crate::shutdown::Signal;
@@ -161,7 +161,7 @@ where
                 let mut actions = Vec::new();
                 let mut consumed = 0;
                 loop {
-                    match decode(&buf[consumed..]) {
+                    match decode_with(&buf[consumed..], session.data_fields()) {
                         Decoded::Message(msg, len) => {
                             consumed += len;
                             debug!(target: "turbojet::messages", direction = "in", "{}", msg.redacted());
@@ -290,7 +290,7 @@ mod tests {
     async fn receive(peer: &mut DuplexStream, buf: &mut Vec<u8>, count: usize) -> Vec<Message> {
         let mut messages = Vec::new();
         while messages.len() < count {
-            match decode(buf) {
+            match crate::codec::decode(buf) {
                 Decoded::Message(msg, len) => {
                     buf.drain(..len);
                     messages.push(msg);

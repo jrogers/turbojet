@@ -406,6 +406,11 @@ impl Session {
         self.connection = connection;
     }
 
+    /// The data fields to decode inbound messages with.
+    pub(crate) fn data_fields(&self) -> &DataFields {
+        &self.config.data_fields
+    }
+
     /// The session's ID, once known.
     pub fn session_id(&self) -> Option<&SessionId> {
         self.peer.as_ref().map(|p| &p.id)
@@ -944,7 +949,8 @@ impl Session {
     /// Claims the session in the registry and opens its log. Closes on failure.
     fn bind(&mut self, id: SessionId, heartbeat: Duration) -> bool {
         match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id()) {
-            Ok(log) => {
+            Ok(mut log) => {
+                log.set_data_fields(&self.config.data_fields);
                 // Label the driver's span (see `connection::run`), so every later log line, from
                 // the engine or the application, carries the session ID.
                 tracing::Span::current().record("id", tracing::field::display(&id));
