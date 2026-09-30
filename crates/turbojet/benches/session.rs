@@ -8,41 +8,13 @@ use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::codec::{Decoded, decode, encode};
-use turbojet::fields::EncryptMethod;
 use turbojet::session::Action;
 use turbojet::store::{SessionLog, SessionStorage};
-use turbojet::{DiskStorage, MemoryStorage, Message, Session, SessionConfig, SessionId, SessionRegistry, admin};
+use turbojet::{DiskStorage, MemoryStorage, Message, SessionId};
 
 /// Messages per logged-on session; a fresh session (and store) is set up, untimed, for each chunk
 /// so the in-memory resend store doesn't grow without bound.
 const CHUNK: u64 = 10_000;
-
-/// A logged-on acceptor session with `storage`, whose counterparty's next MsgSeqNum is 2.
-fn logged_on(storage: Arc<dyn SessionStorage>) -> Session {
-    let registry = Arc::new(SessionRegistry::new(storage));
-    let (mut session, _commands) = Session::acceptor(
-        SessionConfig::new("FIX.4.2", "GATEWAY"),
-        registry,
-        Arc::new(common::Acker::default()),
-        Instant::now(),
-    );
-    let logon = admin::Logon {
-        encrypt_method: EncryptMethod::None,
-        heart_bt_int: 30,
-        reset_seq_num_flag: None,
-        next_expected_msg_seq_num: None,
-        username: None,
-        password: None,
-        default_appl_ver_id: None,
-    };
-    session.on_message(common::with_header("CLIENT", "GATEWAY", 1, logon.into()), Instant::now());
-    assert!(session.is_logged_on());
-    session
-}
-
-fn orders(count: u64) -> Vec<Message> {
-    (0..count).map(|i| common::with_header("CLIENT", "GATEWAY", i + 2, common::new_order_single(i).into())).collect()
-}
 
 /// Times `run` over `iters` messages, in chunks with untimed setup.
 fn chunked<T>(iters: u64, setup: impl Fn(u64) -> T, mut run: impl FnMut(T)) -> Duration {
@@ -69,7 +41,12 @@ fn session(c: &mut Criterion) {
         b.iter_custom(|iters| {
             chunked(
                 iters,
-                |n| (logged_on(Arc::new(MemoryStorage::new())), orders(n)),
+                |n| {
+                    (
+                        common::logged_on(Arc::new(MemoryStorage::new()), Arc::new(common::Acker::default())),
+                        common::orders(n),
+                    )
+                },
                 |(mut session, orders)| {
                     let now = Instant::now();
                     for order in orders {
@@ -89,7 +66,7 @@ fn session(c: &mut Criterion) {
                 |n| {
                     let dir = tempfile::tempdir().unwrap();
                     let storage = Arc::new(DiskStorage::new(dir.path(), false).unwrap());
-                    (logged_on(storage), orders(n), dir)
+                    (common::logged_on(storage, Arc::new(common::Acker::default())), common::orders(n), dir)
                 },
                 |(mut session, orders, _dir)| {
                     let now = Instant::now();
@@ -110,7 +87,14 @@ fn session(c: &mut Criterion) {
             chunked(
                 iters,
                 // Metric handles are created when the session binds, so bind under the recorder.
-                |n| (metrics::with_local_recorder(&recorder, || logged_on(Arc::new(MemoryStorage::new()))), orders(n)),
+                |n| {
+                    (
+                        metrics::with_local_recorder(&recorder, || {
+                            common::logged_on(Arc::new(MemoryStorage::new()), Arc::new(common::Acker::default()))
+                        }),
+                        common::orders(n),
+                    )
+                },
                 |(mut session, orders)| {
                     let now = Instant::now();
                     for order in orders {
@@ -128,8 +112,8 @@ fn session(c: &mut Criterion) {
             chunked(
                 iters,
                 |n| {
-                    let wire: Vec<Vec<u8>> = orders(n).iter().map(|order| encode(order).unwrap()).collect();
-                    (logged_on(Arc::new(MemoryStorage::new())), wire)
+                    let wire: Vec<Vec<u8>> = common::orders(n).iter().map(|order| encode(order).unwrap()).collect();
+                    (common::logged_on(Arc::new(MemoryStorage::new()), Arc::new(common::Acker::default())), wire)
                 },
                 |(mut session, wire)| {
                     let now = Instant::now();

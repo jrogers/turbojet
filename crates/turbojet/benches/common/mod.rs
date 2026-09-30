@@ -4,12 +4,14 @@
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use turbojet::fields::Decimal;
+use turbojet::fields::EncryptMethod;
 use turbojet::fields::UtcTimestamp;
 use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::store::{SessionLog, SessionStorage};
-use turbojet::{Application, Context, MessageReject, SessionId};
+use turbojet::{Application, Context, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
 use turbojet_fix42::{
     ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, OrdStatus, OrdType, Side, TimeInForce,
 };
@@ -75,6 +77,31 @@ pub fn with_header(sender: &str, target: &str, seq: u64, body: Message) -> Messa
         }
     }
     msg
+}
+
+/// A logged-on FIX 4.2 acceptor session with `storage` and `app`, whose counterparty's next
+/// MsgSeqNum is 2.
+pub fn logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Session {
+    let registry = Arc::new(SessionRegistry::new(storage));
+    let (mut session, _commands) =
+        Session::acceptor(SessionConfig::new("FIX.4.2", "GATEWAY"), registry, app, Instant::now());
+    let logon = admin::Logon {
+        encrypt_method: EncryptMethod::None,
+        heart_bt_int: 30,
+        reset_seq_num_flag: None,
+        next_expected_msg_seq_num: None,
+        username: None,
+        password: None,
+        default_appl_ver_id: None,
+    };
+    session.on_message(with_header("CLIENT", "GATEWAY", 1, logon.into()), Instant::now());
+    assert!(session.is_logged_on());
+    session
+}
+
+/// `count` orders from CLIENT, MsgSeqNum 2 onwards.
+pub fn orders(count: u64) -> Vec<Message> {
+    (0..count).map(|i| with_header("CLIENT", "GATEWAY", i + 2, new_order_single(i).into())).collect()
 }
 
 /// Acknowledges every NewOrderSingle with an ExecutionReport: parses the typed order and builds a
