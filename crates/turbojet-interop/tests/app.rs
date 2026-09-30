@@ -5,6 +5,7 @@ use turbojet_interop::orders::{peer_order, tj_order};
 use turbojet_interop::{Setup, matrix};
 
 matrix!(order_round_trip);
+matrix!(microseconds_and_lists_round_trip);
 matrix!(data_field_with_soh_round_trip);
 
 async fn order_round_trip(setup: Setup) {
@@ -54,5 +55,28 @@ async fn data_field_with_soh_round_trip(setup: Setup) {
     let ours = pair.tj_received("D").await;
     assert_eq!(ours.get_bytes(tags::XML_DATA), Some(&b"<b>\x01</b>"[..]));
     assert_eq!(ours.get(tags::CL_ORD_ID), Some("ORD2"));
+    pair.finish().await;
+}
+
+/// A TransactTime in microseconds, kept as it is, and ExecInst holding two codes.
+async fn microseconds_and_lists_round_trip(setup: Setup) {
+    use turbojet::fields::{FromFix, Precision, UtcTimestamp};
+
+    let mut pair = setup.start().await;
+    pair.logged_on().await;
+
+    let time = UtcTimestamp::from_fix("20260930-12:00:00.123456").unwrap();
+    pair.handle.send(tj_order("ORD1").with(tags::TRANSACT_TIME, time).with(18, vec!["1", "G"])).unwrap();
+    let theirs = pair.peer.received("D").await;
+    assert_eq!(theirs.get(60), Some("20260930-12:00:00.123456"), "{}", theirs.raw());
+    assert_eq!(theirs.get(18), Some("1 G"), "{}", theirs.raw());
+
+    let order = peer_order("ORD2").replace("60=20260929-12:00:00.000", "60=20260930-12:00:00.654321");
+    pair.peer.send(&format!("{order}|18=G 1")).await;
+    let ours = pair.tj_received("D").await;
+    let transact_time: UtcTimestamp = ours.field(tags::TRANSACT_TIME).unwrap();
+    assert_eq!(transact_time.precision(), Precision::Micros);
+    assert_eq!(transact_time, UtcTimestamp::from_fix("20260930-12:00:00.654321").unwrap());
+    assert_eq!(ours.field::<Vec<String>>(18).unwrap(), ["G", "1"]);
     pair.finish().await;
 }
