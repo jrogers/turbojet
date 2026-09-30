@@ -385,15 +385,15 @@ impl Message {
     /// contents are unspecified.
     #[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
     pub(crate) fn read_frame(&mut self, frame: &[u8], data: &DataFields) -> Result<(), String> {
+        self.buf.clear();
+        self.fields.clear();
+        self.rare = None;
         let body = frame.strip_suffix(&[SOH]).ok_or("message does not end with SOH")?;
+        self.fields.reserve(body.len() / 8);
         // Normally the whole frame is UTF-8 and is used as it is, fields indexing into it.
         // Otherwise the text buffer is rebuilt field by field, with non-UTF-8 data values set
         // apart and other non-UTF-8 values kept lossily.
         let text = std::str::from_utf8(frame).ok();
-        self.buf.clear();
-        self.fields.clear();
-        self.fields.reserve(body.len() / 8);
-        self.rare = None;
         let mut defect = None;
         // The last field's tag and value, for a data field to find its length in.
         let mut previous: Option<(u32, &[u8])> = None;
@@ -1547,7 +1547,7 @@ mod tests {
 
     #[test]
     fn a_reused_message_survives_a_frame_it_refuses() {
-        // A defect in MsgSeqNum can't be trusted: the frame is refused.
+        // MsgSeqNum isn't UTF-8: the frame is refused partway through, the message half filled.
         let refused =
             b"8=FIX.4.2\x019=5\x0135=D\x0149=THEM\x0156=US\x0134=x\xff\x0152=20260928-12:00:00\x0110=000\x01".to_vec();
         assert!(from_frame(&refused).is_err());
