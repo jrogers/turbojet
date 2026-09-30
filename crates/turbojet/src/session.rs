@@ -1675,6 +1675,8 @@ impl Session {
     /// Counts and logs the message the output holds from `start`, just framed, for the driver to
     /// write.
     fn emit(&mut self, start: usize) {
+        // The driver writes the output, then closes: anything added once closed would still go out.
+        debug_assert!(self.status != Status::Closed, "a closed session sends nothing");
         self.peer().metrics.message_sent();
         debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&self.output[start..], &self.config.data_fields));
     }

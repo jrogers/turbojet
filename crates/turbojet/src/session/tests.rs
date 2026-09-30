@@ -1531,9 +1531,11 @@ fn shutdown_before_logon_disconnects() {
 
 // ---- Storage failures ----
 
-/// Storage whose logs fail every write after the first `ok_writes`.
+/// Storage whose logs fail every write after the first `ok_writes` (counted per log), over a
+/// memory store that keeps its state across reopening.
 struct FailingStorage {
     ok_writes: usize,
+    inner: MemoryStorage,
 }
 
 struct FailingLog {
@@ -1553,7 +1555,7 @@ impl FailingLog {
 
 impl SessionStorage for FailingStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        Ok(Box::new(FailingLog { inner: MemoryStorage::new().open(id)?, remaining: self.ok_writes }))
+        Ok(Box::new(FailingLog { inner: self.inner.open(id)?, remaining: self.ok_writes }))
     }
 }
 
@@ -1589,7 +1591,7 @@ impl SessionLog for FailingLog {
 }
 
 fn failing_after(ok_writes: usize) -> Harness {
-    Harness::with_storage(Arc::new(FailingStorage { ok_writes }))
+    Harness::with_storage(Arc::new(FailingStorage { ok_writes, inner: MemoryStorage::new() }))
 }
 
 #[test]
@@ -1598,6 +1600,26 @@ fn storage_failure_during_logon_disconnects_without_reply() {
     let mut s = h.session();
     assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
     assert!(h.app.events().is_empty());
+}
+
+/// A session that a storage failure closes during logon sends nothing more: not its Logon reply,
+/// nor the resend the counterparty's NextExpectedMsgSeqNum asks for.
+#[test]
+fn storage_failure_during_logon_sends_no_resend() {
+    let storage = FailingStorage { ok_writes: 0, inner: MemoryStorage::new() };
+    let id =
+        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    {
+        // We've sent up to 3 on an earlier connection.
+        let mut log = storage.inner.open(&id).unwrap();
+        for seq in 1..=3 {
+            log.record_outgoing(seq, None).unwrap();
+        }
+    }
+    let h = Harness::with_storage(Arc::new(storage));
+    let mut s = h.session();
+    let out = s.recv(logon(4).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
 }
 
 #[test]
