@@ -3,14 +3,14 @@
 
 /// Makes `FromFix + Copy` types their own borrowed form ([`FieldRef`](crate::fields::FieldRef)),
 /// so they can be used as field types in [`fix_message!`](crate::fix_message):
-/// `impl_field_ref!(MyType);`
+/// `impl_field_ref!(MyType);`. The types must also be `Debug` and `PartialEq`.
 #[macro_export]
 macro_rules! impl_field_ref {
     ($($ty:ty),+ $(,)?) => {$(
         impl<'a> $crate::fields::FieldRef<'a> for $ty {
             type Ref = $ty;
 
-            fn parse_ref(s: &'a str) -> Result<$ty, $crate::fields::ValueError> {
+            fn parse_ref(s: &'a str) -> ::core::result::Result<$ty, $crate::fields::ValueError> {
                 <$ty as $crate::fields::FromFix>::from_fix(s)
             }
 
@@ -80,7 +80,7 @@ macro_rules! fix_enum {
         }
 
         impl $crate::fields::FromFix for $name {
-            fn from_fix(s: &str) -> Result<Self, $crate::fields::ValueError> {
+            fn from_fix(s: &str) -> ::core::result::Result<Self, $crate::fields::ValueError> {
                 Self::from_code(s).ok_or($crate::fields::ValueError::Incorrect)
             }
         }
@@ -257,11 +257,11 @@ macro_rules! fix_message {
         impl $crate::message::FixMessage for $name {
             const MSG_TYPE: $crate::fields::MsgType = $msg_type;
 
-            fn from_message(msg: &$crate::message::Message) -> Result<Self, $crate::message::FieldError> {
+            fn from_message(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 $crate::fix_message!(@parse msg.body(), false, $( $field : $presence $ty = $tags ),*)
             }
 
-            fn from_message_strict(msg: &$crate::message::Message) -> Result<Self, $crate::message::FieldError> {
+            fn from_message_strict(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 $crate::fix_message!(@parse msg.body(), true, $( $field : $presence $ty = $tags ),*)
             }
 
@@ -454,7 +454,7 @@ macro_rules! fix_group {
                 lengths: &[ $( $crate::fix_message!(@length $tags) ),+ ],
             };
 
-            fn from_fields(entry: $crate::message::Fields<'_>) -> Result<Self, $crate::message::FieldError> {
+            fn from_fields(entry: $crate::message::Fields<'_>) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 // An undeclared tag ends a group entry, so strictness is the message's to apply.
                 $crate::fix_message!(@parse entry, false, $( $field : $presence $ty = $tags ),+)
             }

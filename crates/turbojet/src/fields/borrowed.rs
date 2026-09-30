@@ -11,7 +11,8 @@ use super::{
 /// A field type's borrowed form, for the `…Ref` types `fix_message!` generates: what a field of
 /// this type holds when parsed without allocating, and how to make the owned value from it.
 pub trait FieldRef<'a>: Sized {
-    /// The borrowed form: `&'a str` for `String`, the type itself for `Copy` scalars.
+    /// The borrowed form: `&'a str` for `String` (and the code for `MsgType`), [`SecretRef`] and
+    /// [`CodeRef`] for `Secret` and `Code`, the type itself for `Copy` scalars.
     type Ref: Copy + fmt::Debug + PartialEq + 'a;
 
     /// Parses a value without its tag or delimiter; fails as [`FromFix::from_fix`](super::FromFix::from_fix)
