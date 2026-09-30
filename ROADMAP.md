@@ -38,7 +38,7 @@ later, with:
   at a configured one;
 - memory and disk session storage, session schedules, and operator control of sequence numbers;
 - structured logging and Prometheus-compatible metrics;
-- criterion benchmarks (about 1.2 µs per order → ack of session processing, and 490k msg/s
+- criterion benchmarks (about 0.9 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
 - a count of heap allocations, reallocs and bytes per order → ack, by stage (decode, session,
   application, store, encode), checked against an exact budget on every test run

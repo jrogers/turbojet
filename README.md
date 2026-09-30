@@ -61,7 +61,7 @@ Turbojet aims to be a FIX engine that a trading or order execution system can bu
   exception is optional: the `tls` feature uses rustls with the `ring` crypto provider, which
   includes C and assembly.
 - **Fast.** Encoding, decoding, the session layer and storage have benchmarks (see
-  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.4 µs, wire
+  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.2 µs, wire
   to wire.
 - **Embeddable.** Turbojet is a library, not a server: your code owns the process, the runtime and
   the business logic. Every layer is public, from the codec up through the sans-IO session state
@@ -482,10 +482,10 @@ to partition the crate.
 | Decode NewOrderSingle (169 B) | 387 ns | 416 MiB/s |
 | Encode ExecutionReport (209 B) | 118 ns | 1.6 GiB/s |
 | Typed parse NewOrderSingle (no groups / with 3 allocations) | 208 ns / 315 ns | |
-| Typed build ExecutionReport | 241 ns | |
-| Format a timestamp (same second / new second) | 9 ns / 32 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store)¹ | 1.14 µs | 880k msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)¹ | 1.37 µs | 731k msg/s |
+| Typed build ExecutionReport¹ | 158 ns | |
+| Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
+| Session: order → ack, no I/O, encoded reply (memory store)¹ | 939 ns | 1.07M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)¹ | 1.18 µs | 845k msg/s |
 | Store a sent message: memory / disk / disk + fsync¹ | 49 ns / 3.1 µs / 8.0 ms | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
@@ -496,7 +496,8 @@ Round trips are initiator → acceptor application → initiator application, us
 discards messages (storage is measured separately). Session benchmarks restart the session every
 10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
 ¹ Re-measured 2026-09-30 on the same machine, after the session started encoding what it sends
-straight into its output; the other rows are the 2026-09-27 snapshot.
+straight into its output, and decimals and integers were written without `core::fmt`; the other
+rows are the 2026-09-27 snapshot.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:

@@ -49,6 +49,12 @@ Notable changes to the published crates.
   allocates about 4 fewer times with `MemoryStorage`. `DiskStorage` also writes its sequence
   numbers without allocating, 3 times per order. Taking an order to its acknowledgement, wire to
   wire, is about 13% faster.
+- `SessionConfig::clock` also stamps outbound SendingTime: the session reads it once per call,
+  for checking inbound SendingTime and stamping outbound. With the default (system) clock nothing
+  changes; a replaced clock's time now goes on the wire.
+- Typed messages write decimals and integers without `core::fmt`: building an ExecutionReport is
+  about 39% faster. With fewer passes over each message's fields and one clock read per message,
+  taking an order to its acknowledgement is about 15% faster again.
 
 ### `turbojet-dictionary`
 
