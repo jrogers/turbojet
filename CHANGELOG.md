@@ -40,7 +40,9 @@ Notable changes to the published crates.
   nothing), and `Session::is_closed` replaces `Action::Disconnect`. `Action` is gone.
 - Messages are encoded once, straight from the body into the session's output, and stored as
   those bytes: `DiskStorage` no longer encodes each one a second time, and acknowledging an order
-  allocates about 4 fewer times.
+  allocates about 4 fewer times with `MemoryStorage`. `DiskStorage` also writes its sequence
+  numbers without allocating, 3 times per order. Taking an order to its acknowledgement, wire to
+  wire, is about 13% faster.
 
 ### `turbojet-dictionary`
 

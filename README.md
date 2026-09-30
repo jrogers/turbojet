@@ -61,7 +61,7 @@ Turbojet aims to be a FIX engine that a trading or order execution system can bu
   exception is optional: the `tls` feature uses rustls with the `ring` crypto provider, which
   includes C and assembly.
 - **Fast.** Encoding, decoding, the session layer and storage have benchmarks (see
-  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.6 µs, wire
+  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.4 µs, wire
   to wire.
 - **Embeddable.** Turbojet is a library, not a server: your code owns the process, the runtime and
   the business logic. Every layer is public, from the codec up through the sans-IO session state
@@ -484,9 +484,9 @@ to partition the crate.
 | Typed parse NewOrderSingle (no groups / with 3 allocations) | 208 ns / 315 ns | |
 | Typed build ExecutionReport | 241 ns | |
 | Format a timestamp (same second / new second) | 9 ns / 32 ns | |
-| Session: order → ack, no I/O (memory store) | 1.10 µs | 909k msg/s |
-| Session: order → ack, wire to wire (decode + session + encode) | 1.59 µs | 629k msg/s |
-| Store a sent message: memory / disk / disk + fsync | 61 ns / 3.7 µs / 8.1 ms | |
+| Session: order → ack, no I/O, encoded reply (memory store)¹ | 1.14 µs | 880k msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)¹ | 1.37 µs | 731k msg/s |
+| Store a sent message: memory / disk / disk + fsync¹ | 49 ns / 3.1 µs / 8.0 ms | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
@@ -495,6 +495,8 @@ to partition the crate.
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately). Session benchmarks restart the session every
 10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
+¹ Re-measured 2026-09-30 on the same machine, after the session started encoding what it sends
+straight into its output; the other rows are the 2026-09-27 snapshot.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
@@ -506,16 +508,15 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 | Stage | Allocations | Reallocs | Bytes |
 |---|---|---|---|
 | Decode | 2 | 0 | 508 |
-| Session | 3 | 0 | 891 |
-| Application (typed parse and ack)¹ | 8 | 2 | 3,138 |
-| Store (memory) | 2.2 | 0 | 693 |
-| Encode | 0 | 0 | 0 |
-| Engine (all but the application) | 7.2 | 0 | 2,093 |
+| Session (including encoding the ack) | 0 | 0 | 0 |
+| Application (typed parse and ack)² | 8 | 2 | 3,138 |
+| Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
+| Engine (all but the application): memory / disk | 3.2 / 2.2 | 0 | 788 / 557 |
 
-Means of 1,000 orders after 100 warm-up, 2026-09-30. Store allocations are fractional because
-the in-memory store's map allocates a node every few messages. Debug and release builds count
-the same. ¹ Includes one of the engine's: the reply list that `Context::send` pushes onto, so the
-engine's own count is about 8.
+Means of 1,000 orders after 100 warm-up, 2026-09-30, with each store (the disk store without
+fsync). Store allocations are fractional because the stores' maps allocate a node every few
+messages; the memory store also copies each message it keeps. Debug and release builds count the
+same. ² Includes one of the engine's: the reply list that `Context::send` pushes onto.
 
 ## Limitations
 

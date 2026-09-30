@@ -145,9 +145,11 @@ application itself asks for. Some of this is already done: a `Message` keeps all
 one buffer with an offset index (two allocations, not one per field), outgoing messages are
 encoded into one reused batch buffer, and raw group access is zero-copy. Allocations per order →
 ack are counted by stage (`tests/allocations.rs`), and the build fails if a count changes, so each
-step below shows up as a lower budget: as of 2026-09-30 the engine makes about 8 per order
-(decode 2, session 3, store 2, and the reply list the application's first send grows), and the
-example application 7. What remains, per message:
+step below shows up as a lower budget. The session encodes what it sends once, straight into
+one reused output buffer, and the stores keep those bytes. As of 2026-09-30 the engine makes about
+4 allocations per order with the memory store, 3 with the disk store (decode 2, the store's copy
+or index node, and the reply list the application's first send grows), and the example
+application 7. What remains, per message:
 - **Borrowed inbound messages** (M). Decoding copies each frame out of the read buffer into an
   owned `Message`. Decode instead into a view borrowing the read buffer, with its field index in
   reused storage, and hand applications that; they copy into an owned `Message` only to keep
@@ -156,15 +158,9 @@ example application 7. What remains, per message:
   `Vec` for each group. Parse into types that borrow from the message (`&str` fields, groups as
   iterators over entries), keeping owned types for building outbound messages. This changes the
   macros, and generated code (section 3) should produce both.
-- **Encode straight to the wire** (M). Sending builds a second `Message` that copies the body
-  next to the header, then encodes it. Write the header, body and trailer directly into the
-  output buffer in one pass (checksum computed while copying, BodyLength back-patched), and
-  store those encoded bytes rather than the message: `DiskStorage` currently encodes each stored
-  message a second time, and `MemoryStorage` clones it. Format SendingTime without allocating,
-  reusing the date part within the same second.
-- **Reuse per-call buffers** (S). Each call into the session returns a new `Vec<Action>`; drain
-  a reused outbox instead. Let applications build outbound messages in pooled buffers rather
-  than a fresh `Message` each time.
+- **Reuse per-call buffers** (S). The application's replies go through a new `Vec` in each
+  `Context`; reuse one per session. Let applications build outbound messages in pooled buffers
+  rather than a fresh `Message` each time.
 
 This interacts with "Batched disk writes", "Bounded memory store" (a store of encoded bytes can
 be a fixed ring or arena) and "Latency" below.
