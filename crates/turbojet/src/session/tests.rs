@@ -243,6 +243,11 @@ fn sent(actions: &[Action]) -> Vec<&Message> {
         .collect()
 }
 
+/// The first header field after a body field, as the in-sequence check finds it.
+fn misplaced_header_field(msg: &Message) -> Option<u32> {
+    misplaced_header_and_empty_field(msg, true).0
+}
+
 /// Message type names (e.g. "Logout") and "DISCONNECT", in order.
 fn types(actions: &[Action]) -> Vec<String> {
     actions

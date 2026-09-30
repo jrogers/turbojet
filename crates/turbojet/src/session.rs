@@ -1183,9 +1183,8 @@ impl Session {
         if self.reject_defect(msg, now) {
             return;
         }
-        if self.config.check_header_order
-            && let Some(tag) = misplaced_header_field(msg)
-        {
+        let (misplaced, empty) = misplaced_header_and_empty_field(msg, self.config.check_header_order);
+        if let Some(tag) = misplaced {
             let reason = Some(SessionRejectReason::TagSpecifiedOutOfRequiredOrder);
             return self.reject(msg, Some(tag), reason, &format!("Tag {tag} specified out of required order"), now);
         }
@@ -1193,7 +1192,7 @@ impl Session {
             let reason = Some(SessionRejectReason::RequiredTagMissing);
             return self.reject(msg, Some(tag), reason, &format!("Required tag {tag} missing"), now);
         }
-        if let Some(tag) = empty_field(msg) {
+        if let Some(tag) = empty {
             let reason = Some(SessionRejectReason::TagSpecifiedWithoutValue);
             return self.reject(msg, Some(tag), reason, &format!("Tag {tag} specified without a value"), now);
         }
@@ -1812,7 +1811,15 @@ impl Session {
 
         let kept_header = |tag| is_header_or_trailer(tag) && !set_by_session(tag);
         let in_body = |tag| !is_header_or_trailer(tag);
-        let body_len = header.len() + body.segments_len(kept_header) + body.segments_len(in_body);
+        // One pass for the length of both, noting whether the body has header fields of its own
+        // (usually not), so their write pass can be skipped.
+        let any_kept_header = Cell::new(false);
+        let body_len = header.len()
+            + body.segments_len(|tag| {
+                let kept = kept_header(tag);
+                any_kept_header.set(any_kept_header.get() | kept);
+                kept || in_body(tag)
+            });
         let begin_string = self.config.begin_string.as_bytes();
         let start = out.len();
         out.reserve(begin_string.len() + body_len + 24);
@@ -1822,7 +1829,9 @@ impl Session {
         push_digits(out, body_len);
         out.push(b'\x01');
         out.extend_from_slice(header.as_bytes());
-        body.write_segments(out, kept_header);
+        if any_kept_header.get() {
+            body.write_segments(out, kept_header);
+        }
         body.write_segments(out, in_body);
         push_trailer(out, start);
         self.header = header;
@@ -1965,17 +1974,27 @@ fn missing_header_field(msg: &Message) -> Option<u32> {
     [tags::SENDER_COMP_ID, tags::TARGET_COMP_ID, tags::SENDING_TIME].into_iter().find(|tag| msg.get(*tag).is_none())
 }
 
-/// The first header field that comes after a body field, if any. CheckSum ends every message.
-fn misplaced_header_field(msg: &Message) -> Option<u32> {
+/// In one pass: the first header field that comes after a body field, if `check_order` (CheckSum
+/// ends every message), and the first field without a value.
+fn misplaced_header_and_empty_field(msg: &Message, check_order: bool) -> (Option<u32>, Option<u32>) {
+    let (mut misplaced, mut empty) = (None, None);
     let mut in_body = false;
-    for (tag, _) in msg.fields().filter(|(tag, _)| *tag != tags::CHECK_SUM) {
-        match (is_header_or_trailer(tag), in_body) {
-            (true, true) => return Some(tag),
-            (false, _) => in_body = true,
-            (true, false) => {}
+    for (tag, value) in msg.fields() {
+        if empty.is_none() && value.is_empty() {
+            empty = Some(tag);
+        }
+        if check_order && misplaced.is_none() && tag != tags::CHECK_SUM {
+            match (is_header_or_trailer(tag), in_body) {
+                (true, true) => misplaced = Some(tag),
+                (false, _) => in_body = true,
+                (true, false) => {}
+            }
+        }
+        if empty.is_some() && (misplaced.is_some() || !check_order) {
+            break;
         }
     }
-    None
+    (misplaced, empty)
 }
 
 fn empty_field(msg: &Message) -> Option<u32> {
