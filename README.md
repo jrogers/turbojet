@@ -492,13 +492,13 @@ to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B) | 387 ns | 416 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 221 ns / 186 ns | 729 / 866 MiB/s |
 | Encode ExecutionReport (209 B) | 118 ns | 1.6 GiB/s |
 | Typed parse NewOrderSingle (no groups / with 3 allocations) | 208 ns / 315 ns | |
 | Typed build ExecutionReport¹ | 158 ns | |
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store)¹ | 939 ns | 1.07M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)¹ | 1.18 µs | 845k msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)¹ | 1.13 µs | 882k msg/s |
 | Store a sent message: memory / disk / disk + fsync¹ | 49 ns / 3.1 µs / 8.0 ms | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
@@ -509,8 +509,9 @@ Round trips are initiator → acceptor application → initiator application, us
 discards messages (storage is measured separately). Session benchmarks restart the session every
 10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
 ¹ Re-measured 2026-09-30 on the same machine, after the session started encoding what it sends
-straight into its output, and decimals and integers were written without `core::fmt`; the other
-rows are the 2026-09-27 snapshot.
+straight into its output, decimals and integers were written without `core::fmt`, and each inbound
+message was decoded into one reused for the connection; the other rows are the 2026-09-27
+snapshot.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:

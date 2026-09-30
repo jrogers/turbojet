@@ -62,7 +62,9 @@ Notable changes to the published crates.
   taking an order to its acknowledgement is about 15% faster again.
 - Each inbound message is decoded into one `Message` reused for the connection, so decoding no
   longer allocates once it has grown to the size of the messages received. `codec::decode_into`
-  decodes into a message the caller reuses.
+  decodes into a message the caller reuses. Decoding a NewOrderSingle into a reused message is
+  about 15% faster than into a new one, and taking an order to its acknowledgement, wire to wire,
+  about 2.5% faster.
 - Breaking: `Session::on_message` takes the message by reference.
 
 ### `turbojet-dictionary`
