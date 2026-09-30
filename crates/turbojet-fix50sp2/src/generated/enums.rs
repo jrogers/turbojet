@@ -32,6 +32,68 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// ExecInst(18).
+    ExecInst {
+        StayOnOfferSide = "0",
+        NotHeld = "1",
+        Work = "2",
+        GoAlong = "3",
+        OverTheDay = "4",
+        Held = "5",
+        ParticipateDoNotInitiate = "6",
+        StrictScale = "7",
+        TryToScale = "8",
+        StayOnBidSide = "9",
+        NoCross = "A",
+        OKToCross = "B",
+        CallFirst = "C",
+        PercentOfVolume = "D",
+        DoNotIncrease = "E",
+        DoNotReduce = "F",
+        AllOrNone = "G",
+        ReinstateOnSystemFailure = "H",
+        InstitutionsOnly = "I",
+        ReinstateOnTradingHalt = "J",
+        CancelOnTradingHalt = "K",
+        LastPeg = "L",
+        MidPricePeg = "M",
+        NonNegotiable = "N",
+        OpeningPeg = "O",
+        MarketPeg = "P",
+        CancelOnSystemFailure = "Q",
+        PrimaryPeg = "R",
+        Suspend = "S",
+        FixedPegToLocalBestBidOrOfferAtTimeOfOrder = "T",
+        CustomerDisplayInstruction = "U",
+        Netting = "V",
+        PegToVWAP = "W",
+        TradeAlong = "X",
+        TryToStop = "Y",
+        CancelIfNotBest = "Z",
+        TrailingStopPeg = "a",
+        StrictLimit = "b",
+        IgnorePriceValidityChecks = "c",
+        PegToLimitPrice = "d",
+        WorkToTargetStrategy = "e",
+        IntermarketSweep = "f",
+        ExternalRoutingAllowed = "g",
+        ExternalRoutingNotAllowed = "h",
+        ImbalanceOnly = "i",
+        SingleExecutionRequestedForBlockTrade = "j",
+        BestExecution = "k",
+        SuspendOnSystemFailure = "l",
+        SuspendOnTradingHalt = "m",
+        ReinstateOnConnectionLoss = "n",
+        CancelOnConnectionLoss = "o",
+        SuspendOnConnectionLoss = "p",
+        ReleaseFromSuspension = "q",
+        ExecuteAsDeltaNeutral = "r",
+        ExecuteAsDurationNeutral = "s",
+        ExecuteAsFXNeutral = "t",
+    }
+}
+
+turbojet::fix_enum! {
     /// HandlInst(21).
     HandlInst {
         AutomatedExecutionNoIntervention = "1",
@@ -878,6 +940,155 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// QuoteCondition(276).
+    QuoteCondition {
+        Open = "A",
+        Closed = "B",
+        ExchangeBest = "C",
+        ConsolidatedBest = "D",
+        Locked = "E",
+        Crossed = "F",
+        Depth = "G",
+        FastTrading = "H",
+        NonFirm = "I",
+        Manual = "L",
+        OutrightPrice = "J",
+        ImpliedPrice = "K",
+        DepthOnOffer = "M",
+        DepthOnBid = "N",
+        Closing = "O",
+        NewsDissemination = "P",
+        TradingRange = "Q",
+        OrderInflux = "R",
+        DueToRelated = "S",
+        NewsPending = "T",
+        AdditionalInfo = "U",
+        AdditionalInfoDueToRelated = "V",
+        Resume = "W",
+        ViewOfCommon = "X",
+        VolumeAlert = "Y",
+        OrderImbalance = "Z",
+        EquipmentChangeover = "a",
+        NoOpen = "b",
+        RegularETH = "c",
+        AutomaticExecution = "d",
+        AutomaticExecutionETH = "e",
+        FastMarketETH = "f ",
+        InactiveETH = "g",
+        Rotation = "h",
+        RotationETH = "i",
+        Halt = "j",
+        HaltETH = "k",
+        DueToNewsDissemination = "l",
+        DueToNewsPending = "m",
+        TradingResume = "n",
+        OutOfSequence = "o",
+        BidSpecialist = "p",
+        OfferSpecialist = "q",
+        BidOfferSpecialist = "r",
+        EndOfDaySAM = "s",
+        ForbiddenSAM = "t",
+        FrozenSAM = "u",
+        PreOpeningSAM = "v",
+        OpeningSAM = "w",
+        OpenSAM = "x",
+        SurveillanceSAM = "y",
+        SuspendedSAM = "z",
+        ReservedSAM = "0",
+        NoActiveSAM = "1",
+        Restricted = "2",
+        RestOfBookVWAP = "3",
+        BetterPricesInConditionalOrders = "4",
+        MedianPrice = "5",
+        FullCurve = "6",
+        FlatCurve = "7",
+    }
+}
+
+turbojet::fix_enum! {
+    /// TradeCondition(277).
+    TradeCondition {
+        Cash = "A",
+        AveragePriceTrade = "B",
+        CashTrade = "C",
+        NextDay = "D",
+        Opening = "E",
+        IntradayTradeDetail = "F",
+        Rule127Trade = "G",
+        Rule155Trade = "H",
+        SoldLast = "I",
+        NextDayTrade = "J",
+        Opened = "K",
+        Seller = "L",
+        Sold = "M",
+        StoppedStock = "N",
+        ImbalanceMoreBuyers = "P",
+        ImbalanceMoreSellers = "Q",
+        OpeningPrice = "R",
+        BargainCondition = "S",
+        ConvertedPriceIndicator = "T",
+        ExchangeLast = "U",
+        FinalPriceOfSession = "V",
+        ExPit = "W",
+        Crossed = "X",
+        TradesResultingFromManual = "Y",
+        TradesResultingFromIntermarketSweep = "Z",
+        VolumeOnly = "a",
+        DirectPlus = "b",
+        Acquisition = "c",
+        Bunched = "d",
+        Distribution = "e",
+        BunchedSale = "f",
+        SplitTrade = "g",
+        CancelStopped = "h",
+        CancelETH = "i",
+        CancelStoppedETH = "j",
+        OutOfSequenceETH = "k",
+        CancelLastETH = "l",
+        SoldLastSaleETH = "m",
+        CancelLast = "n",
+        SoldLastSale = "o",
+        CancelOpen = "p",
+        CancelOpenETH = "q",
+        OpenedSaleETH = "r",
+        CancelOnly = "s",
+        CancelOnlyETH = "t",
+        LateOpenETH = "u",
+        AutoExecutionETH = "v",
+        Reopen = "w",
+        ReopenETH = "x",
+        Adjusted = "y",
+        AdjustedETH = "z",
+        Spread = "AA",
+        SpreadETH = "AB",
+        Straddle = "AC",
+        StraddleETH = "AD",
+        Stopped = "AE",
+        StoppedETH = "AF",
+        RegularETH = "AG",
+        Combo = "AH",
+        ComboETH = "AI",
+        OfficialClosingPrice = "AJ",
+        PriorReferencePrice = "AK",
+        Cancel = "0",
+        StoppedSoldLast = "AL",
+        StoppedOutOfSequence = "AM",
+        OfficalClosingPrice = "AN",
+        CrossedOld = "AO",
+        FastMarket = "AP",
+        AutomaticExecution = "AQ",
+        FormT = "AR",
+        BasketIndex = "AS",
+        BurstBasket = "AT",
+        OutsideSpread = "AV",
+        ImpliedTrade = "1",
+        MarketplaceEnteredTrade = "2",
+        MultAssetClassMultilegTrade = "3",
+        MultilegToMultilegTrade = "4",
+    }
+}
+
+turbojet::fix_enum! {
     /// MDUpdateAction(279).
     MDUpdateAction {
         New = "0",
@@ -914,6 +1125,56 @@ turbojet::fix_enum! {
     DeleteReason {
         Cancellation = "0",
         Error = "1",
+    }
+}
+
+turbojet::fix_enum! {
+    /// OpenCloseSettlFlag(286).
+    OpenCloseSettlFlag {
+        DailyOpen = "0",
+        SessionOpen = "1",
+        DeliverySettlementEntry = "2",
+        ExpectedEntry = "3",
+        EntryFromPreviousBusinessDay = "4",
+        TheoreticalPriceValue = "5",
+    }
+}
+
+turbojet::fix_enum! {
+    /// FinancialStatus(291).
+    FinancialStatus {
+        Bankrupt = "1",
+        PendingDelisting = "2",
+        Restricted = "3",
+    }
+}
+
+turbojet::fix_enum! {
+    /// CorporateAction(292).
+    CorporateAction {
+        ExDividend = "A",
+        ExDistribution = "B",
+        ExRights = "C",
+        New = "D",
+        ExInterest = "E",
+        CashDividend = "F",
+        StockDividend = "G",
+        NonIntegerStockSplit = "H",
+        ReverseStockSplit = "I",
+        StandardIntegerStockSplit = "J",
+        PositionConsolidation = "K",
+        LiquidationReorganization = "L",
+        MergerReorganization = "M",
+        RightsOffering = "N",
+        ShareholderMeeting = "O",
+        Spinoff = "P",
+        TenderOffer = "Q",
+        Warrant = "R",
+        SpecialAction = "S",
+        SymbolConversion = "T",
+        CUSIP = "U",
+        LeapRollover = "V",
+        SuccessionEvent = "W",
     }
 }
 
@@ -1994,6 +2255,27 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// OrderRestrictions(529).
+    OrderRestrictions {
+        ProgramTrade = "1",
+        IndexArbitrage = "2",
+        NonIndexArbitrage = "3",
+        CompetingMarketMaker = "4",
+        ActingAsMarketMakerOrSpecialistInSecurity = "5",
+        ActingAsMarketMakerOrSpecialistInUnderlying = "6",
+        ForeignEntity = "7",
+        ExternalMarketParticipant = "8",
+        ExternalInterConnectedMarketLinkage = "9",
+        RisklessArbitrage = "A",
+        IssuerHolding = "B",
+        IssuePriceStabilization = "C",
+        NonAlgorithmic = "D",
+        Algorithmic = "E",
+        Cross = "F",
+    }
+}
+
+turbojet::fix_enum! {
     /// MassCancelRequestType(530).
     MassCancelRequestType {
         CancelOrdersForASecurity = "1",
@@ -2155,6 +2437,15 @@ turbojet::fix_enum! {
         Cash = "1",
         MarginOpen = "2",
         MarginClose = "3",
+    }
+}
+
+turbojet::fix_enum! {
+    /// Scope(546).
+    Scope {
+        LocalMarket = "1",
+        National = "2",
+        Global = "3",
     }
 }
 
@@ -4974,6 +5265,36 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// CustOrderHandlingInst(1031).
+    CustOrderHandlingInst {
+        AddOnOrder = "ADD",
+        AllOrNone = "AON",
+        CashNotHeld = "CNH",
+        DirectedOrder = "DIR",
+        ExchangeForPhysicalTransaction = "E.W",
+        FillOrKill = "FOK",
+        ImbalanceOnly = "IO",
+        ImmediateOrCancel = "IOC",
+        LimitOnOpen = "LOO",
+        LimitOnClose = "LOC",
+        MarketAtOpen = "MAO",
+        MarketAtClose = "MAC",
+        MarketOnOpen = "MOO",
+        MarketOnClose = "MOC",
+        MinimumQuantity = "MQT",
+        NotHeld = "NH",
+        OverTheDay = "OVD",
+        Pegged = "PEG",
+        ReserveSizeOrder = "RSV",
+        StopStockTransaction = "S.W",
+        Scale = "SCL",
+        TimeOrder = "TMO",
+        TrailingStop = "TS",
+        Work = "WRK",
+    }
+}
+
+turbojet::fix_enum! {
     /// OrderHandlingInstSource(1032).
     OrderHandlingInstSource {
         NASDOATS = "1",
@@ -5001,6 +5322,36 @@ turbojet::fix_enum! {
     /// DeskTypeSource(1034).
     DeskTypeSource {
         NASDOATS = "1",
+    }
+}
+
+turbojet::fix_enum! {
+    /// DeskOrderHandlingInst(1035).
+    DeskOrderHandlingInst {
+        AddOnOrder = "ADD",
+        AllOrNone = "AON",
+        CashNotHeld = "CNH",
+        DirectedOrder = "DIR",
+        ExchangeForPhysicalTransaction = "E.W",
+        FillOrKill = "FOK",
+        ImbalanceOnly = "IO",
+        ImmediateOrCancel = "IOC",
+        LimitOnOpen = "LOO",
+        LimitOnClose = "LOC",
+        MarketAtOpen = "MAO",
+        MarketAtClose = "MAC",
+        MarketOnOpen = "MOO",
+        MarketOnClose = "MOC",
+        MinimumQuantity = "MQT",
+        NotHeld = "NH",
+        OverTheDay = "OVD",
+        Pegged = "PEG",
+        ReserveSizeOrder = "RSV",
+        StopStockTransaction = "S.W",
+        Scale = "SCL",
+        TimeOrder = "TMO",
+        TrailingStop = "TS",
+        Work = "WRK",
     }
 }
 
@@ -6465,6 +6816,68 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// ExecInstValue(1308).
+    ExecInstValue {
+        StayOnOfferSide = "0",
+        NotHeld = "1",
+        Work = "2",
+        GoAlong = "3",
+        OverTheDay = "4",
+        Held = "5",
+        ParticipateDoNotInitiate = "6",
+        StrictScale = "7",
+        TryToScale = "8",
+        StayOnBidSide = "9",
+        NoCross = "A",
+        OKToCross = "B",
+        CallFirst = "C",
+        PercentOfVolume = "D",
+        DoNotIncrease = "E",
+        DoNotReduce = "F",
+        AllOrNone = "G",
+        ReinstateOnSystemFailure = "H",
+        InstitutionsOnly = "I",
+        ReinstateOnTradingHalt = "J",
+        CancelOnTradingHalt = "K",
+        LastPeg = "L",
+        MidPricePeg = "M",
+        NonNegotiable = "N",
+        OpeningPeg = "O",
+        MarketPeg = "P",
+        CancelOnSystemFailure = "Q",
+        PrimaryPeg = "R",
+        Suspend = "S",
+        FixedPegToLocalBestBidOrOfferAtTimeOfOrder = "T",
+        CustomerDisplayInstruction = "U",
+        Netting = "V",
+        PegToVWAP = "W",
+        TradeAlong = "X",
+        TryToStop = "Y",
+        CancelIfNotBest = "Z",
+        TrailingStopPeg = "a",
+        StrictLimit = "b",
+        IgnorePriceValidityChecks = "c",
+        PegToLimitPrice = "d",
+        WorkToTargetStrategy = "e",
+        IntermarketSweep = "f",
+        ExternalRoutingAllowed = "g",
+        ExternalRoutingNotAllowed = "h",
+        ImbalanceOnly = "i",
+        SingleExecutionRequestedForBlockTrade = "j",
+        BestExecution = "k",
+        SuspendOnSystemFailure = "l",
+        SuspendOnTradingHalt = "m",
+        ReinstateOnConnectionLoss = "n",
+        CancelOnConnectionLoss = "o",
+        SuspendOnConnectionLoss = "p",
+        ReleaseFromSuspension = "q",
+        ExecuteAsDeltaNeutral = "r",
+        ExecuteAsDurationNeutral = "s",
+        ExecuteAsFXNeutral = "t",
+    }
+}
+
+turbojet::fix_enum! {
     /// DerivativeInstrAttribType(1313).
     DerivativeInstrAttribType {
         Flat = "1",
@@ -6711,6 +7124,68 @@ turbojet::fix_enum! {
         Individual = "3",
         ContractWeightedAveragePrice = "4",
         MultipliedPrice = "5",
+    }
+}
+
+turbojet::fix_enum! {
+    /// LegExecInst(1384).
+    LegExecInst {
+        StayOnOfferSide = "0",
+        NotHeld = "1",
+        Work = "2",
+        GoAlong = "3",
+        OverTheDay = "4",
+        Held = "5",
+        ParticipateDoNotInitiate = "6",
+        StrictScale = "7",
+        TryToScale = "8",
+        StayOnBidSide = "9",
+        NoCross = "A",
+        OKToCross = "B",
+        CallFirst = "C",
+        PercentOfVolume = "D",
+        DoNotIncrease = "E",
+        DoNotReduce = "F",
+        AllOrNone = "G",
+        ReinstateOnSystemFailure = "H",
+        InstitutionsOnly = "I",
+        ReinstateOnTradingHalt = "J",
+        CancelOnTradingHalt = "K",
+        LastPeg = "L",
+        MidPricePeg = "M",
+        NonNegotiable = "N",
+        OpeningPeg = "O",
+        MarketPeg = "P",
+        CancelOnSystemFailure = "Q",
+        PrimaryPeg = "R",
+        Suspend = "S",
+        FixedPegToLocalBestBidOrOfferAtTimeOfOrder = "T",
+        CustomerDisplayInstruction = "U",
+        Netting = "V",
+        PegToVWAP = "W",
+        TradeAlong = "X",
+        TryToStop = "Y",
+        CancelIfNotBest = "Z",
+        TrailingStopPeg = "a",
+        StrictLimit = "b",
+        IgnorePriceValidityChecks = "c",
+        PegToLimitPrice = "d",
+        WorkToTargetStrategy = "e",
+        IntermarketSweep = "f",
+        ExternalRoutingAllowed = "g",
+        ExternalRoutingNotAllowed = "h",
+        ImbalanceOnly = "i",
+        SingleExecutionRequestedForBlockTrade = "j",
+        BestExecution = "k",
+        SuspendOnSystemFailure = "l",
+        SuspendOnTradingHalt = "m",
+        ReinstateOnConnectionLoss = "n",
+        CancelOnConnectionLoss = "o",
+        SuspendOnConnectionLoss = "p",
+        ReleaseFromSuspension = "q",
+        ExecuteAsDeltaNeutral = "r",
+        ExecuteAsDurationNeutral = "s",
+        ExecuteAsFXNeutral = "t",
     }
 }
 

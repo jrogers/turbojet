@@ -29,6 +29,41 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// ExecInst(18).
+    ExecInst {
+        StayOnOfferSide = "0",
+        NotHeld = "1",
+        Work = "2",
+        GoAlong = "3",
+        OverTheDay = "4",
+        Held = "5",
+        ParticipateDoNotInitiate = "6",
+        StrictScale = "7",
+        TryToScale = "8",
+        StayOnBidSide = "9",
+        NoCross = "A",
+        OKToCross = "B",
+        CallFirst = "C",
+        PercentOfVolume = "D",
+        DoNotIncrease = "E",
+        DoNotReduce = "F",
+        AllOrNone = "G",
+        InstitutionsOnly = "I",
+        LastPeg = "L",
+        MidPricePeg = "M",
+        NonNegotiable = "N",
+        OpeningPeg = "O",
+        MarketPeg = "P",
+        PrimaryPeg = "R",
+        Suspend = "S",
+        FixedPegToLocalBestBidOrOfferAtTimeOfOrder = "T",
+        CustomerDisplayInstruction = "U",
+        Netting = "V",
+        PegToVWAP = "W",
+    }
+}
+
+turbojet::fix_enum! {
     /// ExecTransType(20).
     ExecTransType {
         New = "0",
@@ -599,6 +634,41 @@ turbojet::fix_enum! {
         ZeroPlusTick = "1",
         MinusTick = "2",
         ZeroMinusTick = "3",
+    }
+}
+
+turbojet::fix_enum! {
+    /// QuoteCondition(276).
+    QuoteCondition {
+        Open = "A",
+        Closed = "B",
+        ExchangeBest = "C",
+        ConsolidatedBest = "D",
+        Locked = "E",
+        Crossed = "F",
+        Depth = "G",
+        FastTrading = "H",
+        NonFirm = "I",
+    }
+}
+
+turbojet::fix_enum! {
+    /// TradeCondition(277).
+    TradeCondition {
+        Cash = "A",
+        AveragePriceTrade = "B",
+        CashTrade = "C",
+        NextDay = "D",
+        Opening = "E",
+        IntradayTradeDetail = "F",
+        Rule127Trade = "G",
+        Rule155Trade = "H",
+        SoldLast = "I",
+        NextDayTrade = "J",
+        Opened = "K",
+        Seller = "L",
+        Sold = "M",
+        StoppedStock = "N",
     }
 }
 

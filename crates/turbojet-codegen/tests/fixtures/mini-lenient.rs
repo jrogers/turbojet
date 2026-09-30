@@ -7,6 +7,8 @@ pub const BEGIN_STRING: u32 = 8;
 pub const CHECK_SUM: u32 = 10;
 /// ClOrdID(11).
 pub const CL_ORD_ID: u32 = 11;
+/// ExecInst(18).
+pub const EXEC_INST: u32 = 18;
 /// LastQty(32).
 pub const LAST_QTY: u32 = 32;
 /// MsgType(35).
@@ -21,6 +23,8 @@ pub const TEXT: u32 = 58;
 pub const TRANSACT_TIME: u32 = 60;
 /// AllocID(70).
 pub const ALLOC_ID: u32 = 70;
+/// TradeDate(75).
+pub const TRADE_DATE: u32 = 75;
 /// NoAllocs(78).
 pub const NO_ALLOCS: u32 = 78;
 /// AllocAccount(79).
@@ -29,8 +33,12 @@ pub const ALLOC_ACCOUNT: u32 = 79;
 pub const ALLOC_QTY: u32 = 80;
 /// TestReqID(112).
 pub const TEST_REQ_ID: u32 = 112;
+/// MaturityMonthYear(200).
+pub const MATURITY_MONTH_YEAR: u32 = 200;
 /// Yield(236).
 pub const YIELD: u32 = 236;
+/// MDEntryTime(273).
+pub const MD_ENTRY_TIME: u32 = 273;
 /// PartyID(448).
 pub const PARTY_ID: u32 = 448;
 /// PartyRole(452).
@@ -43,6 +51,14 @@ pub const NO_SIDES: u32 = 552;
 pub const TRADE_REPORT_ID: u32 = 571;
 /// OddLot(575).
 pub const ODD_LOT: u32 = 575;
+/// TZTransactTime(1132).
+pub const TZ_TRANSACT_TIME: u32 = 1132;
+/// SessionOpen(5100).
+pub const SESSION_OPEN: u32 = 5100;
+/// VenueFlag(5101).
+pub const VENUE_FLAG: u32 = 5101;
+/// Labels(5102).
+pub const LABELS: u32 = 5102;
 }
 
 pub mod enums {
@@ -53,6 +69,14 @@ turbojet::fix_enum! {
     Side {
         Buy = "1",
         Sell = "2",
+    }
+}
+
+turbojet::fix_enum! {
+    /// ExecInst(18).
+    ExecInst {
+        NotHeld = "1",
+        AllOrNone = "G",
     }
 }
 
@@ -155,7 +179,7 @@ pub mod messages {
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{Code, Decimal, UtcTimestamp};
+use turbojet::fields::{Code, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
@@ -222,6 +246,36 @@ impl TradeReport {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(trade_report_id: impl Into<String>, sides: Vec<SideEntry>, last_qty: Decimal) -> Self {
         Self { trade_report_id: trade_report_id.into(), sides, r#yield: None, last_qty }
+    }
+}
+
+turbojet::fix_message! {
+    /// Schedule(U7).
+    Schedule = "U7" {
+        /// ExecInst(18).
+        exec_inst: req Vec<Code<ExecInst>> = EXEC_INST,
+        /// TradeDate(75).
+        trade_date: opt NaiveDate = TRADE_DATE,
+        /// MaturityMonthYear(200).
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
+        /// MDEntryTime(273).
+        md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
+        /// TZTransactTime(1132).
+        tz_transact_time: opt TzTimestamp = TZ_TRANSACT_TIME,
+        /// SessionOpen(5100).
+        session_open: opt TzTimeOnly = SESSION_OPEN,
+        /// VenueFlag(5101).
+        venue_flag: opt char = VENUE_FLAG,
+        /// Labels(5102).
+        labels: opt Vec<String> = LABELS,
+    }
+}
+
+impl Schedule {
+    /// With the required fields and groups; optional ones empty.
+    #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+    pub fn new(exec_inst: Vec<Code<ExecInst>>) -> Self {
+        Self { exec_inst, trade_date: None, maturity_month_year: None, md_entry_time: None, tz_transact_time: None, session_open: None, venue_flag: None, labels: None }
     }
 }
 }

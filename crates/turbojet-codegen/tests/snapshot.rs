@@ -77,6 +77,34 @@ fn snapshot_compiles_and_round_trips() {
 }
 
 #[test]
+fn dates_times_and_lists_are_typed() {
+    use mini::*;
+    use turbojet::fields::{FromFix, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly};
+    use turbojet::message::FixMessage;
+
+    let mut schedule = Schedule::new(vec![ExecInst::NotHeld, ExecInst::AllOrNone]);
+    schedule.trade_date = Some(NaiveDate::from_fix("20260930").unwrap());
+    schedule.maturity_month_year = Some(MonthYear::from_fix("202612w3").unwrap());
+    schedule.md_entry_time = Some(UtcTimeOnly::from_fix("09:30:00.123456").unwrap());
+    schedule.tz_transact_time = Some(TzTimestamp::from_fix("20260930-09:30:00-05").unwrap());
+    schedule.session_open = Some(TzTimeOnly::from_fix("09:30-05").unwrap());
+    schedule.venue_flag = Some('Q');
+    schedule.labels = Some(vec!["a".into(), "b".into()]);
+    let msg = schedule.to_message();
+    assert_eq!(
+        msg.to_string(),
+        "35=U7|18=1 G|75=20260930|200=202612w3|273=09:30:00.123456|1132=20260930-09:30:00-05|5100=09:30-05|5101=Q|5102=a b|"
+    );
+    assert_eq!(msg.parse::<Schedule>().unwrap(), schedule);
+
+    // Lenient, a list keeps codes the enum doesn't know.
+    let odd = turbojet::Message::from_fields([(35, "U7"), (18, "1 Z")]);
+    assert!(odd.parse::<Schedule>().is_err());
+    let lenient = odd.parse::<mini_lenient::Schedule>().unwrap();
+    assert_eq!(lenient.exec_inst[1], turbojet::fields::Code::Unknown("Z".into()));
+}
+
+#[test]
 fn lenient_snapshot_keeps_unknown_codes() {
     use turbojet::fields::{Code, FromFix, UtcTimestamp};
     use turbojet::message::FixMessage;

@@ -247,8 +247,12 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
                         .map(|before| naming::constant(members[before].name()));
                     let ty = match enum_types.get(name.as_str()) {
                         _ if length.is_some() => "Vec<u8>".to_string(),
-                        Some(ty) if lenient_all || lenient.contains(name) => format!("Code<{ty}>"),
-                        Some(ty) => ty.clone(),
+                        Some(ty) => {
+                            let ty =
+                                if lenient_all || lenient.contains(name) { format!("Code<{ty}>") } else { ty.clone() };
+                            // A multi-value field holds a list of codes.
+                            if is_multiple(&field.ty) { format!("Vec<{ty}>") } else { ty }
+                        }
                         // Passwords print as *** so they can't leak into logs.
                         None if matches!(field.tag, 554 | 925) => "Secret".to_string(),
                         None => rust_type(&field.ty).to_string(),
@@ -422,16 +426,15 @@ fn group_names<'a>(
     Ok(names)
 }
 
-/// Fields with values become enums, except booleans and multi-value fields (a list of codes).
+/// Fields with values become enums, except booleans. A multi-value field's enum is of the codes
+/// in its list.
 fn is_enum(field: &Field) -> bool {
-    !field.values.is_empty()
-        && !matches!(
-            field.ty,
-            FieldType::Boolean
-                | FieldType::MultipleCharValue
-                | FieldType::MultipleStringValue
-                | FieldType::MultipleValueString
-        )
+    !field.values.is_empty() && field.ty != FieldType::Boolean
+}
+
+/// Whether a field holds a list of values separated by spaces.
+fn is_multiple(ty: &FieldType) -> bool {
+    matches!(ty, FieldType::MultipleCharValue | FieldType::MultipleStringValue | FieldType::MultipleValueString)
 }
 
 /// `Name(tag).`, then whether the standard deprecates the field, then (with `docs`) its
@@ -485,8 +488,7 @@ fn enum_def(field: &Field, docs: bool) -> Result<EnumDef, Error> {
     Ok(EnumDef { name: field.name.clone(), doc: field_doc(field, docs), variants })
 }
 
-/// The Rust type for a non-enum field that isn't a data field (those are `Vec<u8>`). Dates and
-/// times stay `String` until core has types for them.
+/// The Rust type for a non-enum field that isn't a data field (those are `Vec<u8>`).
 fn rust_type(ty: &FieldType) -> &'static str {
     match ty {
         FieldType::Int
@@ -502,7 +504,14 @@ fn rust_type(ty: &FieldType) -> &'static str {
         | FieldType::Amt
         | FieldType::Percentage => "Decimal",
         FieldType::UtcTimestamp => "UtcTimestamp",
+        FieldType::UtcTimeOnly => "UtcTimeOnly",
+        FieldType::UtcDateOnly | FieldType::UtcDate | FieldType::LocalMktDate => "NaiveDate",
+        FieldType::MonthYear => "MonthYear",
+        FieldType::TzTimeOnly => "TzTimeOnly",
+        FieldType::TzTimestamp => "TzTimestamp",
         FieldType::Boolean => "bool",
+        FieldType::Char => "char",
+        FieldType::MultipleCharValue | FieldType::MultipleStringValue | FieldType::MultipleValueString => "Vec<String>",
         _ => "String",
     }
 }
@@ -569,7 +578,7 @@ mod tests {
         let one = lenient(false, &["PartyRole".to_string()]).unwrap();
         assert_eq!((side(&one), role(&one)), ("Side".to_string(), "Code<PartyRole>".to_string()));
         // The enums themselves are the same either way.
-        assert_eq!(one.enums.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Side", "PartyRole"]);
+        assert_eq!(one.enums.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Side", "ExecInst", "PartyRole"]);
 
         let err = lenient(false, &["Text".to_string()]).map(|_| ()).unwrap_err();
         assert_eq!(
@@ -590,7 +599,7 @@ mod tests {
     #[test]
     fn skips_admin_and_listed_messages() {
         let names: Vec<_> = plan().messages.iter().map(|m| m.def.name.clone()).collect();
-        assert_eq!(names, ["NewOrderSingle", "AllocationInstruction", "TradeReport"]);
+        assert_eq!(names, ["NewOrderSingle", "AllocationInstruction", "TradeReport", "Schedule"]);
     }
 
     #[test]
@@ -669,16 +678,20 @@ mod tests {
     fn enums_only_for_fields_messages_use() {
         let plan = plan();
         let names: Vec<_> = plan.enums.iter().map(|e| e.name.as_str()).collect();
-        assert_eq!(names, ["Side", "PartyRole"], "not MsgType (header only) or OddLot (BOOLEAN)");
-        assert_eq!(plan.enums[1].doc, "PartyRole(452).");
-        assert_eq!(variants(&plan.enums[1]), [("ExecutingFirm", "1"), ("ClientId", "3")]);
-        assert!(plan.enums[1].variants.iter().all(|v| v.doc.is_none()));
+        assert_eq!(
+            names,
+            ["Side", "ExecInst", "PartyRole"],
+            "not MsgType (header only) or OddLot (BOOLEAN); ExecInst is a list of its codes"
+        );
+        assert_eq!(plan.enums[2].doc, "PartyRole(452).");
+        assert_eq!(variants(&plan.enums[2]), [("ExecutingFirm", "1"), ("ClientId", "3")]);
+        assert!(plan.enums[2].variants.iter().all(|v| v.doc.is_none()));
     }
 
     #[test]
     fn tags_cover_every_field_in_tag_order() {
         let plan = plan();
-        assert_eq!(plan.tags.len(), 21);
+        assert_eq!(plan.tags.len(), 29);
         assert_eq!(plan.tags[0], ("BEGIN_STRING".to_string(), "BeginString".to_string(), 8));
         assert!(plan.tags.windows(2).all(|w| w[0].2 < w[1].2));
     }
@@ -857,7 +870,7 @@ mod tests {
         assert_eq!(variant_docs, [Some("Buy \\[or cover\\]."), None]);
         // QuickFIX descriptions aren't docs.
         let quickfix: Vec<_> = self::plan().enums.iter().map(|e| e.doc.clone()).collect();
-        assert_eq!(quickfix, ["Side(54).", "PartyRole(452)."]);
+        assert_eq!(quickfix, ["Side(54).", "ExecInst(18).", "PartyRole(452)."]);
 
         // Without docs, only our own lines are left.
         let plan = build(&dict, &[], false).unwrap();

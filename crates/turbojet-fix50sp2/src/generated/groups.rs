@@ -2,7 +2,7 @@
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::{Decimal, UtcTimestamp};
+use turbojet::fields::{Decimal, MonthYear, NaiveDate, TzTimeOnly, UtcTimeOnly, UtcTimestamp};
 
 turbojet::fix_group! {
     /// An entry of NoSecurityAltID(454).
@@ -28,7 +28,7 @@ turbojet::fix_group! {
         /// EventType(865).
         event_type: req EventType = EVENT_TYPE,
         /// EventDate(866).
-        event_date: opt String = EVENT_DATE,
+        event_date: opt NaiveDate = EVENT_DATE,
         /// EventTime(1145).
         event_time: opt UtcTimestamp = EVENT_TIME,
         /// EventPx(867).
@@ -154,17 +154,17 @@ turbojet::fix_group! {
     /// An entry of NoComplexEventTimes(1494).
     ComplexEventTimes {
         /// ComplexEventStartTime(1495).
-        complex_event_start_time: req String = COMPLEX_EVENT_START_TIME,
+        complex_event_start_time: req UtcTimeOnly = COMPLEX_EVENT_START_TIME,
         /// ComplexEventEndTime(1496).
-        complex_event_end_time: opt String = COMPLEX_EVENT_END_TIME,
+        complex_event_end_time: opt UtcTimeOnly = COMPLEX_EVENT_END_TIME,
     }
 }
 
 impl ComplexEventTimes {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(complex_event_start_time: impl Into<String>) -> Self {
-        Self { complex_event_start_time: complex_event_start_time.into(), complex_event_end_time: None }
+    pub fn new(complex_event_start_time: UtcTimeOnly) -> Self {
+        Self { complex_event_start_time, complex_event_end_time: None }
     }
 }
 
@@ -230,13 +230,13 @@ turbojet::fix_group! {
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt String = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
-        underlying_maturity_month_year: opt String = UNDERLYING_MATURITY_MONTH_YEAR,
+        underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
         /// UnderlyingMaturityDate(542).
-        underlying_maturity_date: opt String = UNDERLYING_MATURITY_DATE,
+        underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
         /// UnderlyingMaturityTime(1213).
-        underlying_maturity_time: opt String = UNDERLYING_MATURITY_TIME,
+        underlying_maturity_time: opt TzTimeOnly = UNDERLYING_MATURITY_TIME,
         /// UnderlyingCouponPaymentDate(241).
-        underlying_coupon_payment_date: opt String = UNDERLYING_COUPON_PAYMENT_DATE,
+        underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
         underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
@@ -250,7 +250,7 @@ turbojet::fix_group! {
         /// UnderlyingDetachmentPoint(1460).
         underlying_detachment_point: opt Decimal = UNDERLYING_DETACHMENT_POINT,
         /// UnderlyingIssueDate(242).
-        underlying_issue_date: opt String = UNDERLYING_ISSUE_DATE,
+        underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
         /// UnderlyingRepoCollateralSecurityType(243).
         ///
         /// Deprecated in the FIX standard.
@@ -278,13 +278,13 @@ turbojet::fix_group! {
         /// UnderlyingRedemptionDate(247).
         ///
         /// Deprecated in the FIX standard.
-        underlying_redemption_date: opt String = UNDERLYING_REDEMPTION_DATE,
+        underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
         /// UnderlyingStrikePrice(316).
         underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
         /// UnderlyingStrikeCurrency(941).
         underlying_strike_currency: opt String = UNDERLYING_STRIKE_CURRENCY,
         /// UnderlyingOptAttribute(317).
-        underlying_opt_attribute: opt String = UNDERLYING_OPT_ATTRIBUTE,
+        underlying_opt_attribute: opt char = UNDERLYING_OPT_ATTRIBUTE,
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
@@ -565,15 +565,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -601,13 +601,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -647,11 +647,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -820,15 +820,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -856,13 +856,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -902,11 +902,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -1246,15 +1246,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -1282,13 +1282,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -1328,11 +1328,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -1364,7 +1364,7 @@ turbojet::fix_group! {
         /// LegSettlType(587).
         leg_settl_type: opt LegSettlType = LEG_SETTL_TYPE,
         /// LegSettlDate(588).
-        leg_settl_date: opt String = LEG_SETTL_DATE,
+        leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
         /// LegLastPx(637).
         leg_last_px: opt Decimal = LEG_LAST_PX,
         /// LegSettlCurrency(675).
@@ -1382,7 +1382,7 @@ turbojet::fix_group! {
         /// LegCurrencyRatio(1383).
         leg_currency_ratio: opt Decimal = LEG_CURRENCY_RATIO,
         /// LegExecInst(1384).
-        leg_exec_inst: opt String = LEG_EXEC_INST,
+        leg_exec_inst: opt Vec<LegExecInst> = LEG_EXEC_INST,
         /// LegLastQty(1418).
         leg_last_qty: opt Decimal = LEG_LAST_QTY,
     }
@@ -1630,7 +1630,7 @@ turbojet::fix_group! {
         /// DeskTypeSource(1034).
         desk_type_source: opt DeskTypeSource = DESK_TYPE_SOURCE,
         /// DeskOrderHandlingInst(1035).
-        desk_order_handling_inst: opt String = DESK_ORDER_HANDLING_INST,
+        desk_order_handling_inst: opt Vec<DeskOrderHandlingInst> = DESK_ORDER_HANDLING_INST,
     }
 }
 
@@ -1693,11 +1693,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -1705,7 +1705,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -1719,7 +1719,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -1747,7 +1747,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -1765,7 +1765,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -1833,7 +1833,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -1841,9 +1841,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -2042,9 +2042,9 @@ turbojet::fix_group! {
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// TradeOriginationDate(229).
-        trade_origination_date: opt String = TRADE_ORIGINATION_DATE,
+        trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// Account(1).
         account: opt String = ACCOUNT,
         /// AcctIDSource(660).
@@ -2064,7 +2064,7 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// CashMargin(544).
         cash_margin: opt CashMargin = CASH_MARGIN,
         /// ClearingFeeIndicator(635).
@@ -2072,7 +2072,7 @@ turbojet::fix_group! {
         /// HandlInst(21).
         handl_inst: opt HandlInst = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -2130,11 +2130,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -2142,7 +2142,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -2156,7 +2156,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -2184,7 +2184,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -2202,7 +2202,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -2270,7 +2270,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -2278,9 +2278,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -2372,9 +2372,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -2398,7 +2398,7 @@ turbojet::fix_group! {
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
-        expire_date: opt String = EXPIRE_DATE,
+        expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
@@ -2414,7 +2414,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: opt OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
@@ -2432,7 +2432,7 @@ turbojet::fix_group! {
         /// SettlDate2(193).
         ///
         /// Deprecated in the FIX standard.
-        settl_date2: opt String = SETTL_DATE2,
+        settl_date2: opt NaiveDate = SETTL_DATE2,
         /// OrderQty2(192).
         ///
         /// Deprecated in the FIX standard.
@@ -3208,11 +3208,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -3220,7 +3220,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -3234,7 +3234,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -3262,7 +3262,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -3280,7 +3280,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -3348,7 +3348,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -3356,9 +3356,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -3368,15 +3368,15 @@ turbojet::fix_group! {
         /// AgreementID(914).
         agreement_id: opt String = AGREEMENT_ID,
         /// AgreementDate(915).
-        agreement_date: opt String = AGREEMENT_DATE,
+        agreement_date: opt NaiveDate = AGREEMENT_DATE,
         /// AgreementCurrency(918).
         agreement_currency: opt String = AGREEMENT_CURRENCY,
         /// TerminationType(788).
         termination_type: opt TerminationType = TERMINATION_TYPE,
         /// StartDate(916).
-        start_date: opt String = START_DATE,
+        start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
-        end_date: opt String = END_DATE,
+        end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
         delivery_type: opt DeliveryType = DELIVERY_TYPE,
         /// MarginRatio(898).
@@ -3394,7 +3394,7 @@ turbojet::fix_group! {
         /// TradingSessionSubID(625).
         trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
         /// TradeOriginationDate(229).
-        trade_origination_date: opt String = TRADE_ORIGINATION_DATE,
+        trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// Side(54).
         side: opt Side = SIDE,
         /// QtyType(854).
@@ -3414,11 +3414,11 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// SettlDate2(193).
         ///
         /// Deprecated in the FIX standard.
-        settl_date2: opt String = SETTL_DATE2,
+        settl_date2: opt NaiveDate = SETTL_DATE2,
         /// OrderQty2(192).
         ///
         /// Deprecated in the FIX standard.
@@ -3480,9 +3480,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -3668,15 +3668,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -3704,13 +3704,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -3750,11 +3750,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -3772,7 +3772,7 @@ turbojet::fix_group! {
         /// LegSettlType(587).
         leg_settl_type: opt LegSettlType = LEG_SETTL_TYPE,
         /// LegSettlDate(588).
-        leg_settl_date: opt String = LEG_SETTL_DATE,
+        leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
         /// NoLegStipulations(683).
         leg_stipulations: group LegStipulations = NO_LEG_STIPULATIONS,
         /// NoNestedPartyIDs(539).
@@ -3904,15 +3904,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -3940,13 +3940,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -3986,11 +3986,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -4008,7 +4008,7 @@ turbojet::fix_group! {
         /// LegSettlType(587).
         leg_settl_type: opt LegSettlType = LEG_SETTL_TYPE,
         /// LegSettlDate(588).
-        leg_settl_date: opt String = LEG_SETTL_DATE,
+        leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
         /// NoLegStipulations(683).
         leg_stipulations: group LegStipulations = NO_LEG_STIPULATIONS,
         /// NoNestedPartyIDs(539).
@@ -4163,13 +4163,13 @@ turbojet::fix_group! {
         /// CardNumber(489).
         card_number: opt String = CARD_NUMBER,
         /// CardStartDate(503).
-        card_start_date: opt String = CARD_START_DATE,
+        card_start_date: opt NaiveDate = CARD_START_DATE,
         /// CardExpDate(490).
-        card_exp_date: opt String = CARD_EXP_DATE,
+        card_exp_date: opt NaiveDate = CARD_EXP_DATE,
         /// CardIssNum(491).
         card_iss_num: opt String = CARD_ISS_NUM,
         /// PaymentDate(504).
-        payment_date: opt String = PAYMENT_DATE,
+        payment_date: opt NaiveDate = PAYMENT_DATE,
         /// PaymentRemitterID(505).
         payment_remitter_id: opt String = PAYMENT_REMITTER_ID,
     }
@@ -4252,11 +4252,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -4264,7 +4264,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -4278,7 +4278,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -4306,7 +4306,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -4324,7 +4324,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -4392,7 +4392,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -4400,9 +4400,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -4418,7 +4418,7 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// MDEntrySize(271).
         md_entry_size: opt Decimal = MD_ENTRY_SIZE,
         /// MDStreamID(1500).
@@ -4544,9 +4544,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -4582,9 +4582,9 @@ turbojet::fix_group! {
         /// LotType(1093).
         lot_type: opt LotType = LOT_TYPE,
         /// MDEntryDate(272).
-        md_entry_date: opt String = MD_ENTRY_DATE,
+        md_entry_date: opt NaiveDate = MD_ENTRY_DATE,
         /// MDEntryTime(273).
-        md_entry_time: opt String = MD_ENTRY_TIME,
+        md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
         /// TickDirection(274).
         tick_direction: opt TickDirection = TICK_DIRECTION,
         /// MDMkt(275).
@@ -4600,9 +4600,9 @@ turbojet::fix_group! {
         /// HaltReason(327).
         halt_reason: opt HaltReason = HALT_REASON,
         /// QuoteCondition(276).
-        quote_condition: opt String = QUOTE_CONDITION,
+        quote_condition: opt Vec<QuoteCondition> = QUOTE_CONDITION,
         /// TradeCondition(277).
-        trade_condition: opt String = TRADE_CONDITION,
+        trade_condition: opt Vec<TradeCondition> = TRADE_CONDITION,
         /// MDEntryOriginator(282).
         ///
         /// Deprecated in the FIX standard.
@@ -4612,17 +4612,17 @@ turbojet::fix_group! {
         /// DeskID(284).
         desk_id: opt String = DESK_ID,
         /// OpenCloseSettlFlag(286).
-        open_close_settl_flag: opt String = OPEN_CLOSE_SETTL_FLAG,
+        open_close_settl_flag: opt Vec<OpenCloseSettlFlag> = OPEN_CLOSE_SETTL_FLAG,
         /// TimeInForce(59).
         time_in_force: opt TimeInForce = TIME_IN_FORCE,
         /// ExpireDate(432).
-        expire_date: opt String = EXPIRE_DATE,
+        expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// SellerDays(287).
         seller_days: opt i64 = SELLER_DAYS,
         /// OrderID(37).
@@ -4640,7 +4640,7 @@ turbojet::fix_group! {
         /// MDEntryPositionNo(290).
         md_entry_position_no: opt i64 = MD_ENTRY_POSITION_NO,
         /// Scope(546).
-        scope: opt String = SCOPE,
+        scope: opt Vec<Scope> = SCOPE,
         /// PriceDelta(811).
         price_delta: opt Decimal = PRICE_DELTA,
         /// TrdType(828).
@@ -4668,7 +4668,7 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// MDQuoteType(1070).
         md_quote_type: opt MDQuoteType = MD_QUOTE_TYPE,
         /// RptSeq(83).
@@ -4826,11 +4826,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -4838,7 +4838,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -4852,7 +4852,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -4880,7 +4880,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -4898,7 +4898,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -4966,7 +4966,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -4974,9 +4974,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -4986,9 +4986,9 @@ turbojet::fix_group! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// FinancialStatus(291).
-        financial_status: opt String = FINANCIAL_STATUS,
+        financial_status: opt Vec<FinancialStatus> = FINANCIAL_STATUS,
         /// CorporateAction(292).
-        corporate_action: opt String = CORPORATE_ACTION,
+        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
         /// MDEntryPx(270).
         md_entry_px: opt Decimal = MD_ENTRY_PX,
         /// PriceType(423).
@@ -4998,9 +4998,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -5036,9 +5036,9 @@ turbojet::fix_group! {
         /// LotType(1093).
         lot_type: opt LotType = LOT_TYPE,
         /// MDEntryDate(272).
-        md_entry_date: opt String = MD_ENTRY_DATE,
+        md_entry_date: opt NaiveDate = MD_ENTRY_DATE,
         /// MDEntryTime(273).
-        md_entry_time: opt String = MD_ENTRY_TIME,
+        md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
         /// TickDirection(274).
         tick_direction: opt TickDirection = TICK_DIRECTION,
         /// MDMkt(275).
@@ -5054,9 +5054,9 @@ turbojet::fix_group! {
         /// HaltReason(327).
         halt_reason: opt HaltReason = HALT_REASON,
         /// QuoteCondition(276).
-        quote_condition: opt String = QUOTE_CONDITION,
+        quote_condition: opt Vec<QuoteCondition> = QUOTE_CONDITION,
         /// TradeCondition(277).
-        trade_condition: opt String = TRADE_CONDITION,
+        trade_condition: opt Vec<TradeCondition> = TRADE_CONDITION,
         /// TrdType(828).
         trd_type: opt TrdType = TRD_TYPE,
         /// MatchType(574).
@@ -5070,17 +5070,17 @@ turbojet::fix_group! {
         /// DeskID(284).
         desk_id: opt String = DESK_ID,
         /// OpenCloseSettlFlag(286).
-        open_close_settl_flag: opt String = OPEN_CLOSE_SETTL_FLAG,
+        open_close_settl_flag: opt Vec<OpenCloseSettlFlag> = OPEN_CLOSE_SETTL_FLAG,
         /// TimeInForce(59).
         time_in_force: opt TimeInForce = TIME_IN_FORCE,
         /// ExpireDate(432).
-        expire_date: opt String = EXPIRE_DATE,
+        expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// SellerDays(287).
         seller_days: opt i64 = SELLER_DAYS,
         /// OrderID(37).
@@ -5100,7 +5100,7 @@ turbojet::fix_group! {
         /// MDEntryPositionNo(290).
         md_entry_position_no: opt i64 = MD_ENTRY_POSITION_NO,
         /// Scope(546).
-        scope: opt String = SCOPE,
+        scope: opt Vec<Scope> = SCOPE,
         /// PriceDelta(811).
         price_delta: opt Decimal = PRICE_DELTA,
         /// NetChgPrevDay(451).
@@ -5128,7 +5128,7 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// TransBkdTime(483).
         trans_bkd_time: opt UtcTimestamp = TRANS_BKD_TIME,
         /// TransactTime(60).
@@ -5411,11 +5411,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -5423,7 +5423,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -5437,7 +5437,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -5465,7 +5465,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -5483,7 +5483,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -5551,7 +5551,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -5559,9 +5559,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -5571,15 +5571,15 @@ turbojet::fix_group! {
         /// AgreementID(914).
         agreement_id: opt String = AGREEMENT_ID,
         /// AgreementDate(915).
-        agreement_date: opt String = AGREEMENT_DATE,
+        agreement_date: opt NaiveDate = AGREEMENT_DATE,
         /// AgreementCurrency(918).
         agreement_currency: opt String = AGREEMENT_CURRENCY,
         /// TerminationType(788).
         termination_type: opt TerminationType = TERMINATION_TYPE,
         /// StartDate(916).
-        start_date: opt String = START_DATE,
+        start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
-        end_date: opt String = END_DATE,
+        end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
         delivery_type: opt DeliveryType = DELIVERY_TYPE,
         /// MarginRatio(898).
@@ -5720,13 +5720,13 @@ turbojet::fix_group! {
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt String = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
-        underlying_maturity_month_year: opt String = UNDERLYING_MATURITY_MONTH_YEAR,
+        underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
         /// UnderlyingMaturityDate(542).
-        underlying_maturity_date: opt String = UNDERLYING_MATURITY_DATE,
+        underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
         /// UnderlyingMaturityTime(1213).
-        underlying_maturity_time: opt String = UNDERLYING_MATURITY_TIME,
+        underlying_maturity_time: opt TzTimeOnly = UNDERLYING_MATURITY_TIME,
         /// UnderlyingCouponPaymentDate(241).
-        underlying_coupon_payment_date: opt String = UNDERLYING_COUPON_PAYMENT_DATE,
+        underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
         underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
@@ -5740,7 +5740,7 @@ turbojet::fix_group! {
         /// UnderlyingDetachmentPoint(1460).
         underlying_detachment_point: opt Decimal = UNDERLYING_DETACHMENT_POINT,
         /// UnderlyingIssueDate(242).
-        underlying_issue_date: opt String = UNDERLYING_ISSUE_DATE,
+        underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
         /// UnderlyingRepoCollateralSecurityType(243).
         ///
         /// Deprecated in the FIX standard.
@@ -5768,13 +5768,13 @@ turbojet::fix_group! {
         /// UnderlyingRedemptionDate(247).
         ///
         /// Deprecated in the FIX standard.
-        underlying_redemption_date: opt String = UNDERLYING_REDEMPTION_DATE,
+        underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
         /// UnderlyingStrikePrice(316).
         underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
         /// UnderlyingStrikeCurrency(941).
         underlying_strike_currency: opt String = UNDERLYING_STRIKE_CURRENCY,
         /// UnderlyingOptAttribute(317).
-        underlying_opt_attribute: opt String = UNDERLYING_OPT_ATTRIBUTE,
+        underlying_opt_attribute: opt char = UNDERLYING_OPT_ATTRIBUTE,
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
@@ -5981,11 +5981,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -5993,7 +5993,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -6007,7 +6007,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -6035,7 +6035,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -6053,7 +6053,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -6121,7 +6121,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -6129,9 +6129,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -6171,13 +6171,13 @@ turbojet::fix_group! {
         /// TradingSessionSubID(625).
         trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// OrdType(40).
         ord_type: opt OrdType = ORD_TYPE,
         /// SettlDate2(193).
         ///
         /// Deprecated in the FIX standard.
-        settl_date2: opt String = SETTL_DATE2,
+        settl_date2: opt NaiveDate = SETTL_DATE2,
         /// OrderQty2(192).
         ///
         /// Deprecated in the FIX standard.
@@ -6197,7 +6197,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: opt OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
         /// QuoteEntryStatus(1167).
         quote_entry_status: opt QuoteEntryStatus = QUOTE_ENTRY_STATUS,
         /// QuoteEntryRejectReason(368).
@@ -6519,15 +6519,15 @@ turbojet::fix_group! {
     /// An entry of NoExecInstRules(1232).
     ExecInstRules {
         /// ExecInstValue(1308).
-        exec_inst_value: req String = EXEC_INST_VALUE,
+        exec_inst_value: req Vec<ExecInstValue> = EXEC_INST_VALUE,
     }
 }
 
 impl ExecInstRules {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(exec_inst_value: impl Into<String>) -> Self {
-        Self { exec_inst_value: exec_inst_value.into() }
+    pub fn new(exec_inst_value: Vec<ExecInstValue>) -> Self {
+        Self { exec_inst_value }
     }
 }
 
@@ -6630,9 +6630,9 @@ turbojet::fix_group! {
         /// MaturityMonthYearIncrementUnits(1302).
         maturity_month_year_increment_units: opt MaturityMonthYearIncrementUnits = MATURITY_MONTH_YEAR_INCREMENT_UNITS,
         /// StartMaturityMonthYear(1241).
-        start_maturity_month_year: opt String = START_MATURITY_MONTH_YEAR,
+        start_maturity_month_year: opt MonthYear = START_MATURITY_MONTH_YEAR,
         /// EndMaturityMonthYear(1226).
-        end_maturity_month_year: opt String = END_MATURITY_MONTH_YEAR,
+        end_maturity_month_year: opt MonthYear = END_MATURITY_MONTH_YEAR,
         /// MaturityMonthYearIncrement(1229).
         maturity_month_year_increment: opt i64 = MATURITY_MONTH_YEAR_INCREMENT,
     }
@@ -6677,13 +6677,13 @@ turbojet::fix_group! {
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt String = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
-        underlying_maturity_month_year: opt String = UNDERLYING_MATURITY_MONTH_YEAR,
+        underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
         /// UnderlyingMaturityDate(542).
-        underlying_maturity_date: opt String = UNDERLYING_MATURITY_DATE,
+        underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
         /// UnderlyingMaturityTime(1213).
-        underlying_maturity_time: opt String = UNDERLYING_MATURITY_TIME,
+        underlying_maturity_time: opt TzTimeOnly = UNDERLYING_MATURITY_TIME,
         /// UnderlyingCouponPaymentDate(241).
-        underlying_coupon_payment_date: opt String = UNDERLYING_COUPON_PAYMENT_DATE,
+        underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
         underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
@@ -6697,7 +6697,7 @@ turbojet::fix_group! {
         /// UnderlyingDetachmentPoint(1460).
         underlying_detachment_point: opt Decimal = UNDERLYING_DETACHMENT_POINT,
         /// UnderlyingIssueDate(242).
-        underlying_issue_date: opt String = UNDERLYING_ISSUE_DATE,
+        underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
         /// UnderlyingRepoCollateralSecurityType(243).
         ///
         /// Deprecated in the FIX standard.
@@ -6725,13 +6725,13 @@ turbojet::fix_group! {
         /// UnderlyingRedemptionDate(247).
         ///
         /// Deprecated in the FIX standard.
-        underlying_redemption_date: opt String = UNDERLYING_REDEMPTION_DATE,
+        underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
         /// UnderlyingStrikePrice(316).
         underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
         /// UnderlyingStrikeCurrency(941).
         underlying_strike_currency: opt String = UNDERLYING_STRIKE_CURRENCY,
         /// UnderlyingOptAttribute(317).
-        underlying_opt_attribute: opt String = UNDERLYING_OPT_ATTRIBUTE,
+        underlying_opt_attribute: opt char = UNDERLYING_OPT_ATTRIBUTE,
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
@@ -6929,11 +6929,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -6941,7 +6941,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -6955,7 +6955,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -6983,7 +6983,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -7001,7 +7001,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -7069,7 +7069,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -7077,9 +7077,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -7119,13 +7119,13 @@ turbojet::fix_group! {
         /// TradingSessionSubID(625).
         trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// OrdType(40).
         ord_type: opt OrdType = ORD_TYPE,
         /// SettlDate2(193).
         ///
         /// Deprecated in the FIX standard.
-        settl_date2: opt String = SETTL_DATE2,
+        settl_date2: opt NaiveDate = SETTL_DATE2,
         /// OrderQty2(192).
         ///
         /// Deprecated in the FIX standard.
@@ -7145,7 +7145,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: opt OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
     }
 }
 
@@ -7335,7 +7335,7 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// Account(1).
         account: opt String = ACCOUNT,
         /// AcctIDSource(660).
@@ -7389,7 +7389,7 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// TradingSessionID(336).
         trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -7453,11 +7453,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -7465,7 +7465,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -7479,7 +7479,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -7507,7 +7507,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -7525,7 +7525,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -7593,7 +7593,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -7601,9 +7601,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -7748,7 +7748,7 @@ turbojet::fix_group! {
         /// OwnerType(522).
         owner_type: opt OwnerType = OWNER_TYPE,
         /// DateOfBirth(486).
-        date_of_birth: opt String = DATE_OF_BIRTH,
+        date_of_birth: opt NaiveDate = DATE_OF_BIRTH,
         /// InvestorCountryOfResidence(475).
         investor_country_of_residence: opt String = INVESTOR_COUNTRY_OF_RESIDENCE,
     }
@@ -7864,9 +7864,9 @@ turbojet::fix_group! {
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// TradeOriginationDate(229).
-        trade_origination_date: opt String = TRADE_ORIGINATION_DATE,
+        trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// Account(1).
         account: opt String = ACCOUNT,
         /// AcctIDSource(660).
@@ -7906,7 +7906,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: opt OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
@@ -8007,9 +8007,9 @@ turbojet::fix_group! {
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// TradeOriginationDate(229).
-        trade_origination_date: opt String = TRADE_ORIGINATION_DATE,
+        trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -8105,11 +8105,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -8117,7 +8117,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -8131,7 +8131,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -8159,7 +8159,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -8177,7 +8177,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -8245,7 +8245,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -8253,9 +8253,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -8271,15 +8271,15 @@ turbojet::fix_group! {
         /// AgreementID(914).
         agreement_id: opt String = AGREEMENT_ID,
         /// AgreementDate(915).
-        agreement_date: opt String = AGREEMENT_DATE,
+        agreement_date: opt NaiveDate = AGREEMENT_DATE,
         /// AgreementCurrency(918).
         agreement_currency: opt String = AGREEMENT_CURRENCY,
         /// TerminationType(788).
         termination_type: opt TerminationType = TERMINATION_TYPE,
         /// StartDate(916).
-        start_date: opt String = START_DATE,
+        start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
-        end_date: opt String = END_DATE,
+        end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
         delivery_type: opt DeliveryType = DELIVERY_TYPE,
         /// MarginRatio(898).
@@ -8351,9 +8351,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -8535,15 +8535,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -8571,13 +8571,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -8617,11 +8617,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -8740,7 +8740,7 @@ turbojet::fix_group! {
         /// DerivativeEventType(1287).
         derivative_event_type: req DerivativeEventType = DERIVATIVE_EVENT_TYPE,
         /// DerivativeEventDate(1288).
-        derivative_event_date: opt String = DERIVATIVE_EVENT_DATE,
+        derivative_event_date: opt NaiveDate = DERIVATIVE_EVENT_DATE,
         /// DerivativeEventTime(1289).
         derivative_event_time: opt UtcTimestamp = DERIVATIVE_EVENT_TIME,
         /// DerivativeEventPx(1290).
@@ -8856,11 +8856,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -8868,7 +8868,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -8882,7 +8882,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -8910,7 +8910,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -8928,7 +8928,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -8996,7 +8996,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -9004,9 +9004,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -9022,7 +9022,7 @@ turbojet::fix_group! {
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// CorporateAction(292).
-        corporate_action: opt String = CORPORATE_ACTION,
+        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
         /// DeliveryForm(668).
         delivery_form: opt DeliveryForm = DELIVERY_FORM,
         /// PctAtRisk(869).
@@ -9202,15 +9202,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -9238,13 +9238,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -9284,11 +9284,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -9318,7 +9318,7 @@ turbojet::fix_group! {
         /// LegSettlType(587).
         leg_settl_type: opt LegSettlType = LEG_SETTL_TYPE,
         /// LegSettlDate(588).
-        leg_settl_date: opt String = LEG_SETTL_DATE,
+        leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
         /// LegSettlCurrency(675).
         leg_settl_currency: opt String = LEG_SETTL_CURRENCY,
         /// LegOrderQty(685).
@@ -9330,7 +9330,7 @@ turbojet::fix_group! {
         /// LegCurrencyRatio(1383).
         leg_currency_ratio: opt Decimal = LEG_CURRENCY_RATIO,
         /// LegExecInst(1384).
-        leg_exec_inst: opt String = LEG_EXEC_INST,
+        leg_exec_inst: opt Vec<LegExecInst> = LEG_EXEC_INST,
     }
 }
 
@@ -9416,7 +9416,7 @@ turbojet::fix_group! {
     /// An entry of NoDates(580).
     TrdCapDtGrp {
         /// TradeDate(75).
-        trade_date: req String = TRADE_DATE,
+        trade_date: req NaiveDate = TRADE_DATE,
         /// LastUpdateTime(779).
         last_update_time: opt UtcTimestamp = LAST_UPDATE_TIME,
         /// TransactTime(60).
@@ -9427,8 +9427,8 @@ turbojet::fix_group! {
 impl TrdCapDtGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trade_date: impl Into<String>) -> Self {
-        Self { trade_date: trade_date.into(), last_update_time: None, transact_time: None }
+    pub fn new(trade_date: NaiveDate) -> Self {
+        Self { trade_date, last_update_time: None, transact_time: None }
     }
 }
 
@@ -9454,15 +9454,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -9490,13 +9490,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -9536,11 +9536,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -9570,7 +9570,7 @@ turbojet::fix_group! {
         /// LegSettlType(587).
         leg_settl_type: opt LegSettlType = LEG_SETTL_TYPE,
         /// LegSettlDate(588).
-        leg_settl_date: opt String = LEG_SETTL_DATE,
+        leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
         /// LegLastPx(637).
         leg_last_px: opt Decimal = LEG_LAST_PX,
         /// LegSettlCurrency(675).
@@ -9588,7 +9588,7 @@ turbojet::fix_group! {
         /// LegCurrencyRatio(1383).
         leg_currency_ratio: opt Decimal = LEG_CURRENCY_RATIO,
         /// LegExecInst(1384).
-        leg_exec_inst: opt String = LEG_EXEC_INST,
+        leg_exec_inst: opt Vec<LegExecInst> = LEG_EXEC_INST,
         /// LegLastQty(1418).
         leg_last_qty: opt Decimal = LEG_LAST_QTY,
         /// NoOfLegUnderlyings(1342).
@@ -9699,15 +9699,15 @@ turbojet::fix_group! {
         /// UnderlyingLegSecuritySubType(1338).
         underlying_leg_security_sub_type: opt String = UNDERLYING_LEG_SECURITY_SUB_TYPE,
         /// UnderlyingLegMaturityMonthYear(1339).
-        underlying_leg_maturity_month_year: opt String = UNDERLYING_LEG_MATURITY_MONTH_YEAR,
+        underlying_leg_maturity_month_year: opt MonthYear = UNDERLYING_LEG_MATURITY_MONTH_YEAR,
         /// UnderlyingLegMaturityDate(1345).
-        underlying_leg_maturity_date: opt String = UNDERLYING_LEG_MATURITY_DATE,
+        underlying_leg_maturity_date: opt NaiveDate = UNDERLYING_LEG_MATURITY_DATE,
         /// UnderlyingLegMaturityTime(1405).
-        underlying_leg_maturity_time: opt String = UNDERLYING_LEG_MATURITY_TIME,
+        underlying_leg_maturity_time: opt TzTimeOnly = UNDERLYING_LEG_MATURITY_TIME,
         /// UnderlyingLegStrikePrice(1340).
         underlying_leg_strike_price: opt Decimal = UNDERLYING_LEG_STRIKE_PRICE,
         /// UnderlyingLegOptAttribute(1391).
-        underlying_leg_opt_attribute: opt String = UNDERLYING_LEG_OPT_ATTRIBUTE,
+        underlying_leg_opt_attribute: opt char = UNDERLYING_LEG_OPT_ATTRIBUTE,
         /// UnderlyingLegPutOrCall(1343).
         underlying_leg_put_or_call: opt i64 = UNDERLYING_LEG_PUT_OR_CALL,
         /// UnderlyingLegSecurityExchange(1341).
@@ -9835,7 +9835,7 @@ turbojet::fix_group! {
         /// NumDaysInterest(157).
         num_days_interest: opt i64 = NUM_DAYS_INTEREST,
         /// ExDate(230).
-        ex_date: opt String = EX_DATE,
+        ex_date: opt NaiveDate = EX_DATE,
         /// AccruedInterestRate(158).
         accrued_interest_rate: opt Decimal = ACCRUED_INTEREST_RATE,
         /// AccruedInterestAmt(159).
@@ -9921,7 +9921,7 @@ turbojet::fix_group! {
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// OrdStatus(39).
         ord_status: opt OrdStatus = ORD_STATUS,
         /// OrderQty(38).
@@ -9961,7 +9961,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: opt OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
         /// BookingType(775).
         booking_type: opt BookingType = BOOKING_TYPE,
         /// OrigCustOrderCapacity(1432).
@@ -10216,11 +10216,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -10228,7 +10228,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -10242,7 +10242,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -10270,7 +10270,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -10288,7 +10288,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -10356,7 +10356,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -10364,9 +10364,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -10376,15 +10376,15 @@ turbojet::fix_group! {
         /// AgreementID(914).
         agreement_id: opt String = AGREEMENT_ID,
         /// AgreementDate(915).
-        agreement_date: opt String = AGREEMENT_DATE,
+        agreement_date: opt NaiveDate = AGREEMENT_DATE,
         /// AgreementCurrency(918).
         agreement_currency: opt String = AGREEMENT_CURRENCY,
         /// TerminationType(788).
         termination_type: opt TerminationType = TERMINATION_TYPE,
         /// StartDate(916).
-        start_date: opt String = START_DATE,
+        start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
-        end_date: opt String = END_DATE,
+        end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
         delivery_type: opt DeliveryType = DELIVERY_TYPE,
         /// MarginRatio(898).
@@ -10402,7 +10402,7 @@ turbojet::fix_group! {
         /// TradingSessionSubID(625).
         trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
         /// TradeOriginationDate(229).
-        trade_origination_date: opt String = TRADE_ORIGINATION_DATE,
+        trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// Side(54).
         side: opt Side = SIDE,
         /// QtyType(854).
@@ -10420,11 +10420,11 @@ turbojet::fix_group! {
         /// SettlType(63).
         settl_type: opt SettlType = SETTL_TYPE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// SettlDate2(193).
         ///
         /// Deprecated in the FIX standard.
-        settl_date2: opt String = SETTL_DATE2,
+        settl_date2: opt NaiveDate = SETTL_DATE2,
         /// OrderQty2(192).
         ///
         /// Deprecated in the FIX standard.
@@ -10480,9 +10480,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -10668,11 +10668,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -10680,7 +10680,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -10694,7 +10694,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -10722,7 +10722,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -10740,7 +10740,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -10808,7 +10808,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -10816,9 +10816,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -10963,15 +10963,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -10999,13 +10999,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -11045,11 +11045,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -11067,7 +11067,7 @@ turbojet::fix_group! {
         /// LegSettlType(587).
         leg_settl_type: opt LegSettlType = LEG_SETTL_TYPE,
         /// LegSettlDate(588).
-        leg_settl_date: opt String = LEG_SETTL_DATE,
+        leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
         /// NoLegStipulations(683).
         leg_stipulations: group LegStipulations = NO_LEG_STIPULATIONS,
         /// NoNestedPartyIDs(539).
@@ -11149,7 +11149,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: req OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
         /// OrderCapacityQty(863).
         order_capacity_qty: req Decimal = ORDER_CAPACITY_QTY,
     }
@@ -11175,7 +11175,7 @@ turbojet::fix_group! {
         /// PosQtyStatus(706).
         pos_qty_status: opt PosQtyStatus = POS_QTY_STATUS,
         /// QuantityDate(976).
-        quantity_date: opt String = QUANTITY_DATE,
+        quantity_date: opt NaiveDate = QUANTITY_DATE,
         /// NoNestedPartyIDs(539).
         nested_party_ids: group NestedParties = NO_NESTED_PARTY_IDS,
     }
@@ -11218,13 +11218,13 @@ turbojet::fix_group! {
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt String = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
-        underlying_maturity_month_year: opt String = UNDERLYING_MATURITY_MONTH_YEAR,
+        underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
         /// UnderlyingMaturityDate(542).
-        underlying_maturity_date: opt String = UNDERLYING_MATURITY_DATE,
+        underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
         /// UnderlyingMaturityTime(1213).
-        underlying_maturity_time: opt String = UNDERLYING_MATURITY_TIME,
+        underlying_maturity_time: opt TzTimeOnly = UNDERLYING_MATURITY_TIME,
         /// UnderlyingCouponPaymentDate(241).
-        underlying_coupon_payment_date: opt String = UNDERLYING_COUPON_PAYMENT_DATE,
+        underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
         underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
@@ -11238,7 +11238,7 @@ turbojet::fix_group! {
         /// UnderlyingDetachmentPoint(1460).
         underlying_detachment_point: opt Decimal = UNDERLYING_DETACHMENT_POINT,
         /// UnderlyingIssueDate(242).
-        underlying_issue_date: opt String = UNDERLYING_ISSUE_DATE,
+        underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
         /// UnderlyingRepoCollateralSecurityType(243).
         ///
         /// Deprecated in the FIX standard.
@@ -11266,13 +11266,13 @@ turbojet::fix_group! {
         /// UnderlyingRedemptionDate(247).
         ///
         /// Deprecated in the FIX standard.
-        underlying_redemption_date: opt String = UNDERLYING_REDEMPTION_DATE,
+        underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
         /// UnderlyingStrikePrice(316).
         underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
         /// UnderlyingStrikeCurrency(941).
         underlying_strike_currency: opt String = UNDERLYING_STRIKE_CURRENCY,
         /// UnderlyingOptAttribute(317).
-        underlying_opt_attribute: opt String = UNDERLYING_OPT_ATTRIBUTE,
+        underlying_opt_attribute: opt char = UNDERLYING_OPT_ATTRIBUTE,
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
@@ -11449,7 +11449,7 @@ turbojet::fix_group! {
         /// UnderlyingCollectAmount(986).
         underlying_collect_amount: opt Decimal = UNDERLYING_COLLECT_AMOUNT,
         /// UnderlyingSettlementDate(987).
-        underlying_settlement_date: opt String = UNDERLYING_SETTLEMENT_DATE,
+        underlying_settlement_date: opt NaiveDate = UNDERLYING_SETTLEMENT_DATE,
         /// UnderlyingSettlementStatus(988).
         underlying_settlement_status: opt String = UNDERLYING_SETTLEMENT_STATUS,
     }
@@ -11528,7 +11528,7 @@ turbojet::fix_group! {
         /// NumDaysInterest(157).
         num_days_interest: opt i64 = NUM_DAYS_INTEREST,
         /// ExDate(230).
-        ex_date: opt String = EX_DATE,
+        ex_date: opt NaiveDate = EX_DATE,
         /// AccruedInterestRate(158).
         accrued_interest_rate: opt Decimal = ACCRUED_INTEREST_RATE,
         /// AccruedInterestAmt(159).
@@ -11616,7 +11616,7 @@ turbojet::fix_group! {
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// OrdStatus(39).
         ord_status: opt OrdStatus = ORD_STATUS,
         /// OrderQty(38).
@@ -11656,7 +11656,7 @@ turbojet::fix_group! {
         /// OrderCapacity(528).
         order_capacity: opt OrderCapacity = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt String = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
         /// BookingType(775).
         booking_type: opt BookingType = BOOKING_TYPE,
         /// OrigCustOrderCapacity(1432).
@@ -11840,13 +11840,13 @@ turbojet::fix_group! {
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt String = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
-        underlying_maturity_month_year: opt String = UNDERLYING_MATURITY_MONTH_YEAR,
+        underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
         /// UnderlyingMaturityDate(542).
-        underlying_maturity_date: opt String = UNDERLYING_MATURITY_DATE,
+        underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
         /// UnderlyingMaturityTime(1213).
-        underlying_maturity_time: opt String = UNDERLYING_MATURITY_TIME,
+        underlying_maturity_time: opt TzTimeOnly = UNDERLYING_MATURITY_TIME,
         /// UnderlyingCouponPaymentDate(241).
-        underlying_coupon_payment_date: opt String = UNDERLYING_COUPON_PAYMENT_DATE,
+        underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
         underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
@@ -11860,7 +11860,7 @@ turbojet::fix_group! {
         /// UnderlyingDetachmentPoint(1460).
         underlying_detachment_point: opt Decimal = UNDERLYING_DETACHMENT_POINT,
         /// UnderlyingIssueDate(242).
-        underlying_issue_date: opt String = UNDERLYING_ISSUE_DATE,
+        underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
         /// UnderlyingRepoCollateralSecurityType(243).
         ///
         /// Deprecated in the FIX standard.
@@ -11888,13 +11888,13 @@ turbojet::fix_group! {
         /// UnderlyingRedemptionDate(247).
         ///
         /// Deprecated in the FIX standard.
-        underlying_redemption_date: opt String = UNDERLYING_REDEMPTION_DATE,
+        underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
         /// UnderlyingStrikePrice(316).
         underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
         /// UnderlyingStrikeCurrency(941).
         underlying_strike_currency: opt String = UNDERLYING_STRIKE_CURRENCY,
         /// UnderlyingOptAttribute(317).
-        underlying_opt_attribute: opt String = UNDERLYING_OPT_ATTRIBUTE,
+        underlying_opt_attribute: opt char = UNDERLYING_OPT_ATTRIBUTE,
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
@@ -12171,11 +12171,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -12183,7 +12183,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -12197,7 +12197,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -12225,7 +12225,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -12243,7 +12243,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -12311,7 +12311,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -12319,9 +12319,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -12337,15 +12337,15 @@ turbojet::fix_group! {
         /// AgreementID(914).
         agreement_id: opt String = AGREEMENT_ID,
         /// AgreementDate(915).
-        agreement_date: opt String = AGREEMENT_DATE,
+        agreement_date: opt NaiveDate = AGREEMENT_DATE,
         /// AgreementCurrency(918).
         agreement_currency: opt String = AGREEMENT_CURRENCY,
         /// TerminationType(788).
         termination_type: opt TerminationType = TERMINATION_TYPE,
         /// StartDate(916).
-        start_date: opt String = START_DATE,
+        start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
-        end_date: opt String = END_DATE,
+        end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
         delivery_type: opt DeliveryType = DELIVERY_TYPE,
         /// MarginRatio(898).
@@ -12417,9 +12417,9 @@ turbojet::fix_group! {
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
-        yield_calc_date: opt String = YIELD_CALC_DATE,
+        yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
         /// YieldRedemptionDate(696).
-        yield_redemption_date: opt String = YIELD_REDEMPTION_DATE,
+        yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
@@ -12602,15 +12602,15 @@ turbojet::fix_group! {
         /// LegSecuritySubType(764).
         leg_security_sub_type: opt String = LEG_SECURITY_SUB_TYPE,
         /// LegMaturityMonthYear(610).
-        leg_maturity_month_year: opt String = LEG_MATURITY_MONTH_YEAR,
+        leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
-        leg_maturity_date: opt String = LEG_MATURITY_DATE,
+        leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
         /// LegMaturityTime(1212).
-        leg_maturity_time: opt String = LEG_MATURITY_TIME,
+        leg_maturity_time: opt TzTimeOnly = LEG_MATURITY_TIME,
         /// LegCouponPaymentDate(248).
-        leg_coupon_payment_date: opt String = LEG_COUPON_PAYMENT_DATE,
+        leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
         /// LegIssueDate(249).
-        leg_issue_date: opt String = LEG_ISSUE_DATE,
+        leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
         ///
         /// Deprecated in the FIX standard.
@@ -12638,13 +12638,13 @@ turbojet::fix_group! {
         /// LegRedemptionDate(254).
         ///
         /// Deprecated in the FIX standard.
-        leg_redemption_date: opt String = LEG_REDEMPTION_DATE,
+        leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
         leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
         /// LegStrikeCurrency(942).
         leg_strike_currency: opt String = LEG_STRIKE_CURRENCY,
         /// LegOptAttribute(613).
-        leg_opt_attribute: opt String = LEG_OPT_ATTRIBUTE,
+        leg_opt_attribute: opt char = LEG_OPT_ATTRIBUTE,
         /// LegContractMultiplier(614).
         leg_contract_multiplier: opt Decimal = LEG_CONTRACT_MULTIPLIER,
         /// LegContractMultiplierUnit(1436).
@@ -12684,11 +12684,11 @@ turbojet::fix_group! {
         /// LegPool(740).
         leg_pool: opt String = LEG_POOL,
         /// LegDatedDate(739).
-        leg_dated_date: opt String = LEG_DATED_DATE,
+        leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
         /// LegContractSettlMonth(955).
-        leg_contract_settl_month: opt String = LEG_CONTRACT_SETTL_MONTH,
+        leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
         /// LegInterestAccrualDate(956).
-        leg_interest_accrual_date: opt String = LEG_INTEREST_ACCRUAL_DATE,
+        leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
         /// LegPutOrCall(1358).
         leg_put_or_call: opt i64 = LEG_PUT_OR_CALL,
         /// LegOptionRatio(1017).
@@ -12898,7 +12898,7 @@ turbojet::fix_group! {
         /// SettlCurrFxRate(155).
         settl_curr_fx_rate: opt Decimal = SETTL_CURR_FX_RATE,
         /// SettlDate(64).
-        settl_date: opt String = SETTL_DATE,
+        settl_date: opt NaiveDate = SETTL_DATE,
         /// Symbol(55).
         symbol: opt String = SYMBOL,
         /// SymbolSfx(65).
@@ -12922,11 +12922,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -12934,7 +12934,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -12948,7 +12948,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -12976,7 +12976,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -12994,7 +12994,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -13062,7 +13062,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -13070,9 +13070,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -13205,7 +13205,7 @@ turbojet::fix_group! {
         /// ListUpdateAction(1324).
         list_update_action: req ListUpdateAction = LIST_UPDATE_ACTION,
         /// CorporateAction(292).
-        corporate_action: opt String = CORPORATE_ACTION,
+        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
         /// Symbol(55).
         symbol: opt String = SYMBOL,
         /// SymbolSfx(65).
@@ -13229,11 +13229,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -13241,7 +13241,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -13255,7 +13255,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -13283,7 +13283,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -13301,7 +13301,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -13369,7 +13369,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -13377,9 +13377,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -13665,11 +13665,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -13677,7 +13677,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -13691,7 +13691,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -13719,7 +13719,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -13737,7 +13737,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -13805,7 +13805,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -13813,9 +13813,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).
@@ -13970,11 +13970,11 @@ turbojet::fix_group! {
         /// SecuritySubType(762).
         security_sub_type: opt String = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDate(541).
-        maturity_date: opt String = MATURITY_DATE,
+        maturity_date: opt NaiveDate = MATURITY_DATE,
         /// MaturityTime(1079).
-        maturity_time: opt String = MATURITY_TIME,
+        maturity_time: opt TzTimeOnly = MATURITY_TIME,
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt String = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
@@ -13982,7 +13982,7 @@ turbojet::fix_group! {
         /// SecurityStatus(965).
         security_status: opt SecurityStatusCode = SECURITY_STATUS,
         /// CouponPaymentDate(224).
-        coupon_payment_date: opt String = COUPON_PAYMENT_DATE,
+        coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
         restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
         /// Seniority(1450).
@@ -13996,7 +13996,7 @@ turbojet::fix_group! {
         /// DetachmentPoint(1458).
         detachment_point: opt Decimal = DETACHMENT_POINT,
         /// IssueDate(225).
-        issue_date: opt String = ISSUE_DATE,
+        issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
         ///
         /// Deprecated in the FIX standard.
@@ -14024,7 +14024,7 @@ turbojet::fix_group! {
         /// RedemptionDate(240).
         ///
         /// Deprecated in the FIX standard.
-        redemption_date: opt String = REDEMPTION_DATE,
+        redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// StrikeCurrency(947).
@@ -14042,7 +14042,7 @@ turbojet::fix_group! {
         /// UnderlyingPriceDeterminationMethod(1481).
         underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
@@ -14110,7 +14110,7 @@ turbojet::fix_group! {
         /// Pool(691).
         pool: opt String = POOL,
         /// ContractSettlMonth(667).
-        contract_settl_month: opt String = CONTRACT_SETTL_MONTH,
+        contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
         cp_program: opt CPProgram = CP_PROGRAM,
         /// CPRegType(876).
@@ -14118,9 +14118,9 @@ turbojet::fix_group! {
         /// NoEvents(864).
         events: group EvntGrp = NO_EVENTS,
         /// DatedDate(873).
-        dated_date: opt String = DATED_DATE,
+        dated_date: opt NaiveDate = DATED_DATE,
         /// InterestAccrualDate(874).
-        interest_accrual_date: opt String = INTEREST_ACCRUAL_DATE,
+        interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
         /// NoInstrumentParties(1018).
         instrument_parties: group InstrumentParties = NO_INSTRUMENT_PARTIES,
         /// NoComplexEvents(1483).

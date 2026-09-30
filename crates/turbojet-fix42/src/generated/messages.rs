@@ -3,7 +3,7 @@
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{Decimal, UtcTimestamp};
+use turbojet::fields::{Decimal, MonthYear, NaiveDate, UtcTimestamp};
 
 turbojet::fix_message! {
     /// IOI(6).
@@ -25,7 +25,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -33,7 +33,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -151,7 +151,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -159,7 +159,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -183,7 +183,7 @@ turbojet::fix_message! {
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
@@ -283,7 +283,7 @@ turbojet::fix_message! {
         /// SettlmntTyp(63).
         settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
         /// FutSettDate(64).
-        fut_sett_date: opt String = FUT_SETT_DATE,
+        fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// Symbol(55).
         symbol: req String = SYMBOL,
         /// SymbolSfx(65).
@@ -295,7 +295,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -303,7 +303,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -347,11 +347,11 @@ turbojet::fix_message! {
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
-        expire_date: opt String = EXPIRE_DATE,
+        expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// Rule80A(47).
         rule80_a: opt Rule80A = RULE80_A,
         /// LastShares(32).
@@ -383,7 +383,7 @@ turbojet::fix_message! {
         /// GTBookingInst(427).
         gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// ReportToExch(113).
@@ -417,7 +417,7 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// FutSettDate2(193).
-        fut_sett_date2: opt String = FUT_SETT_DATE2,
+        fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
         /// OrderQty2(192).
         order_qty2: opt Decimal = ORDER_QTY2,
         /// ClearingFirm(439).
@@ -712,11 +712,11 @@ turbojet::fix_message! {
         /// SettlmntTyp(63).
         settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
         /// FutSettDate(64).
-        fut_sett_date: opt String = FUT_SETT_DATE,
+        fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// HandlInst(21).
         handl_inst: req HandlInst = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MaxFloor(111).
@@ -738,7 +738,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -746,7 +746,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -794,7 +794,7 @@ turbojet::fix_message! {
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
-        expire_date: opt String = EXPIRE_DATE,
+        expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
@@ -814,7 +814,7 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// FutSettDate2(193).
-        fut_sett_date2: opt String = FUT_SETT_DATE2,
+        fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
         /// OrderQty2(192).
         order_qty2: opt Decimal = ORDER_QTY2,
         /// OpenClose(77).
@@ -998,7 +998,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -1006,7 +1006,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -1109,11 +1109,11 @@ turbojet::fix_message! {
         /// SettlmntTyp(63).
         settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
         /// FutSettDate(64).
-        fut_sett_date: opt String = FUT_SETT_DATE,
+        fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// HandlInst(21).
         handl_inst: req HandlInst = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt String = EXEC_INST,
+        exec_inst: opt Vec<ExecInst> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MaxFloor(111).
@@ -1133,7 +1133,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -1141,7 +1141,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -1187,7 +1187,7 @@ turbojet::fix_message! {
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
-        expire_date: opt String = EXPIRE_DATE,
+        expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
@@ -1207,7 +1207,7 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// FutSettDate2(193).
-        fut_sett_date2: opt String = FUT_SETT_DATE2,
+        fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
         /// OrderQty2(192).
         order_qty2: opt Decimal = ORDER_QTY2,
         /// OpenClose(77).
@@ -1335,7 +1335,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -1343,7 +1343,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -1425,7 +1425,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -1433,7 +1433,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -1461,13 +1461,13 @@ turbojet::fix_message! {
         /// AvgPrxPrecision(74).
         avg_prx_precision: opt i64 = AVG_PRX_PRECISION,
         /// TradeDate(75).
-        trade_date: req String = TRADE_DATE,
+        trade_date: req NaiveDate = TRADE_DATE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// SettlmntTyp(63).
         settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
         /// FutSettDate(64).
-        fut_sett_date: opt String = FUT_SETT_DATE,
+        fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// GrossTradeAmt(381).
         gross_trade_amt: opt Decimal = GROSS_TRADE_AMT,
         /// NetMoney(118).
@@ -1497,7 +1497,7 @@ impl Allocation {
         symbol: impl Into<String>,
         shares: Decimal,
         avg_px: Decimal,
-        trade_date: impl Into<String>,
+        trade_date: NaiveDate,
     ) -> Self {
         Self {
             alloc_id: alloc_id.into(),
@@ -1531,7 +1531,7 @@ impl Allocation {
             avg_px,
             currency: None,
             avg_prx_precision: None,
-            trade_date: trade_date.into(),
+            trade_date,
             transact_time: None,
             settlmnt_typ: None,
             fut_sett_date: None,
@@ -1685,7 +1685,7 @@ turbojet::fix_message! {
         /// AllocID(70).
         alloc_id: req String = ALLOC_ID,
         /// TradeDate(75).
-        trade_date: req String = TRADE_DATE,
+        trade_date: req NaiveDate = TRADE_DATE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// AllocStatus(87).
@@ -1702,12 +1702,12 @@ turbojet::fix_message! {
 impl AllocationAck {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_id: impl Into<String>, trade_date: impl Into<String>, alloc_status: AllocStatus) -> Self {
+    pub fn new(alloc_id: impl Into<String>, trade_date: NaiveDate, alloc_status: AllocStatus) -> Self {
         Self {
             client_id: None,
             exec_broker: None,
             alloc_id: alloc_id.into(),
-            trade_date: trade_date.into(),
+            trade_date,
             transact_time: None,
             alloc_status,
             alloc_rej_code: None,
@@ -1737,7 +1737,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -1745,7 +1745,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -1859,7 +1859,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -1867,7 +1867,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -1903,11 +1903,11 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// FutSettDate(64).
-        fut_sett_date: opt String = FUT_SETT_DATE,
+        fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// OrdType(40).
         ord_type: opt OrdType = ORD_TYPE,
         /// FutSettDate2(193).
-        fut_sett_date2: opt String = FUT_SETT_DATE2,
+        fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
         /// OrderQty2(192).
         order_qty2: opt Decimal = ORDER_QTY2,
         /// Currency(15).
@@ -1978,7 +1978,7 @@ turbojet::fix_message! {
         /// SettlLocation(166).
         settl_location: opt SettlLocation = SETTL_LOCATION,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// AllocID(70).
         alloc_id: opt String = ALLOC_ID,
         /// LastMkt(30).
@@ -2149,7 +2149,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -2157,7 +2157,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -2303,7 +2303,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -2311,7 +2311,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -2419,7 +2419,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -2427,7 +2427,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -2510,7 +2510,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -2518,7 +2518,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -2601,7 +2601,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -2609,7 +2609,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -2683,7 +2683,7 @@ turbojet::fix_message! {
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
-        maturity_month_year: opt String = MATURITY_MONTH_YEAR,
+        maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
@@ -2691,7 +2691,7 @@ turbojet::fix_message! {
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
-        opt_attribute: opt String = OPT_ATTRIBUTE,
+        opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// CouponRate(223).
@@ -2952,7 +2952,7 @@ turbojet::fix_message! {
         /// NumBidders(417).
         num_bidders: opt i64 = NUM_BIDDERS,
         /// TradeDate(75).
-        trade_date: opt String = TRADE_DATE,
+        trade_date: opt NaiveDate = TRADE_DATE,
         /// TradeType(418).
         trade_type: req TradeType = TRADE_TYPE,
         /// BasisPxType(419).

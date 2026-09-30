@@ -63,7 +63,9 @@ pub(crate) fn messages(plan: &Plan) -> String {
 fn imports(plan: &Plan, structs: &[&Struct], groups_module: bool) -> String {
     let slots = || structs.iter().flat_map(|s| &s.slots);
     let mut out = String::from("\n");
-    if slots().any(|s| plan.enums.iter().any(|e| e.name == s.ty || s.ty == format!("Code<{}>", e.name))) {
+    // The type names in a slot's type, e.g. `Vec`, `Code` and `Side` in `Vec<Code<Side>>`.
+    let names = || slots().flat_map(|s| s.ty.split(['<', '>', ' ', ',']).filter(|name| !name.is_empty()));
+    if names().any(|name| plan.enums.iter().any(|e| e.name == name)) {
         out.push_str("use super::enums::*;\n");
     }
     if groups_module && slots().any(|s| s.presence.is_group()) {
@@ -72,8 +74,18 @@ fn imports(plan: &Plan, structs: &[&Struct], groups_module: bool) -> String {
     if !structs.is_empty() {
         out.push_str("use super::tags::*;\n");
     }
-    let uses = |t: &str| slots().any(|s| s.ty == t || (t == "Code" && s.ty.starts_with("Code<")));
-    let types: Vec<&str> = ["Code", "Decimal", "Secret", "UtcTimestamp"].into_iter().filter(|t| uses(t)).collect();
+    const FIELD_TYPES: [&str; 9] = [
+        "Code",
+        "Decimal",
+        "MonthYear",
+        "NaiveDate",
+        "Secret",
+        "TzTimeOnly",
+        "TzTimestamp",
+        "UtcTimeOnly",
+        "UtcTimestamp",
+    ];
+    let types: Vec<&str> = FIELD_TYPES.into_iter().filter(|t| names().any(|name| name == *t)).collect();
     match types.as_slice() {
         [] => {}
         [one] => writeln!(out, "use turbojet::fields::{one};").unwrap(),

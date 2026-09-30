@@ -32,6 +32,53 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// ExecInst(18).
+    ExecInst {
+        NotHeld = "1",
+        Work = "2",
+        GoAlong = "3",
+        OverTheDay = "4",
+        Held = "5",
+        ParticipateDoNotInitiate = "6",
+        StrictScale = "7",
+        TryToScale = "8",
+        StayOnBidSide = "9",
+        StayOnOfferSide = "0",
+        NoCross = "A",
+        OKToCross = "B",
+        CallFirst = "C",
+        PercentOfVolume = "D",
+        DoNotIncrease = "E",
+        DoNotReduce = "F",
+        AllOrNone = "G",
+        ReinstateOnSystemFailure = "H",
+        InstitutionsOnly = "I",
+        ReinstateOnTradingHalt = "J",
+        CancelOnTradingHalt = "K",
+        LastPeg = "L",
+        MidPricePeg = "M",
+        NonNegotiable = "N",
+        OpeningPeg = "O",
+        MarketPeg = "P",
+        CancelOnSystemFailure = "Q",
+        PrimaryPeg = "R",
+        Suspend = "S",
+        FixedPegToLocalBestBidOrOfferAtTimeOfOrder = "T",
+        CustomerDisplayInstruction = "U",
+        Netting = "V",
+        PegToVWAP = "W",
+        TradeAlong = "X",
+        TryToStop = "Y",
+        CancelIfNotBest = "Z",
+        TrailingStopPeg = "a",
+        StrictLimit = "b",
+        IgnorePriceValidityChecks = "c",
+        PegToLimitPrice = "d",
+        WorkToTargetStrategy = "e",
+    }
+}
+
+turbojet::fix_enum! {
     /// HandlInst(21).
     HandlInst {
         AutomatedExecutionNoIntervention = "1",
@@ -757,6 +804,44 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// QuoteCondition(276).
+    QuoteCondition {
+        Open = "A",
+        Closed = "B",
+        ExchangeBest = "C",
+        ConsolidatedBest = "D",
+        Locked = "E",
+        Crossed = "F",
+        Depth = "G",
+        FastTrading = "H",
+        NonFirm = "I",
+    }
+}
+
+turbojet::fix_enum! {
+    /// TradeCondition(277).
+    TradeCondition {
+        Cash = "A",
+        AveragePriceTrade = "B",
+        CashTrade = "C",
+        NextDay = "D",
+        Opening = "E",
+        IntradayTradeDetail = "F",
+        Rule127Trade = "G",
+        Rule155Trade = "H",
+        SoldLast = "I",
+        NextDayTrade = "J",
+        Opened = "K",
+        Seller = "L",
+        Sold = "M",
+        StoppedStock = "N",
+        ImbalanceMoreBuyers = "P",
+        ImbalanceMoreSellers = "Q",
+        OpeningPrice = "R",
+    }
+}
+
+turbojet::fix_enum! {
     /// MDUpdateAction(279).
     MDUpdateAction {
         New = "0",
@@ -789,6 +874,37 @@ turbojet::fix_enum! {
     DeleteReason {
         Cancellation = "0",
         Error = "1",
+    }
+}
+
+turbojet::fix_enum! {
+    /// OpenCloseSettlFlag(286).
+    OpenCloseSettlFlag {
+        DailyOpen = "0",
+        SessionOpen = "1",
+        DeliverySettlementEntry = "2",
+        ExpectedEntry = "3",
+        EntryFromPreviousBusinessDay = "4",
+        TheoreticalPriceValue = "5",
+    }
+}
+
+turbojet::fix_enum! {
+    /// FinancialStatus(291).
+    FinancialStatus {
+        Bankrupt = "1",
+        PendingDelisting = "2",
+    }
+}
+
+turbojet::fix_enum! {
+    /// CorporateAction(292).
+    CorporateAction {
+        ExDividend = "A",
+        ExDistribution = "B",
+        ExRights = "C",
+        New = "D",
+        ExInterest = "E",
     }
 }
 
@@ -1610,6 +1726,22 @@ turbojet::fix_enum! {
 }
 
 turbojet::fix_enum! {
+    /// OrderRestrictions(529).
+    OrderRestrictions {
+        ProgramTrade = "1",
+        IndexArbitrage = "2",
+        NonIndexArbitrage = "3",
+        CompetingMarketMaker = "4",
+        ActingAsMarketMakerOrSpecialistInSecurity = "5",
+        ActingAsMarketMakerOrSpecialistInUnderlying = "6",
+        ForeignEntity = "7",
+        ExternalMarketParticipant = "8",
+        ExternalInterConnectedMarketLinkage = "9",
+        RisklessArbitrage = "A",
+    }
+}
+
+turbojet::fix_enum! {
     /// MassCancelRequestType(530).
     MassCancelRequestType {
         CancelOrdersForASecurity = "1",
@@ -1709,6 +1841,15 @@ turbojet::fix_enum! {
         Cash = "1",
         MarginOpen = "2",
         MarginClose = "3",
+    }
+}
+
+turbojet::fix_enum! {
+    /// Scope(546).
+    Scope {
+        LocalMarket = "1",
+        National = "2",
+        Global = "3",
     }
 }
 

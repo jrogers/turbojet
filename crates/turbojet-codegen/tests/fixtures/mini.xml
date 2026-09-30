@@ -42,6 +42,16 @@
   <message name='BusinessMessageReject' msgtype='j' msgcat='app'>
    <field name='Text' required='N' />
   </message>
+  <message name='Schedule' msgtype='U7' msgcat='app'>
+   <field name='ExecInst' required='Y' />
+   <field name='TradeDate' required='N' />
+   <field name='MaturityMonthYear' required='N' />
+   <field name='MDEntryTime' required='N' />
+   <field name='TZTransactTime' required='N' />
+   <field name='SessionOpen' required='N' />
+   <field name='VenueFlag' required='N' />
+   <field name='Labels' required='N' />
+  </message>
  </messages>
  <components>
   <component name='Parties'>
@@ -75,7 +85,18 @@
   <field number='78' name='NoAllocs' type='NUMINGROUP' />
   <field number='79' name='AllocAccount' type='STRING' />
   <field number='80' name='AllocQty' type='QTY' />
+  <field number='18' name='ExecInst' type='MULTIPLECHARVALUE'>
+   <value enum='1' description='NOT_HELD' />
+   <value enum='G' description='ALL_OR_NONE' />
+  </field>
+  <field number='75' name='TradeDate' type='LOCALMKTDATE' />
   <field number='112' name='TestReqID' type='STRING' />
+  <field number='200' name='MaturityMonthYear' type='MONTHYEAR' />
+  <field number='273' name='MDEntryTime' type='UTCTIMEONLY' />
+  <field number='1132' name='TZTransactTime' type='TZTIMESTAMP' />
+  <field number='5100' name='SessionOpen' type='TZTIMEONLY' />
+  <field number='5101' name='VenueFlag' type='CHAR' />
+  <field number='5102' name='Labels' type='MULTIPLESTRINGVALUE' />
   <field number='236' name='Yield' type='PERCENTAGE' />
   <field number='448' name='PartyID' type='STRING' />
   <field number='452' name='PartyRole' type='INT'>
