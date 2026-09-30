@@ -59,7 +59,7 @@ pub enum DecodedInto {
     Message(usize),
     /// More bytes are needed.
     Incomplete,
-    /// As [`Decoded::Garbled`]; the message passed in holds nothing useful.
+    /// As [`Decoded::Garbled`].
     Garbled {
         /// Bytes to drop from the front of the buffer.
         skip: usize,
@@ -68,9 +68,10 @@ pub enum DecodedInto {
     },
 }
 
-/// [`decode_with`], decoding into `msg` and replacing what it held. Reusing one message for each
-/// frame, as the connection's read loop does, avoids allocating once it has grown to the size of
-/// the messages received.
+/// [`decode_with`], decoding into `msg` and replacing what it held. Unless the result is
+/// [`DecodedInto::Message`], `msg` may be unchanged or partly overwritten: don't use it. Reusing
+/// one message for each frame, as the connection's read loop does, avoids allocating once it has
+/// grown to the size of the messages received.
 pub fn decode_into(buf: &[u8], data: &DataFields, msg: &mut Message) -> DecodedInto {
     let total = match frame(buf) {
         Ok(total) => total,
