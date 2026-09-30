@@ -240,7 +240,7 @@ fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.l
             Decoded::Message(msg, _) => msg,
             _ => panic!("order {i} didn't decode"),
         });
-        counting::in_stage(Stage::Session, || session.on_message(msg, now));
+        counting::in_stage(Stage::Session, || session.on_message(&msg, now));
         let out = session.output();
         assert!(out.starts_with(b"8=FIX.4.2\x01") && out.windows(5).any(|w| w == b"\x0135=8"), "order {i}: no ack");
         session.clear_output();

@@ -94,7 +94,7 @@ pub fn logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) ->
         password: None,
         default_appl_ver_id: None,
     };
-    session.on_message(with_header("CLIENT", "GATEWAY", 1, logon.into()), Instant::now());
+    session.on_message(&with_header("CLIENT", "GATEWAY", 1, logon.into()), Instant::now());
     assert!(session.is_logged_on());
     session.clear_output();
     session

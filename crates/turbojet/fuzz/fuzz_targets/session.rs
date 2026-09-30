@@ -233,7 +233,7 @@ fuzz_target!(|input: Input| {
     }
     push_fields(&mut fields, &input.logon, 1, next_out);
     let Some(logon) = inbound(&begin_string, "A", 1, false, 0, &fields) else { return };
-    session.on_message(logon, now);
+    session.on_message(&logon, now);
     if !check(&mut session, &mut next_out) {
         return;
     }
@@ -250,7 +250,7 @@ fuzz_target!(|input: Input| {
                     continue;
                 };
                 next_in = next_in.max(seq + 1);
-                session.on_message(msg, now);
+                session.on_message(&msg, now);
             }
             Step::Elapse(secs) => {
                 now += Duration::from_secs(secs.into());

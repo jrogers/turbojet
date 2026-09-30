@@ -50,7 +50,7 @@ fn session(c: &mut Criterion) {
                 |(mut session, orders)| {
                     let now = Instant::now();
                     for order in orders {
-                        session.on_message(order, now);
+                        session.on_message(&order, now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -73,7 +73,7 @@ fn session(c: &mut Criterion) {
                 |(mut session, orders, _dir)| {
                     let now = Instant::now();
                     for order in orders {
-                        session.on_message(order, now);
+                        session.on_message(&order, now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -102,7 +102,7 @@ fn session(c: &mut Criterion) {
                 |(mut session, orders)| {
                     let now = Instant::now();
                     for order in orders {
-                        session.on_message(order, now);
+                        session.on_message(&order, now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -125,7 +125,7 @@ fn session(c: &mut Criterion) {
                     let now = Instant::now();
                     for bytes in wire {
                         let Decoded::Message(msg, _) = decode(&bytes) else { panic!("bad order") };
-                        session.on_message(msg, now);
+                        session.on_message(&msg, now);
                         black_box(session.output());
                         session.clear_output();
                     }

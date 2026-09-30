@@ -409,7 +409,7 @@ impl Runner {
             match decode(&conn.buf) {
                 Decoded::Message(msg, len) => {
                     conn.buf.drain(..len);
-                    session.on_message(msg, now);
+                    session.on_message(&msg, now);
                     self.apply(id);
                 }
                 Decoded::Incomplete => break,

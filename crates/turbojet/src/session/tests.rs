@@ -190,7 +190,7 @@ impl Drive for Session {
 
     fn recv(&mut self, msg: Message, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
-        self.on_message(msg, now);
+        self.on_message(&msg, now);
         taken(self, was)
     }
 

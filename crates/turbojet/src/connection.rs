@@ -150,7 +150,7 @@ where
                         Decoded::Message(msg, len) => {
                             consumed += len;
                             debug!(target: "turbojet::messages", direction = "in", "{}", msg.redacted());
-                            session.on_message(msg, now);
+                            session.on_message(&msg, now);
                         }
                         Decoded::Incomplete => break,
                         Decoded::Garbled { skip, reason } => {

@@ -470,14 +470,14 @@ impl Session {
     }
 
     /// A message was decoded from the transport.
-    pub fn on_message(&mut self, msg: Message, now: Instant) {
+    pub fn on_message(&mut self, msg: &Message, now: Instant) {
         self.wall_clock.set(None);
         self.last_received = now;
         self.test_request_sent = None;
         match self.status {
-            Status::AwaitingLogon => self.on_logon(&msg, now),
+            Status::AwaitingLogon => self.on_logon(msg, now),
             Status::Active | Status::LoggingOut { .. } => {
-                self.on_session_message(&msg, now, true);
+                self.on_session_message(msg, now, true);
                 self.after_incoming(now);
             }
             Status::Closed => {}
