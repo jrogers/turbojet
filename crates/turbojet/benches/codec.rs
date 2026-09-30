@@ -7,9 +7,9 @@ use std::hint::black_box;
 use chrono::Utc;
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::Message;
-use turbojet::codec::{Decoded, decode, encode};
+use turbojet::codec::{Decoded, DecodedInto, decode, decode_into, encode};
 use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
-use turbojet::message::{FixMessage, utc_timestamp};
+use turbojet::message::{DataFields, FixMessage, utc_timestamp};
 use turbojet_fix42::{ExecutionReport, NewOrderSingle};
 
 fn codec(c: &mut Criterion) {
@@ -24,6 +24,14 @@ fn codec(c: &mut Criterion) {
         b.iter(|| match decode(black_box(&order_wire)) {
             Decoded::Message(msg, len) => (msg, len),
             other => panic!("{other:?}"),
+        })
+    });
+    group.bench_function("decode NewOrderSingle into a reused message", |b| {
+        let data = DataFields::standard();
+        let mut msg = Message::default();
+        b.iter(|| match decode_into(black_box(&order_wire), &data, &mut msg) {
+            DecodedInto::Message(len) => black_box(len),
+            _ => panic!("bad order"),
         })
     });
     group.throughput(Throughput::Bytes(report_wire.len() as u64));

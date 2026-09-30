@@ -7,7 +7,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use turbojet::codec::{Decoded, decode, encode};
+use turbojet::codec::{DecodedInto, decode_into, encode};
+use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{DiskStorage, MemoryStorage, Message, SessionId};
 
@@ -123,8 +124,10 @@ fn session(c: &mut Criterion) {
                 },
                 |(mut session, wire)| {
                     let now = Instant::now();
+                    let mut msg = Message::default();
+                    let data = DataFields::standard();
                     for bytes in wire {
-                        let Decoded::Message(msg, _) = decode(&bytes) else { panic!("bad order") };
+                        let DecodedInto::Message(_) = decode_into(&bytes, &data, &mut msg) else { panic!("bad order") };
                         session.on_message(&msg, now);
                         black_box(session.output());
                         session.clear_output();
