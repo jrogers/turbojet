@@ -33,6 +33,9 @@ later, with:
 - data fields (RawData, XmlData, the Encoded* fields, a venue's own) carrying any bytes, SOH
   included: decoded by the length their Length field gives, stored and resent intact, checked on
   the way out, and typed as `Vec<u8>`;
+- typed dates, times (UTC and with a zone), MonthYear, `char` and multi-value lists, with
+  timestamps written at the precision they arrived with (seconds to nanoseconds), and SendingTime
+  at a configured one;
 - memory and disk session storage, session schedules, and operator control of sequence numbers;
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 1.2 µs per order → ack of session processing, and 490k msg/s
@@ -128,10 +131,6 @@ Orchestra.
   MessageEncoding (Shift_JIS, say) would need an encoding crate. Outside data fields, a value
   that isn't UTF-8 is rejected with SessionRejectReason 6, and in a header field the session
   relies on (MsgType, the CompIDs, MsgSeqNum, SendingTime) the message is ignored as garbled.
-- **More field types** (S). UTCTimeOnly, UTCDateOnly, LocalMktDate, MonthYear,
-  MultipleValueString, single-`char` fields, and microsecond/nanosecond timestamps (output is
-  currently always milliseconds). Generated messages carry the date and time types as `String`
-  until they land. (Negative integers are done: `i64`.)
 
 ## 5. Performance
 

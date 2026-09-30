@@ -21,7 +21,18 @@ Notable changes to the published crates.
   EncryptedNewPassword.
 - `DiskStorage` checks only each stored message's framing when it opens; the message is parsed
   when it's read for a resend.
-- Decoding is about 45% faster.
+- Typed dates and times: `UtcTimeOnly`, `NaiveDate` (UTCDateOnly, UTCDate and LocalMktDate),
+  `MonthYear`, `TzTimeOnly` and `TzTimestamp`; `char`; and space-separated lists as `Vec<T>`.
+- Timestamps and times keep their precision (seconds, milliseconds, microseconds or nanoseconds):
+  a received value is written back as it came, and new ones are milliseconds unless given another.
+  `SessionConfig::timestamp_precision` sets how SendingTime is written.
+- Breaking: `UtcTimestamp` is a struct rather than an alias of chrono's `DateTime<Utc>`, which it
+  dereferences to; `DateTime<Utc>` no longer converts to or from a field value. Use
+  `UtcTimestamp::now()` or `UtcTimestamp::from(time)`. `SessionConfig` has a
+  `timestamp_precision` field.
+- Validation checks the format of every date and time type, and of MonthYear: a malformed one is
+  rejected (SessionRejectReason 6) where it used to pass.
+- Decoding is about 45% faster, and parsing a typed message with timestamps about 40% faster.
 
 ### `turbojet-dictionary`
 
@@ -31,6 +42,9 @@ Notable changes to the published crates.
 
 - Breaking: data fields are generated as `Vec<u8>` (`data` or `opt_data`), and their Length fields
   are no longer fields of their own.
+- Breaking: dates, times, MonthYear and char fields are generated with their types rather than as
+  `String`, and multi-value fields as lists: `Vec<ExecInst>` where the field has codes (with
+  `Code` when lenient), `Vec<String>` where it doesn't.
 
 ## `turbojet` 0.1.1 (2026-09-29)
 
