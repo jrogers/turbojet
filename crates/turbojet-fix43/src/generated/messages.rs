@@ -70,16 +70,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Side(54).
         side: req Side = SIDE,
         /// QuantityType(465).
@@ -102,10 +98,8 @@ turbojet::fix_message! {
         ioi_qualifiers: group IOIQualGrp = NO_IOI_QUALIFIERS,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// URLLink(149).
@@ -161,10 +155,8 @@ impl IOI {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             side,
             quantity_type: None,
@@ -177,7 +169,6 @@ impl IOI {
             ioi_natural_flag: None,
             ioi_qualifiers: Vec::new(),
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             transact_time: None,
             url_link: None,
@@ -256,16 +247,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// AdvSide(4).
         adv_side: req AdvSide = ADV_SIDE,
         /// Quantity(53).
@@ -280,10 +267,8 @@ turbojet::fix_message! {
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// URLLink(149).
         url_link: opt String = URL_LINK,
         /// LastMkt(30).
@@ -331,10 +316,8 @@ impl Advertisement {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             adv_side,
             quantity,
@@ -343,7 +326,6 @@ impl Advertisement {
             trade_date: None,
             transact_time: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             url_link: None,
             last_mkt: None,
@@ -472,16 +454,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Side(54).
         side: req Side = SIDE,
         /// NoStipulations(232).
@@ -640,10 +618,8 @@ turbojet::fix_message! {
         max_show: opt Decimal = MAX_SHOW,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// FutSettDate2(193).
         fut_sett_date2: opt String = FUT_SETT_DATE2,
         /// OrderQty2(192).
@@ -751,10 +727,8 @@ impl ExecutionReport {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             side,
             stipulations: Vec::new(),
@@ -834,7 +808,6 @@ impl ExecutionReport {
             position_effect: None,
             max_show: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             fut_sett_date2: None,
             order_qty2: None,
@@ -893,10 +866,8 @@ turbojet::fix_message! {
         cxl_rej_reason: opt CxlRejReason = CXL_REJ_REASON,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -928,7 +899,6 @@ impl OrderCancelReject {
             cxl_rej_response_to,
             cxl_rej_reason: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -943,10 +913,8 @@ turbojet::fix_message! {
         urgency: opt Urgency = URGENCY,
         /// Headline(148).
         headline: req String = HEADLINE,
-        /// EncodedHeadlineLen(358).
-        encoded_headline_len: opt i64 = ENCODED_HEADLINE_LEN,
         /// EncodedHeadline(359).
-        encoded_headline: opt String = ENCODED_HEADLINE,
+        encoded_headline: opt_data Vec<u8> = ENCODED_HEADLINE_LEN => ENCODED_HEADLINE,
         /// NoRoutingIDs(215).
         routing_ids: group RoutingGrp = NO_ROUTING_IDS,
         /// NoRelatedSym(146).
@@ -955,10 +923,8 @@ turbojet::fix_message! {
         lines_of_text: req_group LinesOfTextGrp = LINES_OF_TEXT,
         /// URLLink(149).
         url_link: opt String = URL_LINK,
-        /// RawDataLength(95).
-        raw_data_length: opt i64 = RAW_DATA_LENGTH,
         /// RawData(96).
-        raw_data: opt String = RAW_DATA,
+        raw_data: opt_data Vec<u8> = RAW_DATA_LENGTH => RAW_DATA,
     }
 }
 
@@ -970,13 +936,11 @@ impl News {
             orig_time: None,
             urgency: None,
             headline: headline.into(),
-            encoded_headline_len: None,
             encoded_headline: None,
             routing_ids: Vec::new(),
             related_sym: Vec::new(),
             lines_of_text,
             url_link: None,
-            raw_data_length: None,
             raw_data: None,
         }
     }
@@ -993,10 +957,8 @@ turbojet::fix_message! {
         orig_time: opt UtcTimestamp = ORIG_TIME,
         /// Subject(147).
         subject: req String = SUBJECT,
-        /// EncodedSubjectLen(356).
-        encoded_subject_len: opt i64 = ENCODED_SUBJECT_LEN,
         /// EncodedSubject(357).
-        encoded_subject: opt String = ENCODED_SUBJECT,
+        encoded_subject: opt_data Vec<u8> = ENCODED_SUBJECT_LEN => ENCODED_SUBJECT,
         /// NoRoutingIDs(215).
         routing_ids: group RoutingGrp = NO_ROUTING_IDS,
         /// NoRelatedSym(146).
@@ -1007,10 +969,8 @@ turbojet::fix_message! {
         cl_ord_id: opt String = CL_ORD_ID,
         /// LinesOfText(33).
         lines_of_text: req_group LinesOfTextGrp = LINES_OF_TEXT,
-        /// RawDataLength(95).
-        raw_data_length: opt i64 = RAW_DATA_LENGTH,
         /// RawData(96).
-        raw_data: opt String = RAW_DATA,
+        raw_data: opt_data Vec<u8> = RAW_DATA_LENGTH => RAW_DATA,
     }
 }
 
@@ -1028,14 +988,12 @@ impl Email {
             email_type,
             orig_time: None,
             subject: subject.into(),
-            encoded_subject_len: None,
             encoded_subject: None,
             routing_ids: Vec::new(),
             related_sym: Vec::new(),
             order_id: None,
             cl_ord_id: None,
             lines_of_text,
-            raw_data_length: None,
             raw_data: None,
         }
     }
@@ -1144,16 +1102,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// Side(54).
@@ -1240,10 +1194,8 @@ turbojet::fix_message! {
         settl_currency: opt String = SETTL_CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// FutSettDate2(193).
         fut_sett_date2: opt String = FUT_SETT_DATE2,
         /// OrderQty2(192).
@@ -1340,10 +1292,8 @@ impl NewOrderSingle {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             prev_close_px: None,
             side,
@@ -1387,7 +1337,6 @@ impl NewOrderSingle {
             forex_req: None,
             settl_currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             fut_sett_date2: None,
             order_qty2: None,
@@ -1434,10 +1383,8 @@ turbojet::fix_message! {
         list_exec_inst_type: opt ListExecInstType = LIST_EXEC_INST_TYPE,
         /// ListExecInst(69).
         list_exec_inst: opt String = LIST_EXEC_INST,
-        /// EncodedListExecInstLen(352).
-        encoded_list_exec_inst_len: opt i64 = ENCODED_LIST_EXEC_INST_LEN,
         /// EncodedListExecInst(353).
-        encoded_list_exec_inst: opt String = ENCODED_LIST_EXEC_INST,
+        encoded_list_exec_inst: opt_data Vec<u8> = ENCODED_LIST_EXEC_INST_LEN => ENCODED_LIST_EXEC_INST,
         /// TotNoOrders(68).
         tot_no_orders: req i64 = TOT_NO_ORDERS,
         /// NoOrders(73).
@@ -1461,7 +1408,6 @@ impl NewOrderList {
             regist_id: None,
             list_exec_inst_type: None,
             list_exec_inst: None,
-            encoded_list_exec_inst_len: None,
             encoded_list_exec_inst: None,
             tot_no_orders,
             orders,
@@ -1548,16 +1494,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Side(54).
         side: req Side = SIDE,
         /// TransactTime(60).
@@ -1576,10 +1518,8 @@ turbojet::fix_message! {
         compliance_id: opt String = COMPLIANCE_ID,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -1631,10 +1571,8 @@ impl OrderCancelRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             side,
             transact_time,
@@ -1645,7 +1583,6 @@ impl OrderCancelRequest {
             rounding_modulus: None,
             compliance_id: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -1760,16 +1697,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Side(54).
         side: req Side = SIDE,
         /// TransactTime(60).
@@ -1852,10 +1785,8 @@ turbojet::fix_message! {
         settl_currency: opt String = SETTL_CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// FutSettDate2(193).
         fut_sett_date2: opt String = FUT_SETT_DATE2,
         /// OrderQty2(192).
@@ -1952,10 +1883,8 @@ impl OrderCancelReplaceRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             side,
             transact_time,
@@ -1997,7 +1926,6 @@ impl OrderCancelReplaceRequest {
             forex_req: None,
             settl_currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             fut_sett_date2: None,
             order_qty2: None,
@@ -2088,16 +2016,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Side(54).
         side: req Side = SIDE,
     }
@@ -2142,10 +2066,8 @@ impl OrderStatusRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             side,
         }
@@ -2231,16 +2153,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Quantity(53).
         quantity: req Decimal = QUANTITY,
         /// LastMkt(30).
@@ -2281,10 +2199,8 @@ turbojet::fix_message! {
         position_effect: opt PositionEffect = POSITION_EFFECT,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// NumDaysInterest(157).
         num_days_interest: opt i64 = NUM_DAYS_INTEREST,
         /// AccruedInterestRate(158).
@@ -2349,10 +2265,8 @@ impl Allocation {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             quantity,
             last_mkt: None,
@@ -2374,7 +2288,6 @@ impl Allocation {
             net_money: None,
             position_effect: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             num_days_interest: None,
             accrued_interest_rate: None,
@@ -2396,10 +2309,8 @@ turbojet::fix_message! {
         trade_origination_date: opt String = TRADE_ORIGINATION_DATE,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -2407,14 +2318,7 @@ impl ListCancelRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(list_id: impl Into<String>, transact_time: UtcTimestamp) -> Self {
-        Self {
-            list_id: list_id.into(),
-            transact_time,
-            trade_origination_date: None,
-            text: None,
-            encoded_text_len: None,
-            encoded_text: None,
-        }
+        Self { list_id: list_id.into(), transact_time, trade_origination_date: None, text: None, encoded_text: None }
     }
 }
 
@@ -2431,10 +2335,8 @@ turbojet::fix_message! {
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -2448,7 +2350,6 @@ impl ListExecute {
             bid_id: None,
             transact_time,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -2461,10 +2362,8 @@ turbojet::fix_message! {
         list_id: req String = LIST_ID,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -2472,7 +2371,7 @@ impl ListStatusRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(list_id: impl Into<String>) -> Self {
-        Self { list_id: list_id.into(), text: None, encoded_text_len: None, encoded_text: None }
+        Self { list_id: list_id.into(), text: None, encoded_text: None }
     }
 }
 
@@ -2491,10 +2390,8 @@ turbojet::fix_message! {
         rpt_seq: req i64 = RPT_SEQ,
         /// ListStatusText(444).
         list_status_text: opt String = LIST_STATUS_TEXT,
-        /// EncodedListStatusTextLen(445).
-        encoded_list_status_text_len: opt i64 = ENCODED_LIST_STATUS_TEXT_LEN,
         /// EncodedListStatusText(446).
-        encoded_list_status_text: opt String = ENCODED_LIST_STATUS_TEXT,
+        encoded_list_status_text: opt_data Vec<u8> = ENCODED_LIST_STATUS_TEXT_LEN => ENCODED_LIST_STATUS_TEXT,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// TotNoOrders(68).
@@ -2523,7 +2420,6 @@ impl ListStatus {
             list_order_status,
             rpt_seq,
             list_status_text: None,
-            encoded_list_status_text_len: None,
             encoded_list_status_text: None,
             transact_time: None,
             tot_no_orders,
@@ -2549,10 +2445,8 @@ turbojet::fix_message! {
         alloc_rej_code: opt AllocRejCode = ALLOC_REJ_CODE,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// LegalConfirm(650).
         legal_confirm: opt bool = LEGAL_CONFIRM,
     }
@@ -2570,7 +2464,6 @@ impl AllocationAck {
             alloc_status,
             alloc_rej_code: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             legal_confirm: None,
         }
@@ -2642,16 +2535,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Side(54).
         side: req Side = SIDE,
         /// OrderQty(38).
@@ -2670,10 +2559,8 @@ turbojet::fix_message! {
         last_px: opt Decimal = LAST_PX,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -2713,10 +2600,8 @@ impl DontKnowTrade {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             side,
             order_qty: None,
@@ -2727,7 +2612,6 @@ impl DontKnowTrade {
             last_qty: None,
             last_px: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -2744,10 +2628,8 @@ turbojet::fix_message! {
         related_sym: req_group StrmAsgnRptInstrmtGrp = NO_RELATED_SYM,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -2755,14 +2637,7 @@ impl QuoteRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(quote_req_id: impl Into<String>, related_sym: Vec<StrmAsgnRptInstrmtGrp>) -> Self {
-        Self {
-            quote_req_id: quote_req_id.into(),
-            rfq_req_id: None,
-            related_sym,
-            text: None,
-            encoded_text_len: None,
-            encoded_text: None,
-        }
+        Self { quote_req_id: quote_req_id.into(), rfq_req_id: None, related_sym, text: None, encoded_text: None }
     }
 }
 
@@ -2843,16 +2718,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// BidPx(132).
         bid_px: opt Decimal = BID_PX,
         /// OfferPx(133).
@@ -2921,10 +2792,8 @@ turbojet::fix_message! {
         ex_destination: opt String = EX_DESTINATION,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -2970,10 +2839,8 @@ impl Quote {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             bid_px: None,
             offer_px: None,
@@ -3009,7 +2876,6 @@ impl Quote {
             cust_order_capacity: None,
             ex_destination: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -3291,16 +3157,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// FinancialStatus(291).
         financial_status: opt String = FINANCIAL_STATUS,
         /// CorporateAction(292).
@@ -3352,10 +3214,8 @@ impl MarketDataSnapshotFullRefresh {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             financial_status: None,
             corporate_action: None,
@@ -3395,10 +3255,8 @@ turbojet::fix_message! {
         md_req_rej_reason: opt MDReqRejReason = MD_REQ_REJ_REASON,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -3406,13 +3264,7 @@ impl MarketDataRequestReject {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(md_req_id: impl Into<String>) -> Self {
-        Self {
-            md_req_id: md_req_id.into(),
-            md_req_rej_reason: None,
-            text: None,
-            encoded_text_len: None,
-            encoded_text: None,
-        }
+        Self { md_req_id: md_req_id.into(), md_req_rej_reason: None, text: None, encoded_text: None }
     }
 }
 
@@ -3524,16 +3376,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// Account(1).
@@ -3584,10 +3432,8 @@ impl QuoteStatusRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             party_ids: Vec::new(),
             account: None,
@@ -3710,24 +3556,18 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
         trading_session_id: opt String = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -3774,14 +3614,11 @@ impl SecurityDefinitionRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             trading_session_id: None,
             trading_session_sub_id: None,
@@ -3856,16 +3693,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// TradingSessionID(336).
@@ -3874,10 +3707,8 @@ turbojet::fix_message! {
         trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// NoLegs(555).
         legs: group SecLstUpdRelSymsLegGrp = NO_LEGS,
         /// RoundLot(561).
@@ -3927,16 +3758,13 @@ impl SecurityDefinition {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             currency: None,
             trading_session_id: None,
             trading_session_sub_id: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             legs: Vec::new(),
             round_lot: None,
@@ -4006,16 +3834,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// SubscriptionRequestType(263).
@@ -4061,10 +3885,8 @@ impl SecurityStatusRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             currency: None,
             subscription_request_type,
@@ -4135,16 +3957,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// TradingSessionID(336).
@@ -4181,10 +3999,8 @@ turbojet::fix_message! {
         adjustment: opt Adjustment = ADJUSTMENT,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -4222,10 +4038,8 @@ impl SecurityStatus {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             currency: None,
             trading_session_id: None,
@@ -4245,7 +4059,6 @@ impl SecurityStatus {
             transact_time: None,
             adjustment: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -4317,10 +4130,8 @@ turbojet::fix_message! {
         total_volume_traded: opt Decimal = TOTAL_VOLUME_TRADED,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -4344,7 +4155,6 @@ impl TradingSessionStatus {
             trad_ses_end_time: None,
             total_volume_traded: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -4452,10 +4262,8 @@ turbojet::fix_message! {
         strike_time: opt UtcTimestamp = STRIKE_TIME,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -4498,7 +4306,6 @@ impl BidRequest {
             basis_px_type,
             strike_time: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -4712,16 +4519,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// UnderlyingSymbol(311).
         underlying_symbol: opt String = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
@@ -4780,26 +4583,20 @@ turbojet::fix_message! {
         underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
         underlying_issuer: opt String = UNDERLYING_ISSUER,
-        /// EncodedUnderlyingIssuerLen(362).
-        encoded_underlying_issuer_len: opt i64 = ENCODED_UNDERLYING_ISSUER_LEN,
         /// EncodedUnderlyingIssuer(363).
-        encoded_underlying_issuer: opt String = ENCODED_UNDERLYING_ISSUER,
+        encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
         underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
-        /// EncodedUnderlyingSecurityDescLen(364).
-        encoded_underlying_security_desc_len: opt i64 = ENCODED_UNDERLYING_SECURITY_DESC_LEN,
         /// EncodedUnderlyingSecurityDesc(365).
-        encoded_underlying_security_desc: opt String = ENCODED_UNDERLYING_SECURITY_DESC,
+        encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// Side(54).
         side: opt Side = SIDE,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -4845,10 +4642,8 @@ impl OrderMassCancelRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             underlying_symbol: None,
             underlying_symbol_sfx: None,
@@ -4879,15 +4674,12 @@ impl OrderMassCancelRequest {
             underlying_coupon_rate: None,
             underlying_security_exchange: None,
             underlying_issuer: None,
-            encoded_underlying_issuer_len: None,
             encoded_underlying_issuer: None,
             underlying_security_desc: None,
-            encoded_underlying_security_desc_len: None,
             encoded_underlying_security_desc: None,
             side: None,
             transact_time,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -4974,16 +4766,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// UnderlyingSymbol(311).
         underlying_symbol: opt String = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
@@ -5042,26 +4830,20 @@ turbojet::fix_message! {
         underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
         underlying_issuer: opt String = UNDERLYING_ISSUER,
-        /// EncodedUnderlyingIssuerLen(362).
-        encoded_underlying_issuer_len: opt i64 = ENCODED_UNDERLYING_ISSUER_LEN,
         /// EncodedUnderlyingIssuer(363).
-        encoded_underlying_issuer: opt String = ENCODED_UNDERLYING_ISSUER,
+        encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
         underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
-        /// EncodedUnderlyingSecurityDescLen(364).
-        encoded_underlying_security_desc_len: opt i64 = ENCODED_UNDERLYING_SECURITY_DESC_LEN,
         /// EncodedUnderlyingSecurityDesc(365).
-        encoded_underlying_security_desc: opt String = ENCODED_UNDERLYING_SECURITY_DESC,
+        encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// Side(54).
         side: opt Side = SIDE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -5113,10 +4895,8 @@ impl OrderMassCancelReport {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             underlying_symbol: None,
             underlying_symbol_sfx: None,
@@ -5147,15 +4927,12 @@ impl OrderMassCancelReport {
             underlying_coupon_rate: None,
             underlying_security_exchange: None,
             underlying_issuer: None,
-            encoded_underlying_issuer_len: None,
             encoded_underlying_issuer: None,
             underlying_security_desc: None,
-            encoded_underlying_security_desc_len: None,
             encoded_underlying_security_desc: None,
             side: None,
             transact_time: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -5228,16 +5005,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// SettlmntTyp(63).
         settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
         /// FutSettDate(64).
@@ -5372,10 +5145,8 @@ impl NewOrderCross {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             settlmnt_typ: None,
             fut_sett_date: None,
@@ -5495,16 +5266,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// SettlmntTyp(63).
         settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
         /// FutSettDate(64).
@@ -5642,10 +5409,8 @@ impl CrossOrderCancelReplaceRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             settlmnt_typ: None,
             fut_sett_date: None,
@@ -5765,16 +5530,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
     }
@@ -5826,10 +5587,8 @@ impl CrossOrderCancelRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             transact_time,
         }
@@ -5843,10 +5602,8 @@ turbojet::fix_message! {
         security_req_id: req String = SECURITY_REQ_ID,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
         trading_session_id: opt String = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -5861,7 +5618,6 @@ impl SecurityTypeRequest {
         Self {
             security_req_id: security_req_id.into(),
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             trading_session_id: None,
             trading_session_sub_id: None,
@@ -5884,10 +5640,8 @@ turbojet::fix_message! {
         security_types: group SecTypesGrp = NO_SECURITY_TYPES,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
         trading_session_id: opt String = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -5912,7 +5666,6 @@ impl SecurityTypes {
             total_num_security_types: None,
             security_types: Vec::new(),
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             trading_session_id: None,
             trading_session_sub_id: None,
@@ -5984,24 +5737,18 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
         trading_session_id: opt String = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -6046,14 +5793,11 @@ impl SecurityListRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             trading_session_id: None,
             trading_session_sub_id: None,
@@ -6161,24 +5905,18 @@ turbojet::fix_message! {
         underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
         underlying_issuer: opt String = UNDERLYING_ISSUER,
-        /// EncodedUnderlyingIssuerLen(362).
-        encoded_underlying_issuer_len: opt i64 = ENCODED_UNDERLYING_ISSUER_LEN,
         /// EncodedUnderlyingIssuer(363).
-        encoded_underlying_issuer: opt String = ENCODED_UNDERLYING_ISSUER,
+        encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
         underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
-        /// EncodedUnderlyingSecurityDescLen(364).
-        encoded_underlying_security_desc_len: opt i64 = ENCODED_UNDERLYING_SECURITY_DESC_LEN,
         /// EncodedUnderlyingSecurityDesc(365).
-        encoded_underlying_security_desc: opt String = ENCODED_UNDERLYING_SECURITY_DESC,
+        encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// Currency(15).
         currency: opt String = CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
         trading_session_id: opt String = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -6224,14 +5962,11 @@ impl DerivativeSecurityListRequest {
             underlying_coupon_rate: None,
             underlying_security_exchange: None,
             underlying_issuer: None,
-            encoded_underlying_issuer_len: None,
             encoded_underlying_issuer: None,
             underlying_security_desc: None,
-            encoded_underlying_security_desc_len: None,
             encoded_underlying_security_desc: None,
             currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             trading_session_id: None,
             trading_session_sub_id: None,
@@ -6307,16 +6042,12 @@ turbojet::fix_message! {
         underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
         underlying_issuer: opt String = UNDERLYING_ISSUER,
-        /// EncodedUnderlyingIssuerLen(362).
-        encoded_underlying_issuer_len: opt i64 = ENCODED_UNDERLYING_ISSUER_LEN,
         /// EncodedUnderlyingIssuer(363).
-        encoded_underlying_issuer: opt String = ENCODED_UNDERLYING_ISSUER,
+        encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
         underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
-        /// EncodedUnderlyingSecurityDescLen(364).
-        encoded_underlying_security_desc_len: opt i64 = ENCODED_UNDERLYING_SECURITY_DESC_LEN,
         /// EncodedUnderlyingSecurityDesc(365).
-        encoded_underlying_security_desc: opt String = ENCODED_UNDERLYING_SECURITY_DESC,
+        encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// TotalNumSecurities(393).
         total_num_securities: opt i64 = TOTAL_NUM_SECURITIES,
         /// NoRelatedSym(146).
@@ -6365,10 +6096,8 @@ impl DerivativeSecurityList {
             underlying_coupon_rate: None,
             underlying_security_exchange: None,
             underlying_issuer: None,
-            encoded_underlying_issuer_len: None,
             encoded_underlying_issuer: None,
             underlying_security_desc: None,
-            encoded_underlying_security_desc_len: None,
             encoded_underlying_security_desc: None,
             total_num_securities: None,
             related_sym: Vec::new(),
@@ -6479,16 +6208,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// NoLegs(555).
@@ -6557,10 +6282,8 @@ turbojet::fix_message! {
         settl_currency: opt String = SETTL_CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// PositionEffect(77).
         position_effect: opt PositionEffect = POSITION_EFFECT,
         /// CoveredOrUncovered(203).
@@ -6650,10 +6373,8 @@ impl NewOrderMultileg {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             prev_close_px: None,
             legs,
@@ -6689,7 +6410,6 @@ impl NewOrderMultileg {
             forex_req: None,
             settl_currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             position_effect: None,
             covered_or_uncovered: None,
@@ -6816,16 +6536,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// NoLegs(555).
@@ -6894,10 +6610,8 @@ turbojet::fix_message! {
         settl_currency: opt String = SETTL_CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// PositionEffect(77).
         position_effect: opt PositionEffect = POSITION_EFFECT,
         /// CoveredOrUncovered(203).
@@ -6991,10 +6705,8 @@ impl MultilegOrderCancelReplaceRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             prev_close_px: None,
             legs,
@@ -7030,7 +6742,6 @@ impl MultilegOrderCancelReplaceRequest {
             forex_req: None,
             settl_currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             position_effect: None,
             covered_or_uncovered: None,
@@ -7123,26 +6834,20 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// NoDates(580).
         dates: group TrdCapDtGrp = NO_DATES,
         /// Side(54).
         side: opt Side = SIDE,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradeInputSource(578).
         trade_input_source: opt String = TRADE_INPUT_SOURCE,
         /// TradeInputDevice(579).
@@ -7191,15 +6896,12 @@ impl TradeCaptureReportRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             dates: Vec::new(),
             side: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             trade_input_source: None,
             trade_input_device: None,
@@ -7284,16 +6986,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -7382,10 +7080,8 @@ impl TradeCaptureReport {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             order_qty: None,
             cash_order_qty: None,
@@ -7479,16 +7175,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// UnderlyingSymbol(311).
         underlying_symbol: opt String = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
@@ -7547,16 +7239,12 @@ turbojet::fix_message! {
         underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
         underlying_issuer: opt String = UNDERLYING_ISSUER,
-        /// EncodedUnderlyingIssuerLen(362).
-        encoded_underlying_issuer_len: opt i64 = ENCODED_UNDERLYING_ISSUER_LEN,
         /// EncodedUnderlyingIssuer(363).
-        encoded_underlying_issuer: opt String = ENCODED_UNDERLYING_ISSUER,
+        encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
         underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
-        /// EncodedUnderlyingSecurityDescLen(364).
-        encoded_underlying_security_desc_len: opt i64 = ENCODED_UNDERLYING_SECURITY_DESC_LEN,
         /// EncodedUnderlyingSecurityDesc(365).
-        encoded_underlying_security_desc: opt String = ENCODED_UNDERLYING_SECURITY_DESC,
+        encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// Side(54).
         side: opt Side = SIDE,
     }
@@ -7601,10 +7289,8 @@ impl OrderMassStatusRequest {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             underlying_symbol: None,
             underlying_symbol_sfx: None,
@@ -7635,10 +7321,8 @@ impl OrderMassStatusRequest {
             underlying_coupon_rate: None,
             underlying_security_exchange: None,
             underlying_issuer: None,
-            encoded_underlying_issuer_len: None,
             encoded_underlying_issuer: None,
             underlying_security_desc: None,
-            encoded_underlying_security_desc_len: None,
             encoded_underlying_security_desc: None,
             side: None,
         }
@@ -7658,10 +7342,8 @@ turbojet::fix_message! {
         related_sym: req_group StrmAsgnRptInstrmtGrp = NO_RELATED_SYM,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -7679,7 +7361,6 @@ impl QuoteRequestReject {
             quote_request_reject_reason,
             related_sym,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -7782,16 +7463,12 @@ turbojet::fix_message! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// BidPx(132).
         bid_px: opt Decimal = BID_PX,
         /// OfferPx(133).
@@ -7903,10 +7580,8 @@ impl QuoteStatusReport {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             bid_px: None,
             offer_px: None,

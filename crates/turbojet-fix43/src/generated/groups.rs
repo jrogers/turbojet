@@ -205,16 +205,12 @@ turbojet::fix_group! {
         leg_security_exchange: opt String = LEG_SECURITY_EXCHANGE,
         /// LegIssuer(617).
         leg_issuer: opt String = LEG_ISSUER,
-        /// EncodedLegIssuerLen(618).
-        encoded_leg_issuer_len: opt i64 = ENCODED_LEG_ISSUER_LEN,
         /// EncodedLegIssuer(619).
-        encoded_leg_issuer: opt String = ENCODED_LEG_ISSUER,
+        encoded_leg_issuer: opt_data Vec<u8> = ENCODED_LEG_ISSUER_LEN => ENCODED_LEG_ISSUER,
         /// LegSecurityDesc(620).
         leg_security_desc: opt String = LEG_SECURITY_DESC,
-        /// EncodedLegSecurityDescLen(621).
-        encoded_leg_security_desc_len: opt i64 = ENCODED_LEG_SECURITY_DESC_LEN,
         /// EncodedLegSecurityDesc(622).
-        encoded_leg_security_desc: opt String = ENCODED_LEG_SECURITY_DESC,
+        encoded_leg_security_desc: opt_data Vec<u8> = ENCODED_LEG_SECURITY_DESC_LEN => ENCODED_LEG_SECURITY_DESC,
         /// LegRatioQty(623).
         leg_ratio_qty: opt Decimal = LEG_RATIO_QTY,
         /// LegSide(624).
@@ -269,10 +265,8 @@ impl SecLstUpdRelSymsLegGrp {
             leg_coupon_rate: None,
             leg_security_exchange: None,
             leg_issuer: None,
-            encoded_leg_issuer_len: None,
             encoded_leg_issuer: None,
             leg_security_desc: None,
-            encoded_leg_security_desc_len: None,
             encoded_leg_security_desc: None,
             leg_ratio_qty: None,
             leg_side: None,
@@ -391,16 +385,12 @@ turbojet::fix_group! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// QuoteRequestType(303).
@@ -447,10 +437,8 @@ impl StrmAsgnRptInstrmtGrp {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             prev_close_px: None,
             quote_request_type: None,
@@ -466,10 +454,8 @@ turbojet::fix_group! {
     LinesOfTextGrp {
         /// Text(58).
         text: req String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -477,7 +463,7 @@ impl LinesOfTextGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), encoded_text_len: None, encoded_text: None }
+        Self { text: text.into(), encoded_text: None }
     }
 }
 
@@ -542,10 +528,8 @@ turbojet::fix_group! {
         ord_rej_reason: opt OrdRejReason = ORD_REJ_REASON,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -571,7 +555,6 @@ impl OrdListStatGrp {
             avg_px,
             ord_rej_reason: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -686,16 +669,12 @@ turbojet::fix_group! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// FinancialStatus(291).
         financial_status: opt String = FINANCIAL_STATUS,
         /// CorporateAction(292).
@@ -766,10 +745,8 @@ turbojet::fix_group! {
         net_chg_prev_day: opt Decimal = NET_CHG_PREV_DAY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -811,10 +788,8 @@ impl MDIncGrp {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             financial_status: None,
             corporate_action: None,
@@ -851,7 +826,6 @@ impl MDIncGrp {
             total_volume_traded_time: None,
             net_chg_prev_day: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -918,16 +892,12 @@ turbojet::fix_group! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// BidPx(132).
         bid_px: opt Decimal = BID_PX,
         /// OfferPx(133).
@@ -1011,10 +981,8 @@ impl QuotEntryGrp {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             bid_px: None,
             offer_px: None,
@@ -1106,16 +1074,12 @@ turbojet::fix_group! {
         underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
         underlying_issuer: opt String = UNDERLYING_ISSUER,
-        /// EncodedUnderlyingIssuerLen(362).
-        encoded_underlying_issuer_len: opt i64 = ENCODED_UNDERLYING_ISSUER_LEN,
         /// EncodedUnderlyingIssuer(363).
-        encoded_underlying_issuer: opt String = ENCODED_UNDERLYING_ISSUER,
+        encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
         underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
-        /// EncodedUnderlyingSecurityDescLen(364).
-        encoded_underlying_security_desc_len: opt i64 = ENCODED_UNDERLYING_SECURITY_DESC_LEN,
         /// EncodedUnderlyingSecurityDesc(365).
-        encoded_underlying_security_desc: opt String = ENCODED_UNDERLYING_SECURITY_DESC,
+        encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// QuoteSetValidUntilTime(367).
         quote_set_valid_until_time: opt UtcTimestamp = QUOTE_SET_VALID_UNTIL_TIME,
         /// TotQuoteEntries(304).
@@ -1160,10 +1124,8 @@ impl QuotSetGrp {
             underlying_coupon_rate: None,
             underlying_security_exchange: None,
             underlying_issuer: None,
-            encoded_underlying_issuer_len: None,
             encoded_underlying_issuer: None,
             underlying_security_desc: None,
-            encoded_underlying_security_desc_len: None,
             encoded_underlying_security_desc: None,
             quote_set_valid_until_time: None,
             tot_quote_entries,
@@ -1273,10 +1235,8 @@ turbojet::fix_group! {
         trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -1301,7 +1261,6 @@ impl BidCompRspGrp {
             trading_session_id: None,
             trading_session_sub_id: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -1366,16 +1325,12 @@ turbojet::fix_group! {
         security_exchange: opt String = SECURITY_EXCHANGE,
         /// Issuer(106).
         issuer: opt String = ISSUER,
-        /// EncodedIssuerLen(348).
-        encoded_issuer_len: opt i64 = ENCODED_ISSUER_LEN,
         /// EncodedIssuer(349).
-        encoded_issuer: opt String = ENCODED_ISSUER,
+        encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
         security_desc: opt String = SECURITY_DESC,
-        /// EncodedSecurityDescLen(350).
-        encoded_security_desc_len: opt i64 = ENCODED_SECURITY_DESC_LEN,
         /// EncodedSecurityDesc(351).
-        encoded_security_desc: opt String = ENCODED_SECURITY_DESC,
+        encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// ClOrdID(11).
@@ -1390,10 +1345,8 @@ turbojet::fix_group! {
         currency: opt String = CURRENCY,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
 }
 
@@ -1430,10 +1383,8 @@ impl InstrmtStrkPxGrp {
             coupon_rate: None,
             security_exchange: None,
             issuer: None,
-            encoded_issuer_len: None,
             encoded_issuer: None,
             security_desc: None,
-            encoded_security_desc_len: None,
             encoded_security_desc: None,
             prev_close_px: None,
             cl_ord_id: None,
@@ -1442,7 +1393,6 @@ impl InstrmtStrkPxGrp {
             price,
             currency: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
         }
     }
@@ -1626,10 +1576,8 @@ turbojet::fix_group! {
         position_effect: opt PositionEffect = POSITION_EFFECT,
         /// Text(58).
         text: opt String = TEXT,
-        /// EncodedTextLen(354).
-        encoded_text_len: opt i64 = ENCODED_TEXT_LEN,
         /// EncodedText(355).
-        encoded_text: opt String = ENCODED_TEXT,
+        encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// MultiLegReportingType(442).
         multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
         /// NoContAmts(518).
@@ -1684,7 +1632,6 @@ impl TrdCapRptAckSideGrp {
             settl_curr_fx_rate_calc: None,
             position_effect: None,
             text: None,
-            encoded_text_len: None,
             encoded_text: None,
             multi_leg_reporting_type: None,
             cont_amts: Vec::new(),

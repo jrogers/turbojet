@@ -54,6 +54,9 @@ pub(crate) enum Presence {
     Opt,
     Group,
     ReqGroup,
+    /// A data field, with its Length field.
+    Data,
+    OptData,
 }
 
 impl Presence {
@@ -63,11 +66,22 @@ impl Presence {
             Self::Opt => "opt",
             Self::Group => "group",
             Self::ReqGroup => "req_group",
+            Self::Data => "data",
+            Self::OptData => "opt_data",
         }
     }
 
     pub(crate) fn is_group(self) -> bool {
         matches!(self, Self::Group | Self::ReqGroup)
+    }
+
+    /// The same kind of slot, required.
+    fn required(self) -> Self {
+        match self {
+            Self::Req | Self::Opt => Self::Req,
+            Self::Group | Self::ReqGroup => Self::ReqGroup,
+            Self::Data | Self::OptData => Self::Data,
+        }
     }
 }
 
@@ -78,6 +92,8 @@ pub(crate) struct Slot {
     pub ty: String,
     /// The tag constant: the field's, or the group's NumInGroup field's.
     pub tag: String,
+    /// A data field's Length field's tag constant.
+    pub length: Option<String>,
     pub doc: String,
 }
 
@@ -196,34 +212,59 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
 
     // A field repeated in one struct (through components, say) keeps its first slot, required if
     // any occurrence is: parsing takes a tag's first occurrence, so a second slot would stay empty.
+    // A data field takes the Length field listed just before it (see `Dictionary::data_fields`)
+    // into its slot: it's written from the data's length.
+    let is_length_of_next = |members: &[Flat], i: usize| {
+        let field = |i: usize| match members.get(i) {
+            Some(Flat::Field { name, .. }) => dict.field(name),
+            _ => None,
+        };
+        field(i).is_some_and(|f| matches!(f.ty, FieldType::Length | FieldType::Int))
+            && field(i + 1).is_some_and(|f| matches!(f.ty, FieldType::Data | FieldType::XmlData))
+    };
     let slots = |owner: &str, members: &[Flat]| -> Result<Vec<Slot>, Error> {
         let mut out: Vec<Slot> = Vec::new();
         let mut firsts: Vec<&Flat> = Vec::new();
-        for member in members {
+        for (index, member) in members.iter().enumerate() {
+            if is_length_of_next(members, index) {
+                continue;
+            }
             if let Some(i) = firsts.iter().position(|f| f.name() == member.name()) {
                 if !firsts[i].same_as(member) {
                     return Err(Error(format!("{owner} has two different {}", member.name())));
                 }
                 if member.required() {
-                    out[i].presence = if out[i].presence.is_group() { Presence::ReqGroup } else { Presence::Req };
+                    out[i].presence = out[i].presence.required();
                 }
                 continue;
             }
             let slot = match member {
                 Flat::Field { name, required } => {
                     let field = dict.field(name).expect("the loader checks references");
+                    let length = index
+                        .checked_sub(1)
+                        .filter(|&before| is_length_of_next(members, before))
+                        .map(|before| naming::constant(members[before].name()));
                     let ty = match enum_types.get(name.as_str()) {
+                        _ if length.is_some() => "Vec<u8>".to_string(),
                         Some(ty) if lenient_all || lenient.contains(name) => format!("Code<{ty}>"),
                         Some(ty) => ty.clone(),
                         // Passwords print as *** so they can't leak into logs.
                         None if matches!(field.tag, 554 | 925) => "Secret".to_string(),
                         None => rust_type(&field.ty).to_string(),
                     };
+                    let presence = match (length.is_some(), *required) {
+                        (true, true) => Presence::Data,
+                        (true, false) => Presence::OptData,
+                        (false, true) => Presence::Req,
+                        (false, false) => Presence::Opt,
+                    };
                     Slot {
                         ident: naming::field_ident(name),
-                        presence: if *required { Presence::Req } else { Presence::Opt },
+                        presence,
                         ty,
                         tag: naming::constant(name),
+                        length,
                         doc: field_doc(field, docs),
                     }
                 }
@@ -234,6 +275,7 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
                         presence: if *required { Presence::ReqGroup } else { Presence::Group },
                         ty: group_names[&(name.as_str(), group.as_deref(), members.as_slice())].clone(),
                         tag: naming::constant(name),
+                        length: None,
                         doc: field_doc(field, docs),
                     }
                 }
@@ -255,7 +297,7 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
         // The first member delimits entries, so every entry must have it: a field is required, and
         // a nested group (whose NumInGroup is then the delimiter) required with an entry.
         let first = entry.first_mut().expect("the loader rejects empty groups");
-        first.presence = if first.presence.is_group() { Presence::ReqGroup } else { Presence::Req };
+        first.presence = first.presence.required();
         let tag = dict.field(name).expect("the loader checks references").tag;
         groups.push(Struct { name: type_name, doc: format!("An entry of {name}({tag})."), slots: entry });
     }
@@ -443,8 +485,8 @@ fn enum_def(field: &Field, docs: bool) -> Result<EnumDef, Error> {
     Ok(EnumDef { name: field.name.clone(), doc: field_doc(field, docs), variants })
 }
 
-/// The Rust type for a non-enum field. Dates, times and data stay `String` until core has types
-/// for them.
+/// The Rust type for a non-enum field that isn't a data field (those are `Vec<u8>`). Dates and
+/// times stay `String` until core has types for them.
 fn rust_type(ty: &FieldType) -> &'static str {
     match ty {
         FieldType::Int
@@ -964,5 +1006,55 @@ mod tests {
             "<field number='1' name='ClOrdID' type='STRING'/><field number='2' name='ClOrdId' type='STRING'/>",
         );
         assert_eq!(error(&dict), "fields ClOrdID and ClOrdId would both be CL_ORD_ID");
+    }
+
+    #[test]
+    fn data_fields_take_their_length_fields() {
+        let dict = Dictionary::from_xml(
+            "<fix type='FIX' major='4' minor='2'>
+ <header><field name='BeginString' required='Y'/><field name='MsgType' required='Y'/></header>
+ <trailer><field name='CheckSum' required='Y'/></trailer>
+ <messages>
+  <message name='Blob' msgtype='U1' msgcat='app'>
+   <field name='RawDataLength' required='N'/>
+   <field name='RawData' required='Y'/>
+   <field name='Count' required='N'/>
+   <group name='NoDocs' required='N'>
+    <field name='DocID' required='Y'/>
+    <field name='DocLen' required='N'/>
+    <field name='Doc' required='N'/>
+   </group>
+  </message>
+ </messages>
+ <fields>
+  <field number='8' name='BeginString' type='STRING'/>
+  <field number='35' name='MsgType' type='STRING'/>
+  <field number='10' name='CheckSum' type='STRING'/>
+  <field number='95' name='RawDataLength' type='INT'/>
+  <field number='96' name='RawData' type='DATA'/>
+  <field number='5000' name='Count' type='INT'/>
+  <field number='5001' name='NoDocs' type='NUMINGROUP'/>
+  <field number='5002' name='DocID' type='STRING'/>
+  <field number='5003' name='DocLen' type='LENGTH'/>
+  <field number='5004' name='Doc' type='XMLDATA'/>
+ </fields>
+</fix>",
+        )
+        .unwrap();
+        let plan = build(&dict, &[], false).unwrap();
+        let blob = &plan.messages[0].def;
+        let data: Vec<_> =
+            blob.slots.iter().map(|s| (s.ident.as_str(), s.presence, s.ty.as_str(), s.length.as_deref())).collect();
+        assert_eq!(
+            data,
+            [
+                ("raw_data", Presence::Data, "Vec<u8>", Some("RAW_DATA_LENGTH")),
+                ("count", Presence::Opt, "i64", None),
+                ("docs", Presence::Group, "Doc", None),
+            ]
+        );
+        let doc = &plan.groups[0];
+        assert_eq!(doc.slots[1].presence, Presence::OptData);
+        assert_eq!(doc.slots[1].length.as_deref(), Some("DOC_LEN"));
     }
 }

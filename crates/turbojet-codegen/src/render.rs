@@ -88,7 +88,11 @@ fn write_struct(out: &mut String, macro_name: &str, head: &str, s: &Struct) {
     writeln!(out, "    {head} {{").unwrap();
     for slot in &s.slots {
         doc_comment(out, "        ", &slot.doc);
-        writeln!(out, "        {}: {} {} = {},", slot.ident, slot.presence.keyword(), slot.ty, slot.tag).unwrap();
+        let tags = match &slot.length {
+            Some(length) => format!("{length} => {}", slot.tag),
+            None => slot.tag.clone(),
+        };
+        writeln!(out, "        {}: {} {} = {tags},", slot.ident, slot.presence.keyword(), slot.ty).unwrap();
     }
     out.push_str("    }\n}\n");
 
@@ -100,9 +104,9 @@ fn write_struct(out: &mut String, macro_name: &str, head: &str, s: &Struct) {
             Presence::Req if f.ty == "String" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
                 Some(format!("{}: impl Into<{}>", f.ident, f.ty))
             }
-            Presence::Req => Some(format!("{}: {}", f.ident, f.ty)),
+            Presence::Req | Presence::Data => Some(format!("{}: {}", f.ident, f.ty)),
             Presence::ReqGroup => Some(format!("{}: Vec<{}>", f.ident, f.ty)),
-            Presence::Opt | Presence::Group => None,
+            Presence::Opt | Presence::Group | Presence::OptData => None,
         })
         .collect();
     let inits: Vec<String> = s
@@ -112,8 +116,8 @@ fn write_struct(out: &mut String, macro_name: &str, head: &str, s: &Struct) {
             Presence::Req if f.ty == "String" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
                 format!("{0}: {0}.into()", f.ident)
             }
-            Presence::Req | Presence::ReqGroup => f.ident.clone(),
-            Presence::Opt => format!("{}: None", f.ident),
+            Presence::Req | Presence::ReqGroup | Presence::Data => f.ident.clone(),
+            Presence::Opt | Presence::OptData => format!("{}: None", f.ident),
             Presence::Group => format!("{}: Vec::new()", f.ident),
         })
         .collect();
