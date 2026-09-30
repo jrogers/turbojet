@@ -23,8 +23,9 @@ fuzz_target!(|body: &[u8]| {
     };
     let _ = msg.msg_type();
     let body = msg.body();
-    for (tag, _) in msg.fields() {
+    for (tag, _) in msg.fields_bytes() {
         assert_eq!(body.get(tag), msg.get(tag), "tag {tag}");
+        assert_eq!(body.get_bytes(tag), msg.get_bytes(tag), "tag {tag}");
     }
     let _ = msg.field::<u64>(tags::MSG_SEQ_NUM);
     let _ = msg.opt_field::<UtcTimestamp>(tags::SENDING_TIME);

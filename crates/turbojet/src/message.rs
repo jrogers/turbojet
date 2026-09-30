@@ -443,6 +443,13 @@ impl Message {
         self.defect.as_deref()
     }
 
+    /// Whether decoding found a malformed body field, which the session rejects. Public for the
+    /// fuzz targets, not part of the API.
+    #[doc(hidden)]
+    pub fn is_malformed(&self) -> bool {
+        self.defect.is_some()
+    }
+
     /// The fields in order, as `(tag, raw value)`, leaving out data fields that aren't UTF-8.
     pub fn fields(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
         self.fields.iter().filter_map(|f| Some((f.tag, self.text(f)?)))

@@ -60,3 +60,10 @@
 "1.5"
 "Y"
 "N"
+# Data fields: a Length field, then its data, which may contain SOH.
+"95="
+"96="
+"212="
+"213="
+"5000="
+"5001="
