@@ -120,6 +120,8 @@ pub struct Validator {
     envelope: FastSet<u32>,
     /// Whether SessionRejectReason values above 11 exist in this FIX version.
     later_reasons: bool,
+    /// The dictionary's data fields, `(length tag, data tag)`.
+    data_fields: Vec<(u32, u32)>,
     options: ValidationOptions,
 }
 
@@ -167,7 +169,14 @@ impl Validator {
             (Protocol::Fix, Release::Numbered { major, minor, .. }) => (major, minor) >= (4, 3),
             _ => true,
         };
-        Self { messages, fields, envelope, later_reasons, options: ValidationOptions::default() }
+        let data_fields = dict.data_fields();
+        Self { messages, fields, envelope, later_reasons, data_fields, options: ValidationOptions::default() }
+    }
+
+    /// The dictionary's data fields, as `(length tag, data tag)` pairs; see
+    /// [`Dictionary::data_fields`].
+    pub fn data_fields(&self) -> &[(u32, u32)] {
+        &self.data_fields
     }
 
     /// The same validator with `options`.
@@ -200,7 +209,15 @@ impl Validator {
             }
             return Ok(());
         };
-        let fields: Vec<(u32, &str)> = msg.fields().filter(|(tag, _)| !self.in_envelope(*tag)).collect();
+        if self.options.formats {
+            self.check_data_lengths(msg)?;
+        }
+        // A binary value can only be a data field's, which any bytes are in the format of.
+        let fields: Vec<(u32, &str)> = msg
+            .fields_bytes()
+            .filter(|(tag, _)| !self.in_envelope(*tag))
+            .map(|(tag, value)| (tag, std::str::from_utf8(value).unwrap_or_default()))
+            .collect();
         // Few enough tags that a list beats a set.
         let mut seen: Vec<u32> = Vec::with_capacity(fields.len());
         let mut i = 0;
@@ -223,6 +240,24 @@ impl Validator {
             };
         }
         self.check_required(rules, &seen)
+    }
+
+    /// Checks that each data field directly follows its Length field, which gives its length.
+    fn check_data_lengths(&self, msg: &Message) -> Result<(), Invalid> {
+        let mut previous: Option<(u32, &[u8])> = None;
+        for (tag, value) in msg.fields_bytes() {
+            if let Some(&(length_tag, _)) = self.data_fields.iter().find(|&&(_, data)| data == tag) {
+                let length = previous
+                    .filter(|&(previous_tag, _)| previous_tag == length_tag)
+                    .and_then(|(_, length)| std::str::from_utf8(length).ok()?.parse::<usize>().ok());
+                if length != Some(value.len()) {
+                    let text = format!("Tag {length_tag} must give the length of data field {tag}, just before it");
+                    return Err(self.invalid(Some(length_tag), SessionRejectReason::ValueIsIncorrect, &text));
+                }
+            }
+            previous = Some((tag, value));
+        }
+        Ok(())
     }
 
     fn in_envelope(&self, tag: u32) -> bool {

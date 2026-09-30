@@ -182,9 +182,11 @@ pub(crate) mod conformance {
 
         // Data fields, a venue's own too, come back byte for byte.
         let data = DataFields::standard().with(5000, 5001);
-        let msg = app_message(1)
-            .with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01")
-            .with_data(5000, 5001, b"a\x01\xfe");
+        let msg = app_message(1).with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01").with_data(
+            5000,
+            5001,
+            b"a\x01\xfe",
+        );
         {
             let mut log = storage.open(&id("D")).unwrap();
             log.set_data_fields(&data);

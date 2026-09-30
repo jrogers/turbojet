@@ -1293,10 +1293,10 @@ fn a_data_field_without_its_length_is_not_sent() {
     for report in [
         Message::new(MsgType::ExecutionReport).with(tags::RAW_DATA, "a\x01b"),
         Message::new(MsgType::ExecutionReport).with(tags::RAW_DATA_LENGTH, 2u64).with(tags::RAW_DATA, "a\x01b"),
-        Message::new(MsgType::ExecutionReport).with(tags::RAW_DATA_LENGTH, 3u64).with(tags::TEXT, "x").with(
-            tags::RAW_DATA,
-            "a\x01b",
-        ),
+        Message::new(MsgType::ExecutionReport)
+            .with(tags::RAW_DATA_LENGTH, 3u64)
+            .with(tags::TEXT, "x")
+            .with(tags::RAW_DATA, "a\x01b"),
     ] {
         assert!(s.on_command(Command::Send(report.clone()), h.t0).is_empty(), "{report}");
     }

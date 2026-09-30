@@ -11,7 +11,7 @@ readme = "../../README.md"
 keywords = ["fix", "trading", "finance", "protocol", "tokio"]
 categories = ["network-programming", "finance"]
 # These tests need the repository's dictionaries/; the fuzz targets build only with cargo fuzz.
-exclude = ["tests/validation.rs", "tests/fixt.rs", "fuzz"]
+exclude = ["tests/validation.rs", "tests/fixt.rs", "tests/data_fields.rs", "fuzz"]
 
 # Document every feature on docs.rs, so TLS, metrics and time-zone APIs appear.
 [package.metadata.docs.rs]

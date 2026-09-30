@@ -193,7 +193,8 @@ impl SessionConfig {
     /// Checks inbound application messages against `dictionary`, with every check on: one that
     /// fails is answered with a session Reject and not delivered. After
     /// [`with_appl_ver_id`](Self::with_appl_ver_id), it applies to that version's messages. See
-    /// [`crate::validation`].
+    /// [`crate::validation`]. The dictionary's data fields are added to
+    /// [`data_fields`](Self::data_fields).
     #[cfg(feature = "validation")]
     #[must_use]
     pub fn with_dictionary(self, dictionary: &turbojet_dictionary::Dictionary) -> Self {
@@ -201,10 +202,14 @@ impl SessionConfig {
     }
 
     /// Checks inbound application messages with `validator`, e.g. one with some checks off. After
-    /// [`with_appl_ver_id`](Self::with_appl_ver_id), it applies to that version's messages.
+    /// [`with_appl_ver_id`](Self::with_appl_ver_id), it applies to that version's messages. Its
+    /// data fields are added to [`data_fields`](Self::data_fields).
     #[cfg(feature = "validation")]
     #[must_use]
     pub fn with_validator(mut self, validator: crate::validation::Validator) -> Self {
+        for &(length_tag, data_tag) in validator.data_fields() {
+            self.data_fields = self.data_fields.with(length_tag, data_tag);
+        }
         let validator = Some(Arc::new(validator));
         match self.appl_versions.last_mut() {
             Some(version) => version.validator = validator,

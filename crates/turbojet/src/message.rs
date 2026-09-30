@@ -680,11 +680,7 @@ impl Message {
         if count == text_fields + soh_in_data {
             return None;
         }
-        self.fields
-            .iter()
-            .filter(|f| !data.is_data(f.tag))
-            .find(|f| self.bytes(f).contains(&SOH))
-            .map(|f| f.tag)
+        self.fields.iter().filter(|f| !data.is_data(f.tag)).find(|f| self.bytes(f).contains(&SOH)).map(|f| f.tag)
     }
 
     /// The encoded length of the fields for which `keep` is true.
@@ -1023,7 +1019,8 @@ fn scan_group(
     spec: &GroupSpec,
 ) -> Result<(Vec<(usize, usize)>, usize), FieldError> {
     let fields = &msg.fields;
-    let count: u32 = convert(count_tag, Some(msg.text(&fields[position]).unwrap_or_default()))?.expect("value is present");
+    let count: u32 =
+        convert(count_tag, Some(msg.text(&fields[position]).unwrap_or_default()))?.expect("value is present");
     let delimiter = spec.delimiter();
     let mut entries = Vec::with_capacity(count.min(64) as usize);
     let mut i = position + 1;
@@ -1484,10 +1481,8 @@ mod tests {
     // NoPartyIDs(453) { PartyID(448), PartyIDSource(447), PartyRole(452),
     //                   NoPartySubIDs(802) { PartySubID(523), PartySubIDType(803) } }
     const SUB_IDS: GroupSpec = GroupSpec { fields: &[(523, None), (803, None)], lengths: &[0, 0] };
-    const PARTIES: GroupSpec = GroupSpec {
-        fields: &[(448, None), (447, None), (452, None), (802, Some(&SUB_IDS))],
-        lengths: &[0, 0, 0, 0],
-    };
+    const PARTIES: GroupSpec =
+        GroupSpec { fields: &[(448, None), (447, None), (452, None), (802, Some(&SUB_IDS))], lengths: &[0, 0, 0, 0] };
 
     fn raw(text: &str) -> Message {
         Message::from_fields(text.split('|').filter(|f| !f.is_empty()).map(|f| {

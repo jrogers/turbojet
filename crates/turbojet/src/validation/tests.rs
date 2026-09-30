@@ -23,6 +23,13 @@ const DICT: &str = "<fix type='FIX' major='4' minor='4'>
    </group>
   </message>
   <message name='Heartbeat' msgtype='0' msgcat='admin'/>
+  <message name='Blob' msgtype='U1' msgcat='app'>
+   <field name='ClOrdID' required='Y'/>
+   <field name='RawDataLength' required='N'/>
+   <field name='RawData' required='Y'/>
+   <field name='DocLen' required='N'/>
+   <field name='Doc' required='N'/>
+  </message>
  </messages>
  <components>
   <component name='Instrument'><field name='Symbol' required='Y'/></component>
@@ -47,6 +54,10 @@ const DICT: &str = "<fix type='FIX' major='4' minor='4'>
   <field number='5001' name='NoNotes' type='NUMINGROUP'/>
   <field number='5002' name='Note' type='STRING'/>
   <field number='58' name='Text' type='STRING'/>
+  <field number='95' name='RawDataLength' type='LENGTH'/>
+  <field number='96' name='RawData' type='DATA'/>
+  <field number='5003' name='DocLen' type='LENGTH'/>
+  <field number='5004' name='Doc' type='DATA'/>
  </fields>
 </fix>";
 
@@ -196,4 +207,45 @@ fn admin_messages_the_dictionary_defines_are_checked() {
     // And the whole check can be turned off.
     let v = v.with_options(ValidationOptions { admin_messages: false, ..ValidationOptions::default() });
     assert!(!v.applies_to(&MsgType::Heartbeat));
+}
+
+fn blob() -> Message {
+    msg("").with(tags::MSG_TYPE, "U1").with(tags::CL_ORD_ID, "A")
+}
+
+#[test]
+fn binary_data_fields_are_present_and_well_formed() {
+    let v = validator();
+    assert_eq!(v.data_fields(), [(95, 96), (5003, 5004)]);
+    let good = blob().with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01").with_data(5003, 5004, b"\x00");
+    assert_eq!(v.validate(&good), Ok(()));
+    let err = v.validate(&blob()).unwrap_err();
+    assert_eq!((err.tag, err.reason), (Some(tags::RAW_DATA), Some(SessionRejectReason::RequiredTagMissing)));
+}
+
+#[test]
+fn a_data_field_must_follow_its_length() {
+    let v = validator();
+    for bad in [
+        blob().with(tags::RAW_DATA, "ab"),
+        blob().with(tags::RAW_DATA_LENGTH, "3").with(tags::RAW_DATA, "ab"),
+        blob().with(tags::RAW_DATA_LENGTH, "2").with(5003, "1").with(tags::RAW_DATA, "ab"),
+    ] {
+        let err = v.validate(&bad).unwrap_err();
+        assert_eq!(
+            (err.tag, err.reason),
+            (Some(tags::RAW_DATA_LENGTH), Some(SessionRejectReason::ValueIsIncorrect)),
+            "{bad}"
+        );
+    }
+    let off = validator().with_options(ValidationOptions { formats: false, ..ValidationOptions::default() });
+    assert_eq!(off.validate(&blob().with(tags::RAW_DATA, "ab")), Ok(()));
+}
+
+#[test]
+fn a_dictionary_adds_its_data_fields_to_the_session() {
+    let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
+    let config = crate::SessionConfig::new("FIX.4.4", "US").with_dictionary(&dict);
+    assert_eq!(config.data_fields.length_tag(5004), Some(5003));
+    assert_eq!(config.data_fields.length_tag(tags::RAW_DATA), Some(tags::RAW_DATA_LENGTH));
 }
