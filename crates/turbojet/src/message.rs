@@ -97,6 +97,10 @@ pub mod tags {
     pub const SECURE_DATA_LEN: u32 = 90;
     /// SecureData(91).
     pub const SECURE_DATA: u32 = 91;
+    /// RawDataLength(95).
+    pub const RAW_DATA_LENGTH: u32 = 95;
+    /// RawData(96).
+    pub const RAW_DATA: u32 = 96;
     /// PossResend(97).
     pub const POSS_RESEND: u32 = 97;
     /// EncryptMethod(98).
@@ -197,6 +201,10 @@ pub mod tags {
     pub const DEFAULT_APPL_VER_ID: u32 = 1137;
     /// ApplExtID(1156).
     pub const APPL_EXT_ID: u32 = 1156;
+    /// EncryptedPassword(1402).
+    pub const ENCRYPTED_PASSWORD: u32 = 1402;
+    /// EncryptedNewPassword(1404).
+    pub const ENCRYPTED_NEW_PASSWORD: u32 = 1404;
     /// RefApplExtID(1406).
     pub const REF_APPL_EXT_ID: u32 = 1406;
 }
@@ -258,11 +266,19 @@ pub fn utc_timestamp() -> String {
 /// Fields are stored in wire form (`tag=value<SOH>`) back to back in a single buffer, with a
 /// small index of offsets, so decoding, cloning and encoding cost a couple of allocations per
 /// message rather than one per field.
+///
+/// A data field (see [`DataFields`]) may hold any bytes. One whose value isn't UTF-8 is kept
+/// apart and only its bytes can be read ([`get_bytes`](Self::get_bytes),
+/// [`fields_bytes`](Self::fields_bytes)): the text accessors, [`get`](Self::get) and
+/// [`fields`](Self::fields), leave it out.
 #[derive(Clone, Default)]
 pub struct Message {
     /// `tag=value<SOH>` segments. May contain stale segments left behind by [`Message::set`].
     buf: String,
     fields: Vec<Field>,
+    /// The values of data fields that aren't UTF-8, back to back: the fields whose `start` is
+    /// [`BINARY`]. Empty, and unallocated, in most messages.
+    bin: Vec<u8>,
     /// Set only by [`Message::from_frame`], for a message received with a malformed body field.
     defect: Option<Box<Defect>>,
 }
@@ -277,16 +293,25 @@ pub(crate) struct Defect {
     pub text: String,
 }
 
-/// Where one field lives in [`Message::buf`].
+/// Where one field lives in [`Message::buf`], or, for a binary value, in [`Message::bin`].
 #[derive(Clone, Copy)]
 struct Field {
     tag: u32,
-    /// Start of the `tag=value<SOH>` segment.
+    /// Start of the `tag=value<SOH>` segment, or [`BINARY`].
     start: u32,
     /// Start of the value.
     value: u32,
-    /// End of the value, i.e. the index of its SOH.
+    /// End of the value: in `buf`, the index of its SOH.
     end: u32,
+}
+
+/// [`Field::start`] of a value that isn't UTF-8, whose `value..end` is in [`Message::bin`].
+const BINARY: u32 = u32::MAX;
+
+impl Field {
+    fn is_binary(&self) -> bool {
+        self.start == BINARY
+    }
 }
 
 impl Message {
@@ -298,7 +323,12 @@ impl Message {
     /// Like [`Message::new`], reserving room for about `bytes` of encoded fields and `fields`
     /// fields, to avoid reallocating as fields are added.
     pub fn with_capacity(msg_type: MsgType, bytes: usize, fields: usize) -> Self {
-        let mut msg = Self { buf: String::with_capacity(bytes), fields: Vec::with_capacity(fields), defect: None };
+        let mut msg = Self {
+            buf: String::with_capacity(bytes),
+            fields: Vec::with_capacity(fields),
+            bin: Vec::new(),
+            defect: None,
+        };
         msg.push(tags::MSG_TYPE, msg_type);
         msg
     }
@@ -364,7 +394,7 @@ impl Message {
             }
             start = end + 1;
         }
-        let msg = Self { buf: text.into_owned(), fields, defect: defect.map(Box::new) };
+        let msg = Self { buf: text.into_owned(), fields, bin: Vec::new(), defect: defect.map(Box::new) };
         if let Some(defect) = msg.defect()
             && (defect.tag.is_some_and(|tag| TRUSTED_HEADER.contains(&tag))
                 || TRUSTED_HEADER.iter().any(|&tag| msg.get(tag).is_none()))
@@ -379,9 +409,14 @@ impl Message {
         self.defect.as_deref()
     }
 
-    /// The fields in order, as `(tag, raw value)`.
+    /// The fields in order, as `(tag, raw value)`, leaving out data fields that aren't UTF-8.
     pub fn fields(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
-        self.fields.iter().map(|f| (f.tag, self.value(f)))
+        self.fields.iter().filter_map(|f| Some((f.tag, self.text(f)?)))
+    }
+
+    /// Every field in order, as `(tag, value bytes)`, including data fields that aren't UTF-8.
+    pub fn fields_bytes(&self) -> impl Iterator<Item = (u32, &[u8])> + '_ {
+        self.fields.iter().map(|f| (f.tag, self.bytes(f)))
     }
 
     /// MsgType(35); `MsgType::Other("")` if absent.
@@ -389,9 +424,16 @@ impl Message {
         MsgType::from_code(self.get(tags::MSG_TYPE).unwrap_or(""))
     }
 
-    /// The raw value of the first occurrence of `tag`.
+    /// The raw value of the first occurrence of `tag`; `None` if it's a data field whose value
+    /// isn't UTF-8 (see [`get_bytes`](Self::get_bytes)).
     pub fn get(&self, tag: u32) -> Option<&str> {
-        self.fields.iter().find(|f| f.tag == tag).map(|f| self.value(f))
+        self.fields.iter().find(|f| f.tag == tag).and_then(|f| self.text(f))
+    }
+
+    /// The value of the first occurrence of `tag`, as bytes: the way to read a data field, such as
+    /// RawData(96), whose value may not be UTF-8.
+    pub fn get_bytes(&self, tag: u32) -> Option<&[u8]> {
+        self.fields.iter().find(|f| f.tag == tag).map(|f| self.bytes(f))
     }
 
     /// A required field, converted to its type.
@@ -491,6 +533,33 @@ impl Message {
         self
     }
 
+    /// Appends data field `data_tag`, preceded by its Length field `length_tag` giving the number
+    /// of bytes. The value may contain SOH and bytes that aren't UTF-8.
+    pub fn push_data(&mut self, length_tag: u32, data_tag: u32, value: &[u8]) {
+        self.push(length_tag, value.len() as u64);
+        let field = self.write_data(data_tag, value);
+        self.fields.push(field);
+    }
+
+    /// Replaces data field `data_tag` and its Length field `length_tag` where they're found
+    /// together, or appends them with [`push_data`](Self::push_data).
+    pub fn set_data(&mut self, length_tag: u32, data_tag: u32, value: &[u8]) {
+        let pair = self.fields.windows(2).position(|w| w[0].tag == length_tag && w[1].tag == data_tag);
+        match pair {
+            Some(index) => {
+                self.fields[index] = self.write_segment(length_tag, value.len() as u64);
+                self.fields[index + 1] = self.write_data(data_tag, value);
+            }
+            None => self.push_data(length_tag, data_tag, value),
+        }
+    }
+
+    /// [`set_data`](Self::set_data), returning the message for chaining.
+    pub fn with_data(mut self, length_tag: u32, data_tag: u32, value: &[u8]) -> Self {
+        self.set_data(length_tag, data_tag, value);
+        self
+    }
+
     /// [`with`](Self::with) if `value` is `Some`; otherwise returns the message unchanged.
     pub fn with_opt(self, tag: u32, value: Option<impl ToFix>) -> Self {
         match value {
@@ -509,6 +578,11 @@ impl Message {
     /// Appends `other`'s fields for which `keep` is true, copying their encoded form verbatim.
     pub(crate) fn extend_from(&mut self, other: &Message, keep: impl Fn(u32) -> bool) {
         for f in other.fields.iter().filter(|f| keep(f.tag)) {
+            if f.is_binary() {
+                let field = self.write_data(f.tag, other.bytes(f));
+                self.fields.push(field);
+                continue;
+            }
             let start = self.buf.len() as u32;
             self.buf.push_str(&other.buf[f.start as usize..=f.end as usize]);
             self.fields.push(Field {
@@ -525,7 +599,14 @@ impl Message {
     pub(crate) fn write_segments(&self, out: &mut Vec<u8>, keep: impl Fn(u32) -> bool) -> usize {
         let before = out.len();
         for f in self.fields.iter().filter(|f| keep(f.tag)) {
-            out.extend_from_slice(&self.buf.as_bytes()[f.start as usize..=f.end as usize]);
+            if f.is_binary() {
+                out.extend_from_slice(f.tag.to_string().as_bytes());
+                out.push(b'=');
+                out.extend_from_slice(self.bytes(f));
+                out.push(SOH);
+            } else {
+                out.extend_from_slice(&self.buf.as_bytes()[f.start as usize..=f.end as usize]);
+            }
         }
         out.len() - before
     }
@@ -549,11 +630,39 @@ impl Message {
 
     /// The encoded length of the fields for which `keep` is true.
     pub(crate) fn segments_len(&self, keep: impl Fn(u32) -> bool) -> usize {
-        self.fields.iter().filter(|f| keep(f.tag)).map(|f| (f.end - f.start + 1) as usize).sum()
+        self.fields.iter().filter(|f| keep(f.tag)).map(|f| self.segment_len(f)).sum()
     }
 
-    fn value(&self, field: &Field) -> &str {
-        &self.buf[field.value as usize..field.end as usize]
+    /// The encoded length of `tag=value<SOH>`.
+    fn segment_len(&self, f: &Field) -> usize {
+        if f.is_binary() {
+            f.tag.to_string().len() + (f.end - f.value) as usize + 2
+        } else {
+            (f.end - f.start + 1) as usize
+        }
+    }
+
+    /// The field's value, unless it's binary.
+    fn text(&self, field: &Field) -> Option<&str> {
+        (!field.is_binary()).then(|| &self.buf[field.value as usize..field.end as usize])
+    }
+
+    /// The field's value as bytes.
+    fn bytes(&self, field: &Field) -> &[u8] {
+        let range = field.value as usize..field.end as usize;
+        if field.is_binary() { &self.bin[range] } else { &self.buf.as_bytes()[range] }
+    }
+
+    /// Writes data field `tag`: into the buffer if `value` is UTF-8, else into [`Message::bin`].
+    fn write_data(&mut self, tag: u32, value: &[u8]) -> Field {
+        match std::str::from_utf8(value) {
+            Ok(text) => self.write_segment(tag, text),
+            Err(_) => {
+                let start = self.bin.len();
+                self.bin.extend_from_slice(value);
+                Field { tag, start: BINARY, value: start as u32, end: self.bin.len() as u32 }
+            }
+        }
     }
 
     /// Writes `tag=value<SOH>` at the end of the buffer.
@@ -608,7 +717,8 @@ pub fn conversion_failed(failed: &mut Option<FieldError>, tags: &[u32], tag: u32
 // inlined into every field of every generated message, they made large dictionaries slow to
 // compile (FIX 4.4's messages took 75 s in release, against 16 s) for a few percent of speed.
 
-/// Converts a field's first occurrence into its slot; a failure is noted in `failed` (see
+/// Converts a field's first occurrence into its slot; a failure, including a binary value
+/// (`None`) in a field that isn't declared as data, is noted in `failed` (see
 /// [`conversion_failed`]). Later occurrences are ignored.
 #[doc(hidden)]
 #[inline(never)]
@@ -617,14 +727,15 @@ pub fn take_value<T: FromFix>(
     failed: &mut Option<FieldError>,
     tags: &[u32],
     tag: u32,
-    raw: &str,
+    raw: Option<&str>,
 ) {
     // After a failed conversion the slot stays empty and a repeat is converted too, but the parse
     // fails anyway, with the first occurrence's error.
     if slot.is_none() {
-        match T::from_fix(raw) {
-            Ok(value) => *slot = Some(value),
-            Err(error) => conversion_failed(failed, tags, tag, raw, error),
+        match raw.map(T::from_fix) {
+            Some(Ok(value)) => *slot = Some(value),
+            Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
+            None => conversion_failed(failed, tags, tag, "", ValueError::Format),
         }
     }
 }
@@ -715,7 +826,13 @@ pub struct Fields<'a> {
 impl<'a> Fields<'a> {
     /// The raw value of the first occurrence of `tag` in this view.
     pub fn get(&self, tag: u32) -> Option<&'a str> {
-        self.position(tag).map(|i| self.msg.value(&self.msg.fields[i]))
+        self.position(tag).and_then(|i| self.msg.text(&self.msg.fields[i]))
+    }
+
+    /// The value of the first occurrence of `tag` in this view, as bytes; see
+    /// [`Message::get_bytes`].
+    pub fn get_bytes(&self, tag: u32) -> Option<&'a [u8]> {
+        self.position(tag).map(|i| self.msg.bytes(&self.msg.fields[i]))
     }
 
     /// A required field, converted to its type.
@@ -728,11 +845,12 @@ impl<'a> Fields<'a> {
         convert(tag, self.get(tag))
     }
 
-    /// The fields in this view, in order, as `(tag, raw value)`.
+    /// The fields in this view, in order, as `(tag, raw value)`, leaving out data fields that
+    /// aren't UTF-8.
     pub fn iter(&self) -> impl Iterator<Item = (u32, &'a str)> + '_ {
-        self.visible().map(|i| {
+        self.visible().filter_map(|i| {
             let field = &self.msg.fields[i];
-            (field.tag, self.msg.value(field))
+            Some((field.tag, self.msg.text(field)?))
         })
     }
 
@@ -768,11 +886,17 @@ impl<'a> Fields<'a> {
         self.excluded.iter().find(|(start, end)| (*start..*end).contains(&index)).map_or(index, |(_, end)| *end)
     }
 
-    /// The tag and raw value at `index`.
+    /// The tag and raw value at `index`; `None` for a binary value.
     #[doc(hidden)]
-    pub fn at(&self, index: usize) -> (u32, &'a str) {
+    pub fn at(&self, index: usize) -> (u32, Option<&'a str>) {
         let field = &self.msg.fields[index];
-        (field.tag, self.msg.value(field))
+        (field.tag, self.msg.text(field))
+    }
+
+    /// The value at `index` as bytes.
+    #[doc(hidden)]
+    pub fn bytes_at(&self, index: usize) -> &'a [u8] {
+        self.msg.bytes(&self.msg.fields[index])
     }
 
     /// Scans the group whose NumInGroup field is at `index`, returning its entries and the index
@@ -814,7 +938,7 @@ fn scan_group(
     spec: &GroupSpec,
 ) -> Result<(Vec<(usize, usize)>, usize), FieldError> {
     let fields = &msg.fields;
-    let count: u32 = convert(count_tag, Some(msg.value(&fields[position])))?.expect("value is present");
+    let count: u32 = convert(count_tag, Some(msg.text(&fields[position]).unwrap_or_default()))?.expect("value is present");
     let delimiter = spec.delimiter();
     let mut entries = Vec::with_capacity(count.min(64) as usize);
     let mut i = position + 1;
@@ -900,7 +1024,7 @@ fn parse_tag(tag: &str) -> Option<u32> {
 /// Messages are equal when they have the same fields in the same order.
 impl PartialEq for Message {
     fn eq(&self, other: &Self) -> bool {
-        self.fields().eq(other.fields())
+        self.fields_bytes().eq(other.fields_bytes())
     }
 }
 
@@ -913,18 +1037,22 @@ impl fmt::Debug for Message {
 }
 
 /// Renders the message with `|` in place of SOH, for logging.
+/// A binary value is shown as its length, e.g. `96=<16 bytes>`.
 impl fmt::Display for Message {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (tag, value) in self.fields() {
-            write!(f, "{tag}={value}|")?;
+        for field in &self.fields {
+            match self.text(field) {
+                Some(value) => write!(f, "{}={value}|", field.tag)?,
+                None => write!(f, "{}=<{} bytes>|", field.tag, field.end - field.value)?,
+            }
         }
         Ok(())
     }
 }
 
 impl Message {
-    /// Displays like the message itself, but with passwords (Password(554), NewPassword(925))
-    /// shown as `***`: for logging.
+    /// Displays like the message itself, but with passwords (Password(554), NewPassword(925),
+    /// and the data fields that may carry credentials) shown as `***`: for logging.
     pub fn redacted(&self) -> Redacted<'_> {
         Redacted(self)
     }
@@ -935,17 +1063,24 @@ pub struct Redacted<'a>(&'a Message);
 
 impl fmt::Display for Redacted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (tag, value) in self.0.fields() {
-            let value = if is_secret(tag) { "***" } else { value };
-            write!(f, "{tag}={value}|")?;
+        let msg = self.0;
+        for field in &msg.fields {
+            match msg.text(field) {
+                _ if is_secret(field.tag) => write!(f, "{}=***|", field.tag)?,
+                Some(value) => write!(f, "{}={value}|", field.tag)?,
+                None => write!(f, "{}=<{} bytes>|", field.tag, field.end - field.value)?,
+            }
         }
         Ok(())
     }
 }
 
-/// Tags whose values are never shown: Password(554) and NewPassword(925).
+/// Tags whose values are never shown: Password(554), NewPassword(925), and the data fields that
+/// carry credentials: SecureData(91), RawData(96), EncryptedPassword(1402) and
+/// EncryptedNewPassword(1404).
 fn is_secret(tag: u32) -> bool {
-    matches!(tag, tags::PASSWORD | tags::NEW_PASSWORD)
+    use tags::*;
+    matches!(tag, PASSWORD | NEW_PASSWORD | SECURE_DATA | RAW_DATA | ENCRYPTED_PASSWORD | ENCRYPTED_NEW_PASSWORD)
 }
 
 /// A typed repeating-group entry. Implemented by the structs generated with `fix_group!`.
@@ -1338,5 +1473,85 @@ mod tests {
         copy.set(tags::SYMBOL, "MSFT");
         assert_eq!(original.get(tags::SYMBOL), Some("AAPL"));
         assert_eq!(copy.get(tags::SYMBOL), Some("MSFT"));
+    }
+
+    // ---- Data fields ----
+
+    const BINARY: &[u8] = b"\x00\x01\xff\xfe";
+
+    fn with_raw_data(bytes: &[u8]) -> Message {
+        Message::new(MsgType::Logon).with(tags::HEART_BT_INT, 30u64).with_data(
+            tags::RAW_DATA_LENGTH,
+            tags::RAW_DATA,
+            bytes,
+        )
+    }
+
+    #[test]
+    fn data_is_written_after_its_length() {
+        let msg = with_raw_data(b"a\x01b");
+        let fields: Vec<_> = msg.fields_bytes().collect();
+        assert_eq!(
+            fields,
+            [(35, &b"A"[..]), (108, &b"30"[..]), (tags::RAW_DATA_LENGTH, &b"3"[..]), (tags::RAW_DATA, &b"a\x01b"[..])]
+        );
+        assert_eq!(msg.get(tags::RAW_DATA), Some("a\x01b"), "UTF-8 data is text too");
+    }
+
+    #[test]
+    fn binary_data_is_bytes_only() {
+        let msg = with_raw_data(BINARY);
+        assert_eq!(msg.get_bytes(tags::RAW_DATA), Some(BINARY));
+        assert_eq!(msg.get(tags::RAW_DATA), None);
+        assert_eq!(msg.get(tags::RAW_DATA_LENGTH), Some("4"));
+        assert!(msg.fields().all(|(tag, _)| tag != tags::RAW_DATA), "text fields skip it");
+        assert!(msg.body().iter().all(|(tag, _)| tag != tags::RAW_DATA));
+        assert_eq!(msg.body().get(tags::RAW_DATA), None);
+        assert_eq!(msg.body().get_bytes(tags::RAW_DATA), Some(BINARY));
+        assert_eq!(msg.get_bytes(tags::HEART_BT_INT), Some(&b"30"[..]), "text is bytes too");
+    }
+
+    #[test]
+    fn binary_data_is_encoded_verbatim() {
+        let msg = with_raw_data(BINARY).with(tags::BEGIN_STRING, "FIX.4.4").with(tags::TEXT, "after");
+        let wire = encode(&msg).unwrap();
+        let body = b"35=A\x01108=30\x0195=4\x0196=\x00\x01\xff\xfe\x0158=after\x01";
+        let expected = [&format!("8=FIX.4.4\x019={}\x01", body.len()).into_bytes()[..], body].concat();
+        assert_eq!(wire[..wire.len() - 7], expected[..]);
+    }
+
+    #[test]
+    fn set_data_replaces_a_pair_in_place() {
+        let mut msg = with_raw_data(BINARY).with(tags::TEXT, "after");
+        msg.set_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"xyz");
+        let tags_in_order: Vec<u32> = msg.fields_bytes().map(|(tag, _)| tag).collect();
+        assert_eq!(tags_in_order, [35, 108, 95, 96, 58]);
+        assert_eq!(msg.get(tags::RAW_DATA_LENGTH), Some("3"));
+        assert_eq!(msg.get(tags::RAW_DATA), Some("xyz"));
+        msg.set_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, BINARY);
+        assert_eq!(msg.get_bytes(tags::RAW_DATA), Some(BINARY));
+    }
+
+    #[test]
+    fn messages_with_binary_data_compare_by_bytes() {
+        assert_eq!(with_raw_data(BINARY), with_raw_data(BINARY));
+        assert_ne!(with_raw_data(BINARY), with_raw_data(b"\xff\xff\xfe\xfe"));
+        assert_ne!(with_raw_data(BINARY), with_raw_data(b""));
+    }
+
+    #[test]
+    fn binary_data_is_copied_with_other_fields() {
+        let source = with_raw_data(BINARY);
+        let mut copy = Message::new(MsgType::Logon);
+        copy.extend_from(&source, |tag| tag != tags::MSG_TYPE);
+        assert_eq!(copy, source);
+    }
+
+    #[test]
+    fn display_shows_binary_data_by_length_and_hides_secret_data() {
+        let msg = with_raw_data(BINARY).with_data(tags::XML_DATA_LEN, tags::XML_DATA, BINARY);
+        assert_eq!(msg.to_string(), "35=A|108=30|95=4|96=<4 bytes>|212=4|213=<4 bytes>|");
+        let msg = with_raw_data(b"token").with_data(tags::XML_DATA_LEN, tags::XML_DATA, b"<x/>");
+        assert_eq!(msg.redacted().to_string(), "35=A|108=30|95=5|96=***|212=4|213=<x/>|");
     }
 }
