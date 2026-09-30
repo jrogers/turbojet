@@ -111,6 +111,8 @@ macro_rules! fix_enum {
 ///         field: opt Type = TAG,        // optional: Option<Type>
 ///         field: group Entry = TAG,     // repeating group by its NumInGroup tag: Vec<Entry>
 ///         field: req_group Entry = TAG, // required repeating group: a non-empty Vec<Entry>
+///         field: data Vec<u8> = LEN => TAG,     // data field and its Length field
+///         field: opt_data Vec<u8> = LEN => TAG, // optional data field: Option<Vec<u8>>
 ///     }
 /// }
 /// ```
@@ -126,6 +128,11 @@ macro_rules! fix_enum {
 ///   types without one.
 /// - A `req_group` fails to parse as missing (on its NumInGroup tag) when it is absent or has no
 ///   entries; a `group` may be empty. Both write nothing when empty.
+/// - A data field (`data`, `opt_data`) holds any bytes, including SOH and bytes that aren't UTF-8.
+///   It's written after its Length field, `LEN`, which is set from the value's length, so the
+///   struct has no field of its own for it. Decoding a data field needs the pair in the session's
+///   [`DataFields`](crate::message::DataFields); the standard ones, such as RawData(96), are
+///   there already.
 /// - Fields are written in declaration order, after the standard header the session adds.
 ///   Parsing is a single pass that takes each tag's first occurrence and ignores unknown tags.
 ///   A group that is malformed, or has an entry that fails to parse, fails the parse where it is
@@ -185,26 +192,27 @@ macro_rules! fix_enum {
 /// ```
 #[macro_export]
 macro_rules! fix_message {
+    // Each field's tags travel as one token tree, `[TAG]` or, for a data field, `[LEN => DATA]`.
     (
         $(#[$meta:meta])*
         $name:ident = $msg_type:ident {
-            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path ),* $(,)?
+            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),* $(,)?
         }
     ) => {
         $crate::fix_message!(@message [$(#[$meta])*] $name, $crate::fields::MsgType::$msg_type,
-            $( [$(#[$fmeta])*] $field : $presence $ty = $tag ),*);
+            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),*);
     };
     (
         $(#[$meta:meta])*
         $name:ident = $msg_type:literal {
-            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path ),* $(,)?
+            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),* $(,)?
         }
     ) => {
         $crate::fix_message!(@message [$(#[$meta])*] $name, $crate::fields::MsgType::from_static($msg_type),
-            $( [$(#[$fmeta])*] $field : $presence $ty = $tag ),*);
+            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),*);
     };
     (@message [$(#[$meta:meta])*] $name:ident, $msg_type:expr,
-        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tag:path ),*) => {
+        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),*) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
@@ -215,11 +223,11 @@ macro_rules! fix_message {
             const MSG_TYPE: $crate::fields::MsgType = $msg_type;
 
             fn from_message(msg: &$crate::message::Message) -> Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse msg.body(), false, $( $field : $presence $ty = $tag ),*)
+                $crate::fix_message!(@parse msg.body(), false, $( $field : $presence $ty = $tags ),*)
             }
 
             fn from_message_strict(msg: &$crate::message::Message) -> Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse msg.body(), true, $( $field : $presence $ty = $tag ),*)
+                $crate::fix_message!(@parse msg.body(), true, $( $field : $presence $ty = $tags ),*)
             }
 
             fn to_message(&self) -> $crate::message::Message {
@@ -227,7 +235,7 @@ macro_rules! fix_message {
                 const FIELDS: usize = 1 $( + $crate::fix_message!(@one $field) )*;
                 #[allow(unused_mut)]
                 let mut msg = $crate::message::Message::with_capacity(Self::MSG_TYPE, 16 * FIELDS, FIELDS);
-                $( $crate::fix_message!(@write $presence msg, $tag, &self.$field); )*
+                $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )*
                 msg
             }
         }
@@ -248,14 +256,14 @@ macro_rules! fix_message {
     // a group error ends the pass at once, but a conversion failure is only noted (keeping the
     // earliest-declared one), and at the end the first of it and any missing required field wins.
     // With `$strict`, the first body tag not declared here is an error, once the rest is valid.
-    (@parse $fields:expr, $strict:expr, $( $field:ident : $presence:ident $ty:ty = $tag:path ),*) => {{
+    (@parse $fields:expr, $strict:expr, $( $field:ident : $presence:ident $ty:ty = $tags:tt ),*) => {{
         let fields: $crate::message::Fields<'_> = $fields;
         $( #[allow(unused_mut)] let mut $field = $crate::fix_message!(@slot $presence $ty); )*
         #[allow(unused_mut)]
         let mut failed: ::std::option::Option<$crate::message::FieldError> = None;
         let mut undeclared: ::std::option::Option<u32> = None;
         // An item, so not hygienic: named to stay clear of callers' tag constants.
-        const __DECLARED_TAGS: &[u32] = &[$( $tag ),*];
+        const __DECLARED_TAGS: &[u32] = &[$( $crate::fix_message!(@key $tags) ),*];
         let (mut index, end) = fields.bounds();
         #[allow(unreachable_patterns)]
         while index < end {
@@ -265,7 +273,9 @@ macro_rules! fix_message {
             }
             let (tag, value) = fields.at(index);
             index = match tag {
-                $( $tag => $crate::fix_message!(@take $presence $ty, $field, fields, index, tag, value, failed, __DECLARED_TAGS), )*
+                // A data field's Length field matches too, so it counts as declared.
+                $( $crate::fix_message!(@pattern $tags) =>
+                    $crate::fix_message!(@take $presence $ty, $field, fields, index, tag, value, failed, __DECLARED_TAGS, $tags), )*
                 _ => {
                     if $strict && undeclared.is_none() && !$crate::message::is_header_or_trailer(tag) {
                         undeclared = Some(tag);
@@ -279,65 +289,103 @@ macro_rules! fix_message {
             let mut _at = 0usize;
             $(
                 if _at < failed_at && $crate::fix_message!(@missing $presence $field) {
-                    return Err($crate::message::FieldError { tag: $tag, kind: $crate::message::FieldErrorKind::Missing });
+                    return Err($crate::message::FieldError {
+                        tag: $crate::fix_message!(@key $tags),
+                        kind: $crate::message::FieldErrorKind::Missing,
+                    });
                 }
                 _at += 1;
             )*
             return Err(error);
         }
-        let value = Self { $( $field: $crate::fix_message!(@finish $presence $ty, $field, $tag), )* };
+        let value = Self { $( $field: $crate::fix_message!(@finish $presence $ty, $field, $tags), )* };
         if let Some(tag) = undeclared {
             return Err($crate::message::FieldError { tag, kind: $crate::message::FieldErrorKind::NotDefined });
         }
         Ok(value)
     }};
     (@one $field:ident) => { 1 };
+    // A field's own tag: a data field's is the data tag.
+    (@key [$tag:path]) => { $tag };
+    (@key [$length:path => $data:path]) => { $data };
+    // The tags a field takes when parsing.
+    (@pattern [$tag:path]) => { $tag };
+    (@pattern [$length:path => $data:path]) => { $length | $data };
+    // For each member of a group, the Length field before it if it's a data field, else 0.
+    (@length [$tag:path]) => { 0 };
+    (@length [$length:path => $data:path]) => { $length };
     (@type req $ty:ty) => { $ty };
     (@type opt $ty:ty) => { Option<$ty> };
     (@type group $ty:ty) => { Vec<$ty> };
     (@type req_group $ty:ty) => { Vec<$ty> };
+    (@type data $ty:ty) => { $ty };
+    (@type opt_data $ty:ty) => { Option<$ty> };
     (@slot req $ty:ty) => { None::<$ty> };
     (@slot opt $ty:ty) => { None::<$ty> };
     (@slot group $ty:ty) => { None::<Vec<$ty>> };
     (@slot req_group $ty:ty) => { None::<Vec<$ty>> };
-    (@take req $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $tags:ident) => {
-        $crate::fix_message!(@take opt $ty, $slot, $fields, $index, $tag, $value, $failed, $tags)
+    (@slot data $ty:ty) => { None::<$ty> };
+    (@slot opt_data $ty:ty) => { None::<$ty> };
+    (@take req $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::fix_message!(@take opt $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take opt $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $tags:ident) => {{
-        $crate::message::take_value::<$ty>(&mut $slot, &mut $failed, $tags, $tag, $value);
+    (@take opt $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+        $crate::message::take_value::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
         $index + 1
     }};
-    (@take req_group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $tags:ident) => {
-        $crate::fix_message!(@take group $ty, $slot, $fields, $index, $tag, $value, $failed, $tags)
+    (@take req_group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::fix_message!(@take group $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $tags:ident) => {{
+    (@take group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
         $crate::message::take_group::<$ty>(&mut $slot, &$fields, $index, $tag)?
     }};
+    (@take data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::fix_message!(@take opt_data $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
+    };
+    (@take opt_data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::message::take_data(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
+    };
     // Whether a field fails as missing, for the error path.
     (@missing req $slot:ident) => { $slot.is_none() };
     (@missing opt $slot:ident) => { false };
     (@missing group $slot:ident) => { false };
     (@missing req_group $slot:ident) => { $slot.as_ref().is_none_or(|entries| entries.is_empty()) };
-    (@finish req $ty:ty, $slot:ident, $tag:path) => { $crate::message::required($tag, $slot)? };
-    (@finish opt $ty:ty, $slot:ident, $tag:path) => { $slot };
-    (@finish group $ty:ty, $slot:ident, $tag:path) => { $slot.unwrap_or_default() };
-    (@finish req_group $ty:ty, $slot:ident, $tag:path) => { $crate::message::required_group($tag, $slot)? };
+    (@missing data $slot:ident) => { $slot.is_none() };
+    (@missing opt_data $slot:ident) => { false };
+    (@finish req $ty:ty, $slot:ident, $tags:tt) => { $crate::message::required($crate::fix_message!(@key $tags), $slot)? };
+    (@finish opt $ty:ty, $slot:ident, $tags:tt) => { $slot };
+    (@finish group $ty:ty, $slot:ident, $tags:tt) => { $slot.unwrap_or_default() };
+    (@finish req_group $ty:ty, $slot:ident, $tags:tt) => {
+        $crate::message::required_group($crate::fix_message!(@key $tags), $slot)?
+    };
+    (@finish data $ty:ty, $slot:ident, $tags:tt) => { $crate::fix_message!(@finish req $ty, $slot, $tags) };
+    (@finish opt_data $ty:ty, $slot:ident, $tags:tt) => { $slot };
     (@spec req $ty:ty) => { None };
     (@spec opt $ty:ty) => { None };
     (@spec group $ty:ty) => { Some(&<$ty as $crate::message::FixGroup>::SPEC) };
     (@spec req_group $ty:ty) => { Some(&<$ty as $crate::message::FixGroup>::SPEC) };
+    (@spec data $ty:ty) => { None };
+    (@spec opt_data $ty:ty) => { None };
     // Typed messages are built fresh with one field per tag, so fields are appended directly.
-    (@write req $msg:ident, $tag:path, $value:expr) => { $crate::message::write_value(&mut $msg, $tag, $value) };
+    (@write req $msg:ident, [$tag:path], $value:expr) => { $crate::message::write_value(&mut $msg, $tag, $value) };
     // Only a field that's set costs a call: most of a large message's optional fields are empty.
-    (@write opt $msg:ident, $tag:path, $value:expr) => {
+    (@write opt $msg:ident, [$tag:path], $value:expr) => {
         if let Some(value) = $value {
             $crate::message::write_value(&mut $msg, $tag, value);
         }
     };
-    (@write req_group $msg:ident, $tag:path, $value:expr) => {
-        $crate::fix_message!(@write group $msg, $tag, $value)
+    (@write req_group $msg:ident, $tags:tt, $value:expr) => {
+        $crate::fix_message!(@write group $msg, $tags, $value)
     };
-    (@write group $msg:ident, $tag:path, $value:expr) => { $crate::message::write_group(&mut $msg, $tag, $value) };
+    (@write group $msg:ident, [$tag:path], $value:expr) => { $crate::message::write_group(&mut $msg, $tag, $value) };
+    (@write data $msg:ident, [$length:path => $data:path], $value:expr) => {
+        $crate::message::write_data(&mut $msg, $length, $data, $value)
+    };
+    (@write opt_data $msg:ident, [$length:path => $data:path], $value:expr) => {
+        if let Some(value) = $value {
+            $crate::message::write_data(&mut $msg, $length, $data, value);
+        }
+    };
 }
 
 /// Defines a repeating-group entry, with fields declared as in [`fix_message!`]. The first field
@@ -351,9 +399,14 @@ macro_rules! fix_group {
     (
         $(#[$meta:meta])*
         $name:ident {
-            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path ),+ $(,)?
+            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
+        $crate::fix_group!(@group [$(#[$meta])*] $name,
+            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
+    };
+    (@group [$(#[$meta:meta])*] $name:ident,
+        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
@@ -362,17 +415,18 @@ macro_rules! fix_group {
 
         impl $crate::message::FixGroup for $name {
             const SPEC: $crate::message::GroupSpec = $crate::message::GroupSpec {
-                fields: &[ $( ($tag, $crate::fix_message!(@spec $presence $ty)) ),+ ],
+                fields: &[ $( ($crate::fix_message!(@key $tags), $crate::fix_message!(@spec $presence $ty)) ),+ ],
+                lengths: &[ $( $crate::fix_message!(@length $tags) ),+ ],
             };
 
             fn from_fields(entry: $crate::message::Fields<'_>) -> Result<Self, $crate::message::FieldError> {
                 // An undeclared tag ends a group entry, so strictness is the message's to apply.
-                $crate::fix_message!(@parse entry, false, $( $field : $presence $ty = $tag ),+)
+                $crate::fix_message!(@parse entry, false, $( $field : $presence $ty = $tags ),+)
             }
 
             #[allow(unused_mut)]
             fn write(&self, mut msg: &mut $crate::message::Message) {
-                $( $crate::fix_message!(@write $presence msg, $tag, &self.$field); )+
+                $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )+
             }
         }
     };
@@ -671,5 +725,92 @@ mod tests {
         // first, is missing too.
         let err = raw("35=J|78=1|79=A|").parse::<TestAllocation>().unwrap_err();
         assert_eq!((err.tag, err.kind), (tags::NO_TRADING_SESSIONS, crate::message::FieldErrorKind::Missing));
+    }
+
+    // ---- Data fields ----
+
+    const VENUE_DATA_LEN: u32 = 5000;
+    const VENUE_DATA: u32 = 5001;
+
+    fix_group! {
+        /// An entry with a venue's data field between two others.
+        Attachment {
+            account: req String = ALLOC_ACCOUNT,
+            blob: opt_data Vec<u8> = VENUE_DATA_LEN => VENUE_DATA,
+            text: opt String = TEXT,
+        }
+    }
+
+    fix_message! {
+        DataOrder = NewOrderSingle {
+            raw_data: data Vec<u8> = RAW_DATA_LENGTH => RAW_DATA,
+            xml_data: opt_data Vec<u8> = XML_DATA_LEN => XML_DATA,
+            attachments: group Attachment = NO_ALLOCS,
+            symbol: req String = SYMBOL,
+        }
+    }
+
+    fn data_order() -> DataOrder {
+        DataOrder {
+            raw_data: b"\xff\x01\x00".to_vec(),
+            xml_data: None,
+            attachments: vec![
+                Attachment { account: "A".into(), blob: Some(b"x\x01y".to_vec()), text: Some("t".into()) },
+                Attachment { account: "B".into(), blob: None, text: None },
+            ],
+            symbol: "IBM".into(),
+        }
+    }
+
+    #[test]
+    fn data_fields_are_written_after_their_lengths() {
+        let msg = data_order().to_message();
+        let fields: Vec<(u32, &[u8])> = msg.fields_bytes().collect();
+        assert_eq!(
+            fields,
+            [
+                (MSG_TYPE, &b"D"[..]),
+                (RAW_DATA_LENGTH, b"3"),
+                (RAW_DATA, b"\xff\x01\x00"),
+                (NO_ALLOCS, b"2"),
+                (ALLOC_ACCOUNT, b"A"),
+                (VENUE_DATA_LEN, b"3"),
+                (VENUE_DATA, b"x\x01y"),
+                (TEXT, b"t"),
+                (ALLOC_ACCOUNT, b"B"),
+                (SYMBOL, b"IBM"),
+            ]
+        );
+    }
+
+    #[test]
+    fn data_fields_round_trip_through_the_wire() {
+        let order = data_order();
+        let wire = crate::codec::encode(&order.to_message().with(BEGIN_STRING, "FIX.4.4")).unwrap();
+        let data = crate::message::DataFields::standard().with(VENUE_DATA_LEN, VENUE_DATA);
+        let crate::codec::Decoded::Message(msg, _) = crate::codec::decode_with(&wire, &data) else { panic!() };
+        assert_eq!(msg.parse::<DataOrder>().unwrap(), order);
+        assert_eq!(msg.parse_strict::<DataOrder>().unwrap(), order, "length fields are declared");
+    }
+
+    #[test]
+    fn a_required_data_field_can_be_missing() {
+        let err = raw("35=D|55=IBM|").parse::<DataOrder>().unwrap_err();
+        assert_eq!((err.tag, err.kind), (RAW_DATA, crate::message::FieldErrorKind::Missing));
+    }
+
+    fix_message! {
+        TextOrder = NewOrderSingle {
+            raw_data: opt String = RAW_DATA,
+        }
+    }
+
+    #[test]
+    fn binary_data_in_a_text_field_is_a_format_error() {
+        let msg = Message::new(crate::fields::MsgType::NewOrderSingle).with_data(RAW_DATA_LENGTH, RAW_DATA, b"\xff");
+        let err = msg.parse::<TextOrder>().unwrap_err();
+        assert_eq!((err.tag, err.kind), (RAW_DATA, crate::message::FieldErrorKind::IncorrectFormat(String::new())));
+        let text = Message::new(crate::fields::MsgType::NewOrderSingle).with_data(RAW_DATA_LENGTH, RAW_DATA, b"ok");
+        assert_eq!(text.parse::<TextOrder>().unwrap().raw_data.as_deref(), Some("ok"));
     }
 }

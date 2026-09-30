@@ -824,6 +824,24 @@ pub fn write_value<T: ToFix>(msg: &mut Message, tag: u32, value: &T) {
     msg.push(tag, value);
 }
 
+/// Takes a data field's first occurrence into its slot; its Length field, which comes first and
+/// which decoding has already checked, is skipped.
+#[doc(hidden)]
+#[inline(never)]
+pub fn take_data(slot: &mut Option<Vec<u8>>, fields: &Fields<'_>, index: usize, tag: u32, data_tag: u32) -> usize {
+    if tag == data_tag && slot.is_none() {
+        *slot = Some(fields.bytes_at(index).to_vec());
+    }
+    index + 1
+}
+
+/// Appends a data field after its Length field.
+#[doc(hidden)]
+#[inline(never)]
+pub fn write_data(msg: &mut Message, length_tag: u32, data_tag: u32, value: &[u8]) {
+    msg.push_data(length_tag, data_tag, value);
+}
+
 /// Appends a repeating group, NumInGroup first, unless it has no entries.
 #[doc(hidden)]
 #[inline(never)]
@@ -855,6 +873,8 @@ pub fn required_group<T>(tag: u32, entries: Option<Vec<T>>) -> Result<Vec<T>, Fi
 pub struct GroupSpec {
     /// Each field's tag, with the spec of the group it introduces if it's a NumInGroup field.
     pub fields: &'static [(u32, Option<&'static GroupSpec>)],
+    /// For each of `fields`, the tag of the Length field before it if it's a data field, else 0.
+    pub lengths: &'static [u32],
 }
 
 impl GroupSpec {
@@ -863,9 +883,15 @@ impl GroupSpec {
         self.fields[0].0
     }
 
-    /// The member `tag`'s position in the group, and its nested spec if it is a group.
+    /// The member `tag`'s position in the group, and its nested spec if it is a group. A data
+    /// member's Length field is a member too, placed after all the others so that it has a
+    /// position of its own.
     fn member(&self, tag: u32) -> Option<(usize, Option<&'static GroupSpec>)> {
-        self.fields.iter().position(|(t, _)| *t == tag).map(|i| (i, self.fields[i].1))
+        match self.fields.iter().position(|(t, _)| *t == tag) {
+            Some(i) => Some((i, self.fields[i].1)),
+            None if tag == 0 => None,
+            None => self.lengths.iter().position(|&length| length == tag).map(|i| (self.fields.len() + i, None)),
+        }
     }
 }
 
@@ -1457,8 +1483,11 @@ mod tests {
     // A Parties-style group with a nested sub-ID group (tags as in FIX 4.4):
     // NoPartyIDs(453) { PartyID(448), PartyIDSource(447), PartyRole(452),
     //                   NoPartySubIDs(802) { PartySubID(523), PartySubIDType(803) } }
-    const SUB_IDS: GroupSpec = GroupSpec { fields: &[(523, None), (803, None)] };
-    const PARTIES: GroupSpec = GroupSpec { fields: &[(448, None), (447, None), (452, None), (802, Some(&SUB_IDS))] };
+    const SUB_IDS: GroupSpec = GroupSpec { fields: &[(523, None), (803, None)], lengths: &[0, 0] };
+    const PARTIES: GroupSpec = GroupSpec {
+        fields: &[(448, None), (447, None), (452, None), (802, Some(&SUB_IDS))],
+        lengths: &[0, 0, 0, 0],
+    };
 
     fn raw(text: &str) -> Message {
         Message::from_fields(text.split('|').filter(|f| !f.is_empty()).map(|f| {
