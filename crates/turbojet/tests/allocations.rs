@@ -1,6 +1,6 @@
-//! Heap allocations per order → ack, wire to wire (decode, then the session, application and
-//! store; the session encodes the ack), with the memory store and the disk store (without fsync),
-//! each against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints
+//! Heap allocations per order → ack, wire to wire (decode into one reused message, as the
+//! connection does, then the session, application and store; the session encodes the ack), with
+//! the memory store and the disk store (without fsync), each against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints
 //! a per-stage table for each store.
 
 #[path = "../benches/common/mod.rs"]
@@ -12,8 +12,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use counting::{Counts, Stage};
-use turbojet::codec::{Decoded, decode, encode};
+use turbojet::codec::{DecodedInto, decode_into, encode};
 use turbojet::fields::UtcTimestamp;
+use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, DiskStorage, MemoryStorage, Message, MessageReject, SessionId};
 
@@ -222,7 +223,8 @@ const WARM_UP: u64 = 100;
 /// Orders counted; budgets are totals over these.
 const COUNTED: u64 = 1_000;
 
-/// Per-stage counts over COUNTED orders, each decoded from bytes, processed by a logged-on
+/// Per-stage counts over COUNTED orders, each decoded from bytes into one reused message as the
+/// connection does (the warm-up grows it before counting starts), processed by a logged-on
 /// session with `storage`, acknowledged by the application, and the ack recorded in the store and
 /// encoded by the session into its output, which is cleared after each order as the connection
 /// driver does.
@@ -231,13 +233,15 @@ fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.l
     let mut session = common::logged_on(storage, Arc::new(StagedApp::default()));
     let wire: Vec<Vec<u8>> = common::orders(WARM_UP + COUNTED).iter().map(|o| encode(o).unwrap()).collect();
     let now = Instant::now();
+    let data = DataFields::standard();
+    let mut msg = Message::default();
     for (i, bytes) in wire.iter().enumerate() {
         if i as u64 == WARM_UP {
             counting::take();
             counting::set_counting(true);
         }
-        let msg = counting::in_stage(Stage::Decode, || match decode(bytes) {
-            Decoded::Message(msg, _) => msg,
+        counting::in_stage(Stage::Decode, || match decode_into(bytes, &data, &mut msg) {
+            DecodedInto::Message(_) => {}
             _ => panic!("order {i} didn't decode"),
         });
         counting::in_stage(Stage::Session, || session.on_message(&msg, now));
@@ -287,9 +291,9 @@ type Budget = [(Stage, u64, u64); Stage::ALL.len()];
 /// BTreeMap node size), so a toolchain or dependency update can move them without a change to
 /// Turbojet.
 const MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 1166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 1166, 0)];
 const DISK_BUDGET: Budget =
-    [(Stage::Decode, 2000, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 166, 0)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
