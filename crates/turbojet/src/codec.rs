@@ -51,6 +51,46 @@ pub fn decode_with(buf: &[u8], data: &DataFields) -> Decoded {
     parse_framed(buf, total, data)
 }
 
+/// The result of [`decode_into`]: [`Decoded`] without the message, which is in the one passed in.
+#[derive(Debug, PartialEq)]
+pub enum DecodedInto {
+    /// A complete, valid message, decoded into the message passed in, and the number of bytes it
+    /// occupied.
+    Message(usize),
+    /// More bytes are needed.
+    Incomplete,
+    /// As [`Decoded::Garbled`]; the message passed in holds nothing useful.
+    Garbled {
+        /// Bytes to drop from the front of the buffer.
+        skip: usize,
+        /// What was wrong, for logging.
+        reason: String,
+    },
+}
+
+/// [`decode_with`], decoding into `msg` and replacing what it held. Reusing one message for each
+/// frame, as the connection's read loop does, avoids allocating once it has grown to the size of
+/// the messages received.
+pub fn decode_into(buf: &[u8], data: &DataFields, msg: &mut Message) -> DecodedInto {
+    let total = match frame(buf) {
+        Ok(total) => total,
+        Err(d) => return without_message(d),
+    };
+    match msg.read_frame(&buf[..total], data) {
+        Ok(()) => DecodedInto::Message(total),
+        Err(reason) => without_message(garbled(buf, reason)),
+    }
+}
+
+/// `d`, which isn't [`Decoded::Message`], as a [`DecodedInto`].
+fn without_message(d: Decoded) -> DecodedInto {
+    match d {
+        Decoded::Incomplete => DecodedInto::Incomplete,
+        Decoded::Garbled { skip, reason } => DecodedInto::Garbled { skip, reason },
+        Decoded::Message(..) => unreachable!("framing doesn't decode a message"),
+    }
+}
+
 /// [`decode_with`] for a message Turbojet encoded and stored itself: trusted to be as long as it
 /// says, since nothing limits what an application sends.
 pub(crate) fn decode_stored(buf: &[u8], data: &DataFields) -> Decoded {
@@ -300,6 +340,40 @@ mod tests {
         assert_eq!(skip, n);
         let Decoded::Message(msg, _) = decode(&wire[skip..]) else { panic!() };
         assert_eq!(msg.get(tags::MSG_SEQ_NUM), Some("2"));
+    }
+
+    #[test]
+    fn decode_into_reuses_one_message_across_a_stream() {
+        let first = encode(&sample()).unwrap();
+        let second = encode(&sample().with(tags::TEXT, "second")).unwrap();
+        let mut stream = first.clone();
+        stream.extend_from_slice(b"garbage");
+        stream.extend_from_slice(&second);
+        stream.extend_from_slice(&second[..10]);
+
+        let data = DataFields::standard();
+        let mut msg = Message::default();
+        let mut rest = &stream[..];
+        let mut seen = Vec::new();
+        let mut garbled = 0;
+        loop {
+            match decode_into(rest, &data, &mut msg) {
+                DecodedInto::Message(len) => {
+                    seen.push(msg.clone());
+                    rest = &rest[len..];
+                }
+                DecodedInto::Garbled { skip, .. } => {
+                    garbled += 1;
+                    rest = &rest[skip..];
+                }
+                DecodedInto::Incomplete => break,
+            }
+        }
+        let Decoded::Message(expected_first, _) = decode(&first) else { panic!() };
+        let Decoded::Message(expected_second, _) = decode(&second) else { panic!() };
+        assert_eq!(seen, [expected_first, expected_second]);
+        assert_eq!(garbled, 1, "the garbage is skipped in one go");
+        assert_eq!(rest, &second[..10], "the partial message is left for the next read");
     }
 
     #[test]
