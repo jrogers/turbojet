@@ -33,7 +33,8 @@ import quickfix.field.MsgSeqNum;
  * <p>Commands, one per line on stdin, each answered with {@code ok} or {@code error}:
  * <ul>
  *   <li>{@code send <fields>}: sends a message; fields are {@code tag=value} separated by
- *       {@code |}, including 35; QuickFIX/J adds the rest of the header.</li>
+ *       {@code |}, including 35; QuickFIX/J adds the rest of the header. SOH inside a value is
+ *       written {@code \x01}.</li>
  *   <li>{@code set-next-sender-seq N}, {@code set-next-target-seq N}: change sequence numbers
  *       without telling the counterparty.</li>
  *   <li>{@code sequence-reset N}: sends SequenceReset-Reset with NewSeqNo N, then sends from N.</li>
@@ -42,9 +43,10 @@ import quickfix.field.MsgSeqNum;
  *
  * <p>Events go to stdout, one per line, as {@code kind TAB payload}: {@code ready <port>},
  * {@code logon}, {@code logout}, {@code from_admin}/{@code from_app}/{@code to_admin}/
- * {@code to_app} with the message ({@code |} for SOH), {@code ok <command>} and
- * {@code error <text>}. From QuickFIX/J's log: {@code in}/{@code out} with the bytes on the wire
- * ({@code |} for SOH), and {@code qfj_error <text>}.
+ * {@code to_app} with the message ({@code |} for SOH, and {@code \x01} for SOH inside
+ * XmlData(213)), {@code ok <command>} and {@code error <text>}. From QuickFIX/J's log:
+ * {@code in}/{@code out} with the bytes on the wire (written the same way), and
+ * {@code qfj_error <text>}.
  */
 public final class Peer implements Application {
     private static final char SOH = '\u0001';
@@ -58,7 +60,31 @@ public final class Peer implements Application {
     }
 
     private static String wire(Message msg) {
-        return msg.toString().replace(SOH, '|');
+        return printable(msg.toString());
+    }
+
+    /**
+     * The message with {@code |} for SOH, except inside XmlData(213), which is as long as
+     * XmlDataLen(212) says and may contain SOH itself: there it's written {@code \x01}.
+     */
+    private static String printable(String raw) {
+        String length = SOH + "212=";
+        int at = raw.indexOf(length);
+        if (at >= 0) {
+            int digits = at + length.length();
+            int end = raw.indexOf(SOH, digits);
+            try {
+                int start = end + 1 + "213=".length();
+                int stop = start + Integer.parseInt(raw.substring(digits, end));
+                if (end >= 0 && raw.startsWith("213=", end + 1) && stop <= raw.length()) {
+                    String data = raw.substring(start, stop).replace(String.valueOf(SOH), "\\x01");
+                    raw = raw.substring(0, start) + data + raw.substring(stop);
+                }
+            } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
+                // Not a well-formed XmlData: print it like any other field.
+            }
+        }
+        return raw.replace(SOH, '|');
     }
 
     public static void main(String[] args) throws Exception {
@@ -159,11 +185,11 @@ public final class Peer implements Application {
                 @Override public void clear() { file.clear(); }
                 @Override public void onIncoming(String msg) {
                     file.onIncoming(msg);
-                    emit("in", msg.replace(SOH, '|'));
+                    emit("in", printable(msg));
                 }
                 @Override public void onOutgoing(String msg) {
                     file.onOutgoing(msg);
-                    emit("out", msg.replace(SOH, '|'));
+                    emit("out", printable(msg));
                 }
                 @Override public void onEvent(String text) { file.onEvent(text); }
                 @Override public void onWarnEvent(String text) { file.onWarnEvent(text); }
@@ -206,8 +232,9 @@ public final class Peer implements Application {
         for (String field : fields.split("\\|")) {
             int eq = field.indexOf('=');
             int tag = Integer.parseInt(field.substring(0, eq));
-            String value = field.substring(eq + 1);
-            if (tag == 35) {
+            // SOH, written \x01, may be sent inside a data field.
+            String value = field.substring(eq + 1).replace("\\x01", String.valueOf(SOH));
+            if (tag == 35 || tag == 212 || tag == 213) {
                 msg.getHeader().setString(tag, value);
             } else {
                 msg.setString(tag, value);

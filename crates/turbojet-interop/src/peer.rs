@@ -25,7 +25,8 @@ pub const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 const HISTORY: usize = 300;
 
-/// A FIX message as the peer printed it, `|` for SOH. For the `from_*` and `to_*` events this is
+/// A FIX message as the peer printed it, `|` for SOH, and `\x01` for SOH inside XmlData(213). For
+/// the `from_*` and `to_*` events this is
 /// QuickFIX/J's re-serialization of the message, not necessarily the bytes on the wire; those are
 /// [`PeerEvent::In`] and [`PeerEvent::Out`].
 #[derive(Debug, Clone)]
@@ -41,7 +42,8 @@ impl FixMsg {
             .filter(|f| !f.is_empty())
             .map(|f| {
                 let (tag, value) = f.split_once('=').unwrap_or_else(|| panic!("bad field {f:?} in {raw}"));
-                (tag.parse().unwrap_or_else(|_| panic!("bad tag {tag:?} in {raw}")), value.to_string())
+                let tag = tag.parse().unwrap_or_else(|_| panic!("bad tag {tag:?} in {raw}"));
+                (tag, value.replace("\\x01", "\x01"))
             })
             .collect();
         Self { raw: raw.to_string(), fields }

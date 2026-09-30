@@ -9,7 +9,7 @@ There are 16 scenarios (128 tests, plus a check on the harness itself):
   one that starts again at 1 because the initiator logs on with ResetSeqNumFlag
   (`logon_logout.rs`);
 - Heartbeats both ways at HeartBtInt=1, and answering a TestRequest (`heartbeat.rs`);
-- a NewOrderSingle each way, field for field (`app.rs`);
+- a NewOrderSingle each way, field for field, and one with XmlData containing SOH (`app.rs`);
 - gap fills and resends in each direction (`gap_recovery.rs`);
 - SequenceReset-Reset from either side, and MsgSeqNum too low at either side (`seq_reset.rs`).
 

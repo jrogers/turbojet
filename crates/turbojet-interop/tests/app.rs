@@ -5,6 +5,7 @@ use turbojet_interop::orders::{peer_order, tj_order};
 use turbojet_interop::{Setup, matrix};
 
 matrix!(order_round_trip);
+matrix!(data_field_with_soh_round_trip);
 
 async fn order_round_trip(setup: Setup) {
     let mut pair = setup.start().await;
@@ -35,5 +36,23 @@ async fn order_round_trip(setup: Setup) {
     ] {
         assert_eq!(ours.get(tag), Some(value), "tag {tag}");
     }
+    pair.finish().await;
+}
+
+/// XmlData(213), a header data field in every version, holding SOH: its length says where it ends.
+async fn data_field_with_soh_round_trip(setup: Setup) {
+    let mut pair = setup.start().await;
+    pair.logged_on().await;
+
+    let order = tj_order("ORD1").with_data(tags::XML_DATA_LEN, tags::XML_DATA, b"<a>\x01</a>");
+    pair.handle.send(order).unwrap();
+    let theirs = pair.peer.received("D").await;
+    assert_eq!(theirs.get(213), Some("<a>\x01</a>"), "{}", theirs.raw());
+    assert_eq!(theirs.get(11), Some("ORD1"), "{}", theirs.raw());
+
+    pair.peer.send(&format!("{}|212=8|213=<b>\\x01</b>", peer_order("ORD2"))).await;
+    let ours = pair.tj_received("D").await;
+    assert_eq!(ours.get_bytes(tags::XML_DATA), Some(&b"<b>\x01</b>"[..]));
+    assert_eq!(ours.get(tags::CL_ORD_ID), Some("ORD2"));
     pair.finish().await;
 }
