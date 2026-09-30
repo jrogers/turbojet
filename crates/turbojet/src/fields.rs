@@ -9,8 +9,10 @@ use std::borrow::Cow;
 
 pub use rust_decimal::Decimal;
 
+mod borrowed;
 mod time;
 
+pub use borrowed::{CodeRef, FieldRef, SecretRef};
 pub use time::{
     DayOrWeek, MonthYear, NaiveDate, NaiveTime, Precision, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
 };

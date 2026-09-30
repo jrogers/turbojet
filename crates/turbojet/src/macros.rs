@@ -1,10 +1,31 @@
 //! Declarative macros that turn FIX dictionary definitions into Rust types. They are exported,
 //! so applications can define their own messages, groups and enumerations; see [`fix_message!`].
 
+/// Makes `FromFix + Copy` types their own borrowed form ([`FieldRef`](crate::fields::FieldRef)),
+/// so they can be used as field types in [`fix_message!`](crate::fix_message):
+/// `impl_field_ref!(MyType);`
+#[macro_export]
+macro_rules! impl_field_ref {
+    ($($ty:ty),+ $(,)?) => {$(
+        impl<'a> $crate::fields::FieldRef<'a> for $ty {
+            type Ref = $ty;
+
+            fn parse_ref(s: &'a str) -> Result<$ty, $crate::fields::ValueError> {
+                <$ty as $crate::fields::FromFix>::from_fix(s)
+            }
+
+            fn into_owned(value: $ty) -> $ty {
+                value
+            }
+        }
+    )+};
+}
+
 /// Defines an enumerated field from its FIX codes: a `Copy` enum with `code`/`from_code`,
 /// [`FromFix`](crate::fields::FromFix) (unknown codes are
 /// [`ValueError::Incorrect`](crate::fields::ValueError::Incorrect)),
-/// [`ToFix`](crate::fields::ToFix) and `Display` (the code). Each variant's docs end with its code.
+/// [`ToFix`](crate::fields::ToFix) and `Display` (the code), and is its own borrowed form
+/// ([`FieldRef`](crate::fields::FieldRef)). Each variant's docs end with its code.
 ///
 /// ```
 /// turbojet::fix_enum! {
@@ -86,6 +107,20 @@ macro_rules! fix_enum {
                 other == self
             }
         }
+
+        impl PartialEq<$name> for $crate::fields::CodeRef<'_, $name> {
+            fn eq(&self, other: &$name) -> bool {
+                matches!(self, $crate::fields::CodeRef::Known(value) if value == other)
+            }
+        }
+
+        impl PartialEq<$crate::fields::CodeRef<'_, $name>> for $name {
+            fn eq(&self, other: &$crate::fields::CodeRef<'_, $name>) -> bool {
+                other == self
+            }
+        }
+
+        $crate::impl_field_ref!($name);
 
         impl $crate::fields::ToFix for $name {
             fn write_fix(&self, out: &mut String) {
