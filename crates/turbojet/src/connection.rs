@@ -7,7 +7,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
 
-use crate::codec::{Decoded, decode_with};
+use crate::codec::{DecodedInto, decode_into};
+use crate::message::Message;
 use crate::registry::CommandReceiver;
 use crate::session::Session;
 use crate::shutdown::Signal;
@@ -89,6 +90,8 @@ where
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut buf = Vec::with_capacity(READ_BUFFER_SIZE);
+    // Every inbound frame is decoded into this one message, which keeps its allocations.
+    let mut scratch = Message::default();
     // Bytes read before the session is bound (an acceptor's Logon) are attributed once it is.
     let mut unattributed_bytes = 0;
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
@@ -142,18 +145,18 @@ where
                 unattributed_bytes += read;
                 // Decode everything this read delivered, then drop the consumed bytes once; any
                 // partial message at the end stays for the next read. The messages arrived
-                // together, so they share one timestamp.
+                // together, so they share one timestamp. Each is decoded into the same `scratch`.
                 let now = Instant::now().into_std();
                 let mut consumed = 0;
                 loop {
-                    match decode_with(&buf[consumed..], session.data_fields()) {
-                        Decoded::Message(msg, len) => {
+                    match decode_into(&buf[consumed..], session.data_fields(), &mut scratch) {
+                        DecodedInto::Message(len) => {
                             consumed += len;
-                            debug!(target: "turbojet::messages", direction = "in", "{}", msg.redacted());
-                            session.on_message(&msg, now);
+                            debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
+                            session.on_message(&scratch, now);
                         }
-                        Decoded::Incomplete => break,
-                        Decoded::Garbled { skip, reason } => {
+                        DecodedInto::Incomplete => break,
+                        DecodedInto::Garbled { skip, reason } => {
                             warn!("discarding {skip} garbled bytes: {reason}");
                             telemetry::garbled_message();
                             consumed += skip;
@@ -198,9 +201,9 @@ mod tests {
 
     use super::*;
     use crate::application::{Application, Context, MessageReject};
-    use crate::codec::{encode, frame_with_raw_field};
+    use crate::codec::{Decoded, encode, frame_with_raw_field};
     use crate::fields::MsgType;
-    use crate::message::{Message, tags, utc_timestamp};
+    use crate::message::{tags, utc_timestamp};
     use crate::registry::SessionRegistry;
     use crate::session::SessionConfig;
     use crate::store::SessionId;
