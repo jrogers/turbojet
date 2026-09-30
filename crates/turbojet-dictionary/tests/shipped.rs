@@ -79,3 +79,18 @@ fn fix50sp2_runs_over_fixt() {
     assert_eq!(dict.trailer().last().unwrap().name(), "CheckSum");
     assert!(dict.field("ApplVerID").is_some());
 }
+
+#[test]
+fn data_fields_pair_each_with_the_length_before_it() {
+    let pairs = |file| load(file).data_fields();
+    assert_eq!(
+        pairs("FIXTSession"),
+        [(93, 89), (90, 91), (95, 96), (212, 213), (354, 355), (1401, 1402), (1403, 1404), (2111, 2112)]
+    );
+    let fix42 = pairs("OrchestraFIX42");
+    assert!(fix42.contains(&(95, 96)) && fix42.contains(&(93, 89)) && fix42.contains(&(90, 91)), "{fix42:?}");
+    let fix50 = pairs("OrchestraFIX50SP2");
+    for pair in [(1277, 1278), (1280, 1281), (1397, 1398), (1184, 1185)] {
+        assert!(fix50.contains(&pair), "{pair:?} in {fix50:?}");
+    }
+}

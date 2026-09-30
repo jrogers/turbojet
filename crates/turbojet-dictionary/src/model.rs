@@ -415,4 +415,42 @@ impl Dictionary {
     pub fn message(&self, name: &str) -> Option<&Message> {
         self.message_names.get(name).map(|&i| &self.messages[i])
     }
+
+    /// The data fields, as `(length tag, data tag)` pairs sorted by data tag: each DATA or XMLDATA
+    /// field listed directly after a LENGTH field (or an INT one: FIX 4.2 has no LENGTH type), in
+    /// the header, the trailer, or any message, component or group. (Orchestra's `lengthId` isn't
+    /// used: some files leave it empty or point it at the wrong field.)
+    pub fn data_fields(&self) -> Vec<(u32, u32)> {
+        let mut pairs = Vec::new();
+        let lists = [&self.header, &self.trailer]
+            .into_iter()
+            .chain(self.components.iter().map(|c| &c.members))
+            .chain(self.messages.iter().map(|m| &m.members));
+        for members in lists {
+            self.collect_data_fields(members, &mut pairs);
+        }
+        pairs.sort_unstable_by_key(|&(length, data)| (data, length));
+        pairs.dedup();
+        pairs
+    }
+
+    fn collect_data_fields(&self, members: &[Member], pairs: &mut Vec<(u32, u32)>) {
+        let field = |member: &Member| match member {
+            Member::Field { name, .. } => self.field(name),
+            _ => None,
+        };
+        for pair in members.windows(2) {
+            if let (Some(length), Some(data)) = (field(&pair[0]), field(&pair[1]))
+                && matches!(length.ty, FieldType::Length | FieldType::Int)
+                && matches!(data.ty, FieldType::Data | FieldType::XmlData)
+            {
+                pairs.push((length.tag, data.tag));
+            }
+        }
+        for member in members {
+            if let Member::Group { members, .. } = member {
+                self.collect_data_fields(members, pairs);
+            }
+        }
+    }
 }

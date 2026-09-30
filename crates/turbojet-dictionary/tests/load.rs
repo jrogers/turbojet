@@ -212,3 +212,34 @@ fn duplicate_enum_codes_name_the_line() {
     let err = Dictionary::from_xml(&doc(fields)).unwrap_err();
     assert_eq!((err.line, err.message.as_str()), (Some(5), "field Side has value 2 twice"));
 }
+
+#[test]
+fn data_fields_are_paired_with_the_length_before_them() {
+    let dict = Dictionary::from_xml(&doc("<messages>
+<message name='Logon' msgtype='A' msgcat='admin'>
+ <field name='RawDataLength' required='N' />
+ <field name='RawData' required='N' />
+ <group name='NoDocs' required='N'>
+  <field name='DocID' required='N' />
+  <field name='DocLen' required='N' />
+  <field name='Doc' required='N' />
+ </group>
+ <field name='OtherLen' required='N' />
+ <field name='Text' required='N' />
+ <field name='Loose' required='N' />
+</message>
+</messages>
+<fields>
+ <field number='95' name='RawDataLength' type='LENGTH'/>
+ <field number='96' name='RawData' type='DATA'/>
+ <field number='5000' name='NoDocs' type='NUMINGROUP'/>
+ <field number='5001' name='DocID' type='STRING'/>
+ <field number='5002' name='DocLen' type='LENGTH'/>
+ <field number='5003' name='Doc' type='XMLDATA'/>
+ <field number='5004' name='OtherLen' type='LENGTH'/>
+ <field number='58' name='Text' type='STRING'/>
+ <field number='5005' name='Loose' type='DATA'/>
+</fields>"))
+    .unwrap();
+    assert_eq!(dict.data_fields(), [(95, 96), (5002, 5003)]);
+}
