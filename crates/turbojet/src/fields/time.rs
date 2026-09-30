@@ -191,19 +191,25 @@ impl ToFix for UtcTimestamp {
         let t = &self.time;
         // Leap seconds and years outside 0..=9999 are rare enough to leave to chrono.
         if t.nanosecond() >= 1_000_000_000 || !(0..=9999).contains(&t.year()) {
-            let fraction = match self.precision {
-                Precision::Seconds => "",
-                Precision::Millis => "%.3f",
-                Precision::Micros => "%.6f",
-                Precision::Nanos => "%.9f",
-            };
-            write!(out, "{}", t.format(&format!("%Y%m%d-%H:%M:%S{fraction}")))
-                .expect("writing to a String cannot fail");
-            return;
+            return write_with_chrono(out, t, self.precision);
         }
         out.push_str(std::str::from_utf8(&seconds_prefix(t)).expect("ASCII"));
         push_fraction(out, t.nanosecond(), self.precision);
     }
+}
+
+/// [`UtcTimestamp::write_fix`] for a leap second or a year outside 0..=9999, by chrono. Kept out
+/// of line so the common case stays small.
+#[cold]
+#[inline(never)]
+fn write_with_chrono(out: &mut String, t: &DateTime<Utc>, precision: Precision) {
+    let fraction = match precision {
+        Precision::Seconds => "",
+        Precision::Millis => "%.3f",
+        Precision::Micros => "%.6f",
+        Precision::Nanos => "%.9f",
+    };
+    write!(out, "{}", t.format(&format!("%Y%m%d-%H:%M:%S{fraction}"))).expect("writing to a String cannot fail");
 }
 
 thread_local! {
@@ -243,13 +249,20 @@ fn put_digits(out: &mut [u8], mut value: u32) {
     }
 }
 
-/// Appends `.` and the fraction of a second in `nanos` to `precision`, truncated; nothing for
-/// whole seconds. A leap second's extra second is left out.
+/// Appends `.` and the fraction of a second in `nanos` (under a billion) to `precision`,
+/// truncated; nothing for whole seconds.
 fn push_fraction(out: &mut String, nanos: u32, precision: Precision) {
-    let nanos = nanos % 1_000_000_000;
     let (value, width) = match precision {
         Precision::Seconds => return,
-        Precision::Millis => (nanos / 1_000_000, 3),
+        // Milliseconds, the usual case, written directly.
+        Precision::Millis => {
+            let millis = nanos / 1_000_000;
+            out.push('.');
+            out.push(char::from(b'0' + (millis / 100) as u8));
+            out.push(char::from(b'0' + (millis / 10 % 10) as u8));
+            out.push(char::from(b'0' + (millis % 10) as u8));
+            return;
+        }
         Precision::Micros => (nanos / 1_000, 6),
         Precision::Nanos => (nanos, 9),
     };
@@ -271,7 +284,8 @@ fn push_time(out: &mut String, time: NaiveTime, precision: Option<Precision>) {
         None => out.push_str(std::str::from_utf8(&hms[..5]).expect("ASCII")),
         Some(precision) => {
             out.push_str(std::str::from_utf8(&hms).expect("ASCII"));
-            push_fraction(out, time.nanosecond(), precision);
+            // A leap second's extra second is the `60` already written.
+            push_fraction(out, time.nanosecond() % 1_000_000_000, precision);
         }
     }
 }

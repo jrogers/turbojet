@@ -81,6 +81,16 @@ fn timestamps(c: &mut Criterion) {
             black_box(&instant).write_fix(&mut out);
         })
     });
+    let micros = UtcTimestamp::from_fix("20260927-03:20:48.544123").unwrap();
+    group.bench_function("write UtcTimestamp in microseconds", |b| {
+        b.iter(|| {
+            out.clear();
+            black_box(&micros).write_fix(&mut out);
+        })
+    });
+    group.bench_function("parse UtcTimestamp", |b| {
+        b.iter(|| UtcTimestamp::from_fix(black_box("20260927-03:20:48.544")))
+    });
     // A new second every call: the worst case for any per-second caching.
     let mut seconds = 0i64;
     group.bench_function("write UtcTimestamp, new second each time", |b| {
