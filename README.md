@@ -521,11 +521,11 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 
 | Stage | Allocations | Reallocs | Bytes |
 |---|---|---|---|
-| Decode | 2 | 0 | 508 |
+| Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
 | Application (typed parse and ack)² | 8 | 2 | 3,138 |
 | Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
-| Engine (all but the application): memory / disk | 3.2 / 2.2 | 0 | 788 / 557 |
+| Engine (all but the application): memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 
 Means of 1,000 orders after 100 warm-up, 2026-09-30, with each store (the disk store without
 fsync). Store allocations are fractional because the stores' maps allocate a node every few

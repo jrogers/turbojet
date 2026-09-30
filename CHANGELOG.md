@@ -60,6 +60,10 @@ Notable changes to the published crates.
 - Typed messages write decimals and integers without `core::fmt`: building an ExecutionReport is
   about 39% faster. With fewer passes over each message's fields and one clock read per message,
   taking an order to its acknowledgement is about 15% faster again.
+- Each inbound message is decoded into one `Message` reused for the connection, so decoding no
+  longer allocates once it has grown to the size of the messages received. `codec::decode_into`
+  decodes into a message the caller reuses.
+- Breaking: `Session::on_message` takes the message by reference.
 
 ### `turbojet-dictionary`
 
