@@ -30,6 +30,7 @@ fn chunked<T>(iters: u64, setup: impl Fn(u64) -> T, mut run: impl FnMut(T)) -> D
     total
 }
 
+#[expect(clippy::too_many_lines, reason = "one benchmark group, read top to bottom")]
 fn session(c: &mut Criterion) {
     let mut group = c.benchmark_group("session");
     group.throughput(Throughput::Elements(1));

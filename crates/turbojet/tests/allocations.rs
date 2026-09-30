@@ -162,6 +162,7 @@ mod counting {
     pub struct Counting;
 
     // SAFETY: every method forwards to `System` with the caller's arguments unchanged.
+    #[allow(unsafe_code, reason = "a counting global allocator can only be written with unsafe")]
     unsafe impl GlobalAlloc for Counting {
         unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
             record(1, 0, layout.size());

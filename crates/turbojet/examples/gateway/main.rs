@@ -94,6 +94,7 @@ struct TlsArgs {
 }
 
 /// Parses the gateway's arguments (without the program name).
+#[expect(clippy::too_many_lines, reason = "one match arm per option")]
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut listen = "0.0.0.0:9876".to_string();
     let mut config = SessionConfig::new("FIX.4.2", "GATEWAY");
@@ -268,6 +269,7 @@ async fn run_seqnums(args: &[String]) -> Result<String, String> {
 }
 
 #[tokio::main]
+#[expect(clippy::too_many_lines, reason = "an example's setup, read top to bottom")]
 async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("seqnums") {

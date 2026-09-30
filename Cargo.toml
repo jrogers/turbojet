@@ -18,6 +18,20 @@ repository = "https://github.com/jrogers/turbojet"
 codegen-units = 1
 lto = "fat"
 
+# Lints behind STYLE.md, for the crates that opt in with `[lints] workspace = true` (all but the
+# generated turbojet-fix* crates, whose code is macro invocations).
+[workspace.lints.rust]
+# Deny rather than forbid, so a reviewed exception can `#[allow]` it locally with a reason.
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# Thresholds are in clippy.toml.
+too_many_lines = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+cast_possible_wrap = "warn"
+cast_lossless = "warn"
+
 [workspace.dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 chrono-tz = "0.10"

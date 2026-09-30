@@ -15,6 +15,10 @@
 //! The official FIX Orchestra files (FIX 4.2, FIX 4.4 and FIX Latest) are published in
 //! [FIXTradingCommunity/orchestrations](https://github.com/FIXTradingCommunity/orchestrations).
 
+// Library code handles every error or names the invariant that rules it out, in an `expect`
+// (STYLE.md). Tests, benches and examples may unwrap.
+#![warn(clippy::unwrap_used)]
+
 mod correct;
 mod load;
 mod merge;

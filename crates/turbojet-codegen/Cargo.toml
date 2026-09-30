@@ -28,3 +28,6 @@ turbojet-dictionary.workspace = true
 pulldown-cmark.workspace = true
 tempfile.workspace = true
 turbojet.workspace = true
+
+[lints]
+workspace = true

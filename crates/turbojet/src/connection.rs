@@ -66,7 +66,7 @@ where
             result = drive(stream, session, commands, logged_on, shutdown) => result,
             // Dropping the driver drops the session, which notifies the application, and the
             // stream, which closes the connection.
-            () = async { closing.as_mut().unwrap().closing().await }, if closing.is_some() => {
+            () = async { closing.as_mut().expect("guarded by is_some").closing().await }, if closing.is_some() => {
                 warn!("closing the connection: shutdown timed out waiting for the logout");
                 Ok(())
             }
@@ -76,6 +76,7 @@ where
     .await
 }
 
+#[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
 async fn drive<S>(
     stream: S,
     mut session: Session,
@@ -171,7 +172,7 @@ where
                 }
             }
             // Once only: after that the session's logout (or its timeout) ends the connection.
-            text = async { shutdown.as_mut().unwrap().started().await }, if shutdown.is_some() => {
+            text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() => {
                 shutdown = None;
                 session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
@@ -455,7 +456,7 @@ mod tests {
         }
 
         let mut buf = Vec::new();
-        let replies = receive(&mut peer, &mut buf, 1 + ORDERS as usize).await;
+        let replies = receive(&mut peer, &mut buf, usize::try_from(1 + ORDERS).unwrap()).await;
         assert_eq!(replies[0].msg_type(), MsgType::Logon);
         let acked: Vec<_> = replies[1..].iter().map(|m| m.get(tags::CL_ORD_ID).unwrap().to_string()).collect();
         let expected: Vec<_> = (0..ORDERS).map(|i| format!("O{i}")).collect();
@@ -551,7 +552,7 @@ mod tests {
         peer.write_all(&burst).await.unwrap();
 
         let mut buf = Vec::new();
-        let replies = receive(&mut peer, &mut buf, 1 + ORDERS as usize).await;
+        let replies = receive(&mut peer, &mut buf, usize::try_from(1 + ORDERS).unwrap()).await;
         assert_eq!(replies[0].msg_type(), MsgType::Logon);
         assert_eq!(replies.last().unwrap().get(tags::CL_ORD_ID), Some("O19"));
         assert_eq!(writes.load(Ordering::SeqCst), 1, "Logon reply and {ORDERS} acks should go out in one write");

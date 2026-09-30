@@ -81,3 +81,6 @@ test = true
 [[example]]
 name = "client"
 required-features = ["tls"]
+
+[lints]
+workspace = true

@@ -111,7 +111,7 @@ fn maps_datatypes_to_field_types() {
         .collect();
     let dict = load(&format!("<fixr:fields>{fields}</fixr:fields>"));
     for (i, (name, ty)) in types.iter().enumerate() {
-        assert_eq!(&dict.field_by_tag(i as u32 + 1).unwrap().ty, ty, "{name}");
+        assert_eq!(&dict.field_by_tag(u32::try_from(i + 1).unwrap()).unwrap().ty, ty, "{name}");
     }
 }
 

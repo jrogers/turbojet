@@ -1082,6 +1082,7 @@ impl Session {
 
     /// An inbound message on an established session. `arrived` is false for one taken from the
     /// queue, which was checked for SendingTime when it arrived.
+    #[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
     fn on_session_message(&mut self, msg: &Message, now: Instant, arrived: bool) {
         match self.check_header(msg) {
             Ok(()) => {}

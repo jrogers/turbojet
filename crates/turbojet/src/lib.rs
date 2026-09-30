@@ -198,6 +198,9 @@
 //!   `turbojet-dictionary`, with `SessionConfig::with_dictionary`.
 
 #![warn(missing_docs)]
+// Library code handles every error or names the invariant that rules it out, in an `expect`
+// (STYLE.md). Tests, benches and examples may unwrap.
+#![warn(clippy::unwrap_used)]
 
 #[macro_use]
 mod macros;

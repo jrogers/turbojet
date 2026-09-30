@@ -152,7 +152,9 @@ pub(crate) fn push_digits(out: &mut Vec<u8>, mut n: usize) {
     let mut start = digits.len();
     loop {
         start -= 1;
-        digits[start] = b'0' + (n % 10) as u8;
+        #[expect(clippy::cast_possible_truncation, reason = "a digit, under 10")]
+        let digit = (n % 10) as u8;
+        digits[start] = b'0' + digit;
         n /= 10;
         if n == 0 {
             break;

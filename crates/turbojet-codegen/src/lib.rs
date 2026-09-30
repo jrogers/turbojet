@@ -53,6 +53,10 @@
 //! dictionary that changes or reorders messages can rename group structs. Variants without an
 //! official name are camel-cased from the value's description (`SELL_SHORT` → `SellShort`).
 
+// Library code handles every error or names the invariant that rules it out, in an `expect`
+// (STYLE.md). Tests, benches and examples may unwrap.
+#![warn(clippy::unwrap_used)]
+
 mod docs;
 mod naming;
 mod plan;

@@ -63,7 +63,7 @@ impl Application for Venue {
             return Err(MessageReject::unsupported_message_type());
         }
         let order: SpreadOrder = msg.parse()?;
-        ctx.send(SpreadAck { cl_ord_id: order.cl_ord_id, legs_accepted: order.legs.len() as u32 });
+        ctx.send(SpreadAck { cl_ord_id: order.cl_ord_id, legs_accepted: u32::try_from(order.legs.len()).unwrap() });
         Ok(())
     }
 }

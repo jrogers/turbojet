@@ -315,8 +315,30 @@ struct Field {
 const BINARY: u32 = u32::MAX;
 
 impl Field {
+    /// A field in [`Message::buf`]: its segment starts at `start`, its value spans `value..end`.
+    fn text(tag: u32, start: usize, value: usize, end: usize) -> Self {
+        debug_assert!(start < value, "a segment starts with its tag");
+        debug_assert!(value <= end);
+        Field { tag, start: offset(start), value: offset(value), end: offset(end) }
+    }
+
+    /// A value that isn't UTF-8, spanning `value..end` in [`Message::bin`].
+    fn binary(tag: u32, value: usize, end: usize) -> Self {
+        debug_assert!(value <= end);
+        Field { tag, start: BINARY, value: offset(value), end: offset(end) }
+    }
+
     fn is_binary(&self) -> bool {
         self.start == BINARY
+    }
+}
+
+/// `n` as a [`Field`] offset. Offsets are `u32` to keep the field index small, which limits a
+/// message to 4 GiB, less the one value [`BINARY`] reserves; past that, panic rather than wrap.
+fn offset(n: usize) -> u32 {
+    match u32::try_from(n) {
+        Ok(n) if n != BINARY => n,
+        _ => panic!("a message is limited to 4 GiB"),
     }
 }
 
@@ -357,6 +379,7 @@ impl Message {
     /// would be dropped too; empty values are kept for the same reason. Fails only when the header
     /// can't be trusted: a defect in MsgType, SenderCompID, TargetCompID, MsgSeqNum or SendingTime,
     /// or one of them missing from a message with a defect.
+    #[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
     pub(crate) fn from_frame(frame: &[u8], data: &DataFields) -> Result<Self, String> {
         let body = frame.strip_suffix(&[SOH]).ok_or("message does not end with SOH")?;
         // Normally the whole frame is UTF-8 and is used as it is, fields indexing into it.
@@ -404,7 +427,7 @@ impl Message {
                 }
             }
             let field = if text.is_some() {
-                Field { tag, start: start as u32, value: value as u32, end: end as u32 }
+                Field::text(tag, start, value, end)
             } else {
                 let bytes = &body[value..end];
                 match std::str::from_utf8(bytes) {
@@ -635,14 +658,10 @@ impl Message {
                 self.fields.push(field);
                 continue;
             }
-            let start = self.buf.len() as u32;
+            let start = self.buf.len();
             self.buf.push_str(&other.buf[f.start as usize..=f.end as usize]);
-            self.fields.push(Field {
-                tag: f.tag,
-                start,
-                value: start + (f.value - f.start),
-                end: start + (f.end - f.start),
-            });
+            let (value, end) = ((f.value - f.start) as usize, (f.end - f.start) as usize);
+            self.fields.push(Field::text(f.tag, start, start + value, start + end));
         }
     }
 
@@ -734,7 +753,7 @@ impl Message {
                 let bin = &mut self.rare.get_or_insert_default().bin;
                 let start = bin.len();
                 bin.extend_from_slice(value);
-                Field { tag, start: BINARY, value: start as u32, end: bin.len() as u32 }
+                Field::binary(tag, start, bin.len())
             }
         }
     }
@@ -748,7 +767,7 @@ impl Message {
         value.write_fix(&mut self.buf);
         let end = self.buf.len();
         self.buf.push('\x01');
-        Field { tag, start: start as u32, value: value_start as u32, end: end as u32 }
+        Field::text(tag, start, value_start, end)
     }
 }
 
@@ -1116,7 +1135,7 @@ fn parse_tag(tag: &[u8]) -> Option<u32> {
 
 /// A data field's length: 1 to 9 ASCII digits.
 fn parse_length(length: &[u8]) -> Option<usize> {
-    parse_digits(length).map(|n| n as usize)
+    parse_digits(length).and_then(|n| usize::try_from(n).ok())
 }
 
 fn parse_digits(digits: &[u8]) -> Option<u64> {

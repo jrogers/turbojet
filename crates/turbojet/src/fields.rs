@@ -609,6 +609,7 @@ mod tests {
         let mut values = vec![Decimal::ZERO, Decimal::from_parts(0, 0, 0, true, 2), Decimal::MAX, Decimal::MIN];
         for scale in 0..=28 {
             for _ in 0..200 {
+                #[expect(clippy::cast_possible_truncation, reason = "the low 32 random bits")]
                 let (lo, mid, hi) = (next() as u32, next() as u32, next() as u32);
                 // Mantissas of 32, 64 and 96 bits, and small ones that need leading zeros.
                 let (lo, mid, hi) = match next() % 4 {

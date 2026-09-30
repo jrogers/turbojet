@@ -220,6 +220,7 @@ thread_local! {
 /// `YYYYMMDD-HH:MM:SS` for `time`, which must have a four-digit year. Cached per thread, since
 /// a busy session formats the same second many times.
 fn seconds_prefix(time: &DateTime<Utc>) -> [u8; 17] {
+    debug_assert!((0..=9999).contains(&time.year()));
     let seconds = time.timestamp();
     SECONDS_PREFIX.with(|cache| {
         let (cached_seconds, prefix) = cache.get();
@@ -227,7 +228,7 @@ fn seconds_prefix(time: &DateTime<Utc>) -> [u8; 17] {
             return prefix;
         }
         let mut prefix = [0u8; 17];
-        put_digits(&mut prefix[0..4], time.year() as u32);
+        put_digits(&mut prefix[0..4], time.year().cast_unsigned());
         put_digits(&mut prefix[4..6], time.month());
         put_digits(&mut prefix[6..8], time.day());
         put_digits(&mut prefix[9..11], time.hour());
@@ -295,14 +296,16 @@ fn parse_date(b: &[u8]) -> Option<NaiveDate> {
     if b.len() != 8 {
         return None;
     }
-    NaiveDate::from_ymd_opt(number(&b[0..4])? as i32, number(&b[4..6])?, number(&b[6..8])?)
+    NaiveDate::from_ymd_opt(i32::try_from(number(&b[0..4])?).ok()?, number(&b[4..6])?, number(&b[6..8])?)
 }
 
 /// Writes `date` as `YYYYMMDD`.
 fn push_date(out: &mut String, date: NaiveDate) {
-    if (0..=9999).contains(&date.year()) {
+    if let Ok(year) = u32::try_from(date.year())
+        && year <= 9999
+    {
         let mut digits = [0u8; 8];
-        put_digits(&mut digits[0..4], date.year() as u32);
+        put_digits(&mut digits[0..4], year);
         put_digits(&mut digits[4..6], date.month());
         put_digits(&mut digits[6..8], date.day());
         out.push_str(std::str::from_utf8(&digits).expect("ASCII"));
@@ -317,6 +320,11 @@ fn number(b: &[u8]) -> Option<u32> {
         return None;
     }
     Some(b.iter().fold(0, |n, &d| n * 10 + u32::from(d - b'0')))
+}
+
+/// `n` in a narrower type, or `None` if it doesn't fit.
+fn narrow<T: TryFrom<u32>>(n: u32) -> Option<T> {
+    T::try_from(n).ok()
 }
 
 /// `HH:MM`, then optionally `:SS` (60 for a leap second) and a fraction of 1 to 9 digits, then
@@ -338,7 +346,7 @@ fn parse_time(b: &[u8]) -> Option<(NaiveTime, Option<Precision>, Option<FixedOff
             if !(1..=9).contains(&digits) {
                 return None;
             }
-            nanos = number(&b[at + 1..at + 1 + digits])? * 10u32.pow(9 - digits as u32);
+            nanos = number(&b[at + 1..at + 1 + digits])? * 10u32.pow(9 - u32::try_from(digits).ok()?);
             precision = Some(Precision::from_digits(digits));
             at += 1 + digits;
         }
@@ -359,7 +367,7 @@ fn parse_time(b: &[u8]) -> Option<(NaiveTime, Option<Precision>, Option<FixedOff
             if hours > 14 || minutes > 59 {
                 return None;
             }
-            let seconds = (hours * 3600 + minutes * 60) as i32;
+            let seconds = i32::try_from(hours * 3600 + minutes * 60).ok()?;
             Some(FixedOffset::east_opt(if *sign == b'-' { -seconds } else { seconds })?)
         }
         _ => return None,
@@ -546,11 +554,11 @@ impl fmt::Display for MonthYear {
 impl FromFix for MonthYear {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
         let b = s.as_bytes();
-        let month = || MonthYear::new(number(b.get(0..4)?)? as u16, number(b.get(4..6)?)? as u8);
+        let month = || MonthYear::new(narrow(number(b.get(0..4)?)?)?, narrow(number(b.get(4..6)?)?)?);
         let value = match b.len() {
             6 => month(),
-            8 if b[6] == b'w' => month().and_then(|m| m.with_week(number(&b[7..])? as u8)),
-            8 => month().and_then(|m| m.with_day(number(&b[6..])? as u8)),
+            8 if b[6] == b'w' => month().and_then(|m| m.with_week(narrow(number(&b[7..])?)?)),
+            8 => month().and_then(|m| m.with_day(narrow(number(&b[6..])?)?)),
             _ => None,
         };
         value.ok_or(ValueError::Format)
@@ -805,7 +813,7 @@ mod tests {
             state
         };
         for i in 0..20_000 {
-            let seconds = (next() % 7_258_118_400) as i64; // up to 2200-01-01
+            let seconds = i64::try_from(next() % 7_258_118_400).unwrap(); // up to 2200-01-01
             let nanos = (next() % 1_000_000_000) as u32;
             let time = Utc.timestamp_opt(seconds, nanos).unwrap();
             let precision = [Precision::Seconds, Precision::Millis, Precision::Micros, Precision::Nanos][i % 4];

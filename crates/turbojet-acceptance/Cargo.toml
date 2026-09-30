@@ -12,3 +12,6 @@ publish = false
 chrono.workspace = true
 turbojet = { workspace = true, features = ["validation"] }
 turbojet-dictionary.workspace = true
+
+[lints]
+workspace = true

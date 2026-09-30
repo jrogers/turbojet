@@ -146,6 +146,7 @@ pub(crate) struct Options<'a> {
 
 /// Plans the code for `dict`'s application messages. With `docs`, the dictionary's documentation
 /// goes into doc comments after our own `Name(tag).` lines.
+#[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
 pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error> {
     let Options { skip, docs, lenient_all, lenient } = *options;
     let mut tags: Vec<(String, String, u32)> = Vec::new();
