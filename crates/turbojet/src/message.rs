@@ -7,6 +7,10 @@ use std::fmt;
 
 use crate::fields::{FromFix, MsgType, SessionRejectReason, ToFix, ValueError};
 
+mod data;
+
+pub use data::DataFields;
+
 /// FIX field delimiter.
 pub const SOH: u8 = 0x01;
 
