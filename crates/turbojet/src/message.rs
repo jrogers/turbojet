@@ -1106,10 +1106,7 @@ fn scan_group(
     count_tag: u32,
     spec: &GroupSpec,
 ) -> Result<(Vec<(usize, usize)>, usize), FieldError> {
-    // Sized from the count, as before the walk was shared, capped so a hostile count can't
-    // reserve much; the walk itself validates the count.
-    let capacity = msg.text(&msg.fields[position]).and_then(|count| count.parse::<usize>().ok()).unwrap_or(0);
-    let mut entries = Vec::with_capacity(capacity.min(64));
+    let mut entries = Vec::new();
     let (count, end) = walk_group(msg, position, limit, count_tag, spec, |start, end| entries.push((start, end)))?;
     debug_assert_eq!(usize::try_from(count).ok(), Some(entries.len()));
     Ok((entries, end))
