@@ -6,6 +6,11 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- A `Message` that grows past 4 GiB panics. Its field offsets used to wrap silently, which
+  would have corrupted the message.
+- Debug assertions check framing, sequence numbers and the gap queue: whatever is encoded,
+  framed for sending or given to a store must frame back as exactly one message. They run in
+  tests and fuzzing only.
 - Data fields carry any bytes, including SOH and bytes that aren't UTF-8: RawData, SecureData,
   XmlData, the Encoded* fields and the rest FIX pairs with a Length field (`DataFields`), and a
   venue's own (`SessionConfig::with_data_field`, or from the session's dictionary). Each is decoded

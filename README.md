@@ -55,21 +55,34 @@ cargo test --all-features     # includes the gateway's tests
 
 ## Motivation
 
-Turbojet aims to be a FIX engine that a trading or order execution system can build on:
+Turbojet aims to be a FIX engine that a trading or order execution system can build on. A bug in
+one can send a duplicate order or lose a fill, so it puts **safety first, then performance, then
+developer experience**, after TigerBeetle's
+[Tiger Style](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md);
+[STYLE.md](https://github.com/jrogers/turbojet/blob/main/STYLE.md) says what that means in
+practice, and where Turbojet differs.
 
-- **Pure Rust.** No bindings to a C++ or Java engine, and avoiding `unsafe` code for now. The one
-  exception is optional: the `tls` feature uses rustls with the `ring` crypto provider, which
-  includes C and assembly.
-- **Fast.** Encoding, decoding, the session layer and storage have benchmarks (see
+- **Safe.** What a counterparty sends is bounded (message size, header fields, messages held
+  ahead of a gap), and what still grows without a limit is listed in the roadmap. Invariants are
+  asserted, paired where they can be (a message is checked as it's stored and again as it's read
+  back), and the parsers and session state machine are fuzzed with those assertions on. The session is tested
+  against QuickFIX/J and QuickFIX's scripted acceptance scenarios (see the warning above for what
+  that does and doesn't cover).
+- **Pure Rust.** No bindings to a C++ or Java engine, and no `unsafe` code in the engine; lints
+  deny it. The one exception is optional: the `tls` feature uses rustls with the `ring` crypto
+  provider, which includes C and assembly.
+- **Fast.** Performance is part of the design, not an afterthought: outbound messages are
+  batched into one buffer, and allocations per message are counted by stage against an exact
+  budget on every test run. Encoding, decoding, the session layer and storage have benchmarks (see
   [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.2 µs, wire
   to wire.
 - **Embeddable.** Turbojet is a library, not a server: your code owns the process, the runtime and
   the business logic. Every layer is public, from the codec up through the sans-IO session state
   machine to the TCP transports, so you can use only the layers you need. Storage, clocks and
   transports are traits or plain streams you can replace.
-- **Tested.** CI tests every feature combination and the minimum supported Rust version, and
-  checks every dependency's licence and known advisories. Planned work is in
-  [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md). Until a 1.0 release, APIs may still change (see the warning above).
+- **Tested.** CI tests every feature combination and the minimum supported Rust version, runs
+  clippy with warnings as errors, and checks every dependency's licence and known advisories.
+  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md). Until a 1.0 release, APIs may still change (see the warning above).
 
 ## Using the engine
 

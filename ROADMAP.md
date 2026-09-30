@@ -6,7 +6,8 @@ or more).
 
 A standing goal behind all of it: the engine's hot path should get as close as possible to zero
 copies and zero allocations per message (see "Zero-copy, zero-allocation hot path" under
-Performance).
+Performance). How the work is done, safety first, then performance, then developer experience,
+is in [STYLE.md](STYLE.md).
 
 ## Where things stand
 
@@ -135,7 +136,45 @@ Orchestra.
   that isn't UTF-8 is rejected with SessionRejectReason 6, and in a header field the session
   relies on (MsgType, the CompIDs, MsgSeqNum, SendingTime) the message is ignored as garbled.
 
-## 5. Performance
+## 5. Safety and assurance
+
+Following [STYLE.md](STYLE.md) (after TigerBeetle's Tiger Style): limits on everything, asserted
+invariants, and tests that look for bugs rather than confirm what already works. The workspace
+lints (no `unsafe`, no lossy casts, no `unwrap` in library code, functions of about 70 lines) and
+debug assertions on framing, sequence numbers and the gap queue are in place.
+
+- **Deterministic simulation testing** (L). TigerBeetle's biggest safety tool is a simulator that
+  runs the whole system against a hostile, seeded environment; Turbojet's sans-IO `Session` and
+  injected clock make the same possible here. Run two sessions (initiator and acceptor) in one
+  thread over a simulated network that drops, delays, reorders, duplicates and disconnects;
+  crash and restart either side's store, including torn writes to a `DiskStorage` file; drive
+  applications and operators that send, reset and log out at random; and advance time only when
+  the simulator says so. Check invariants after every step: each application message is
+  delivered once, in order, with no gaps (or marked `maybe_redelivered` after a crash); sequence
+  numbers never go backwards except by an explicit reset; a resent message matches what was
+  first sent; and sessions that can reach each other eventually log on and settle. Any failure
+  replays from its seed. This goes beyond the fuzz targets (one session, no crashes) and the
+  QuickFIX/J tests (one well-behaved peer), and could share its fault model with the
+  fault-injecting proxy under "More interop tests".
+- **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
+  channel, so an application that sends faster than the connection writes grows it without limit.
+  Give it a configured capacity, and report a full queue to the caller (a new error) rather than
+  queueing. It changes the public API, and is the back-pressure half of "Throttling" below.
+- **Audit the limits** (S). List every collection and loop that grows with the counterparty's
+  input or with time, and give each a named limit or a comment saying why it needs none. Known so
+  far: the memory store and the disk store's index ("Bounded memory store", "Disk store
+  rotation"), concurrent connections ("Connection limits"), and the reply list in each
+  `Context`.
+- **Assertion density** (M). Aim for about two assertions per function in `session`, `codec`,
+  `message` and the stores: preconditions, postconditions, and pairs across code paths. For
+  example, `MemoryStorage` checks a message's framing when it's stored but not when it's read
+  back for a resend, as `DiskStorage` does.
+- **Split long functions** (M). The functions marked `#[expect(clippy::too_many_lines)]`
+  (`Session::on_session_message`, `Message::from_frame`, the connection driver and the code
+  generator's `plan::build`, among others) keep their branching in one place, but are too long
+  to hold in your head. Split them into a parent that decides and helpers that compute.
+
+## 6. Performance
 
 ### Zero-copy, zero-allocation hot path
 
@@ -210,7 +249,7 @@ From the benchmarks.
 - **Latency histograms** (S). Opt-in timing metrics (for example, time to process each inbound
   message), kept separate because they cost a clock read per message.
 
-## 6. Operations and deployment
+## 7. Operations and deployment
 
 - **Per-counterparty configuration** (M). An `Acceptor` applies one configuration to every
   counterparty. Allow per-session heartbeat limits, schedules, TLS requirements and stores.
@@ -226,7 +265,8 @@ From the benchmarks.
   gateway should use it.
 - **Holiday calendars** (S). Schedules have no notion of exchange holidays.
 - **Throttling** (M). Optional per-session inbound and outbound message-rate limits, and a way
-  for applications to apply back-pressure.
+  for applications to apply back-pressure (see "Bound the session command queue" under Safety
+  and assurance).
 - **Connection limits** (S). An acceptor starts a task for every connection, and each may wait
   the whole logon timeout before sending anything; there's no cap on concurrent connections,
   overall or per IP address. Add optional limits, refusing connections beyond them.
@@ -277,7 +317,7 @@ From the benchmarks.
   - QuickFIX/n as a second peer;
   - sessions over TLS.
 
-## 7. The example gateway
+## 8. The example gateway
 
 The gateway exists to exercise Turbojet; these matter only if it becomes more than an example.
 
@@ -314,5 +354,8 @@ Behaviour that's deliberate or documented, but worth revisiting.
 - `SessionHandle::send` after a session has started logging out drops the message (with a
   warning); `send` returning `Ok` means queued, not sent.
 - Custom stores that don't record creation times never reset on a session schedule.
+- A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
+  messages are far below that (BodyLength is capped at 64 KiB), so only an application building
+  a huge outbound message can reach it.
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.
