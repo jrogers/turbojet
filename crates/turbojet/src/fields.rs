@@ -191,7 +191,8 @@ impl ToFix for String {
 }
 
 /// Appends `ascii`, which the caller has just written as ASCII (digits, punctuation), without
-/// the UTF-8 check `str::from_utf8` would make.
+/// the UTF-8 check `str::from_utf8` would make. Faster for the short runs of an integer or a
+/// decimal; for a timestamp's 20 or so bytes, the check and one copy are faster (measured).
 fn push_ascii(out: &mut String, ascii: &[u8]) {
     debug_assert!(ascii.is_ascii());
     out.extend(ascii.iter().map(|&b| char::from(b)));
