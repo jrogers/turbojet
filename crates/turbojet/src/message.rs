@@ -2,7 +2,6 @@
 //! [`FixMessage`] trait implemented by the typed messages in [`crate::admin`] and the generated
 //! version crates, e.g. `turbojet-fix42`.
 
-use std::borrow::Cow;
 use std::fmt;
 
 use crate::fields::{FromFix, MsgType, SessionRejectReason, ToFix, ValueError};
@@ -345,56 +344,91 @@ impl Message {
 
     /// Parses a complete, framed message (`8=...<SOH>` through `10=NNN<SOH>`) whose framing has
     /// already been checked by the codec: BeginString(8), BodyLength(9) and CheckSum(10) are
-    /// known to be valid. A malformed body field (no `=`, an invalid tag, a value that isn't UTF-8)
-    /// doesn't fail the message: the first one is recorded as its defect, for the session to
-    /// reject, and the field is dropped (or, for a non-UTF-8 value, kept lossily).
+    /// known to be valid. A data field in `data` that directly follows its Length field takes
+    /// exactly that many bytes, which may include SOH and needn't be UTF-8; if they aren't
+    /// followed by SOH, the Length field is a defect and the data field ends at the first SOH.
+    ///
+    /// A malformed body field (no `=`, an invalid tag, a value that isn't UTF-8 outside a data
+    /// field) doesn't fail the message: the first one is recorded as its defect, for the session
+    /// to reject, and the field is dropped (or, for a non-UTF-8 value, kept lossily).
     /// Treating the message as garbled instead would stall the session, since every resend of it
     /// would be dropped too; empty values are kept for the same reason. Fails only when the header
     /// can't be trusted: a defect in MsgType, SenderCompID, TargetCompID, MsgSeqNum or SendingTime,
     /// or one of them missing from a message with a defect.
-    pub(crate) fn from_frame(frame: &[u8]) -> Result<Self, String> {
-        // Normally the whole frame is UTF-8 and is used as it is. Otherwise find the first field
-        // whose value isn't, failing if any such field is a trusted header field, then parse a
-        // lossy copy.
-        let (text, bad_value) = match std::str::from_utf8(frame) {
-            Ok(text) => (Cow::Borrowed(text), None),
-            Err(_) => {
-                let mut bad = non_utf8_values(frame);
-                let first = bad.next();
-                if let Some((_, tag)) = first.into_iter().chain(bad).find(|(_, tag)| TRUSTED_HEADER.contains(tag)) {
-                    return Err(format!("Tag {tag} value is not UTF-8"));
-                }
-                (String::from_utf8_lossy(frame), first.map(|(index, _)| index))
-            }
-        };
-        let body = text.strip_suffix('\x01').ok_or("message does not end with SOH")?;
-        let mut fields = Vec::with_capacity(body.len() / 8);
+    pub(crate) fn from_frame(frame: &[u8], data: &DataFields) -> Result<Self, String> {
+        let body = frame.strip_suffix(&[SOH]).ok_or("message does not end with SOH")?;
+        // Normally the whole frame is UTF-8 and is used as it is, fields indexing into it.
+        // Otherwise the text buffer is rebuilt field by field, with non-UTF-8 data values set
+        // apart and other non-UTF-8 values kept lossily.
+        let text = std::str::from_utf8(frame).ok();
+        let mut msg = Self { fields: Vec::with_capacity(body.len() / 8), ..Self::default() };
         let mut defect = None;
+        // The last field's tag and value, for a data field to find its length in.
+        let mut previous: Option<(u32, &[u8])> = None;
         let mut start = 0;
-        for (index, segment) in body.split('\x01').enumerate() {
-            let end = start + segment.len();
-            match parse_field(segment) {
-                Ok((tag, eq)) => {
-                    if bad_value == Some(index) {
+        while start <= body.len() {
+            let mut end = body[start..].iter().position(|&b| b == SOH).map_or(body.len(), |p| start + p);
+            let (tag, eq) = match parse_field(&body[start..end]) {
+                Ok(field) => field,
+                Err(text) => {
+                    // A tag of 0 is well formed, if invalid, so the Reject can name it.
+                    let segment = &body[start..end];
+                    let zero = segment
+                        .iter()
+                        .position(|&b| b == b'=')
+                        .is_some_and(|eq| eq > 0 && segment[..eq].iter().all(|&b| b == b'0'));
+                    let tag = zero.then_some(0);
+                    defect.get_or_insert(Defect { tag, reason: SessionRejectReason::InvalidTagNumber, text });
+                    previous = None;
+                    start = end + 1;
+                    continue;
+                }
+            };
+            let value = start + eq + 1;
+            if data.is_data(tag)
+                && let Some((length_tag, length)) = previous
+                && data.length_tag(tag) == Some(length_tag)
+                && let Some(n) = parse_length(length)
+            {
+                match value.checked_add(n).filter(|&e| e == body.len() || e < body.len() && body[e] == SOH) {
+                    Some(data_end) => end = data_end,
+                    None => {
+                        defect.get_or_insert_with(|| Defect {
+                            tag: Some(length_tag),
+                            reason: SessionRejectReason::IncorrectDataFormat,
+                            text: format!("Tag {length_tag} does not give the length of data field {tag}"),
+                        });
+                    }
+                }
+            }
+            let field = if text.is_some() {
+                Field { tag, start: start as u32, value: value as u32, end: end as u32 }
+            } else {
+                let bytes = &body[value..end];
+                match std::str::from_utf8(bytes) {
+                    Ok(text) => msg.write_segment(tag, text),
+                    Err(_) if data.is_data(tag) => msg.write_data(tag, bytes),
+                    Err(_) => {
+                        if TRUSTED_HEADER.contains(&tag) {
+                            return Err(format!("Tag {tag} value is not UTF-8"));
+                        }
                         defect.get_or_insert_with(|| Defect {
                             tag: Some(tag),
                             reason: SessionRejectReason::IncorrectDataFormat,
                             text: format!("Tag {tag} value is not UTF-8"),
                         });
+                        msg.write_segment(tag, &*String::from_utf8_lossy(bytes))
                     }
-                    fields.push(Field { tag, start: start as u32, value: (start + eq + 1) as u32, end: end as u32 });
                 }
-                Err(text) => {
-                    // A tag of 0 is well formed, if invalid, so the Reject can name it.
-                    let zero =
-                        segment.split_once('=').is_some_and(|(t, _)| !t.is_empty() && t.bytes().all(|b| b == b'0'));
-                    let tag = zero.then_some(0);
-                    defect.get_or_insert(Defect { tag, reason: SessionRejectReason::InvalidTagNumber, text });
-                }
-            }
+            };
+            msg.fields.push(field);
+            previous = Some((tag, &body[value..end]));
             start = end + 1;
         }
-        let msg = Self { buf: text.into_owned(), fields, bin: Vec::new(), defect: defect.map(Box::new) };
+        if let Some(text) = text {
+            msg.buf = text.to_owned();
+        }
+        msg.defect = defect.map(Box::new);
         if let Some(defect) = msg.defect()
             && (defect.tag.is_some_and(|tag| TRUSTED_HEADER.contains(&tag))
                 || TRUSTED_HEADER.iter().any(|&tag| msg.get(tag).is_none()))
@@ -988,24 +1022,14 @@ fn scan_group(
 const TRUSTED_HEADER: [u32; 5] =
     [tags::MSG_TYPE, tags::SENDER_COMP_ID, tags::TARGET_COMP_ID, tags::MSG_SEQ_NUM, tags::SENDING_TIME];
 
-/// The index and tag of each SOH-separated segment of `frame` whose tag is valid and whose value
-/// isn't UTF-8. Invalid bytes in a tag are left to the tag check, which rejects the U+FFFD they
-/// become. Lossy conversion keeps every SOH, so the indices match the converted text's.
-fn non_utf8_values(frame: &[u8]) -> impl Iterator<Item = (usize, u32)> + '_ {
-    frame.split(|&b| b == SOH).enumerate().filter_map(|(index, segment)| {
-        let eq = segment.iter().position(|&b| b == b'=')?;
-        let tag = parse_tag(std::str::from_utf8(&segment[..eq]).ok()?)?;
-        std::str::from_utf8(&segment[eq + 1..]).is_err().then_some((index, tag))
-    })
-}
-
 /// Splits a `tag=value` segment, returning the tag and the index of its `=`, or the text of the
 /// defect that makes it unusable.
-fn parse_field(segment: &str) -> Result<(u32, usize), String> {
-    let eq = segment.find('=').ok_or_else(|| "Field without '='".to_string())?;
+fn parse_field(segment: &[u8]) -> Result<(u32, usize), String> {
+    let eq = segment.iter().position(|&b| b == b'=').ok_or_else(|| "Field without '='".to_string())?;
     let tag = &segment[..eq];
     parse_tag(tag).map(|parsed| (parsed, eq)).ok_or_else(|| {
         // Echo a garbage run only in part: the text goes back to the counterparty in a Reject.
+        let tag = String::from_utf8_lossy(tag);
         match tag.char_indices().nth(16) {
             Some((cut, _)) => format!("Invalid tag '{}…'", &tag[..cut]),
             None => format!("Invalid tag '{tag}'"),
@@ -1014,11 +1038,20 @@ fn parse_field(segment: &str) -> Result<(u32, usize), String> {
 }
 
 /// A tag: 1 to 9 ASCII digits, not zero.
-fn parse_tag(tag: &str) -> Option<u32> {
-    if tag.is_empty() || tag.len() > 9 || !tag.bytes().all(|b| b.is_ascii_digit()) {
+fn parse_tag(tag: &[u8]) -> Option<u32> {
+    parse_digits(tag).and_then(|t| u32::try_from(t).ok()).filter(|&t| t > 0)
+}
+
+/// A data field's length: 1 to 9 ASCII digits.
+fn parse_length(length: &[u8]) -> Option<usize> {
+    parse_digits(length).map(|n| n as usize)
+}
+
+fn parse_digits(digits: &[u8]) -> Option<u64> {
+    if digits.is_empty() || digits.len() > 9 || !digits.iter().all(u8::is_ascii_digit) {
         return None;
     }
-    tag.parse().ok().filter(|&t| t > 0)
+    Some(digits.iter().fold(0, |n, &d| n * 10 + u64::from(d - b'0')))
 }
 
 /// Messages are equal when they have the same fields in the same order.
@@ -1187,6 +1220,10 @@ mod tests {
     use super::*;
     use crate::codec::{Decoded, decode, encode};
 
+    fn from_frame(frame: &[u8]) -> Result<Message, String> {
+        Message::from_frame(frame, &DataFields::standard())
+    }
+
     #[test]
     fn fixt_application_version_fields_are_header_fields() {
         for tag in [tags::APPL_VER_ID, tags::CSTM_APPL_VER_ID, tags::APPL_EXT_ID] {
@@ -1277,7 +1314,7 @@ mod tests {
         let frame = b"8=FIX.4.2\x019=65\x0135=D\x0149=C\x0156=G\x0134=2\x0111=ORD1\x0121=1\x0155=AAPL\x0154=1\x0138=100\x0140=1\x0110=063\x01";
         let fixed = {
             // Build the frame with a correct BodyLength and CheckSum.
-            let msg = Message::from_frame(frame).unwrap();
+            let msg = from_frame(frame).unwrap();
             encode(&msg).unwrap()
         };
         let Decoded::Message(msg, _) = decode(&fixed) else { panic!("did not decode") };
@@ -1298,7 +1335,7 @@ mod tests {
         ];
         for (raw, tag, reason, text) in cases {
             let frame = header_frame(raw);
-            let msg = Message::from_frame(&frame).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
+            let msg = from_frame(&frame).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
             let defect = msg.defect().unwrap_or_else(|| panic!("no defect for {raw:?}"));
             assert_eq!((defect.tag, defect.reason), (tag, reason), "{raw:?}");
             assert!(defect.text.contains(text), "{} (expected {text})", defect.text);
@@ -1308,20 +1345,20 @@ mod tests {
 
     #[test]
     fn only_the_first_defect_is_recorded() {
-        let msg = Message::from_frame(&header_frame(b"x5=A\x0158=\xff")).unwrap();
+        let msg = from_frame(&header_frame(b"x5=A\x0158=\xff")).unwrap();
         let defect = msg.defect().unwrap();
         assert_eq!((defect.tag, defect.reason), (None, SessionRejectReason::InvalidTagNumber));
     }
 
     #[test]
     fn long_invalid_tags_are_echoed_in_part() {
-        let msg = Message::from_frame(&header_frame(b"abcdefghijklmnopqrstuvwxyz=A")).unwrap();
+        let msg = from_frame(&header_frame(b"abcdefghijklmnopqrstuvwxyz=A")).unwrap();
         assert_eq!(msg.defect().unwrap().text, "Invalid tag 'abcdefghijklmnop…'");
     }
 
     #[test]
     fn a_non_utf8_value_is_kept_lossily() {
-        let msg = Message::from_frame(&header_frame(b"58=caf\xe9")).unwrap();
+        let msg = from_frame(&header_frame(b"58=caf\xe9")).unwrap();
         assert_eq!(msg.get(tags::TEXT), Some("caf\u{fffd}"));
     }
 
@@ -1336,13 +1373,13 @@ mod tests {
             b"8=FIX.4.2\x019=5\x0135=D\x01x5=A\x0149=\xff\x0156=US\x0134=2\x0152=20260928-12:00:00\x0110=000\x01",
         ];
         for frame in frames {
-            assert!(Message::from_frame(frame).is_err(), "{:?}", String::from_utf8_lossy(frame));
+            assert!(from_frame(frame).is_err(), "{:?}", String::from_utf8_lossy(frame));
         }
     }
 
     #[test]
     fn well_formed_frames_have_no_defect() {
-        assert!(Message::from_frame(&header_frame(b"58=ok")).unwrap().defect().is_none());
+        assert!(from_frame(&header_frame(b"58=ok")).unwrap().defect().is_none());
         assert!(Message::new(MsgType::NewOrderSingle).defect().is_none());
     }
 
@@ -1358,7 +1395,7 @@ mod tests {
 
     #[test]
     fn from_frame_keeps_empty_values_for_the_session_to_reject() {
-        let msg = Message::from_frame(b"8=FIX.4.2\x0135=D\x0158=\x0111=A\x01").unwrap();
+        let msg = from_frame(b"8=FIX.4.2\x0135=D\x0158=\x0111=A\x01").unwrap();
         assert_eq!(msg.get(tags::TEXT), Some(""));
         assert_eq!(msg.get(tags::CL_ORD_ID), Some("A"));
     }
@@ -1553,5 +1590,80 @@ mod tests {
         assert_eq!(msg.to_string(), "35=A|108=30|95=4|96=<4 bytes>|212=4|213=<4 bytes>|");
         let msg = with_raw_data(b"token").with_data(tags::XML_DATA_LEN, tags::XML_DATA, b"<x/>");
         assert_eq!(msg.redacted().to_string(), "35=A|108=30|95=5|96=***|212=4|213=<x/>|");
+    }
+
+    #[test]
+    fn a_data_field_may_contain_soh() {
+        let msg = from_frame(&header_frame(b"95=5\x0196=a\x01b=c\x0158=after")).unwrap();
+        assert!(msg.defect().is_none(), "{:?}", msg.defect());
+        assert_eq!(msg.get(tags::RAW_DATA), Some("a\x01b=c"));
+        assert_eq!(msg.get(tags::TEXT), Some("after"));
+    }
+
+    #[test]
+    fn a_data_field_may_hold_bytes_that_are_not_utf8() {
+        let msg = from_frame(&header_frame(b"212=4\x01213=\xff\x01\x00\xfe\x0158=after")).unwrap();
+        assert!(msg.defect().is_none(), "{:?}", msg.defect());
+        assert_eq!(msg.get_bytes(tags::XML_DATA), Some(&b"\xff\x01\x00\xfe"[..]));
+        assert_eq!(msg.get(tags::XML_DATA), None);
+        assert_eq!(msg.get(tags::TEXT), Some("after"));
+        assert_eq!(msg.get(tags::CL_ORD_ID), Some("A"));
+    }
+
+    #[test]
+    fn a_data_field_at_the_end_of_the_body_takes_its_length() {
+        let mut frame = b"8=FIX.4.2\x0135=A\x0195=1\x0196=\x01\x01".to_vec();
+        let msg = from_frame(&frame).unwrap();
+        assert_eq!(msg.get(tags::RAW_DATA), Some("\x01"));
+        frame.extend_from_slice(b"10=000\x01");
+        assert_eq!(from_frame(&frame).unwrap().get(tags::CHECK_SUM), Some("000"));
+    }
+
+    #[test]
+    fn a_wrong_data_length_is_a_defect_on_the_length_field() {
+        for raw in [&b"95=2\x0196=abc"[..], b"95=4\x0196=abc", b"95=900\x0196=abc"] {
+            let msg = from_frame(&header_frame(raw)).unwrap();
+            let defect = msg.defect().unwrap_or_else(|| panic!("{:?}", String::from_utf8_lossy(raw)));
+            assert_eq!(defect.tag, Some(tags::RAW_DATA_LENGTH));
+            assert_eq!(defect.reason, SessionRejectReason::IncorrectDataFormat);
+            assert_eq!(msg.get(tags::RAW_DATA), Some("abc"), "split at SOH as before");
+        }
+    }
+
+    #[test]
+    fn a_data_field_away_from_its_length_ends_at_soh() {
+        let msg = from_frame(&header_frame(b"96=a\x01b\x0195=3")).unwrap();
+        assert_eq!(msg.get(tags::RAW_DATA), Some("a"));
+        assert_eq!(msg.defect().map(|d| d.reason), Some(SessionRejectReason::InvalidTagNumber));
+        let msg = from_frame(&header_frame(b"95=3\x0158=x\x0196=abc")).unwrap();
+        assert!(msg.defect().is_none());
+        assert_eq!(msg.get(tags::RAW_DATA), Some("abc"));
+    }
+
+    #[test]
+    fn non_utf8_outside_data_fields_is_still_a_defect() {
+        let msg = from_frame(&header_frame(b"95=3\x0196=\xff\x01\xfe\x0158=\xff")).unwrap();
+        let defect = msg.defect().unwrap();
+        assert_eq!(defect.tag, Some(tags::TEXT));
+        assert_eq!(msg.get_bytes(tags::RAW_DATA), Some(&b"\xff\x01\xfe"[..]));
+    }
+
+    #[test]
+    fn venue_data_fields_are_decoded_only_when_known() {
+        let frame = header_frame(b"5000=3\x015001=a\x01b");
+        let msg = Message::from_frame(&frame, &DataFields::standard().with(5000, 5001)).unwrap();
+        assert_eq!(msg.get(5001), Some("a\x01b"));
+        let msg = from_frame(&frame).unwrap();
+        assert_eq!(msg.get(5001), Some("a"));
+        assert!(msg.defect().is_some(), "`b` is a field without '='");
+    }
+
+    #[test]
+    fn a_decoded_binary_field_encodes_back_to_the_same_bytes() {
+        let body = b"95=4\x0196=\x00\x01\xff\xfe\x0158=after";
+        let msg = from_frame(&header_frame(body)).unwrap();
+        let mut out = Vec::new();
+        msg.write_segments(&mut out, |tag| tag == tags::RAW_DATA_LENGTH || tag == tags::RAW_DATA || tag == tags::TEXT);
+        assert_eq!(out, [&body[..], b"\x01"].concat());
     }
 }

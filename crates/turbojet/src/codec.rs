@@ -1,6 +1,6 @@
 //! Tag=value wire encoding: framing via BodyLength(9) and validation via CheckSum(10).
 
-use crate::message::{FieldError, FieldErrorKind, Message, SOH, tags};
+use crate::message::{DataFields, FieldError, FieldErrorKind, Message, SOH, tags};
 
 /// Upper bound on BodyLength(9), to stop a bad length from buffering unbounded input.
 const MAX_BODY_LENGTH: usize = 64 * 1024;
@@ -28,8 +28,18 @@ pub enum Decoded {
     },
 }
 
-/// Attempts to decode one message from the front of `buf`.
+/// Attempts to decode one message from the front of `buf`, knowing the standard data fields
+/// ([`DataFields::standard`]).
 pub fn decode(buf: &[u8]) -> Decoded {
+    thread_local! {
+        static STANDARD: DataFields = DataFields::standard();
+    }
+    STANDARD.with(|data| decode_with(buf, data))
+}
+
+/// [`decode`], knowing the data fields in `data`: each value is as long as its Length field says,
+/// and may contain SOH.
+pub fn decode_with(buf: &[u8], data: &DataFields) -> Decoded {
     if buf.is_empty() {
         return Decoded::Incomplete;
     }
@@ -68,7 +78,7 @@ pub fn decode(buf: &[u8]) -> Decoded {
         return garbled(buf, "MsgType(35) is not the third field".into());
     }
 
-    match Message::from_frame(&buf[..total]) {
+    match Message::from_frame(&buf[..total], data) {
         Ok(msg) => Decoded::Message(msg, total),
         Err(reason) => garbled(buf, reason),
     }
@@ -294,5 +304,26 @@ mod tests {
         wire.extend_from_slice(format!("10={sum:03}\x01").as_bytes());
         let Decoded::Garbled { reason, .. } = decode(&wire) else { panic!("decoded") };
         assert!(reason.contains("not UTF-8"), "{reason}");
+    }
+
+    #[test]
+    fn data_fields_round_trip_with_soh_and_bytes_that_are_not_utf8() {
+        let msg = sample()
+            .with(tags::SENDING_TIME, "20260930-12:00:00")
+            .with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\x01\xff10=000\x01")
+            .with_data(5000, 5001, b"a\x01b")
+            .with(tags::TEXT, "after");
+        let wire = encode(&msg).unwrap();
+        let data = DataFields::standard().with(5000, 5001);
+        let Decoded::Message(decoded, len) = decode_with(&wire, &data) else { panic!("did not decode") };
+        assert_eq!(len, wire.len());
+        assert!(decoded.defect().is_none(), "{:?}", decoded.defect());
+        assert_eq!(decoded.get_bytes(tags::RAW_DATA), Some(&b"\x01\xff10=000\x01"[..]));
+        assert_eq!(decoded.get(5001), Some("a\x01b"));
+        assert_eq!(decoded.get(tags::TEXT), Some("after"));
+        // Without the venue's pair, 5001 ends at its SOH and `b` is a malformed field.
+        let Decoded::Message(decoded, _) = decode(&wire) else { panic!("did not decode") };
+        assert_eq!(decoded.get(5001), Some("a"));
+        assert!(decoded.defect().is_some());
     }
 }
