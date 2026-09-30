@@ -1,7 +1,8 @@
 //! Heap allocations per order → ack, wire to wire (decode into one reused message, as the
 //! connection does, then the session, application and store; the session encodes the ack), with
-//! the memory store and the disk store (without fsync), each against an exact budget. `cargo test -p turbojet --test allocations -- --nocapture` prints
-//! a per-stage table for each store.
+//! the memory store and the disk store (without fsync), each against an exact budget.
+//! `cargo test -p turbojet --test allocations -- --nocapture` prints a per-stage table for each
+//! store.
 
 #[path = "../benches/common/mod.rs"]
 mod common;
