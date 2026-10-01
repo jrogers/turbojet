@@ -58,6 +58,11 @@ impl Clocks {
         self.base + Duration::from_nanos(t.0)
     }
 
+    /// The simulated time of an `Instant` the sessions computed, such as a deadline.
+    pub fn sim_time(&self, instant: Instant) -> SimTime {
+        SimTime::from_duration(instant.saturating_duration_since(self.base))
+    }
+
     /// Wall time following the simulated clock, for `SessionConfig::clock`.
     pub fn wall_clock(&self) -> Clock {
         let now = self.now.clone();

@@ -4,6 +4,36 @@
 //! from the seed, and a checker looks for broken invariants after every event, so any failure
 //! replays from its seed. See the crate README.
 
+pub mod app;
+pub mod check;
+pub mod net;
+pub mod node;
 pub mod queue;
 pub mod rng;
 pub mod time;
+pub mod world;
+
+pub use world::{Failure, Options, Report, run};
+
+/// One end of the simulated connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Side {
+    Initiator,
+    Acceptor,
+}
+
+impl Side {
+    pub fn index(self) -> usize {
+        match self {
+            Side::Initiator => 0,
+            Side::Acceptor => 1,
+        }
+    }
+
+    pub fn other(self) -> Side {
+        match self {
+            Side::Initiator => Side::Acceptor,
+            Side::Acceptor => Side::Initiator,
+        }
+    }
+}

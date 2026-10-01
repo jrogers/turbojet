@@ -40,6 +40,12 @@ impl Rng {
         }
     }
 
+    /// One of `items`, each equally likely.
+    pub fn pick<T: Copy>(&mut self, items: &[T]) -> T {
+        let n = u64::try_from(items.len()).expect("a short list");
+        items[usize::try_from(self.below(n)).expect("below the list's length")]
+    }
+
     /// True `per_million` times in a million.
     pub fn chance(&mut self, per_million: u32) -> bool {
         self.below(1_000_000) < u64::from(per_million)
