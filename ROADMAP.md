@@ -159,7 +159,10 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
   first sent; and sessions that can reach each other eventually log on and settle. Any failure
   replays from its seed. This goes beyond the fuzz targets (one session, no crashes) and the
   QuickFIX/J tests (one well-behaved peer), and could share its fault model with the
-  fault-injecting proxy under "More interop tests".
+  fault-injecting proxy under "More interop tests". Begun in `crates/turbojet-sim`: the two
+  sessions, the simulated driver, time and workload, the safety checks on what each side writes
+  and delivers, the settle check and seed replay (`scripts/sim.sh`), over a perfect network with
+  memory stores. Network faults, crashes, torn writes, operators and schedules are still to do.
 - **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
   channel, so an application that sends faster than the connection writes grows it without limit;
   so do the commands a session holds while logon is in progress. Give it a configured capacity,

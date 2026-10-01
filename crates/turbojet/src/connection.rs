@@ -14,6 +14,9 @@ use crate::session::Session;
 use crate::shutdown::Signal;
 use crate::telemetry;
 
+// The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
+// for branch: keep the two in step.
+
 /// Commands taken from a [`SessionHandle`](crate::SessionHandle) queue in one batch, so a flood of
 /// sends can't starve reading from the peer.
 const MAX_COMMANDS_PER_BATCH: usize = 256;
