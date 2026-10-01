@@ -1827,6 +1827,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbojet-sim"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "turbojet",
+]
+
+[[package]]
 name = "unicase"
 version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
