@@ -89,6 +89,8 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
+    // After each read it keeps only an incomplete frame, which the codec caps at MAX_BODY_LENGTH
+    // plus header and trailer, so it grows to no more than that and one read.
     let mut buf = Vec::with_capacity(READ_BUFFER_SIZE);
     // Every inbound frame is decoded into this one message, which keeps its allocations.
     let mut scratch = Message::default();
@@ -148,6 +150,7 @@ where
                 // together, so they share one timestamp. Each is decoded into the same `scratch`.
                 let now = Instant::now().into_std();
                 let mut consumed = 0;
+                // Ends: a message consumes its frame and garbled bytes skip at least one.
                 loop {
                     match decode_into(&buf[consumed..], session.data_fields(), &mut scratch) {
                         DecodedInto::Message(len) => {

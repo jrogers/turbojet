@@ -399,6 +399,8 @@ impl Message {
         // The last field's tag and value, for a data field to find its length in.
         let mut previous: Option<(u32, &[u8])> = None;
         let mut start = 0;
+        // One field per at least two bytes (a one-digit tag and `=`, then SOH unless it's last), so
+        // the codec's MAX_BODY_LENGTH bounds the field index of an inbound message.
         while start <= body.len() {
             let mut end = body[start..].iter().position(|&b| b == SOH).map_or(body.len(), |p| start + p);
             let (tag, eq) = match parse_field(&body[start..end]) {
@@ -997,7 +999,8 @@ pub struct Fields<'a> {
     msg: &'a Message,
     start: usize,
     end: usize,
-    /// Index ranges of group entries already parsed out of this view.
+    /// Index ranges of group entries already parsed out of this view: one per group the caller
+    /// takes, so the caller's message spec bounds it, not the message.
     excluded: Vec<(usize, usize)>,
 }
 

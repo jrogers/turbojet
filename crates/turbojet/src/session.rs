@@ -324,9 +324,13 @@ pub struct Session {
     /// The schedule period the session logged on in, if it has a schedule.
     period: Option<Period>,
     test_req_counter: u64,
-    /// Encoded messages for the driver to write, in order; see [`output`](Self::output).
+    /// Encoded messages for the driver to write, in order; see [`output`](Self::output). The driver
+    /// empties it after each wake-up, so it holds the replies to one read, one batch of commands,
+    /// or one resend. A resend isn't bounded yet (ROADMAP "Chunked resends").
     output: Vec<u8>,
     /// Handle commands received while logon is in progress, applied in order once it completes.
+    /// The logon timeout bounds how long it fills, but not how much: it's as unbounded as the
+    /// handle's channel (ROADMAP "Bound the session command queue").
     pending: Vec<Command>,
     /// Scratch space for [`frame_into`](Self::frame_into)'s header, kept to reuse its allocation.
     header: String,
@@ -1481,7 +1485,8 @@ impl Session {
             Err(e) => return self.storage_failed(e),
         };
         // Stores keep the bytes as sent; they're parsed here, with the session's data fields, all
-        // before any is resent.
+        // before any is resent. The whole range is held at once, and resent into one output: the
+        // counterparty chooses the range, so this isn't bounded yet (ROADMAP "Chunked resends").
         let mut originals = Vec::with_capacity(stored.len());
         for (seq, bytes) in stored {
             match decode_stored(&bytes, &self.config.data_fields) {

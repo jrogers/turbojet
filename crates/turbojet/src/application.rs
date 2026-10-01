@@ -91,6 +91,8 @@ pub trait Application: Send + Sync + 'static {
 /// Passed to [`Application::on_message`] to reply on the same session.
 pub struct Context<'a> {
     session: &'a SessionId,
+    /// What the application sent in this call. Only the application decides how many, so it has
+    /// no limit here.
     pub(crate) replies: Vec<Message>,
     redelivered: bool,
 }

@@ -124,7 +124,8 @@ impl fmt::Display for AcquireError {
     }
 }
 
-/// Sends [`Command`]s to a session's connection task.
+/// Sends [`Command`]s to a session's connection task. Unbounded for now (ROADMAP "Bound the
+/// session command queue").
 pub type CommandSender = mpsc::UnboundedSender<Command>;
 /// A connection task's end of a [`CommandSender`].
 pub type CommandReceiver = mpsc::UnboundedReceiver<Command>;
@@ -140,6 +141,7 @@ struct Entry {
 /// time, and routes [`SessionHandle`] commands to that connection.
 pub struct SessionRegistry {
     storage: Arc<dyn SessionStorage>,
+    /// Connected sessions only: an entry is removed when its connection releases it.
     sessions: Mutex<HashMap<SessionId, Entry>>,
     /// For creation times recorded by operator resets of disconnected sessions.
     clock: Clock,

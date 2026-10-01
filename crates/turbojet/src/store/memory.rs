@@ -12,6 +12,7 @@ use crate::fields::UtcTimestamp;
 struct State {
     next_outgoing: u64,
     next_incoming: u64,
+    /// Every message sent until a sequence reset: unbounded (ROADMAP "Bounded memory store").
     sent: BTreeMap<u64, Vec<u8>>,
     created_at: Option<UtcTimestamp>,
     in_flight: Option<u64>,
@@ -26,6 +27,8 @@ impl Default for State {
 /// Keeps each session's state in memory: it survives reconnects, but not the process.
 #[derive(Default)]
 pub struct MemoryStorage {
+    /// Every session ever opened, never removed. An acceptor opens one for each CompID that
+    /// [`Application::verify_logon`](crate::Application::verify_logon) accepts.
     sessions: Mutex<HashMap<SessionId, Arc<Mutex<State>>>>,
 }
 

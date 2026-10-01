@@ -108,6 +108,8 @@ impl Acceptor {
         Fut: Future<Output = io::Result<()>> + Send + 'static,
     {
         let mut shutdown = self.shutdown.signal();
+        // One task per connection, with no cap yet (ROADMAP "Connection limits"); each waits at
+        // most the logon timeout for a Logon.
         loop {
             let accepted = tokio::select! {
                 biased;

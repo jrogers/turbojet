@@ -63,6 +63,8 @@ struct DiskLog {
     seqnums: File,
     body: File,
     body_len: u64,
+    /// One entry per message stored until a sequence reset: unbounded, like the body file (ROADMAP
+    /// "Disk store rotation").
     index: BTreeMap<u64, Extent>,
     next_outgoing: u64,
     next_incoming: u64,
@@ -262,6 +264,8 @@ fn read_seqnums(file: &mut File, path: &Path) -> io::Result<(u64, u64, Option<u6
 fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>, u64)> {
     file.seek(SeekFrom::Start(0))?;
     let mut index = BTreeMap::new();
+    // Holds one message and a chunk. Stored messages aren't held to the codec's MAX_BODY_LENGTH,
+    // but the store wrote this file itself, so the longest is the longest the session sent.
     let mut buf = Vec::new();
     let mut chunk = vec![0; 64 * 1024];
     let mut offset = 0u64;
