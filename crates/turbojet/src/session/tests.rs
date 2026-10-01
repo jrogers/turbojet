@@ -1324,6 +1324,24 @@ fn a_sequence_reset_during_a_resend_ends_it() {
     assert!(!s.is_resending());
 }
 
+/// The counterparty's input waits while we resend, so its silence then isn't a sign of trouble,
+/// and we're sending anyway: no Heartbeat, TestRequest or timeout until the resend ends.
+#[test]
+fn timers_wait_for_a_resend_to_end() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 10, 4); // HeartBtInt 30
+    s.recv(resend_request(12, 1), h.t0);
+    assert_eq!(s.next_deadline(), None);
+    assert!(s.timer(h.at(100)).is_empty());
+
+    s.resume(h.at(100));
+    assert!(!s.resume(h.at(100)).is_empty() && !s.is_resending());
+    // Silence counts from the end of the resend: the next thing due is a Heartbeat, 30 s on.
+    assert_eq!(s.next_deadline(), Some(h.at(130)));
+    assert!(s.timer(h.at(129)).is_empty());
+    assert_eq!(types(&s.timer(h.at(130))), ["Heartbeat"]);
+}
+
 // ---- Application messages and rejects ----
 
 #[test]

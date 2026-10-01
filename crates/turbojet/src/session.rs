@@ -668,6 +668,9 @@ impl Session {
                     self.close();
                 }
             }
+            // The counterparty's input waits while we resend, and we're sending anyway: Heartbeats,
+            // TestRequests and our own ResendRequest's timeout wait for the end of the resend.
+            Status::Active if self.replay.is_some() => {}
             Status::Active => {
                 self.check_heartbeats(now);
                 if self.status == Status::Active {
@@ -679,7 +682,8 @@ impl Session {
     }
 
     /// When [`on_timer`](Self::on_timer) next has something to do: a logon or logout timeout, a
-    /// Heartbeat or TestRequest falling due, or an unanswered ResendRequest. `None` once closed.
+    /// Heartbeat or TestRequest falling due, or an unanswered ResendRequest. `None` once closed,
+    /// and while [`is_resending`](Self::is_resending).
     ///
     /// Schedule boundaries aren't included, since they are wall-clock times; call `on_timer` at
     /// least once a second as well. A timeout too long to represent as an `Instant` (such as
@@ -693,6 +697,7 @@ impl Session {
         match self.status {
             Status::AwaitingLogon => self.logon_deadline_from.checked_add(self.config.logon_timeout),
             Status::LoggingOut { since } => since.checked_add(self.config.logout_timeout),
+            Status::Active if self.replay.is_some() => None,
             Status::Active => {
                 let interval = self.peer().heartbeat;
                 let heartbeat = self.last_sent.checked_add(interval);
