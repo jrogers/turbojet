@@ -7,7 +7,7 @@ use turbojet::fields::{Decimal, MonthYear, NaiveDate, Secret, TzTimeOnly, TzTime
 
 turbojet::fix_message! {
     /// IOI(6).
-    IOI = "6" {
+    IOI / IOIRef = "6" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -447,7 +447,7 @@ impl IOI {
 
 turbojet::fix_message! {
     /// Advertisement(7).
-    Advertisement = "7" {
+    Advertisement / AdvertisementRef = "7" {
         /// AdvId(2).
         adv_id: req String = ADV_ID,
         /// AdvTransType(5).
@@ -779,7 +779,7 @@ impl Advertisement {
 
 turbojet::fix_message! {
     /// ExecutionReport(8).
-    ExecutionReport = "8" {
+    ExecutionReport / ExecutionReportRef = "8" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -1790,7 +1790,7 @@ impl ExecutionReport {
 
 turbojet::fix_message! {
     /// OrderCancelReject(9).
-    OrderCancelReject = "9" {
+    OrderCancelReject / OrderCancelRejectRef = "9" {
         /// OrderID(37).
         order_id: req String = ORDER_ID,
         /// SecondaryOrderID(198).
@@ -1870,7 +1870,7 @@ impl OrderCancelReject {
 
 turbojet::fix_message! {
     /// News(B).
-    News = "B" {
+    News / NewsRef = "B" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -1948,7 +1948,7 @@ impl News {
 
 turbojet::fix_message! {
     /// Email(C).
-    Email = "C" {
+    Email / EmailRef = "C" {
         /// EmailThreadID(164).
         email_thread_id: req String = EMAIL_THREAD_ID,
         /// EmailType(94).
@@ -2007,7 +2007,7 @@ impl Email {
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
-    NewOrderSingle = "D" {
+    NewOrderSingle / NewOrderSingleRef = "D" {
         /// ClOrdID(11).
         cl_ord_id: req String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -2761,7 +2761,7 @@ impl NewOrderSingle {
 
 turbojet::fix_message! {
     /// NewOrderList(E).
-    NewOrderList = "E" {
+    NewOrderList / NewOrderListRef = "E" {
         /// ListID(66).
         list_id: req String = LIST_ID,
         /// BidID(390).
@@ -2836,7 +2836,7 @@ impl NewOrderList {
 
 turbojet::fix_message! {
     /// OrderCancelRequest(F).
-    OrderCancelRequest = "F" {
+    OrderCancelRequest / OrderCancelRequestRef = "F" {
         /// OrigClOrdID(41).
         orig_cl_ord_id: opt String = ORIG_CL_ORD_ID,
         /// OrderID(37).
@@ -3207,7 +3207,7 @@ impl OrderCancelRequest {
 
 turbojet::fix_message! {
     /// OrderCancelReplaceRequest(G).
-    OrderCancelReplaceRequest = "G" {
+    OrderCancelReplaceRequest / OrderCancelReplaceRequestRef = "G" {
         /// OrderID(37).
         order_id: opt String = ORDER_ID,
         /// NoPartyIDs(453).
@@ -3952,7 +3952,7 @@ impl OrderCancelReplaceRequest {
 
 turbojet::fix_message! {
     /// OrderStatusRequest(H).
-    OrderStatusRequest = "H" {
+    OrderStatusRequest / OrderStatusRequestRef = "H" {
         /// OrderID(37).
         order_id: opt String = ORDER_ID,
         /// ClOrdID(11).
@@ -4287,7 +4287,7 @@ impl OrderStatusRequest {
 
 turbojet::fix_message! {
     /// AllocationInstruction(J).
-    AllocationInstruction = "J" {
+    AllocationInstruction / AllocationInstructionRef = "J" {
         /// AllocID(70).
         alloc_id: req String = ALLOC_ID,
         /// AllocTransType(71).
@@ -4856,7 +4856,7 @@ impl AllocationInstruction {
 
 turbojet::fix_message! {
     /// ListCancelRequest(K).
-    ListCancelRequest = "K" {
+    ListCancelRequest / ListCancelRequestRef = "K" {
         /// ListID(66).
         list_id: req String = LIST_ID,
         /// NoPartyIDs(453).
@@ -4892,7 +4892,7 @@ impl ListCancelRequest {
 
 turbojet::fix_message! {
     /// ListExecute(L).
-    ListExecute = "L" {
+    ListExecute / ListExecuteRef = "L" {
         /// ListID(66).
         list_id: req String = LIST_ID,
         /// ClientBidID(391).
@@ -4925,7 +4925,7 @@ impl ListExecute {
 
 turbojet::fix_message! {
     /// ListStatusRequest(M).
-    ListStatusRequest = "M" {
+    ListStatusRequest / ListStatusRequestRef = "M" {
         /// ListID(66).
         list_id: req String = LIST_ID,
         /// Text(58).
@@ -4945,7 +4945,7 @@ impl ListStatusRequest {
 
 turbojet::fix_message! {
     /// ListStatus(N).
-    ListStatus = "N" {
+    ListStatus / ListStatusRef = "N" {
         /// ListID(66).
         list_id: req String = LIST_ID,
         /// ListStatusType(429).
@@ -5007,7 +5007,7 @@ impl ListStatus {
 
 turbojet::fix_message! {
     /// AllocationInstructionAck(P).
-    AllocationInstructionAck = "P" {
+    AllocationInstructionAck / AllocationInstructionAckRef = "P" {
         /// AllocID(70).
         alloc_id: req String = ALLOC_ID,
         /// NoPartyIDs(453).
@@ -5067,7 +5067,7 @@ impl AllocationInstructionAck {
 
 turbojet::fix_message! {
     /// DontKnowTrade(Q).
-    DontKnowTrade = "Q" {
+    DontKnowTrade / DontKnowTradeRef = "Q" {
         /// OrderID(37).
         order_id: req String = ORDER_ID,
         /// SecondaryOrderID(198).
@@ -5393,7 +5393,7 @@ impl DontKnowTrade {
 
 turbojet::fix_message! {
     /// QuoteRequest(R).
-    QuoteRequest = "R" {
+    QuoteRequest / QuoteRequestRef = "R" {
         /// QuoteReqID(131).
         quote_req_id: req String = QUOTE_REQ_ID,
         /// RFQReqID(644).
@@ -5447,7 +5447,7 @@ impl QuoteRequest {
 
 turbojet::fix_message! {
     /// Quote(S).
-    Quote = "S" {
+    Quote / QuoteRef = "S" {
         /// QuoteReqID(131).
         quote_req_id: opt String = QUOTE_REQ_ID,
         /// QuoteID(117).
@@ -6006,7 +6006,7 @@ impl Quote {
 
 turbojet::fix_message! {
     /// SettlementInstructions(T).
-    SettlementInstructions = "T" {
+    SettlementInstructions / SettlementInstructionsRef = "T" {
         /// SettlInstMsgID(777).
         settl_inst_msg_id: req String = SETTL_INST_MSG_ID,
         /// SettlInstReqID(791).
@@ -6052,7 +6052,7 @@ impl SettlementInstructions {
 
 turbojet::fix_message! {
     /// MarketDataRequest(V).
-    MarketDataRequest = "V" {
+    MarketDataRequest / MarketDataRequestRef = "V" {
         /// MDReqID(262).
         md_req_id: req String = MD_REQ_ID,
         /// SubscriptionRequestType(263).
@@ -6118,7 +6118,7 @@ impl MarketDataRequest {
 
 turbojet::fix_message! {
     /// MarketDataSnapshotFullRefresh(W).
-    MarketDataSnapshotFullRefresh = "W" {
+    MarketDataSnapshotFullRefresh / MarketDataSnapshotFullRefreshRef = "W" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -6468,7 +6468,7 @@ impl MarketDataSnapshotFullRefresh {
 
 turbojet::fix_message! {
     /// MarketDataIncrementalRefresh(X).
-    MarketDataIncrementalRefresh = "X" {
+    MarketDataIncrementalRefresh / MarketDataIncrementalRefreshRef = "X" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -6519,7 +6519,7 @@ impl MarketDataIncrementalRefresh {
 
 turbojet::fix_message! {
     /// MarketDataRequestReject(Y).
-    MarketDataRequestReject = "Y" {
+    MarketDataRequestReject / MarketDataRequestRejectRef = "Y" {
         /// MDReqID(262).
         md_req_id: req String = MD_REQ_ID,
         /// NoPartyIDs(453).
@@ -6552,7 +6552,7 @@ impl MarketDataRequestReject {
 
 turbojet::fix_message! {
     /// QuoteCancel(Z).
-    QuoteCancel = "Z" {
+    QuoteCancel / QuoteCancelRef = "Z" {
         /// QuoteReqID(131).
         quote_req_id: opt String = QUOTE_REQ_ID,
         /// QuoteID(117).
@@ -6609,7 +6609,7 @@ impl QuoteCancel {
 
 turbojet::fix_message! {
     /// QuoteStatusRequest(a).
-    QuoteStatusRequest = "a" {
+    QuoteStatusRequest / QuoteStatusRequestRef = "a" {
         /// QuoteStatusReqID(649).
         quote_status_req_id: opt String = QUOTE_STATUS_REQ_ID,
         /// QuoteID(117).
@@ -6950,7 +6950,7 @@ impl QuoteStatusRequest {
 
 turbojet::fix_message! {
     /// MassQuoteAcknowledgement(b).
-    MassQuoteAcknowledgement = "b" {
+    MassQuoteAcknowledgement / MassQuoteAcknowledgementRef = "b" {
         /// QuoteReqID(131).
         quote_req_id: opt String = QUOTE_REQ_ID,
         /// QuoteID(117).
@@ -7010,7 +7010,7 @@ impl MassQuoteAcknowledgement {
 
 turbojet::fix_message! {
     /// SecurityDefinitionRequest(c).
-    SecurityDefinitionRequest = "c" {
+    SecurityDefinitionRequest / SecurityDefinitionRequestRef = "c" {
         /// SecurityReqID(320).
         security_req_id: req String = SECURITY_REQ_ID,
         /// SecurityRequestType(321).
@@ -7381,7 +7381,7 @@ impl SecurityDefinitionRequest {
 
 turbojet::fix_message! {
     /// SecurityDefinition(d).
-    SecurityDefinition = "d" {
+    SecurityDefinition / SecurityDefinitionRef = "d" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -7764,7 +7764,7 @@ impl SecurityDefinition {
 
 turbojet::fix_message! {
     /// SecurityStatusRequest(e).
-    SecurityStatusRequest = "e" {
+    SecurityStatusRequest / SecurityStatusRequestRef = "e" {
         /// SecurityStatusReqID(324).
         security_status_req_id: req String = SECURITY_STATUS_REQ_ID,
         /// Symbol(55).
@@ -8078,7 +8078,7 @@ impl SecurityStatusRequest {
 
 turbojet::fix_message! {
     /// SecurityStatus(f).
-    SecurityStatus = "f" {
+    SecurityStatus / SecurityStatusRef = "f" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -8461,7 +8461,7 @@ impl SecurityStatus {
 
 turbojet::fix_message! {
     /// TradingSessionStatusRequest(g).
-    TradingSessionStatusRequest = "g" {
+    TradingSessionStatusRequest / TradingSessionStatusRequestRef = "g" {
         /// TradSesReqID(335).
         trad_ses_req_id: req String = TRAD_SES_REQ_ID,
         /// MarketID(1301).
@@ -8503,7 +8503,7 @@ impl TradingSessionStatusRequest {
 
 turbojet::fix_message! {
     /// TradingSessionStatus(h).
-    TradingSessionStatus = "h" {
+    TradingSessionStatus / TradingSessionStatusRef = "h" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -8850,7 +8850,7 @@ impl TradingSessionStatus {
 
 turbojet::fix_message! {
     /// MassQuote(i).
-    MassQuote = "i" {
+    MassQuote / MassQuoteRef = "i" {
         /// QuoteReqID(131).
         quote_req_id: opt String = QUOTE_REQ_ID,
         /// QuoteID(117).
@@ -8898,7 +8898,7 @@ impl MassQuote {
 
 turbojet::fix_message! {
     /// BidRequest(k).
-    BidRequest = "k" {
+    BidRequest / BidRequestRef = "k" {
         /// BidID(390).
         bid_id: opt String = BID_ID,
         /// ClientBidID(391).
@@ -9004,7 +9004,7 @@ impl BidRequest {
 
 turbojet::fix_message! {
     /// BidResponse(l).
-    BidResponse = "l" {
+    BidResponse / BidResponseRef = "l" {
         /// BidID(390).
         bid_id: opt String = BID_ID,
         /// ClientBidID(391).
@@ -9024,7 +9024,7 @@ impl BidResponse {
 
 turbojet::fix_message! {
     /// ListStrikePrice(m).
-    ListStrikePrice = "m" {
+    ListStrikePrice / ListStrikePriceRef = "m" {
         /// ListID(66).
         list_id: req String = LIST_ID,
         /// TotNoStrikes(422).
@@ -9046,7 +9046,7 @@ impl ListStrikePrice {
 
 turbojet::fix_message! {
     /// RegistrationInstructions(o).
-    RegistrationInstructions = "o" {
+    RegistrationInstructions / RegistrationInstructionsRef = "o" {
         /// RegistID(513).
         regist_id: req String = REGIST_ID,
         /// RegistTransType(514).
@@ -9101,7 +9101,7 @@ impl RegistrationInstructions {
 
 turbojet::fix_message! {
     /// RegistrationInstructionsResponse(p).
-    RegistrationInstructionsResponse = "p" {
+    RegistrationInstructionsResponse / RegistrationInstructionsResponseRef = "p" {
         /// RegistID(513).
         regist_id: req String = REGIST_ID,
         /// RegistTransType(514).
@@ -9151,7 +9151,7 @@ impl RegistrationInstructionsResponse {
 
 turbojet::fix_message! {
     /// OrderMassCancelRequest(q).
-    OrderMassCancelRequest = "q" {
+    OrderMassCancelRequest / OrderMassCancelRequestRef = "q" {
         /// ClOrdID(11).
         cl_ord_id: req String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -9690,7 +9690,7 @@ impl OrderMassCancelRequest {
 
 turbojet::fix_message! {
     /// OrderMassCancelReport(r).
-    OrderMassCancelReport = "r" {
+    OrderMassCancelReport / OrderMassCancelReportRef = "r" {
         /// ClOrdID(11).
         cl_ord_id: opt String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -10254,7 +10254,7 @@ impl OrderMassCancelReport {
 
 turbojet::fix_message! {
     /// NewOrderCross(s).
-    NewOrderCross = "s" {
+    NewOrderCross / NewOrderCrossRef = "s" {
         /// CrossID(548).
         cross_id: req String = CROSS_ID,
         /// CrossType(549).
@@ -10853,7 +10853,7 @@ impl NewOrderCross {
 
 turbojet::fix_message! {
     /// CrossOrderCancelReplaceRequest(t).
-    CrossOrderCancelReplaceRequest = "t" {
+    CrossOrderCancelReplaceRequest / CrossOrderCancelReplaceRequestRef = "t" {
         /// OrderID(37).
         order_id: opt String = ORDER_ID,
         /// CrossID(548).
@@ -11462,7 +11462,7 @@ impl CrossOrderCancelReplaceRequest {
 
 turbojet::fix_message! {
     /// CrossOrderCancelRequest(u).
-    CrossOrderCancelRequest = "u" {
+    CrossOrderCancelRequest / CrossOrderCancelRequestRef = "u" {
         /// OrderID(37).
         order_id: opt String = ORDER_ID,
         /// CrossID(548).
@@ -11780,7 +11780,7 @@ impl CrossOrderCancelRequest {
 
 turbojet::fix_message! {
     /// SecurityTypeRequest(v).
-    SecurityTypeRequest = "v" {
+    SecurityTypeRequest / SecurityTypeRequestRef = "v" {
         /// SecurityReqID(320).
         security_req_id: req String = SECURITY_REQ_ID,
         /// Text(58).
@@ -11825,7 +11825,7 @@ impl SecurityTypeRequest {
 
 turbojet::fix_message! {
     /// SecurityTypes(w).
-    SecurityTypes = "w" {
+    SecurityTypes / SecurityTypesRef = "w" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -11895,7 +11895,7 @@ impl SecurityTypes {
 
 turbojet::fix_message! {
     /// SecurityListRequest(x).
-    SecurityListRequest = "x" {
+    SecurityListRequest / SecurityListRequestRef = "x" {
         /// SecurityReqID(320).
         security_req_id: req String = SECURITY_REQ_ID,
         /// SecurityListRequestType(559).
@@ -12254,7 +12254,7 @@ impl SecurityListRequest {
 
 turbojet::fix_message! {
     /// SecurityList(y).
-    SecurityList = "y" {
+    SecurityList / SecurityListRef = "y" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -12332,7 +12332,7 @@ impl SecurityList {
 
 turbojet::fix_message! {
     /// DerivativeSecurityListRequest(z).
-    DerivativeSecurityListRequest = "z" {
+    DerivativeSecurityListRequest / DerivativeSecurityListRequestRef = "z" {
         /// SecurityReqID(320).
         security_req_id: req String = SECURITY_REQ_ID,
         /// SecurityListRequestType(559).
@@ -12775,7 +12775,7 @@ impl DerivativeSecurityListRequest {
 
 turbojet::fix_message! {
     /// DerivativeSecurityList(AA).
-    DerivativeSecurityList = "AA" {
+    DerivativeSecurityList / DerivativeSecurityListRef = "AA" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -13230,7 +13230,7 @@ impl DerivativeSecurityList {
 
 turbojet::fix_message! {
     /// NewOrderMultileg(AB).
-    NewOrderMultileg = "AB" {
+    NewOrderMultileg / NewOrderMultilegRef = "AB" {
         /// ClOrdID(11).
         cl_ord_id: req String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -13897,7 +13897,7 @@ impl NewOrderMultileg {
 
 turbojet::fix_message! {
     /// MultilegOrderCancelReplace(AC).
-    MultilegOrderCancelReplace = "AC" {
+    MultilegOrderCancelReplace / MultilegOrderCancelReplaceRef = "AC" {
         /// OrderID(37).
         order_id: opt String = ORDER_ID,
         /// OrigClOrdID(41).
@@ -14567,7 +14567,7 @@ impl MultilegOrderCancelReplace {
 
 turbojet::fix_message! {
     /// TradeCaptureReportRequest(AD).
-    TradeCaptureReportRequest = "AD" {
+    TradeCaptureReportRequest / TradeCaptureReportRequestRef = "AD" {
         /// TradeRequestID(568).
         trade_request_id: req String = TRADE_REQUEST_ID,
         /// TradeID(1003).
@@ -14997,7 +14997,7 @@ impl TradeCaptureReportRequest {
 
 turbojet::fix_message! {
     /// TradeCaptureReport(AE).
-    TradeCaptureReport = "AE" {
+    TradeCaptureReport / TradeCaptureReportRef = "AE" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -15626,7 +15626,7 @@ impl TradeCaptureReport {
 
 turbojet::fix_message! {
     /// OrderMassStatusRequest(AF).
-    OrderMassStatusRequest = "AF" {
+    OrderMassStatusRequest / OrderMassStatusRequestRef = "AF" {
         /// MassStatusReqID(584).
         mass_status_req_id: req String = MASS_STATUS_REQ_ID,
         /// MassStatusReqType(585).
@@ -16149,7 +16149,7 @@ impl OrderMassStatusRequest {
 
 turbojet::fix_message! {
     /// QuoteRequestReject(AG).
-    QuoteRequestReject = "AG" {
+    QuoteRequestReject / QuoteRequestRejectRef = "AG" {
         /// QuoteReqID(131).
         quote_req_id: req String = QUOTE_REQ_ID,
         /// RFQReqID(644).
@@ -16198,7 +16198,7 @@ impl QuoteRequestReject {
 
 turbojet::fix_message! {
     /// RFQRequest(AH).
-    RFQRequest = "AH" {
+    RFQRequest / RFQRequestRef = "AH" {
         /// RFQReqID(644).
         rfq_req_id: req String = RFQ_REQ_ID,
         /// NoPartyIDs(453).
@@ -16228,7 +16228,7 @@ impl RFQRequest {
 
 turbojet::fix_message! {
     /// QuoteStatusReport(AI).
-    QuoteStatusReport = "AI" {
+    QuoteStatusReport / QuoteStatusReportRef = "AI" {
         /// QuoteStatusReqID(649).
         quote_status_req_id: opt String = QUOTE_STATUS_REQ_ID,
         /// QuoteReqID(131).
@@ -16790,7 +16790,7 @@ impl QuoteStatusReport {
 
 turbojet::fix_message! {
     /// QuoteResponse(AJ).
-    QuoteResponse = "AJ" {
+    QuoteResponse / QuoteResponseRef = "AJ" {
         /// QuoteRespID(693).
         quote_resp_id: req String = QUOTE_RESP_ID,
         /// QuoteID(117).
@@ -17340,7 +17340,7 @@ impl QuoteResponse {
 
 turbojet::fix_message! {
     /// Confirmation(AK).
-    Confirmation = "AK" {
+    Confirmation / ConfirmationRef = "AK" {
         /// ConfirmID(664).
         confirm_id: req String = CONFIRM_ID,
         /// ConfirmRefID(772).
@@ -17908,7 +17908,7 @@ impl Confirmation {
 
 turbojet::fix_message! {
     /// PositionMaintenanceRequest(AL).
-    PositionMaintenanceRequest = "AL" {
+    PositionMaintenanceRequest / PositionMaintenanceRequestRef = "AL" {
         /// PosReqID(710).
         pos_req_id: opt String = POS_REQ_ID,
         /// PosTransType(709).
@@ -18270,7 +18270,7 @@ impl PositionMaintenanceRequest {
 
 turbojet::fix_message! {
     /// PositionMaintenanceReport(AM).
-    PositionMaintenanceReport = "AM" {
+    PositionMaintenanceReport / PositionMaintenanceReportRef = "AM" {
         /// PosMaintRptID(721).
         pos_maint_rpt_id: req String = POS_MAINT_RPT_ID,
         /// PosTransType(709).
@@ -18642,7 +18642,7 @@ impl PositionMaintenanceReport {
 
 turbojet::fix_message! {
     /// RequestForPositions(AN).
-    RequestForPositions = "AN" {
+    RequestForPositions / RequestForPositionsRef = "AN" {
         /// PosReqID(710).
         pos_req_id: req String = POS_REQ_ID,
         /// PosReqType(724).
@@ -18989,7 +18989,7 @@ impl RequestForPositions {
 
 turbojet::fix_message! {
     /// RequestForPositionsAck(AO).
-    RequestForPositionsAck = "AO" {
+    RequestForPositionsAck / RequestForPositionsAckRef = "AO" {
         /// PosMaintRptID(721).
         pos_maint_rpt_id: req String = POS_MAINT_RPT_ID,
         /// PosReqID(710).
@@ -19344,7 +19344,7 @@ impl RequestForPositionsAck {
 
 turbojet::fix_message! {
     /// PositionReport(AP).
-    PositionReport = "AP" {
+    PositionReport / PositionReportRef = "AP" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -19734,7 +19734,7 @@ impl PositionReport {
 
 turbojet::fix_message! {
     /// TradeCaptureReportRequestAck(AQ).
-    TradeCaptureReportRequestAck = "AQ" {
+    TradeCaptureReportRequestAck / TradeCaptureReportRequestAckRef = "AQ" {
         /// TradeRequestID(568).
         trade_request_id: req String = TRADE_REQUEST_ID,
         /// TradeID(1003).
@@ -20071,7 +20071,7 @@ impl TradeCaptureReportRequestAck {
 
 turbojet::fix_message! {
     /// TradeCaptureReportAck(AR).
-    TradeCaptureReportAck = "AR" {
+    TradeCaptureReportAck / TradeCaptureReportAckRef = "AR" {
         /// TradeReportID(571).
         trade_report_id: opt String = TRADE_REPORT_ID,
         /// TradeID(1003).
@@ -20604,7 +20604,7 @@ impl TradeCaptureReportAck {
 
 turbojet::fix_message! {
     /// AllocationReport(AS).
-    AllocationReport = "AS" {
+    AllocationReport / AllocationReportRef = "AS" {
         /// AllocReportID(755).
         alloc_report_id: req String = ALLOC_REPORT_ID,
         /// AllocID(70).
@@ -21190,7 +21190,7 @@ impl AllocationReport {
 
 turbojet::fix_message! {
     /// AllocationReportAck(AT).
-    AllocationReportAck = "AT" {
+    AllocationReportAck / AllocationReportAckRef = "AT" {
         /// AllocReportID(755).
         alloc_report_id: req String = ALLOC_REPORT_ID,
         /// AllocID(70).
@@ -21265,7 +21265,7 @@ impl AllocationReportAck {
 
 turbojet::fix_message! {
     /// ConfirmationAck(AU).
-    ConfirmationAck = "AU" {
+    ConfirmationAck / ConfirmationAckRef = "AU" {
         /// ConfirmID(664).
         confirm_id: req String = CONFIRM_ID,
         /// TradeDate(75).
@@ -21309,7 +21309,7 @@ impl ConfirmationAck {
 
 turbojet::fix_message! {
     /// SettlementInstructionRequest(AV).
-    SettlementInstructionRequest = "AV" {
+    SettlementInstructionRequest / SettlementInstructionRequestRef = "AV" {
         /// SettlInstReqID(791).
         settl_inst_req_id: req String = SETTL_INST_REQ_ID,
         /// TransactTime(60).
@@ -21372,7 +21372,7 @@ impl SettlementInstructionRequest {
 
 turbojet::fix_message! {
     /// AssignmentReport(AW).
-    AssignmentReport = "AW" {
+    AssignmentReport / AssignmentReportRef = "AW" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -21743,7 +21743,7 @@ impl AssignmentReport {
 
 turbojet::fix_message! {
     /// CollateralRequest(AX).
-    CollateralRequest = "AX" {
+    CollateralRequest / CollateralRequestRef = "AX" {
         /// CollReqID(894).
         coll_req_id: req String = COLL_REQ_ID,
         /// CollAsgnReason(895).
@@ -22189,7 +22189,7 @@ impl CollateralRequest {
 
 turbojet::fix_message! {
     /// CollateralAssignment(AY).
-    CollateralAssignment = "AY" {
+    CollateralAssignment / CollateralAssignmentRef = "AY" {
         /// CollAsgnID(902).
         coll_asgn_id: req String = COLL_ASGN_ID,
         /// CollReqID(894).
@@ -22664,7 +22664,7 @@ impl CollateralAssignment {
 
 turbojet::fix_message! {
     /// CollateralResponse(AZ).
-    CollateralResponse = "AZ" {
+    CollateralResponse / CollateralResponseRef = "AZ" {
         /// CollRespID(904).
         coll_resp_id: req String = COLL_RESP_ID,
         /// CollAsgnID(902).
@@ -23120,7 +23120,7 @@ impl CollateralResponse {
 
 turbojet::fix_message! {
     /// CollateralReport(BA).
-    CollateralReport = "BA" {
+    CollateralReport / CollateralReportRef = "BA" {
         /// CollRptID(908).
         coll_rpt_id: req String = COLL_RPT_ID,
         /// CollInquiryID(909).
@@ -23593,7 +23593,7 @@ impl CollateralReport {
 
 turbojet::fix_message! {
     /// CollateralInquiry(BB).
-    CollateralInquiry = "BB" {
+    CollateralInquiry / CollateralInquiryRef = "BB" {
         /// CollInquiryID(909).
         coll_inquiry_id: req String = COLL_INQUIRY_ID,
         /// NoCollInquiryQualifier(938).
@@ -24054,7 +24054,7 @@ impl CollateralInquiry {
 
 turbojet::fix_message! {
     /// NetworkCounterpartySystemStatusRequest(BC).
-    NetworkCounterpartySystemStatusRequest = "BC" {
+    NetworkCounterpartySystemStatusRequest / NetworkCounterpartySystemStatusRequestRef = "BC" {
         /// NetworkRequestType(935).
         network_request_type: req NetworkRequestType = NETWORK_REQUEST_TYPE,
         /// NetworkRequestID(933).
@@ -24074,7 +24074,7 @@ impl NetworkCounterpartySystemStatusRequest {
 
 turbojet::fix_message! {
     /// NetworkCounterpartySystemStatusResponse(BD).
-    NetworkCounterpartySystemStatusResponse = "BD" {
+    NetworkCounterpartySystemStatusResponse / NetworkCounterpartySystemStatusResponseRef = "BD" {
         /// NetworkStatusResponseType(937).
         network_status_response_type: req NetworkStatusResponseType = NETWORK_STATUS_RESPONSE_TYPE,
         /// NetworkRequestID(933).
@@ -24108,7 +24108,7 @@ impl NetworkCounterpartySystemStatusResponse {
 
 turbojet::fix_message! {
     /// UserRequest(BE).
-    UserRequest = "BE" {
+    UserRequest / UserRequestRef = "BE" {
         /// UserRequestID(923).
         user_request_id: req String = USER_REQUEST_ID,
         /// UserRequestType(924).
@@ -24154,7 +24154,7 @@ impl UserRequest {
 
 turbojet::fix_message! {
     /// UserResponse(BF).
-    UserResponse = "BF" {
+    UserResponse / UserResponseRef = "BF" {
         /// UserRequestID(923).
         user_request_id: req String = USER_REQUEST_ID,
         /// Username(553).
@@ -24181,7 +24181,7 @@ impl UserResponse {
 
 turbojet::fix_message! {
     /// CollateralInquiryAck(BG).
-    CollateralInquiryAck = "BG" {
+    CollateralInquiryAck / CollateralInquiryAckRef = "BG" {
         /// CollInquiryID(909).
         coll_inquiry_id: req String = COLL_INQUIRY_ID,
         /// CollInquiryStatus(945).
@@ -24573,7 +24573,7 @@ impl CollateralInquiryAck {
 
 turbojet::fix_message! {
     /// ConfirmationRequest(BH).
-    ConfirmationRequest = "BH" {
+    ConfirmationRequest / ConfirmationRequestRef = "BH" {
         /// ConfirmReqID(859).
         confirm_req_id: req String = CONFIRM_REQ_ID,
         /// ConfirmType(773).
@@ -24624,7 +24624,7 @@ impl ConfirmationRequest {
 
 turbojet::fix_message! {
     /// ContraryIntentionReport(BO).
-    ContraryIntentionReport = "BO" {
+    ContraryIntentionReport / ContraryIntentionReportRef = "BO" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -24949,7 +24949,7 @@ impl ContraryIntentionReport {
 
 turbojet::fix_message! {
     /// SecurityDefinitionUpdateReport(BP).
-    SecurityDefinitionUpdateReport = "BP" {
+    SecurityDefinitionUpdateReport / SecurityDefinitionUpdateReportRef = "BP" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -25335,7 +25335,7 @@ impl SecurityDefinitionUpdateReport {
 
 turbojet::fix_message! {
     /// SecurityListUpdateReport(BK).
-    SecurityListUpdateReport = "BK" {
+    SecurityListUpdateReport / SecurityListUpdateReportRef = "BK" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -25419,7 +25419,7 @@ impl SecurityListUpdateReport {
 
 turbojet::fix_message! {
     /// AdjustedPositionReport(BL).
-    AdjustedPositionReport = "BL" {
+    AdjustedPositionReport / AdjustedPositionReportRef = "BL" {
         /// PosMaintRptID(721).
         pos_maint_rpt_id: req String = POS_MAINT_RPT_ID,
         /// PosReqType(724).
@@ -25469,7 +25469,7 @@ impl AdjustedPositionReport {
 
 turbojet::fix_message! {
     /// AllocationInstructionAlert(BM).
-    AllocationInstructionAlert = "BM" {
+    AllocationInstructionAlert / AllocationInstructionAlertRef = "BM" {
         /// AllocID(70).
         alloc_id: req String = ALLOC_ID,
         /// AllocTransType(71).
@@ -26035,7 +26035,7 @@ impl AllocationInstructionAlert {
 
 turbojet::fix_message! {
     /// ExecutionAcknowledgement(BN).
-    ExecutionAcknowledgement = "BN" {
+    ExecutionAcknowledgement / ExecutionAcknowledgementRef = "BN" {
         /// OrderID(37).
         order_id: req String = ORDER_ID,
         /// SecondaryOrderID(198).
@@ -26384,7 +26384,7 @@ impl ExecutionAcknowledgement {
 
 turbojet::fix_message! {
     /// TradingSessionList(BJ).
-    TradingSessionList = "BJ" {
+    TradingSessionList / TradingSessionListRef = "BJ" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -26417,7 +26417,7 @@ impl TradingSessionList {
 
 turbojet::fix_message! {
     /// TradingSessionListRequest(BI).
-    TradingSessionListRequest = "BI" {
+    TradingSessionListRequest / TradingSessionListRequestRef = "BI" {
         /// TradSesReqID(335).
         trad_ses_req_id: req String = TRAD_SES_REQ_ID,
         /// MarketID(1301).
@@ -26459,7 +26459,7 @@ impl TradingSessionListRequest {
 
 turbojet::fix_message! {
     /// SettlementObligationReport(BQ).
-    SettlementObligationReport = "BQ" {
+    SettlementObligationReport / SettlementObligationReportRef = "BQ" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -26514,7 +26514,7 @@ impl SettlementObligationReport {
 
 turbojet::fix_message! {
     /// DerivativeSecurityListUpdateReport(BR).
-    DerivativeSecurityListUpdateReport = "BR" {
+    DerivativeSecurityListUpdateReport / DerivativeSecurityListUpdateReportRef = "BR" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -26966,7 +26966,7 @@ impl DerivativeSecurityListUpdateReport {
 
 turbojet::fix_message! {
     /// TradingSessionListUpdateReport(BS).
-    TradingSessionListUpdateReport = "BS" {
+    TradingSessionListUpdateReport / TradingSessionListUpdateReportRef = "BS" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -26999,7 +26999,7 @@ impl TradingSessionListUpdateReport {
 
 turbojet::fix_message! {
     /// MarketDefinitionRequest(BT).
-    MarketDefinitionRequest = "BT" {
+    MarketDefinitionRequest / MarketDefinitionRequestRef = "BT" {
         /// MarketReqID(1393).
         market_req_id: req String = MARKET_REQ_ID,
         /// SubscriptionRequestType(263).
@@ -27029,7 +27029,7 @@ impl MarketDefinitionRequest {
 
 turbojet::fix_message! {
     /// MarketDefinition(BU).
-    MarketDefinition = "BU" {
+    MarketDefinition / MarketDefinitionRef = "BU" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -27146,7 +27146,7 @@ impl MarketDefinition {
 
 turbojet::fix_message! {
     /// MarketDefinitionUpdateReport(BV).
-    MarketDefinitionUpdateReport = "BV" {
+    MarketDefinitionUpdateReport / MarketDefinitionUpdateReportRef = "BV" {
         /// ApplID(1180).
         appl_id: opt String = APPL_ID,
         /// ApplSeqNum(1181).
@@ -27266,7 +27266,7 @@ impl MarketDefinitionUpdateReport {
 
 turbojet::fix_message! {
     /// UserNotification(CB).
-    UserNotification = "CB" {
+    UserNotification / UserNotificationRef = "CB" {
         /// NoUsernames(809).
         usernames: group UsernameGrp = NO_USERNAMES,
         /// UserStatus(926).
@@ -27288,7 +27288,7 @@ impl UserNotification {
 
 turbojet::fix_message! {
     /// OrderMassActionReport(BZ).
-    OrderMassActionReport = "BZ" {
+    OrderMassActionReport / OrderMassActionReportRef = "BZ" {
         /// ClOrdID(11).
         cl_ord_id: opt String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -27849,7 +27849,7 @@ impl OrderMassActionReport {
 
 turbojet::fix_message! {
     /// OrderMassActionRequest(CA).
-    OrderMassActionRequest = "CA" {
+    OrderMassActionRequest / OrderMassActionRequestRef = "CA" {
         /// ClOrdID(11).
         cl_ord_id: req String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -28392,7 +28392,7 @@ impl OrderMassActionRequest {
 
 turbojet::fix_message! {
     /// ApplicationMessageRequest(BW).
-    ApplicationMessageRequest = "BW" {
+    ApplicationMessageRequest / ApplicationMessageRequestRef = "BW" {
         /// ApplReqID(1346).
         appl_req_id: req String = APPL_REQ_ID,
         /// ApplReqType(1347).
@@ -28425,7 +28425,7 @@ impl ApplicationMessageRequest {
 
 turbojet::fix_message! {
     /// ApplicationMessageRequestAck(BX).
-    ApplicationMessageRequestAck = "BX" {
+    ApplicationMessageRequestAck / ApplicationMessageRequestAckRef = "BX" {
         /// ApplResponseID(1353).
         appl_response_id: req String = APPL_RESPONSE_ID,
         /// ApplReqID(1346).
@@ -28467,7 +28467,7 @@ impl ApplicationMessageRequestAck {
 
 turbojet::fix_message! {
     /// ApplicationMessageReport(BY).
-    ApplicationMessageReport = "BY" {
+    ApplicationMessageReport / ApplicationMessageReportRef = "BY" {
         /// ApplReportID(1356).
         appl_report_id: req String = APPL_REPORT_ID,
         /// ApplReqID(1346).
@@ -28500,7 +28500,7 @@ impl ApplicationMessageReport {
 
 turbojet::fix_message! {
     /// StreamAssignmentRequest(CC).
-    StreamAssignmentRequest = "CC" {
+    StreamAssignmentRequest / StreamAssignmentRequestRef = "CC" {
         /// StreamAsgnReqID(1497).
         stream_asgn_req_id: req String = STREAM_ASGN_REQ_ID,
         /// StreamAsgnReqType(1498).
@@ -28524,7 +28524,7 @@ impl StreamAssignmentRequest {
 
 turbojet::fix_message! {
     /// StreamAssignmentReport(CD).
-    StreamAssignmentReport = "CD" {
+    StreamAssignmentReport / StreamAssignmentReportRef = "CD" {
         /// StreamAsgnRptID(1501).
         stream_asgn_rpt_id: req String = STREAM_ASGN_RPT_ID,
         /// StreamAsgnReqType(1498).
@@ -28551,7 +28551,7 @@ impl StreamAssignmentReport {
 
 turbojet::fix_message! {
     /// StreamAssignmentReportACK(CE).
-    StreamAssignmentReportACK = "CE" {
+    StreamAssignmentReportACK / StreamAssignmentReportACKRef = "CE" {
         /// StreamAsgnAckType(1503).
         stream_asgn_ack_type: req StreamAsgnAckType = STREAM_ASGN_ACK_TYPE,
         /// StreamAsgnRptID(1501).

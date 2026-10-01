@@ -6,7 +6,7 @@ use turbojet::fields::{Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp}
 
 turbojet::fix_group! {
     /// An entry of NoSecurityAltID(454).
-    SecAltIDGrp {
+    SecAltIDGrp / SecAltIDGrpRef {
         /// SecurityAltID(455).
         security_alt_id: req String = SECURITY_ALT_ID,
         /// SecurityAltIDSource(456).
@@ -24,7 +24,7 @@ impl SecAltIDGrp {
 
 turbojet::fix_group! {
     /// An entry of NoIOIQualifiers(199).
-    IOIQualGrp {
+    IOIQualGrp / IOIQualGrpRef {
         /// IOIQualifier(104).
         ioi_qualifier: req IOIQualifier = IOI_QUALIFIER,
     }
@@ -40,7 +40,7 @@ impl IOIQualGrp {
 
 turbojet::fix_group! {
     /// An entry of NoRoutingIDs(215).
-    RoutingGrp {
+    RoutingGrp / RoutingGrpRef {
         /// RoutingType(216).
         routing_type: req RoutingType = ROUTING_TYPE,
         /// RoutingID(217).
@@ -58,7 +58,7 @@ impl RoutingGrp {
 
 turbojet::fix_group! {
     /// An entry of NoPartyIDs(453).
-    Parties {
+    Parties / PartiesRef {
         /// PartyID(448).
         party_id: req String = PARTY_ID,
         /// PartyIDSource(447).
@@ -80,7 +80,7 @@ impl Parties {
 
 turbojet::fix_group! {
     /// An entry of NoContraBrokers(382).
-    ContraGrp {
+    ContraGrp / ContraGrpRef {
         /// ContraBroker(375).
         contra_broker: req String = CONTRA_BROKER,
         /// ContraTrader(337).
@@ -110,7 +110,7 @@ impl ContraGrp {
 
 turbojet::fix_group! {
     /// An entry of NoStipulations(232).
-    Stipulations {
+    Stipulations / StipulationsRef {
         /// StipulationType(233).
         stipulation_type: req StipulationType = STIPULATION_TYPE,
         /// StipulationValue(234).
@@ -128,7 +128,7 @@ impl Stipulations {
 
 turbojet::fix_group! {
     /// An entry of NoContAmts(518).
-    ContAmtGrp {
+    ContAmtGrp / ContAmtGrpRef {
         /// ContAmtType(519).
         cont_amt_type: req ContAmtType = CONT_AMT_TYPE,
         /// ContAmtValue(520).
@@ -148,7 +148,7 @@ impl ContAmtGrp {
 
 turbojet::fix_group! {
     /// An entry of NoLegs(555).
-    SecLstUpdRelSymsLegGrp {
+    SecLstUpdRelSymsLegGrp / SecLstUpdRelSymsLegGrpRef {
         /// LegSymbol(600).
         leg_symbol: req String = LEG_SYMBOL,
         /// LegSymbolSfx(601).
@@ -283,7 +283,7 @@ impl SecLstUpdRelSymsLegGrp {
 
 turbojet::fix_group! {
     /// An entry of NoLegSecurityAltID(604).
-    LegSecAltIDGrp {
+    LegSecAltIDGrp / LegSecAltIDGrpRef {
         /// LegSecurityAltID(605).
         leg_security_alt_id: req String = LEG_SECURITY_ALT_ID,
         /// LegSecurityAltIDSource(606).
@@ -301,7 +301,7 @@ impl LegSecAltIDGrp {
 
 turbojet::fix_group! {
     /// An entry of NoNestedPartyIDs(539).
-    NestedParties {
+    NestedParties / NestedPartiesRef {
         /// NestedPartyID(524).
         nested_party_id: req String = NESTED_PARTY_ID,
         /// NestedPartyIDSource(525).
@@ -328,7 +328,7 @@ impl NestedParties {
 
 turbojet::fix_group! {
     /// An entry of NoRelatedSym(146).
-    StrmAsgnRptInstrmtGrp {
+    StrmAsgnRptInstrmtGrp / StrmAsgnRptInstrmtGrpRef {
         /// Symbol(55).
         symbol: req String = SYMBOL,
         /// SymbolSfx(65).
@@ -451,7 +451,7 @@ impl StrmAsgnRptInstrmtGrp {
 
 turbojet::fix_group! {
     /// An entry of LinesOfText(33).
-    LinesOfTextGrp {
+    LinesOfTextGrp / LinesOfTextGrpRef {
         /// Text(58).
         text: req String = TEXT,
         /// EncodedText(355).
@@ -469,7 +469,7 @@ impl LinesOfTextGrp {
 
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
-    TrdAllocGrp {
+    TrdAllocGrp / TrdAllocGrpRef {
         /// AllocAccount(79).
         alloc_account: req String = ALLOC_ACCOUNT,
         /// IndividualAllocID(467).
@@ -489,7 +489,7 @@ impl TrdAllocGrp {
 
 turbojet::fix_group! {
     /// An entry of NoTradingSessions(386).
-    TrdSessLstGrp {
+    TrdSessLstGrp / TrdSessLstGrpRef {
         /// TradingSessionID(336).
         trading_session_id: req String = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
@@ -507,7 +507,7 @@ impl TrdSessLstGrp {
 
 turbojet::fix_group! {
     /// An entry of NoOrders(73).
-    OrdListStatGrp {
+    OrdListStatGrp / OrdListStatGrpRef {
         /// ClOrdID(11).
         cl_ord_id: req String = CL_ORD_ID,
         /// SecondaryClOrdID(526).
@@ -562,7 +562,7 @@ impl OrdListStatGrp {
 
 turbojet::fix_group! {
     /// An entry of NoExecs(124).
-    ExecCollGrp {
+    ExecCollGrp / ExecCollGrpRef {
         /// LastQty(32).
         last_qty: req Decimal = LAST_QTY,
         /// ExecID(17).
@@ -586,7 +586,7 @@ impl ExecCollGrp {
 
 turbojet::fix_group! {
     /// An entry of NoMDEntryTypes(267).
-    MDReqGrp {
+    MDReqGrp / MDReqGrpRef {
         /// MDEntryType(269).
         md_entry_type: req MDEntryType = MD_ENTRY_TYPE,
     }
@@ -602,7 +602,7 @@ impl MDReqGrp {
 
 turbojet::fix_group! {
     /// An entry of NoMDEntries(268).
-    MDIncGrp {
+    MDIncGrp / MDIncGrpRef {
         /// MDUpdateAction(279).
         md_update_action: req MDUpdateAction = MD_UPDATE_ACTION,
         /// DeleteReason(285).
@@ -833,7 +833,7 @@ impl MDIncGrp {
 
 turbojet::fix_group! {
     /// An entry of NoQuoteEntries(295).
-    QuotEntryGrp {
+    QuotEntryGrp / QuotEntryGrpRef {
         /// QuoteEntryID(299).
         quote_entry_id: req String = QUOTE_ENTRY_ID,
         /// Symbol(55).
@@ -1013,7 +1013,7 @@ impl QuotEntryGrp {
 
 turbojet::fix_group! {
     /// An entry of NoQuoteSets(296).
-    QuotSetGrp {
+    QuotSetGrp / QuotSetGrpRef {
         /// QuoteSetID(302).
         quote_set_id: req String = QUOTE_SET_ID,
         /// UnderlyingSymbol(311).
@@ -1136,7 +1136,7 @@ impl QuotSetGrp {
 
 turbojet::fix_group! {
     /// An entry of NoUnderlyingSecurityAltID(457).
-    UndSecAltIDGrp {
+    UndSecAltIDGrp / UndSecAltIDGrpRef {
         /// UnderlyingSecurityAltID(458).
         underlying_security_alt_id: req String = UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingSecurityAltIDSource(459).
@@ -1154,7 +1154,7 @@ impl UndSecAltIDGrp {
 
 turbojet::fix_group! {
     /// An entry of NoBidDescriptors(398).
-    BidDescReqGrp {
+    BidDescReqGrp / BidDescReqGrpRef {
         /// BidDescriptorType(399).
         bid_descriptor_type: req BidDescriptorType = BID_DESCRIPTOR_TYPE,
         /// BidDescriptor(400).
@@ -1202,7 +1202,7 @@ impl BidDescReqGrp {
 
 turbojet::fix_group! {
     /// An entry of NoBidComponents(420).
-    BidCompRspGrp {
+    BidCompRspGrp / BidCompRspGrpRef {
         /// Commission(12).
         commission: req Decimal = COMMISSION,
         /// CommType(13).
@@ -1268,7 +1268,7 @@ impl BidCompRspGrp {
 
 turbojet::fix_group! {
     /// An entry of NoStrikes(428).
-    InstrmtStrkPxGrp {
+    InstrmtStrkPxGrp / InstrmtStrkPxGrpRef {
         /// Symbol(55).
         symbol: req String = SYMBOL,
         /// SymbolSfx(65).
@@ -1400,7 +1400,7 @@ impl InstrmtStrkPxGrp {
 
 turbojet::fix_group! {
     /// An entry of NoRegistDtls(473).
-    RgstDtlsGrp {
+    RgstDtlsGrp / RgstDtlsGrpRef {
         /// RegistDetls(509).
         regist_detls: req String = REGIST_DETLS,
         /// RegistEmail(511).
@@ -1439,7 +1439,7 @@ impl RgstDtlsGrp {
 
 turbojet::fix_group! {
     /// An entry of NoDistribInsts(510).
-    RgstDistInstGrp {
+    RgstDistInstGrp / RgstDistInstGrpRef {
         /// DistribPaymentMethod(477).
         distrib_payment_method: req i64 = DISTRIB_PAYMENT_METHOD,
         /// DistribPercentage(512).
@@ -1475,7 +1475,7 @@ impl RgstDistInstGrp {
 
 turbojet::fix_group! {
     /// An entry of NoAffectedOrders(534).
-    AffectedOrdGrp {
+    AffectedOrdGrp / AffectedOrdGrpRef {
         /// OrigClOrdID(41).
         orig_cl_ord_id: req String = ORIG_CL_ORD_ID,
         /// AffectedOrderID(535).
@@ -1495,7 +1495,7 @@ impl AffectedOrdGrp {
 
 turbojet::fix_group! {
     /// An entry of NoSides(552).
-    TrdCapRptAckSideGrp {
+    TrdCapRptAckSideGrp / TrdCapRptAckSideGrpRef {
         /// Side(54).
         side: req Side = SIDE,
         /// OrderID(37).
@@ -1642,7 +1642,7 @@ impl TrdCapRptAckSideGrp {
 
 turbojet::fix_group! {
     /// An entry of NoClearingInstructions(576).
-    ClrInstGrp {
+    ClrInstGrp / ClrInstGrpRef {
         /// ClearingInstruction(577).
         clearing_instruction: req ClearingInstruction = CLEARING_INSTRUCTION,
     }
@@ -1658,7 +1658,7 @@ impl ClrInstGrp {
 
 turbojet::fix_group! {
     /// An entry of NoMiscFees(136).
-    MiscFeesGrp {
+    MiscFeesGrp / MiscFeesGrpRef {
         /// MiscFeeAmt(137).
         misc_fee_amt: req Decimal = MISC_FEE_AMT,
         /// MiscFeeCurr(138).
@@ -1678,7 +1678,7 @@ impl MiscFeesGrp {
 
 turbojet::fix_group! {
     /// An entry of NoSecurityTypes(558).
-    SecTypesGrp {
+    SecTypesGrp / SecTypesGrpRef {
         /// SecurityType(167).
         security_type: req SecurityType = SECURITY_TYPE,
         /// Product(460).
@@ -1698,7 +1698,7 @@ impl SecTypesGrp {
 
 turbojet::fix_group! {
     /// An entry of NoDates(580).
-    TrdCapDtGrp {
+    TrdCapDtGrp / TrdCapDtGrpRef {
         /// TradeDate(75).
         trade_date: req NaiveDate = TRADE_DATE,
         /// TransactTime(60).
