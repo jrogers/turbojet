@@ -273,6 +273,20 @@ struct LogonRequest {
 /// back with the resend, which asks for everything from the gap on.
 const MAX_QUEUED: usize = 10_000;
 
+/// Sequence numbers resent per step of a replay (see [`Session::on_resume`]), so answering a
+/// ResendRequest holds at most this many stored messages, decoded and framed, at a time.
+const MAX_RESEND_BATCH: u64 = 1024;
+
+/// A resend in progress: what's left of the range asked for.
+struct Replay {
+    /// The first sequence number not yet resent or gap-filled: an open gap fill starts here.
+    next: u64,
+    /// The first sequence number not yet looked up in the store.
+    scan: u64,
+    /// The last sequence number to resend.
+    end: u64,
+}
+
 /// A message that arrived ahead of a gap, kept until its turn.
 struct Queued {
     msg: Message,
@@ -326,8 +340,17 @@ pub struct Session {
     test_req_counter: u64,
     /// Encoded messages for the driver to write, in order; see [`output`](Self::output). The driver
     /// empties it after each wake-up, so it holds the replies to one read, one batch of commands,
-    /// or one resend. A resend isn't bounded yet (ROADMAP "Chunked resends").
+    /// or one step of a resend.
     output: Vec<u8>,
+    /// The resend in progress, if any; see [`on_resume`](Self::on_resume).
+    replay: Option<Replay>,
+    /// New messages sent while a resend is in progress, framed and stored, to follow it. Drivers
+    /// feed no input meanwhile, so it holds what the call that started the resend went on to
+    /// send: replies to one message, to those queued behind a gap, or the commands held during
+    /// logon.
+    held: Vec<u8>,
+    /// Sequence numbers resent per step: `MAX_RESEND_BATCH`, a field so tests can shrink it.
+    resend_batch: u64,
     /// Handle commands received while logon is in progress, applied in order once it completes.
     /// The logon timeout bounds how long it fills, but not how much: it's as unbounded as the
     /// handle's channel (ROADMAP "Bound the session command queue").
@@ -413,6 +436,9 @@ impl Session {
             period: None,
             test_req_counter: 0,
             output: Vec::new(),
+            replay: None,
+            held: Vec::new(),
+            resend_batch: MAX_RESEND_BATCH,
             pending: Vec::new(),
             header: String::new(),
             wall_clock: Cell::new(None),
@@ -458,6 +484,24 @@ impl Session {
     /// Empties [`output`](Self::output), keeping its capacity, once it's been written.
     pub fn clear_output(&mut self) {
         self.output.clear()
+    }
+
+    /// Whether a resend is in progress: more of it is due once [`output`](Self::output) has been
+    /// written. Until it ends, call [`on_resume`](Self::on_resume) rather than feed the session
+    /// messages or commands, which would wait behind the rest of the resend.
+    /// [`on_timer`](Self::on_timer) and [`on_shutdown`](Self::on_shutdown) still apply.
+    pub fn is_resending(&self) -> bool {
+        self.replay.is_some()
+    }
+
+    /// Resends the next step of the resend in progress, if any, into [`output`](Self::output). A
+    /// long range is resent in steps so that it never has to be held, read from the store and
+    /// framed, all at once.
+    pub fn on_resume(&mut self, now: Instant) {
+        self.wall_clock.set(None);
+        if self.replay.is_some() && self.status != Status::Closed {
+            self.resend_step(now);
+        }
     }
 
     /// Whether the session has logged on at any point, even if it has since logged out.
@@ -1470,36 +1514,31 @@ impl Session {
         self.resend(begin, end, now);
     }
 
-    /// Resends `begin..=end` as stored, gap-filling what wasn't stored (session messages), without
-    /// using new sequence numbers.
+    /// Starts resending `begin..=end` as stored, gap-filling what wasn't stored (session
+    /// messages), without using new sequence numbers. The first step goes out now, and the rest
+    /// from [`on_resume`](Self::on_resume).
     fn resend(&mut self, begin: u64, end: u64, now: Instant) {
         // A closed session sends nothing further (the Logon before it may have failed to store).
         if self.status == Status::Closed {
             return;
         }
         info!(begin, end, "resending messages");
+        debug_assert!(begin <= end);
+        self.replay = Some(Replay { next: begin, scan: begin, end });
+        self.resend_step(now);
+    }
 
-        let now_ts = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision).to_fix();
-        let stored = match self.peer_mut().log.sent_messages(begin, end) {
-            Ok(stored) => stored,
+    /// Resends the next `resend_batch` sequence numbers of the replay, and ends it after the last.
+    fn resend_step(&mut self, now: Instant) {
+        let Some(Replay { mut next, scan, end }) = self.replay.take() else { return };
+        debug_assert!(next <= scan && scan <= end);
+        let to = end.min(scan.saturating_add(self.resend_batch - 1));
+        let originals = match self.stored_messages(scan, to) {
+            Ok(originals) => originals,
             Err(e) => return self.storage_failed(e),
         };
-        // Stores keep the bytes as sent; they're parsed here, with the session's data fields, all
-        // before any is resent. The whole range is held at once, and resent into one output: the
-        // counterparty chooses the range, so this isn't bounded yet (ROADMAP "Chunked resends").
-        let mut originals = Vec::with_capacity(stored.len());
-        for (seq, bytes) in stored {
-            match decode_stored(&bytes, &self.config.data_fields) {
-                Decoded::Message(msg, len) if len == bytes.len() && msg.defect().is_none() => {
-                    originals.push((seq, msg))
-                }
-                _ => {
-                    let e = io::Error::new(io::ErrorKind::InvalidData, format!("stored message {seq} is corrupt"));
-                    return self.storage_failed(e);
-                }
-            }
-        }
-        let mut next = begin;
+        let now_ts = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision).to_fix();
+        let sent_any = !originals.is_empty() || to == end;
         for (seq, original) in originals {
             if seq > next {
                 self.send_gap_fill(next, seq, &now_ts);
@@ -1509,13 +1548,51 @@ impl Session {
             let start = output.len();
             self.frame_into(&original, seq, &now_ts, Some(&orig_time), false, &mut output);
             self.output = output;
-            self.emit(start);
+            self.emit(&self.output, start);
             next = seq + 1;
         }
-        if next <= end {
-            self.send_gap_fill(next, end + 1, &now_ts);
+        if to < end {
+            self.replay = Some(Replay { next, scan: to + 1, end });
+        } else {
+            if next <= end {
+                self.send_gap_fill(next, end + 1, &now_ts);
+            }
+            self.finish_replay(now);
         }
-        self.last_sent = now;
+        if sent_any {
+            self.last_sent = now;
+        }
+    }
+
+    /// Stored messages `begin..=end`, parsed with the session's data fields: all of them, or an
+    /// error if any is corrupt, so that none of a corrupt range is resent.
+    fn stored_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+        // Stores keep the bytes as sent; they're parsed here.
+        let stored = self.peer_mut().log.sent_messages(begin, end)?;
+        let mut originals = Vec::with_capacity(stored.len());
+        for (seq, bytes) in stored {
+            debug_assert!((begin..=end).contains(&seq));
+            match decode_stored(&bytes, &self.config.data_fields) {
+                Decoded::Message(msg, len) if len == bytes.len() && msg.defect().is_none() => {
+                    originals.push((seq, msg))
+                }
+                _ => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, format!("stored message {seq} is corrupt")));
+                }
+            }
+        }
+        Ok(originals)
+    }
+
+    /// The replay has ended: the counterparty's silence while it was being resent doesn't count.
+    fn finish_replay(&mut self, now: Instant) {
+        self.replay = None;
+        self.output.extend_from_slice(&self.held);
+        self.held.clear();
+        self.last_received = self.last_received.max(now);
+        if let Some(resend) = &mut self.resend {
+            resend.progress_at = resend.progress_at.max(now);
+        }
     }
 
     fn send_gap_fill(&mut self, seq: u64, new_seq_no: u64, now_ts: &str) {
@@ -1524,7 +1601,7 @@ impl Session {
         let start = output.len();
         self.frame_into(&body, seq, now_ts, Some(now_ts), false, &mut output);
         self.output = output;
-        self.emit(start);
+        self.emit(&self.output, start);
     }
 
     fn request_resend(&mut self, from: u64, received: u64, now: Instant) {
@@ -1662,7 +1739,9 @@ impl Session {
         }
         let seq = self.peer().log.next_outgoing();
         let sending_time = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision);
-        let mut output = std::mem::take(&mut self.output);
+        // During a resend, new messages wait for the rest of it.
+        let holding = self.replay.is_some();
+        let mut output = std::mem::take(if holding { &mut self.held } else { &mut self.output });
         let start = output.len();
         self.frame_into(&body, seq, sending_time, None, false, &mut output);
         // With more than one version, the default may differ on a later connection, so the stored
@@ -1684,28 +1763,30 @@ impl Session {
         };
         let recorded = self.peer_mut().log.record_outgoing(seq, copy);
         self.stored = stored;
-        if let Err(e) = recorded {
+        let failed = recorded.err();
+        if failed.is_some() {
             // It isn't sent.
             output.truncate(start);
-            self.output = output;
+        }
+        *(if holding { &mut self.held } else { &mut self.output }) = output;
+        if let Some(e) = failed {
             return self.storage_failed(e);
         }
-        self.output = output;
         debug_assert_eq!(self.peer().log.next_outgoing(), seq + 1, "recording a message uses its number");
         self.peer().metrics.next_outgoing(seq + 1);
         self.last_sent = now;
-        self.emit(start);
+        self.emit(if holding { &self.held } else { &self.output }, start);
     }
 
-    /// Counts and logs the message the output holds from `start`, just framed, for the driver to
-    /// write.
-    fn emit(&mut self, start: usize) {
+    /// Counts and logs the message `buf` (the output, or the messages held during a resend) holds
+    /// from `start`, just framed, for the driver to write.
+    fn emit(&self, buf: &[u8], start: usize) {
         // The driver writes the output, then closes: anything added once closed would still go out.
         debug_assert!(self.status != Status::Closed, "a closed session sends nothing");
         // Exactly one message, framed as the counterparty will frame it.
-        debug_assert_eq!(frame_stored(&self.output[start..]), Ok(self.output.len() - start));
+        debug_assert_eq!(frame_stored(&buf[start..]), Ok(buf.len() - start));
         self.peer().metrics.message_sent();
-        debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&self.output[start..], &self.config.data_fields));
+        debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&buf[start..], &self.config.data_fields));
     }
 
     fn set_next_incoming(&mut self, seq: u64) {

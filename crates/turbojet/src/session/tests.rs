@@ -179,6 +179,7 @@ trait Drive {
     fn command(&mut self, command: Command, now: Instant) -> Vec<Action>;
     fn shutdown(&mut self, text: Option<&str>, now: Instant) -> Vec<Action>;
     fn timer(&mut self, now: Instant) -> Vec<Action>;
+    fn resume(&mut self, now: Instant) -> Vec<Action>;
 }
 
 impl Drive for Session {
@@ -209,6 +210,12 @@ impl Drive for Session {
     fn timer(&mut self, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_timer(now);
+        taken(self, was)
+    }
+
+    fn resume(&mut self, now: Instant) -> Vec<Action> {
+        let was = self.is_closed();
+        self.on_resume(now);
         taken(self, was)
     }
 }
@@ -1116,6 +1123,152 @@ fn resend_request_replays_app_messages_and_gap_fills_admin() {
     // Resending does not consume new sequence numbers.
     let out = s.recv(client(6, MsgType::TestRequest).with(tags::TEST_REQ_ID, "z"), h.t0);
     assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("5"));
+}
+
+/// A logged-on acceptor that has sent `n` ExecutionReports after its Logon (our MsgSeqNum 2 to
+/// n + 1), resending at most `batch` sequence numbers per step.
+fn with_reports(h: &Harness, n: u64, batch: u64) -> Session {
+    let mut s = h.logged_on();
+    s.resend_batch = batch;
+    for i in 0..n {
+        s.recv(order(i + 2, &format!("O{i}")), h.t0);
+    }
+    s
+}
+
+fn resend_request(seq: u64, begin: u64) -> Message {
+    client(seq, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, begin).with(tags::END_SEQ_NO, "0")
+}
+
+/// The sequence numbers each message sent covers: its own, or a gap fill's whole range.
+fn covered(actions: &[Action]) -> Vec<u64> {
+    let seq = |m: &Message, tag| m.get(tag).unwrap().parse::<u64>().unwrap();
+    sent(actions)
+        .into_iter()
+        .flat_map(|m| match m.msg_type() {
+            MsgType::SequenceReset => seq(m, tags::MSG_SEQ_NUM)..seq(m, tags::NEW_SEQ_NO),
+            _ => seq(m, tags::MSG_SEQ_NUM)..seq(m, tags::MSG_SEQ_NUM) + 1,
+        })
+        .collect()
+}
+
+#[test]
+fn a_long_resend_goes_out_in_steps() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 10, 4); // our 1: Logon, 2 to 11: ExecutionReports
+
+    let first = s.recv(resend_request(12, 1), h.t0);
+    assert_eq!(types(&first), ["SequenceReset", "ExecutionReport", "ExecutionReport", "ExecutionReport"]);
+    assert_eq!(covered(&first), [1, 2, 3, 4]);
+    assert!(s.is_resending());
+
+    let second = s.resume(h.t0);
+    assert_eq!(covered(&second), [5, 6, 7, 8]);
+    assert!(s.is_resending());
+    let third = s.resume(h.t0);
+    assert_eq!(covered(&third), [9, 10, 11]);
+    assert!(!s.is_resending());
+    for er in sent(&first).into_iter().skip(1).chain(sent(&second)).chain(sent(&third)) {
+        assert_eq!(er.get(tags::POSS_DUP_FLAG), Some("Y"));
+        assert!(er.get(tags::ORIG_SENDING_TIME).is_some());
+    }
+
+    // Nothing more to resend, and new messages carry on from 12.
+    assert!(s.resume(h.t0).is_empty());
+    let out = s.recv(client(13, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("12"));
+}
+
+#[test]
+fn a_gap_fill_spanning_steps_is_sent_once() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.resend_batch = 4;
+    for seq in 2..=9 {
+        s.recv(client(seq, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0); // our 2 to 9: Heartbeats
+    }
+    s.recv(order(10, "A"), h.t0); // our 10: ExecutionReport
+
+    assert!(s.recv(resend_request(11, 1), h.t0).is_empty(), "1 to 4 are all session messages");
+    assert!(s.resume(h.t0).is_empty(), "so are 5 to 8");
+    let last = s.resume(h.t0);
+    assert_eq!(types(&last), ["SequenceReset", "ExecutionReport"]);
+    assert_eq!(sent(&last)[0].get(tags::NEW_SEQ_NO), Some("10"));
+    assert!(!s.is_resending());
+}
+
+#[test]
+fn a_resend_within_one_step_finishes_in_the_call() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 2, 4);
+    assert_eq!(covered(&s.recv(resend_request(4, 1), h.t0)), [1, 2, 3]);
+    assert!(!s.is_resending());
+}
+
+#[test]
+fn each_step_sends_at_most_one_batch() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 100, 4);
+    let mut all = covered(&s.recv(resend_request(102, 1), h.t0));
+    while s.is_resending() {
+        let step = s.resume(h.t0);
+        assert!(sent(&step).len() <= 4, "{} messages in one step", sent(&step).len());
+        all.extend(covered(&step));
+    }
+    assert_eq!(all, (1..=101).collect::<Vec<_>>());
+}
+
+/// Messages sent while a resend is in progress wait for it, so the counterparty sees the range it
+/// asked for before any new sequence number.
+#[test]
+fn a_resend_request_sent_while_resending_follows_the_resend() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 6, 4); // our 2 to 7; their next is 8
+    // Ahead of a gap: answered now, and our own ResendRequest goes out too.
+    let first = s.recv(resend_request(9, 1), h.t0);
+    assert_eq!(covered(&first), [1, 2, 3, 4]);
+    let last = s.resume(h.t0);
+    assert_eq!(types(&last), ["ExecutionReport", "ExecutionReport", "ExecutionReport", "ResendRequest"]);
+    assert_eq!(sent(&last)[3].get(tags::MSG_SEQ_NUM), Some("8"));
+}
+
+#[test]
+fn messages_delivered_while_resending_follow_the_resend() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 6, 4); // our 2 to 7; their next is 8
+    assert_eq!(types(&s.recv(order(9, "Q"), h.t0)), ["ResendRequest"]); // our 8; 9 is queued
+    // Their 8 fills the gap and asks for everything: the queued order is answered after it.
+    let first = s.recv(resend_request(8, 1), h.t0);
+    assert_eq!(covered(&first), [1, 2, 3, 4]);
+    let last = s.resume(h.t0);
+    assert_eq!(covered(&last), [5, 6, 7, 8, 9]);
+    let ack = *sent(&last).last().unwrap();
+    assert_eq!((ack.get(tags::CL_ORD_ID), ack.get(tags::POSS_DUP_FLAG)), (Some("Q"), None));
+}
+
+#[test]
+fn commands_queued_during_logon_follow_a_resend_at_logon() {
+    let h = Harness::new();
+    let configure = |config: &mut InitiatorConfig| config.next_expected_msg_seq_num = true;
+    let mut first = h.initiator_with(configure);
+    first.connect(h.t0); // our 1: Logon
+    first.recv(logon(1), h.t0);
+    for id in ["A", "B", "C", "D", "E", "F"] {
+        first.command(send_command(id), h.t0); // our 2 to 7
+    }
+    drop(first);
+
+    let mut s = h.initiator_with(configure);
+    s.resend_batch = 2;
+    s.connect(h.t0); // our 8: Logon
+    s.command(send_command("Z"), h.t0);
+    let ids =
+        |out: &[Action]| sent(out).iter().map(|m| m.get(tags::CL_ORD_ID).unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(ids(&s.recv(logon(2).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0)), ["A", "B"]);
+    assert_eq!(ids(&s.resume(h.t0)), ["C", "D"]);
+    let last = s.resume(h.t0);
+    assert_eq!(ids(&last), ["E", "F", "Z"]);
+    assert_eq!(sent(&last)[2].get(tags::MSG_SEQ_NUM), Some("9"));
 }
 
 // ---- Application messages and rejects ----

@@ -138,8 +138,11 @@ where
             timer.as_mut().reset(deadline);
         }
 
+        // While resending, the counterparty's input and the application's commands wait, held by
+        // TCP and the channel, so nothing new goes out in the middle of the range.
+        let resending = session.is_resending();
         tokio::select! {
-            read = reader.read_buf(&mut buf) => {
+            read = reader.read_buf(&mut buf), if !resending => {
                 let read = read?;
                 if read == 0 {
                     return Ok(());
@@ -168,7 +171,7 @@ where
                 }
                 buf.drain(..consumed);
             }
-            Some(command) = commands.recv() => {
+            Some(command) = commands.recv(), if !resending => {
                 let now = Instant::now().into_std();
                 session.on_command(command, now);
                 // Take whatever else is already queued, so a burst of sends becomes one write.
@@ -177,6 +180,8 @@ where
                     session.on_command(command, now);
                 }
             }
+            // One step of the resend each time round, after the last step has been written.
+            () = std::future::ready(()), if resending => session.on_resume(Instant::now().into_std()),
             // Once only: after that the session's logout (or its timeout) ends the connection.
             text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() => {
                 shutdown = None;
@@ -308,6 +313,46 @@ mod tests {
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
         (peer, buf)
+    }
+
+    /// A resend longer than one step goes out in order over a connection whose buffer holds only
+    /// part of it, and an order that arrives meanwhile is answered after it.
+    #[tokio::test]
+    async fn a_long_resend_is_written_in_steps_before_anything_new() {
+        const ORDERS: u64 = 3_000;
+        let (ours, mut peer) = duplex(16 * 1024);
+        let registry = Arc::new(SessionRegistry::default());
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        receive(&mut peer, &mut buf, 1).await;
+        // Our 2 onwards: an ExecutionReport per order, a hundred at a time.
+        for first in (2..ORDERS + 2).step_by(100) {
+            for seq in first..first + 100 {
+                let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, format!("O{seq}"));
+                peer.write_all(&from_peer(seq, order)).await.unwrap();
+            }
+            receive(&mut peer, &mut buf, 100).await;
+        }
+
+        let request = Message::new(MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, 1u64).with(tags::END_SEQ_NO, 0u64);
+        peer.write_all(&from_peer(ORDERS + 2, request)).await.unwrap();
+        let late = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "LATE");
+        peer.write_all(&from_peer(ORDERS + 3, late)).await.unwrap();
+
+        let messages = receive(&mut peer, &mut buf, usize::try_from(ORDERS).unwrap() + 2).await;
+        assert_eq!(messages[0].get(tags::NEW_SEQ_NO), Some("2"), "the Logon is gap-filled");
+        for (expected, msg) in (2..).zip(&messages[1..messages.len() - 1]) {
+            assert_eq!(msg.get(tags::CL_ORD_ID), Some(format!("O{expected}").as_str()));
+            assert_eq!(msg.get(tags::POSS_DUP_FLAG), Some("Y"));
+        }
+        let last = messages.last().unwrap();
+        assert_eq!((last.get(tags::CL_ORD_ID), last.get(tags::POSS_DUP_FLAG)), (Some("LATE"), None));
+        assert_eq!(last.get(tags::MSG_SEQ_NUM), Some((ORDERS + 2).to_string().as_str()));
     }
 
     /// A Heartbeat falls due HeartBtInt after the last send, not at the next whole-second tick.
