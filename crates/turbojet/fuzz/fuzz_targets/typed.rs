@@ -1,6 +1,6 @@
 //! A framed message parsed into a generated message type: any of every FIX version Turbojet
 //! generates, repeating groups included. A message that parses must write out as one that parses
-//! back to the same thing.
+//! back to the same thing, and its borrowed form must parse as it does.
 
 #![no_main]
 
@@ -8,6 +8,7 @@ use std::fmt::Debug;
 
 use libfuzzer_sys::fuzz_target;
 use turbojet::codec::{Decoded, decode};
+use turbojet::message::FixMessageRef;
 use turbojet::{FixMessage, Message};
 use turbojet_fuzz::frame;
 
@@ -27,6 +28,11 @@ fn check<T: FixMessage + PartialEq + Debug>(msg: &Message) {
         (Err(a), Err(b)) => assert_eq!(a, b),
         (Err(e), Ok(_)) => panic!("strict parsing accepted what lenient parsing refused: {e}"),
     }
+    // The borrowed form, made owned, is the owned form, and fails alike.
+    let borrowed = <T::Ref<'_> as FixMessageRef<'_>>::from_message(msg);
+    assert_eq!(borrowed.map(FixMessageRef::into_owned), lenient);
+    let borrowed = <T::Ref<'_> as FixMessageRef<'_>>::from_message_strict(msg);
+    assert_eq!(borrowed.map(FixMessageRef::into_owned), strict);
     let Ok(parsed) = lenient else { return };
     // Writing can normalise (timestamps are written to the millisecond), so compare the second
     // write with the first rather than the parse with the input.

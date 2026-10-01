@@ -617,7 +617,7 @@ macro_rules! fix_group {
 #[cfg(test)]
 mod tests {
     use crate::message::tags::*;
-    use crate::message::{FixMessage, FixMessageRef, Message, tags};
+    use crate::message::{FieldError, FieldErrorKind, FixMessage, FixMessageRef, Message, tags};
 
     fix_group! {
         /// A nested group, keyed by existing tags for the test.
@@ -1170,5 +1170,140 @@ mod tests {
         assert_eq!(borrowed.id, "A");
         assert_eq!(msg.parse::<OldOrder>().unwrap(), borrowed.into_owned());
         assert_eq!(<OldOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, OldOrder::MSG_TYPE, "the owned one's");
+    }
+
+    // ---- Edge cases, parsed both ways ----
+    //
+    // Each result here is what the parser before the borrowed form gave too.
+
+    /// `text` parsed as `T` leniently and strictly, once [`assert_same_parse`] has checked that
+    /// the borrowed form gives the same.
+    fn parse_both<T: FixMessage + PartialEq + std::fmt::Debug>(
+        text: &str,
+    ) -> (Result<T, FieldError>, Result<T, FieldError>) {
+        assert_same_parse::<T>(text);
+        let msg = raw(text);
+        (T::from_message(&msg), T::from_message_strict(&msg))
+    }
+
+    fn error(tag: u32, kind: FieldErrorKind) -> FieldError {
+        FieldError { tag, kind }
+    }
+
+    fn leg(account: &str, text: Option<&str>, notes: &[&str]) -> Leg {
+        let notes = notes.iter().map(|id| Note { id: (*id).into() }).collect();
+        Leg { account: account.into(), text: text.map(Into::into), notes }
+    }
+
+    fn order(legs: Vec<Leg>, text: Option<&str>) -> TestOrder {
+        TestOrder { legs, symbol: "X".into(), text: text.map(Into::into) }
+    }
+
+    #[test]
+    fn a_repeated_group_is_skipped_and_its_entries_read_as_top_level_fields() {
+        // The second NoAllocs is skipped, like any repeated field, without being checked; its
+        // entry's AllocAccount is then a top-level tag that TestOrder doesn't declare.
+        let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|78=1|79=B|55=X|");
+        assert_eq!(lenient, Ok(order(vec![leg("A", None, &[])], None)));
+        assert_eq!(strict, Err(error(ALLOC_ACCOUNT, FieldErrorKind::NotDefined)));
+        // So a member that TestOrder also declares is read from the skipped entry, as the first
+        // top-level occurrence.
+        let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|58=in|78=1|79=B|58=second|55=X|58=out|");
+        assert_eq!(lenient, Ok(order(vec![leg("A", Some("in"), &[])], Some("second"))));
+        assert_eq!(strict, Err(error(ALLOC_ACCOUNT, FieldErrorKind::NotDefined)));
+        // The repeat's count isn't checked against anything.
+        let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|78=2|55=X|");
+        assert_eq!(lenient, Ok(order(vec![leg("A", None, &[])], None)));
+        assert_eq!(strict, lenient);
+    }
+
+    #[test]
+    fn strict_parsing_refuses_a_group_member_outside_its_group() {
+        let (lenient, strict) = parse_both::<TestOrder>("35=D|55=X|79=stray|");
+        assert_eq!(lenient, Ok(order(vec![], None)));
+        assert_eq!(strict, Err(error(ALLOC_ACCOUNT, FieldErrorKind::NotDefined)));
+    }
+
+    #[test]
+    fn strict_parsing_refuses_a_nested_groups_count_at_the_top_level() {
+        // NoTradingSessions is declared only in Leg, a NoAllocs entry: at the top level it's
+        // undeclared, whether before NoAllocs, after it, or without it.
+        for (text, legs) in [
+            ("35=D|55=X|386=1|336=S|", vec![]),
+            ("35=D|386=1|336=S|78=1|79=A|55=X|", vec![leg("A", None, &[])]),
+            ("35=D|78=1|79=A|55=X|386=1|336=S|", vec![leg("A", None, &[])]),
+        ] {
+            let (lenient, strict) = parse_both::<TestOrder>(text);
+            assert_eq!(lenient, Ok(order(legs, None)), "{text}");
+            assert_eq!(strict, Err(error(NO_TRADING_SESSIONS, FieldErrorKind::NotDefined)), "{text}");
+        }
+        // Inside the entry it's the nested group; a member of that after the entry ends isn't.
+        let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|386=1|336=S|55=X|336=T|");
+        assert_eq!(lenient, Ok(order(vec![leg("A", None, &["S"])], None)));
+        assert_eq!(strict, Err(error(TRADING_SESSION_ID, FieldErrorKind::NotDefined)));
+    }
+
+    #[test]
+    fn strict_parsing_accepts_a_repeated_or_orphan_length_field() {
+        // A data field's Length field is declared with it, so a repeat, or one without its data
+        // field, is ignored like any other repeated or unused field. These messages are built
+        // without decoding, so their lengths aren't checked against the data.
+        let order = DataOrder { raw_data: b"abc".to_vec(), xml_data: None, attachments: vec![], symbol: "IBM".into() };
+        for text in [
+            "35=D|95=3|96=abc|95=3|55=IBM|",
+            "35=D|95=3|96=abc|95=3|96=xyz|55=IBM|",
+            "35=D|95=3|96=abc|212=5|55=IBM|",
+            "35=D|212=5|95=3|96=abc|55=IBM|",
+        ] {
+            let (lenient, strict) = parse_both::<DataOrder>(text);
+            assert_eq!(lenient, Ok(order.clone()), "{text}");
+            assert_eq!(strict, lenient, "{text}");
+        }
+        // A Length field alone doesn't make its data field present.
+        let (lenient, strict) = parse_both::<DataOrder>("35=D|95=3|55=IBM|");
+        assert_eq!(lenient, Err(error(RAW_DATA, FieldErrorKind::Missing)));
+        assert_eq!(strict, lenient);
+        // A group member's Length field is undeclared at the top level...
+        let (lenient, strict) = parse_both::<DataOrder>("35=D|95=3|96=abc|5000=1|55=IBM|");
+        assert_eq!(lenient, Ok(order));
+        assert_eq!(strict, Err(error(VENUE_DATA_LEN, FieldErrorKind::NotDefined)));
+        // ...and repeated in an entry, like any member.
+        let (lenient, strict) = parse_both::<DataOrder>("35=D|95=3|96=abc|78=1|79=A|5000=1|5000=1|5001=x|55=IBM|");
+        assert_eq!(lenient, Err(error(VENUE_DATA_LEN, FieldErrorKind::RepeatingGroupOutOfOrder)));
+        assert_eq!(strict, lenient);
+    }
+
+    #[test]
+    fn a_group_reads_from_any_view_of_fields_as_from_a_message() {
+        use crate::message::{FixGroup, FixGroupRef};
+        let msg = raw("35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=X|58=outside|");
+        let legs = vec![leg("A", Some("inside"), &["S1", "S2"]), leg("B", None, &[])];
+        let mut fields = msg.body();
+        assert_eq!(Leg::read(&mut fields, NO_ALLOCS), Ok(legs.clone()));
+        assert_eq!(fields.get(TEXT), Some("outside"), "the entries are hidden from the view");
+        assert_eq!(TestOrder::from_message(&msg), Ok(order(legs.clone(), Some("outside"))));
+        // Entry by entry, owned and borrowed alike.
+        let entries = msg.body().group(NO_ALLOCS, &Leg::SPEC).unwrap();
+        assert_eq!(entries.len(), 2);
+        for (entry, leg) in entries.into_iter().zip(&legs) {
+            assert_eq!(Leg::from_fields(entry.clone()).as_ref(), Ok(leg));
+            assert_eq!(LegRef::from_fields(entry).map(FixGroupRef::into_owned).as_ref(), Ok(leg));
+        }
+
+        let read = |text: &str| Leg::read(&mut raw(text).body(), NO_ALLOCS);
+        assert_eq!(read("35=D|55=X|"), Ok(vec![]), "absent");
+        let mismatch = |declared, found| FieldErrorKind::IncorrectNumInGroup { declared, found };
+        assert_eq!(read("35=D|78=2|79=A|55=X|"), Err(error(NO_ALLOCS, mismatch(2, 1))));
+        assert_eq!(read("35=D|78=1|79=A|386=2|336=S|55=X|"), Err(error(NO_TRADING_SESSIONS, mismatch(2, 1))));
+        assert_eq!(read("35=D|78=1|58=lost|"), Err(error(TEXT, FieldErrorKind::RepeatingGroupOutOfOrder)));
+        assert_eq!(read("35=D|78=x|79=A|"), Err(error(NO_ALLOCS, FieldErrorKind::IncorrectFormat("x".into()))));
+
+        // An entry that scans but doesn't parse: its required nested group is absent.
+        let msg = raw("35=J|78=1|79=X|");
+        let missing = error(NO_TRADING_SESSIONS, FieldErrorKind::Missing);
+        assert_eq!(Allocation::read(&mut msg.body(), NO_ALLOCS), Err(missing.clone()));
+        let entry = msg.body().group(NO_ALLOCS, &Allocation::SPEC).unwrap().remove(0);
+        assert_eq!(Allocation::from_fields(entry.clone()), Err(missing.clone()));
+        assert_eq!(AllocationRef::from_fields(entry).map(FixGroupRef::into_owned), Err(missing));
     }
 }
