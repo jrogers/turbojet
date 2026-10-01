@@ -98,7 +98,7 @@ use turbojet::fields::{Code, Decimal};
 
 turbojet::fix_group! {
     /// An entry of NoPartyIDs(453).
-    PartyID {
+    PartyID / PartyIDRef {
         /// PartyID(448).
         party_id: req String = PARTY_ID,
         /// PartyRole(452).
@@ -116,7 +116,7 @@ impl PartyID {
 
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
-    NewOrderSingleAlloc {
+    NewOrderSingleAlloc / NewOrderSingleAllocRef {
         /// AllocAccount(79).
         alloc_account: req String = ALLOC_ACCOUNT,
         /// AllocQty(80).
@@ -134,7 +134,7 @@ impl NewOrderSingleAlloc {
 
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
-    AllocationInstructionAlloc {
+    AllocationInstructionAlloc / AllocationInstructionAllocRef {
         /// AllocAccount(79).
         alloc_account: req String = ALLOC_ACCOUNT,
         /// AllocQty(80).
@@ -154,7 +154,7 @@ impl AllocationInstructionAlloc {
 
 turbojet::fix_group! {
     /// An entry of NoSides(552).
-    SideEntry {
+    SideEntry / SideEntryRef {
         /// Side(54).
         side: req Code<Side> = SIDE,
         /// ClOrdID(11).
@@ -183,7 +183,7 @@ use turbojet::fields::{Code, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimest
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
-    NewOrderSingle = "D" {
+    NewOrderSingle / NewOrderSingleRef = "D" {
         /// ClOrdID(11).
         cl_ord_id: req String = CL_ORD_ID,
         /// NoPartyIDs(453).
@@ -211,7 +211,7 @@ impl NewOrderSingle {
 
 turbojet::fix_message! {
     /// AllocationInstruction(J).
-    AllocationInstruction = "J" {
+    AllocationInstruction / AllocationInstructionRef = "J" {
         /// AllocID(70).
         alloc_id: req String = ALLOC_ID,
         /// NoAllocs(78).
@@ -229,7 +229,7 @@ impl AllocationInstruction {
 
 turbojet::fix_message! {
     /// TradeReport(AE).
-    TradeReport = "AE" {
+    TradeReport / TradeReportRef = "AE" {
         /// TradeReportID(571).
         trade_report_id: req String = TRADE_REPORT_ID,
         /// NoSides(552).
@@ -251,7 +251,7 @@ impl TradeReport {
 
 turbojet::fix_message! {
     /// Schedule(U7).
-    Schedule = "U7" {
+    Schedule / ScheduleRef = "U7" {
         /// ExecInst(18).
         exec_inst: req Vec<Code<ExecInst>> = EXEC_INST,
         /// TradeDate(75).

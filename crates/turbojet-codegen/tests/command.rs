@@ -102,7 +102,7 @@ fn merge_applies_a_venue_dictionary() {
     let base = workspace().join("dictionaries/orchestra/OrchestraFIX42.xml");
     let out = generate(&[base.as_os_str(), "--merge".as_ref(), venue.path().as_os_str()]);
     let groups = read(&out, "groups.rs");
-    assert!(groups.contains("    PreAllocGrp {"), "{groups}");
+    assert!(groups.contains("    PreAllocGrp / PreAllocGrpRef {"), "{groups}");
     assert!(!groups.contains("Alloc {"), "{groups}");
     assert!(read(&out, "enums.rs").contains("VenueSpecial = \"Z\","));
 }
@@ -150,7 +150,7 @@ fn fixtures() -> std::path::PathBuf {
 fn transport_adds_the_fixt_fields() {
     let (app, transport) = (fixtures().join("fix50.xml"), fixtures().join("fixt11.xml"));
     let out = generate(&[app.as_os_str(), "--transport".as_ref(), transport.as_os_str()]);
-    assert!(read(&out, "messages.rs").contains("NewOrderSingle = \"D\" {"));
+    assert!(read(&out, "messages.rs").contains("NewOrderSingle / NewOrderSingleRef = \"D\" {"));
     // ApplExtID is only in the transport.
     assert!(read(&out, "tags.rs").contains("pub const APPL_EXT_ID: u32 = 1156;"));
 }

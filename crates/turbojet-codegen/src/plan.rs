@@ -101,6 +101,8 @@ pub(crate) struct Slot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Struct {
     pub name: String,
+    /// The borrowed twin's name: see [`naming::ref_type`].
+    pub ref_name: String,
     pub doc: String,
     pub slots: Vec<Slot>,
 }
@@ -173,10 +175,24 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
     if let Some((m, _)) = messages.iter().find(|(m, _)| naming::type_in_use(&m.name)) {
         return Err(Error(format!("message {} would shadow a type generated code uses", m.name)));
     }
-    let message_names: HashSet<&str> = messages.iter().map(|(m, _)| m.name.as_str()).collect();
+    // Each message's borrowed twin is a type too. Messages keep their official names, so a
+    // message named like another's twin is an error.
+    let message_refs: Vec<String> = messages.iter().map(|(m, _)| naming::ref_type(&m.name)).collect();
+    if let Some(((m, _), twin)) = messages.iter().zip(&message_refs).find(|(_, twin)| naming::type_in_use(twin)) {
+        return Err(Error(format!(
+            "message {}'s borrowed twin {twin} would shadow a type generated code uses",
+            m.name
+        )));
+    }
+    let mut message_names: HashSet<&str> = HashSet::new();
+    for name in messages.iter().map(|(m, _)| m.name.as_str()).chain(message_refs.iter().map(String::as_str)) {
+        if !message_names.insert(name) {
+            return Err(Error(format!("two types would both be named {name}")));
+        }
+    }
 
-    // Enums for the fields generated messages use, in dictionary order. One named like a message,
-    // or a type generated code uses, gets `Code`.
+    // Enums for the fields generated messages use, in dictionary order. One named like a message
+    // or its twin, or a type generated code uses, gets `Code`.
     let mut used = BTreeSet::new();
     for (_, flat) in &messages {
         used_fields(flat, &mut used);
@@ -204,8 +220,10 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
         collect_groups(flat, &m.name, &mut defs);
     }
     let group_names = group_names(&defs, &enum_names, &message_names)?;
+    let group_refs: Vec<String> = defs.iter().map(|d| naming::ref_type(&group_names[&d.key()])).collect();
     let mut taken: HashSet<&str> = HashSet::new();
-    for name in enums.iter().map(|e| e.name.as_str()).chain(defs.iter().map(|d| group_names[&d.key()].as_str())) {
+    let types = enums.iter().map(|e| e.name.as_str()).chain(defs.iter().map(|d| group_names[&d.key()].as_str()));
+    for name in types.chain(group_refs.iter().map(String::as_str)) {
         if !taken.insert(name) || message_names.contains(name) {
             return Err(Error(format!("two types would both be named {name}")));
         }
@@ -304,17 +322,24 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
         let first = entry.first_mut().expect("the loader rejects empty groups");
         first.presence = first.presence.required();
         let tag = dict.field(name).expect("the loader checks references").tag;
-        groups.push(Struct { name: type_name, doc: format!("An entry of {name}({tag})."), slots: entry });
+        let ref_name = naming::ref_type(&type_name);
+        groups.push(Struct { name: type_name, ref_name, doc: format!("An entry of {name}({tag})."), slots: entry });
     }
 
     let messages = messages
         .iter()
         .map(|(m, flat)| {
+            let slots = slots(&m.name, flat)?;
+            // `fix_message!` needs a field to parse; no official dictionary has such a message.
+            if slots.is_empty() {
+                return Err(Error(format!("message {} has no body fields, which fix_message! needs: skip it", m.name)));
+            }
             Ok(MessageDef {
                 def: Struct {
                     name: m.name.clone(),
+                    ref_name: naming::ref_type(&m.name),
                     doc: with_doc(format!("{}({}).", m.name, m.msg_type), m.doc.as_deref().filter(|_| docs)),
-                    slots: slots(&m.name, flat)?,
+                    slots,
                 },
                 msg_type: m.msg_type.clone(),
             })
@@ -393,7 +418,8 @@ fn collect_groups<'a>(members: &'a [Flat], message: &'a str, defs: &mut Vec<Grou
 
 /// Each definition's struct name: its official name, or named after its count field
 /// (`NoAllocs` → `Alloc`), prefixed with its first message when the count field has other
-/// unnamed definitions. One that an enum, a message or generated code has gets `Entry`.
+/// unnamed definitions. One whose name, or its twin's, an enum, a message (or its twin) or
+/// generated code has gets `Entry`.
 fn group_names<'a>(
     defs: &[GroupDef<'a>],
     enum_names: &HashSet<&str>,
@@ -416,10 +442,9 @@ fn group_names<'a>(
             None if per_count[def.count] > 1 => format!("{}{}", def.message, naming::group_type(def.count)),
             None => naming::group_type(def.count),
         };
-        if enum_names.contains(type_name.as_str())
-            || message_names.contains(type_name.as_str())
-            || naming::type_in_use(&type_name)
-        {
+        let clashes =
+            |name: &str| enum_names.contains(name) || message_names.contains(name) || naming::type_in_use(name);
+        if clashes(&type_name) || clashes(&naming::ref_type(&type_name)) {
             type_name.push_str("Entry");
         }
         names.insert(def.key(), type_name);
@@ -996,6 +1021,58 @@ mod tests {
             "<field number='2' name='X' type='STRING'/>",
         );
         assert_eq!(error(&vec), "message Vec would shadow a type generated code uses");
+    }
+
+    #[test]
+    fn borrowed_twins_are_named_with_ref() {
+        let plan = plan();
+        let twins: Vec<_> = plan.messages.iter().map(|m| m.def.ref_name.as_str()).collect();
+        assert_eq!(twins, ["NewOrderSingleRef", "AllocationInstructionRef", "TradeReportRef", "ScheduleRef"]);
+        assert_eq!(plan.groups[0].ref_name, "PartyIDRef");
+    }
+
+    #[test]
+    fn types_named_like_a_borrowed_twin_get_a_suffix() {
+        // Group Foo's twin would be the message FooRef, so the group gets `Entry`; the enum
+        // BarRef would be message Bar's twin, so it gets `Code`.
+        let dict = dict(
+            "<message name='FooRef' msgtype='U1' msgcat='app'><group name='NoFoos' required='N'>\
+             <field name='X' required='Y'/></group></message>\
+             <message name='Bar' msgtype='U2' msgcat='app'><field name='BarRef' required='Y'/></message>",
+            "",
+            "<field number='1' name='X' type='STRING'/><field number='2' name='NoFoos' type='NUMINGROUP'/>\
+             <field number='3' name='BarRef' type='CHAR'><value enum='1' description='UP'/></field>",
+        );
+        let plan = build(&dict, &[], true).unwrap();
+        assert_eq!((plan.groups[0].name.as_str(), plan.groups[0].ref_name.as_str()), ("FooEntry", "FooEntryRef"));
+        assert_eq!(plan.enums[0].name, "BarRefCode");
+        assert_eq!(slots(&plan.messages[1].def), [("bar_ref", Presence::Req, "BarRefCode", "BAR_REF")]);
+    }
+
+    #[test]
+    fn messages_named_like_a_borrowed_twin_are_errors() {
+        // Messages keep their official names, so these can't be resolved with a suffix.
+        let twins = dict(
+            "<message name='Foo' msgtype='U1' msgcat='app'><field name='X' required='Y'/></message>\
+             <message name='FooRef' msgtype='U2' msgcat='app'><field name='X' required='Y'/></message>",
+            "",
+            "<field number='1' name='X' type='STRING'/>",
+        );
+        assert_eq!(error(&twins), "two types would both be named FooRef");
+        let prelude = dict(
+            "<message name='As' msgtype='U1' msgcat='app'><field name='X' required='Y'/></message>",
+            "",
+            "<field number='1' name='X' type='STRING'/>",
+        );
+        assert_eq!(error(&prelude), "message As's borrowed twin AsRef would shadow a type generated code uses");
+    }
+
+    #[test]
+    fn a_message_without_body_fields_is_an_error() {
+        // `fix_message!` needs at least one field.
+        let dict = dict("<message name='Empty' msgtype='U1' msgcat='app'></message>", "", "");
+        assert_eq!(error(&dict), "message Empty has no body fields, which fix_message! needs: skip it");
+        assert!(build(&dict, &["Empty".to_string()], true).unwrap().messages.is_empty());
     }
 
     #[test]

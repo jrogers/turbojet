@@ -64,6 +64,13 @@ pub(crate) fn type_in_use(name: &str) -> bool {
     TYPES_IN_USE.contains(&name)
 }
 
+/// The borrowed twin `fix_message!` and `fix_group!` generate beside the type `name`:
+/// `NewOrderSingle` → `NewOrderSingleRef`. A raw identifier drops its `r#`, as the twin's name
+/// is no keyword (`r#type` → `typeRef`).
+pub(crate) fn ref_type(name: &str) -> String {
+    format!("{}Ref", name.strip_prefix("r#").unwrap_or(name))
+}
+
 /// `ClOrdID` → `cl_ord_id`. A word starts at a capital after a lowercase letter or digit, or at an
 /// acronym's last capital when a lowercase letter follows (`MDEntry` → `md_entry`), unless that's a
 /// lone `s` pluralising the acronym (`PartyIDs` → `party_ids`). A lowercase `id` ending the name or
@@ -247,6 +254,13 @@ mod tests {
         for name in ["Good-Till", "a.b", "Two Words", "", "_", "Caf\u{e9}", "r#type"] {
             assert_eq!(official(name), None, "{name}");
         }
+    }
+
+    #[test]
+    fn borrowed_twins_end_in_ref() {
+        assert_eq!(ref_type("NewOrderSingle"), "NewOrderSingleRef");
+        assert_eq!(ref_type("Self_"), "Self_Ref");
+        assert_eq!(ref_type("r#type"), "typeRef");
     }
 
     #[test]

@@ -31,7 +31,7 @@ fn documentation_is_left_out_by_default() {
 
 /// The `fix_message!` for the message named `name`.
 fn message<'a>(messages: &'a str, name: &str) -> &'a str {
-    let head = format!("    {name} = ");
+    let head = format!("    {name} / ");
     messages.split("turbojet::fix_message!").find(|m| m.contains(&head)).unwrap_or_else(|| panic!("no {name}"))
 }
 

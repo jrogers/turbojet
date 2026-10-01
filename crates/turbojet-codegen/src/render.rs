@@ -47,7 +47,7 @@ pub(crate) fn groups(plan: &Plan) -> String {
     let mut out = String::from("//! Repeating-group entries.\n");
     out.push_str(&imports(plan, &plan.groups.iter().collect::<Vec<_>>(), false));
     for group in &plan.groups {
-        write_struct(&mut out, "fix_group", &group.name, group);
+        write_struct(&mut out, "fix_group", &format!("{} / {}", group.name, group.ref_name), group);
     }
     out
 }
@@ -57,7 +57,12 @@ pub(crate) fn messages(plan: &Plan) -> String {
     let defs: Vec<&Struct> = plan.messages.iter().map(|m| &m.def).collect();
     out.push_str(&imports(plan, &defs, true));
     for m in &plan.messages {
-        write_struct(&mut out, "fix_message", &format!("{} = {:?}", m.def.name, m.msg_type), &m.def);
+        write_struct(
+            &mut out,
+            "fix_message",
+            &format!("{} / {} = {:?}", m.def.name, m.def.ref_name, m.msg_type),
+            &m.def,
+        );
     }
     out
 }

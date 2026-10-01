@@ -92,7 +92,7 @@ use turbojet::fields::Decimal;
 
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
-    PreAllocGrp {
+    PreAllocGrp / PreAllocGrpRef {
         /// AllocAccount(79).
         alloc_account: req String = ALLOC_ACCOUNT,
         /// AllocShares(80).
@@ -110,7 +110,7 @@ impl PreAllocGrp {
 
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
-    AllocGrp {
+    AllocGrp / AllocGrpRef {
         /// AllocAccount(79).
         alloc_account: req String = ALLOC_ACCOUNT,
         /// AllocShares(80).
@@ -130,7 +130,7 @@ impl AllocGrp {
 
 turbojet::fix_group! {
     /// An entry of NoMiscFees(136).
-    MiscFeesGrp {
+    MiscFeesGrp / MiscFeesGrpRef {
         /// MiscFeeAmt(137).
         ///
         /// Miscellaneous fee value, e.g. (Qty \* Price) \* Rate, where:\
@@ -163,7 +163,7 @@ turbojet::fix_message! {
     ///
     /// The new order message type is used by institutions wishing to electronically submit securities and forex orders to a broker for execution.\
     /// The format of the new order message is as follows:
-    NewOrderSingle = "D" {
+    NewOrderSingle / NewOrderSingleRef = "D" {
         /// ClOrdID(11).
         ///
         /// Unique identifier for Order as assigned by institution. Uniqueness must be guaranteed within a single trading day.
@@ -220,7 +220,7 @@ turbojet::fix_message! {
     /// Allocation(J).
     ///
     /// The Allocation message provides the ability to specify how an order or set of orders should be subdivided amongst one or more accounts.
-    Allocation = "J" {
+    Allocation / AllocationRef = "J" {
         /// AllocID(70).
         alloc_id: req String = ALLOC_ID,
         /// Side(54).
