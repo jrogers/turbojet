@@ -19,11 +19,7 @@ fn main() {
         let source = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
         writeln!(out, "    ({begin_string:?}, &[").unwrap();
         // Each message opens with `    Name / NameRef = "MsgType" {` inside `fix_message!`.
-        let names: Vec<_> = source
-            .lines()
-            .filter_map(|line| line.strip_prefix("    ")?.strip_suffix("\" {")?.split_once(" / "))
-            .map(|(name, _)| name)
-            .collect();
+        let names: Vec<_> = source.lines().filter_map(message_name).collect();
         assert!(!names.is_empty(), "no messages found in {path}");
         for name in names {
             writeln!(out, "        check::<{krate}::{name}>,").unwrap();
@@ -32,4 +28,15 @@ fn main() {
     }
     out.push_str("];\n");
     fs::write(format!("{}/versions.rs", env::var("OUT_DIR").unwrap()), out).unwrap();
+}
+
+/// The message a line opens, if it's `    Name / NameRef = "MsgType" {`.
+fn message_name(line: &str) -> Option<&str> {
+    let (names, msg_type) = line.strip_prefix("    ")?.strip_suffix("\" {")?.split_once(" = \"")?;
+    let (name, ref_name) = names.split_once(" / ")?;
+    let identifier = |s: &str| {
+        s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    (identifier(name) && identifier(ref_name) && !msg_type.contains('"')).then_some(name)
 }

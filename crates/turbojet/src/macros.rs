@@ -153,7 +153,8 @@ macro_rules! fix_enum {
 /// }
 /// ```
 ///
-/// A message has at least one field.
+/// A message has at least one field. Its doc comments are `Name`'s; its other attributes, such
+/// as `#[deprecated]`, apply to `NameRef` too, and a `#[cfg]` to everything generated.
 ///
 /// - `Type` is anything implementing [`FromFix`](crate::fields::FromFix),
 ///   [`ToFix`](crate::fields::ToFix) and [`FieldRef`](crate::fields::FieldRef): `String`, `u32`,
@@ -244,32 +245,54 @@ macro_rules! fix_enum {
 #[macro_export]
 macro_rules! fix_message {
     // Each field's tags travel as one token tree, `[TAG]` or, for a data field, `[LEN => DATA]`.
+    // The message's attributes travel as token trees, so `@attrs` can sort them.
     (
-        $(#[$meta:meta])*
+        $(#[$($meta:tt)*])*
         $name:ident / $ref_name:ident = $msg_type:ident {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@message [$(#[$meta])*] $name, $ref_name, $crate::fields::MsgType::$msg_type,
+        $crate::fix_message!(@attrs fix_message [] [] [] [$(#[$($meta)*])*]
+            $name, $ref_name, $crate::fields::MsgType::$msg_type,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     (
-        $(#[$meta:meta])*
+        $(#[$($meta:tt)*])*
         $name:ident / $ref_name:ident = $msg_type:literal {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@message [$(#[$meta])*] $name, $ref_name, $crate::fields::MsgType::from_static($msg_type),
+        $crate::fix_message!(@attrs fix_message [] [] [] [$(#[$($meta)*])*]
+            $name, $ref_name, $crate::fields::MsgType::from_static($msg_type),
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
-    (@message [$(#[$meta:meta])*] $name:ident, $ref_name:ident, $msg_type:expr,
+    // Sorts a message's or group's attributes into its docs, which are the owned struct's alone;
+    // the rest, which the borrowed struct shares; and its `cfg`s, which every generated item
+    // shares, so a configured-out type leaves nothing behind. Then expands `$target!(@typed ..)`.
+    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [#[doc = $($value:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)* #[doc = $($value)*]] [$($other)*] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [#[cfg $($predicate:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($other)* #[cfg $($predicate)*]] [$($cfg)* #[cfg $($predicate)*]]
+            [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [#[$($attr:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($other)* #[$($attr)*]] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [] $($body:tt)*) => {
+        $crate::$target!(@typed [$($doc)*] [$($other)*] [$($cfg)*] $($body)*);
+    };
+    (@typed [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $msg_type:expr,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
-        $(#[$meta])*
+        $($doc)*
+        $($other)*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@type $presence $ty), )+
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl $crate::message::FixMessage for $name {
             const MSG_TYPE: $crate::fields::MsgType = $msg_type;
             type Ref<'a> = $ref_name<'a>;
@@ -293,6 +316,8 @@ macro_rules! fix_message {
             }
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl From<$name> for $crate::message::Message {
             fn from(body: $name) -> Self {
                 $crate::message::FixMessage::to_message(&body)
@@ -300,13 +325,15 @@ macro_rules! fix_message {
         }
 
         #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
+        $($other)*
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub struct $ref_name<'a> {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl<'a> $crate::message::FixMessageRef<'a> for $ref_name<'a> {
-            const MSG_TYPE: $crate::fields::MsgType = $msg_type;
             type Owned = $name;
 
             fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
@@ -322,6 +349,8 @@ macro_rules! fix_message {
             }
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl From<$ref_name<'_>> for $name {
             fn from(body: $ref_name<'_>) -> Self {
                 $crate::message::FixMessageRef::into_owned(body)
@@ -500,22 +529,25 @@ macro_rules! fix_message {
 #[macro_export]
 macro_rules! fix_group {
     (
-        $(#[$meta:meta])*
+        $(#[$($meta:tt)*])*
         $name:ident / $ref_name:ident {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_group!(@group [$(#[$meta])*] $name, $ref_name,
+        $crate::fix_message!(@attrs fix_group [] [] [] [$(#[$($meta)*])*] $name, $ref_name,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
-    (@group [$(#[$meta:meta])*] $name:ident, $ref_name:ident,
+    (@typed [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
-        $(#[$meta])*
+        $($doc)*
+        $($other)*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@type $presence $ty), )+
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl $crate::message::FixGroup for $name {
             const SPEC: $crate::message::GroupSpec = $crate::message::GroupSpec {
                 fields: &[ $( ($crate::fix_message!(@key $tags), $crate::fix_message!(@spec $presence $ty)) ),+ ],
@@ -535,11 +567,14 @@ macro_rules! fix_group {
         }
 
         #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
+        $($other)*
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub struct $ref_name<'a> {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl<'a> $crate::message::FixGroupRef<'a> for $ref_name<'a> {
             type Owned = $name;
 
@@ -553,6 +588,8 @@ macro_rules! fix_group {
             }
         }
 
+        $($cfg)*
+        #[allow(deprecated)]
         impl From<$ref_name<'_>> for $name {
             fn from(entry: $ref_name<'_>) -> Self {
                 $crate::message::FixGroupRef::into_owned(entry)
@@ -1070,5 +1107,39 @@ mod tests {
             "TestLogonRef { username: Some(\"trader\"), password: Some(***), new_password: None, \
              credentials: [CredentialRef { user: \"ops\", secret: Some(***) }] }"
         );
+    }
+
+    // ---- Attributes ----
+
+    fix_group! {
+        /// Configured out, with a tag that doesn't exist: anything generated for it that's left
+        /// behind fails to compile.
+        #[cfg(any())]
+        GoneEntry / GoneEntryRef { id: req String = NO_SUCH_TAG }
+    }
+
+    fix_message! {
+        #[cfg(any())]
+        GoneOrder / GoneOrderRef = "U7" { entries: group GoneEntry = NO_SUCH_TAG }
+    }
+
+    /// Would clash with a `GoneOrderRef` left behind.
+    #[allow(dead_code)]
+    struct GoneOrderRef;
+
+    fix_message! {
+        /// Superseded, but still parsed; its generated impls mustn't warn.
+        #[deprecated(note = "for the test")]
+        OldOrder / OldOrderRef = "U8" { id: req String = CL_ORD_ID }
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn a_deprecated_message_still_parses_both_ways() {
+        let msg = raw("35=U8|11=A|");
+        let borrowed = OldOrderRef::from_message(&msg).unwrap();
+        assert_eq!(borrowed.id, "A");
+        assert_eq!(msg.parse::<OldOrder>().unwrap(), borrowed.into_owned());
+        assert_eq!(<OldOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, OldOrder::MSG_TYPE, "the owned one's");
     }
 }
