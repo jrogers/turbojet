@@ -1271,6 +1271,59 @@ fn commands_queued_during_logon_follow_a_resend_at_logon() {
     assert_eq!(sent(&last)[2].get(tags::MSG_SEQ_NUM), Some("9"));
 }
 
+#[test]
+fn a_corrupt_message_in_a_later_step_disconnects() {
+    let storage = Arc::new(MemoryStorage::new());
+    let h = Harness::with_storage(storage.clone());
+    drop(with_reports(&h, 4, 4)); // our 1: Logon, 2 to 5: ExecutionReports; their next is 6
+    store_corrupt_report(&storage, 6);
+    let mut s = h.session();
+    s.resend_batch = 4;
+    s.recv(logon(6), h.t0); // our 7: Logon
+    assert_eq!(covered(&s.recv(resend_request(7, 1), h.t0)), [1, 2, 3, 4]);
+    // The step with 6 in it sends none of itself, 5 included.
+    assert_eq!(types(&s.resume(h.t0)), ["DISCONNECT"]);
+    assert!(!s.is_resending());
+}
+
+#[test]
+fn shutdown_during_a_resend_sends_what_was_held_then_logs_out() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 6, 4); // our 2 to 7; their next is 8
+    s.recv(resend_request(9, 1), h.t0); // ahead of a gap: our ResendRequest, 8, is held
+    let out = s.shutdown(Some("bye"), h.t0);
+    assert_eq!(types(&out), ["ResendRequest", "Logout"]);
+    assert_eq!(sent(&out)[1].get(tags::MSG_SEQ_NUM), Some("9"));
+    assert!(!s.is_resending());
+    assert!(s.resume(h.t0).is_empty());
+}
+
+/// Drivers feed no messages during a resend, but one that does gets a session that still keeps
+/// the order: a ResendRequest replaces the resend in progress.
+#[test]
+fn a_resend_request_during_a_resend_replaces_it() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 10, 4); // our 2 to 11; their next is 12
+    assert_eq!(covered(&s.recv(resend_request(13, 1), h.t0)), [1, 2, 3, 4]); // our 12 is held
+    // Their 12 fills the gap and asks again from 9: our held ResendRequest isn't needed.
+    let out = s.recv(resend_request(12, 9), h.t0);
+    assert_eq!(covered(&out), [9, 10, 11, 12]);
+    assert_eq!(types(&out), ["ExecutionReport", "ExecutionReport", "ExecutionReport", "SequenceReset"]);
+    assert!(!s.is_resending());
+}
+
+#[test]
+fn a_sequence_reset_during_a_resend_ends_it() {
+    let h = Harness::new();
+    let mut s = with_reports(&h, 6, 4); // our 2 to 7; their next is 8
+    s.recv(resend_request(9, 1), h.t0); // our ResendRequest, 8, is held
+    let reset = logon(1).with(tags::RESET_SEQ_NUM_FLAG, "Y");
+    let out = s.recv(reset, h.t0);
+    assert_eq!(types(&out), ["Logon"]);
+    assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("1"));
+    assert!(!s.is_resending());
+}
+
 // ---- Application messages and rejects ----
 
 #[test]
@@ -1840,32 +1893,33 @@ fn outbound_log_shows_no_content_it_cannot_decode() {
 
 /// Stores check only a stored message's framing; one whose fields don't parse can't be resent,
 /// and ends the session like any other storage failure.
+/// Stores, as our `seq` to CLIENT, an ExecutionReport whose framing is intact but which doesn't
+/// parse: its ExecID(17) isn't UTF-8.
+fn store_corrupt_report(storage: &MemoryStorage, seq: u64) {
+    let id =
+        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    let report = Message::default()
+        .with(tags::BEGIN_STRING, "FIX.4.4")
+        .with(tags::MSG_TYPE, MsgType::ExecutionReport)
+        .with(tags::SENDER_COMP_ID, "GATEWAY")
+        .with(tags::TARGET_COMP_ID, "CLIENT")
+        .with(tags::MSG_SEQ_NUM, seq)
+        .with(tags::SENDING_TIME, "20260930-12:00:00.000")
+        .with(tags::EXEC_ID, "E1");
+    // A valid CheckSum, so the framing is intact.
+    let mut bytes = encode(&report).unwrap();
+    let at = bytes.windows(5).position(|w| w == b"\x0117=E").unwrap() + 4;
+    bytes[at] = 0xff;
+    let trailer = bytes.len() - 7;
+    let sum = crate::codec::checksum(&bytes[..trailer]);
+    bytes[trailer..].copy_from_slice(format!("10={sum:03}\x01").as_bytes());
+    storage.open(&id).unwrap().record_outgoing(seq, Some(&bytes)).unwrap();
+}
+
 #[test]
 fn a_stored_message_that_does_not_parse_disconnects_on_a_resend() {
     let storage = Arc::new(MemoryStorage::new());
-    {
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GATEWAY".into(),
-            target_comp_id: "CLIENT".into(),
-        };
-        let report = Message::default()
-            .with(tags::BEGIN_STRING, "FIX.4.4")
-            .with(tags::MSG_TYPE, MsgType::ExecutionReport)
-            .with(tags::SENDER_COMP_ID, "GATEWAY")
-            .with(tags::TARGET_COMP_ID, "CLIENT")
-            .with(tags::MSG_SEQ_NUM, 1u64)
-            .with(tags::SENDING_TIME, "20260930-12:00:00.000")
-            .with(tags::EXEC_ID, "E1");
-        // Make ExecID(17) non-UTF-8, with a valid CheckSum so the framing is intact.
-        let mut bytes = encode(&report).unwrap();
-        let at = bytes.windows(5).position(|w| w == b"\x0117=E").unwrap() + 4;
-        bytes[at] = 0xff;
-        let trailer = bytes.len() - 7;
-        let sum = crate::codec::checksum(&bytes[..trailer]);
-        bytes[trailer..].copy_from_slice(format!("10={sum:03}\x01").as_bytes());
-        storage.open(&id).unwrap().record_outgoing(1, Some(&bytes)).unwrap();
-    }
+    store_corrupt_report(&storage, 1);
     let h = Harness::with_storage(storage);
     let mut s = h.logged_on(); // our 2: Logon
     let req = client(2, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "1").with(tags::END_SEQ_NO, "0");

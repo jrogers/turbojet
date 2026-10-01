@@ -1329,6 +1329,9 @@ impl Session {
     /// is dropped.
     fn intraday_reset(&mut self, msg: &Message, now: Instant) {
         info!("counterparty reset sequence numbers while logged on; resetting ours");
+        // A resend in progress, and anything held behind it, belong to the old numbers.
+        self.replay = None;
+        self.held.clear();
         if let Err(e) = self.reset_store() {
             return self.storage_failed(e);
         }
@@ -1524,6 +1527,12 @@ impl Session {
         }
         info!(begin, end, "resending messages");
         debug_assert!(begin <= end);
+        // Only a driver that feeds messages during a resend gets here with one in progress. The
+        // new range replaces it; what was held is stored, so it's resent if the range covers it,
+        // and otherwise the counterparty finds the gap at our next message.
+        if self.replay.is_some() {
+            self.held.clear();
+        }
         self.replay = Some(Replay { next: begin, scan: begin, end });
         self.resend_step(now);
     }
@@ -1672,6 +1681,11 @@ impl Session {
 
     fn logout(&mut self, text: Option<&str>, now: Instant) {
         info!(text, "logging out");
+        // Shutdown isn't held up by a long resend: the counterparty asks for the rest next time.
+        if self.replay.is_some() {
+            info!("logging out during a resend; the rest of it isn't sent");
+            self.finish_replay(now);
+        }
         self.send(Logout { text: text.map(String::from) }.into(), now);
         if self.status != Status::Closed {
             self.status = Status::LoggingOut { since: now };
@@ -1684,6 +1698,8 @@ impl Session {
         if self.status != Status::Closed {
             self.status = Status::Closed;
             self.queued.clear();
+            self.replay = None;
+            self.held.clear();
             if let Some(peer) = &self.peer {
                 peer.metrics.logged_off();
             }
