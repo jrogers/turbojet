@@ -1,6 +1,7 @@
 //! Generates Turbojet typed messages from a FIX data dictionary: an enum per enumerated field,
-//! a struct per message and repeating-group entry, and a tag constant per field, as
-//! `turbojet::fix_enum!`, `fix_group!` and `fix_message!` invocations.
+//! two structs per message and repeating-group entry (an owned one, and a borrowed one named with
+//! `Ref`), and a tag constant per field, as `turbojet::fix_enum!`, `fix_group!` and `fix_message!`
+//! invocations.
 //!
 //! From a `build.rs`:
 //!

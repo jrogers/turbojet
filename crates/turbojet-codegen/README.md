@@ -1,9 +1,10 @@
 # turbojet-codegen
 
 Generates [Turbojet](https://github.com/jrogers/turbojet) typed messages from a FIX data
-dictionary (FIX Orchestra or QuickFIX format): an enum per enumerated field, a struct per message
-and repeating-group entry, and a tag constant per field. With an Orchestra file, groups and enum
-values get their official names. Each item's doc comment gives its FIX name and tag; with
+dictionary (FIX Orchestra or QuickFIX format): an enum per enumerated field, two structs per message
+and repeating-group entry (an owned one, and a borrowed one named with `Ref` that parses without
+allocating), and a tag constant per field. With an Orchestra file, groups and enum values get their
+official names. Each item's doc comment gives its FIX name and tag; with
 `--docs` (or `Generator::with_docs`), the dictionary's documentation is copied in too. That text is
 FIX Protocol Limited's, so it's off by default: check its licence covers how you'll distribute the
 generated code before turning it on. A crate shipping code generated from the official Orchestra

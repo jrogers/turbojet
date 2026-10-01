@@ -224,7 +224,8 @@ enumerated fields as `fields::Code<E>`, which keeps an unknown code instead of f
 
 Groups are parsed from a `GroupSpec`: the group's fields in order, the first being the delimiter
 that starts each entry, with nested groups by their NumInGroup tag. Typed messages declare them
-as `Vec` fields, defined with `fix_group!`; FIX 4.2 NewOrderSingle has `allocs` (NoAllocs 78) and
+with `fix_group!`, as a `Vec` in the owned form and a `Group` in the borrowed one, which reads
+each entry as it's iterated; FIX 4.2 NewOrderSingle has `allocs` (NoAllocs 78) and
 `trading_sessions` (NoTradingSessions 386), and ExecutionReport has `contra_brokers`
 (NoContraBrokers 382).
 
@@ -508,11 +509,13 @@ to partition the crate.
 |---|---|---|
 | Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 221 ns / 186 ns | 729 / 866 MiB/s |
 | Encode ExecutionReport (209 B) | 118 ns | 1.6 GiB/s |
-| Typed parse NewOrderSingle (no groups / with 3 allocations) | 208 ns / 315 ns | |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations)² | 98 ns / 173 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations)² | 163 ns / 334 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² | 448 ns / 722 ns / 1.03 µs | |
 | Typed build ExecutionReport¹ | 158 ns | |
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store)¹ | 939 ns | 1.07M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)¹ | 1.13 µs | 882k msg/s |
+| Session: order → ack, no I/O, encoded reply (memory store)² | 883 ns | 1.13M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)² | 1.09 µs | 921k msg/s |
 | Store a sent message: memory / disk / disk + fsync¹ | 49 ns / 3.1 µs / 8.0 ms | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
@@ -524,8 +527,10 @@ discards messages (storage is measured separately). Session benchmarks restart t
 10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
 ¹ Re-measured 2026-09-30 on the same machine, after the session started encoding what it sends
 straight into its output, decimals and integers were written without `core::fmt`, and each inbound
-message was decoded into one reused for the connection; the other rows are the 2026-09-27
-snapshot.
+message was decoded into one reused for the connection. ² Re-measured 2026-10-01, after typed
+messages gained borrowed forms (`NewOrderSingleRef`); the owned form is now parsed as the borrowed
+one and then made owned, so it costs more than it did. The other rows are the 2026-09-27 snapshot.
+The FIX 4.4 order has three parties with two sub-IDs each.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
@@ -538,14 +543,26 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 |---|---|---|---|
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
-| Application (typed parse and ack)² | 8 | 2 | 3,138 |
+| Application (typed parse and ack)³ | 8 | 2 | 3,138 |
 | Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 | Engine (all but the application): memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 
 Means of 1,000 orders after 100 warm-up, 2026-09-30, with each store (the disk store without
 fsync). Store allocations are fractional because the stores' maps allocate a node every few
 messages; the memory store also copies each message it keeps. Debug and release builds count the
-same. ² Includes one of the engine's: the reply list that `Context::send` pushes onto.
+same. ³ Includes one of the engine's: the reply list that `Context::send` pushes onto. The
+application parses the order borrowed, without allocating, and copies the strings it needs into
+its owned ExecutionReport.
+
+Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
+
+| Parse | Allocations | Reallocs | Bytes |
+|---|---|---|---|
+| `NewOrderSingleRef`: no groups / 3 allocations, every entry read | 0 / 0 | 0 | 0 / 0 |
+| `NewOrderSingle`: no groups / 3 allocations | 3 / 7 | 0 | 16 / 226 |
+
+The owned form allocates a `String` for each text field it holds (ClOrdID, Symbol and Account
+here) and a `Vec` for each group, with its entries' strings.
 
 ## Limitations
 

@@ -22,7 +22,8 @@ later, with:
   version they were sent in, and dictionary validation chosen by application version;
 - every FIX 4.2, 4.3, 4.4 and 5.0 SP2 application message, group and enum, generated from the
   official FIX data (`turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44`, `turbojet-fix50sp2`),
-  and public macros for defining your own, including repeating groups;
+  and public macros for defining your own, including repeating groups: each in an owned form for
+  building and keeping, and a borrowed one that parses without allocating;
 - a loader for FIX Orchestra and QuickFIX-format dictionaries with venue merging
   (`turbojet-dictionary`), and a code generator that runs from an application's `build.rs` or as
   a command (`turbojet-codegen`);
@@ -178,22 +179,21 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
 
 ### Zero-copy, zero-allocation hot path
 
-The long-term goal is that a message in steady state, from the read buffer through the session
-and application and back out to the socket, is neither copied nor allocated beyond what the
-application itself asks for. Some of this is already done: a `Message` keeps all its fields in
-one buffer with an offset index (two allocations, not one per field), outgoing messages are
-encoded into one reused batch buffer, and raw group access is zero-copy. Allocations per order →
-ack are counted by stage (`tests/allocations.rs`), and the build fails if a count changes, so each
-step below shows up as a lower budget. Each inbound frame is decoded into one `Message` reused
-for the connection, so decoding doesn't allocate once it has grown. The session encodes what it
-sends once, straight into one reused output buffer, and the stores keep those bytes. As of
-2026-09-30 the engine makes about 2 allocations per order with the memory store, 1 with the disk
-store (the store's copy or index node, and the reply list the application's first send grows),
-and the example application 7. What remains, per message:
-- **Borrowed typed messages** (M). Typed parsing allocates a `String` for each text field and a
-  `Vec` for each group. Parse into types that borrow from the message (`&str` fields, groups as
-  iterators over entries), keeping owned types for building outbound messages. This changes the
-  macros, and generated code (section 3) should produce both.
+The long-term goal is that a message in steady state, from the read buffer through the session and
+application and back out to the socket, is neither copied nor allocated beyond what the application
+itself asks for. Some of this is already done: a `Message` keeps all its fields in one buffer with
+an offset index (two allocations, not one per field), outgoing messages are encoded into one reused
+batch buffer, raw group access is zero-copy, and typed messages parse into borrowed forms
+(`NewOrderSingleRef`) whose strings, lists and groups point into the message, so typed parsing
+allocates nothing. Allocations per order → ack are counted by stage (`tests/allocations.rs`), and
+the build fails if a count changes, so each step below shows up as a lower budget. Each inbound
+frame is decoded into one `Message` reused for the connection, so decoding doesn't allocate once it
+has grown. The session encodes what it sends once, straight into one reused output buffer, and the
+stores keep those bytes. As of 2026-09-30 the engine makes about 2 allocations per order with the
+memory store, 1 with the disk store (the store's copy or index node, and the reply list the
+application's first send grows), and the example application 7 (typed parsing allocates nothing, but
+its acknowledgement copies the strings it parsed into an owned ExecutionReport). What remains, per
+message:
 - **Reuse per-call buffers** (S). The application's replies go through a new `Vec` in each
   `Context`; reuse one per session. Let applications build outbound messages in pooled buffers
   rather than a fresh `Message` each time.
@@ -210,10 +210,13 @@ be a fixed ring or arena) and "Latency" below.
 From the benchmarks.
 
 - **Large generated messages** (M). Generated messages carry every field in the dictionary, so
-  a FIX 4.2 NewOrderSingle is 1,144 bytes against 200 for the old hand-written one, and parsing
-  it takes about 237 ns against 202 ns. Lookup and conversion cost the same; the gap is
-  initialising, copying and dropping the larger struct, and it grows with FIX 4.4 and 5.0.
-  Options, cheapest first:
+  a FIX 4.2 NewOrderSingle is 1,008 bytes against 200 for the old hand-written one (when it was
+  1,144 bytes, parsing it took about 237 ns against 202 ns). Lookup and conversion cost the same;
+  the gap is initialising, copying and dropping the larger struct, and it grows with FIX 4.4 and
+  5.0 (1,976 bytes for FIX 4.4's). The borrowed forms are about 15% smaller (840 and 1,680 bytes)
+  and allocate nothing: a FIX 4.2 NewOrderSingle parses in about 98 ns borrowed against 163 ns
+  owned, and a FIX 4.4 one with nested groups in 448 ns against 1.03 µs. They are still mostly
+  empty `Option`s. Options, cheapest first:
   - Build the struct in place (`MaybeUninit`) instead of copying it into the return slot. No API
     change; an estimated 15-35 ns, not yet measured. Needs `unsafe` in an exported macro, with
     care over drops on the error path and when a conversion panics.
@@ -222,8 +225,11 @@ From the benchmarks.
     API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
-  - Borrowed typed messages (above), which also remove the per-field `String` allocations
-    (about 15-20% of parse time): the largest gain and the largest API change.
+- **Owned typed parsing** (M). Parsing an owned typed message is a borrowed parse followed by
+  `into_owned()`, which parses each group entry again at every level of nesting. Against the
+  parser it replaced, a FIX 4.2 NewOrderSingle is about 17% slower (34% with three allocations)
+  and a FIX 4.4 one with nested groups about 63%. Reading with the borrowed form avoids the cost;
+  converting fields straight into the owned form, without the borrowed step, would recover it.
 - **Batched disk writes and group commit** (M). The disk store is now the slowest part of
   processing a message: about 3.5 µs per message, against about 1.1 µs for the whole session
   path; with fsync after every message it manages about 120 messages per second. Batch writes
@@ -358,5 +364,8 @@ Behaviour that's deliberate or documented, but worth revisiting.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
+- A typed parse keeps the first of a repeated NumInGroup and skips the repeat unchecked, so the
+  skipped group's entries are read as top-level fields: a field the message also declares at the
+  top level, such as Text, takes the skipped entry's value. Validation rejects the repeat (13).
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.

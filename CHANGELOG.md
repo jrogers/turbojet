@@ -66,6 +66,24 @@ Notable changes to the published crates.
   about 15% faster than into a new one, and taking an order to its acknowledgement, wire to wire,
   about 2.5% faster.
 - Breaking: `Session::on_message` takes the message by reference.
+- Typed messages and groups come in a borrowed form as well as an owned one: `NewOrderSingleRef<'a>`
+  beside `NewOrderSingle`, with strings as `&str`, data fields as `&[u8]`, lists as `List`, groups
+  as `Group` (iterated without collecting their entries), and secrets and lenient codes as
+  `SecretRef` and `CodeRef`. `Message::parse` and `Message::parse_strict` give either form, every
+  field still checked up front, and `into_owned()` makes a borrowed one owned. Parsing the borrowed
+  form allocates nothing, groups included, and is about 30% faster than parsing the owned form was.
+  `fields::FieldRef` is each field type's borrowed form, and `FixMessageRef` and `FixGroupRef` are
+  implemented by the borrowed types.
+- Breaking: `fix_message!` and `fix_group!` name both forms (`NewOrderSingle / NewOrderSingleRef =
+  "D" { .. }`, `Party / PartyRef { .. }`), and a message needs at least one field.
+- Breaking: a custom field type used in `fix_message!` or `fix_group!` needs a borrowed form: for a
+  `FromFix + Copy` type, `impl_field_ref!(MyType)` makes it its own.
+- Breaking: `FixMessage` and `FixGroup` have a `Ref` associated type, the borrowed form.
+- Parsing the owned form is the borrowed parse followed by `into_owned()`, and is slower
+  than it was: about 10-35% for messages with flat or no groups and about 60% for a FIX 4.4
+  NewOrderSingle with nested groups.
+- `#[cfg]` on a `fix_message!` or `fix_group!` applies to everything it generates: a message
+  configured out used to fail to compile.
 
 ### `turbojet-dictionary`
 
@@ -78,6 +96,12 @@ Notable changes to the published crates.
 - Breaking: dates, times, MonthYear and char fields are generated with their types rather than as
   `String`, and multi-value fields as lists: `Vec<ExecInst>` where the field has codes (with
   `Code` when lenient), `Vec<String>` where it doesn't.
+- Each message and group is generated with its borrowed form, named with `Ref`. A group whose name,
+  or its borrowed form's, would clash with another type's gets `Entry`, as before, and an enum
+  named like a message's borrowed form gets `Code`; a message named like another's borrowed form,
+  or one with no body fields, is an error. No generated name in the version crates changed.
+- Debug builds of the version crates take about a third longer; a release build of
+  `turbojet-fix44` takes about a fifth less time.
 
 ## `turbojet` 0.1.1 (2026-09-29)
 
