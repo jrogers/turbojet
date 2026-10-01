@@ -21,7 +21,7 @@ use turbojet::{
     SessionHandle, SessionId,
 };
 use turbojet_fix42::{
-    ExecutionReport, HandlInst, NewOrderSingle, OrdType, OrderCancelReject, OrderCancelRequest, Side, TimeInForce,
+    ExecutionReportRef, HandlInst, NewOrderSingle, OrdType, OrderCancelRejectRef, OrderCancelRequest, Side, TimeInForce,
 };
 
 enum Event {
@@ -65,14 +65,14 @@ async fn reply(events: &mut mpsc::UnboundedReceiver<Event>) -> Result<(), Box<dy
     };
     match msg.msg_type() {
         MsgType::ExecutionReport => {
-            let report: ExecutionReport = msg.parse()?;
+            let report: ExecutionReportRef = msg.parse()?;
             println!(
                 "<- ExecutionReport order={} exec_type={:?} status={:?} leaves={} text={:?}",
                 report.order_id, report.exec_type, report.ord_status, report.leaves_qty, report.text
             );
         }
         MsgType::OrderCancelReject => {
-            let reject: OrderCancelReject = msg.parse()?;
+            let reject: OrderCancelRejectRef = msg.parse()?;
             println!("<- OrderCancelReject reason={:?} text={:?}", reject.cxl_rej_reason, reject.text);
         }
         _ => println!("<- {msg}"),

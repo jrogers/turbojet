@@ -103,14 +103,14 @@ impl Application for GatewayApp {
         let owner = ctx.session_id().target_comp_id.clone();
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
-                let report = self.orders.new_order(&owner, &msg.parse()?)?;
+                let report = self.orders.new_order(&owner, msg.parse()?)?;
                 match report.ord_status {
                     OrdStatus::Rejected => self.metrics.rejected.increment(1),
                     _ => self.metrics.accepted.increment(1),
                 }
                 ctx.send(report);
             }
-            MsgType::OrderCancelRequest => match self.orders.cancel(&owner, &msg.parse()?) {
+            MsgType::OrderCancelRequest => match self.orders.cancel(&owner, msg.parse()?) {
                 Ok(report) => {
                     self.metrics.canceled.increment(1);
                     ctx.send(report);
@@ -120,7 +120,7 @@ impl Application for GatewayApp {
                     ctx.send(reject);
                 }
             },
-            MsgType::OrderCancelReplaceRequest => match self.orders.replace(&owner, &msg.parse()?)? {
+            MsgType::OrderCancelReplaceRequest => match self.orders.replace(&owner, msg.parse()?)? {
                 Ok(report) => {
                     self.metrics.replaced.increment(1);
                     ctx.send(report);
@@ -132,7 +132,7 @@ impl Application for GatewayApp {
             },
             MsgType::OrderStatusRequest => {
                 self.metrics.status_requests.increment(1);
-                ctx.send(self.orders.status(&owner, &msg.parse()?));
+                ctx.send(self.orders.status(&owner, msg.parse()?));
             }
             _ => return Err(MessageReject::unsupported_message_type()),
         }

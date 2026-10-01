@@ -30,12 +30,13 @@
 //! in sequence. It parses the messages it handles into their typed form and replies through the
 //! [`Context`]. Returning a [`MessageReject`] answers with a Reject(3) or a
 //! BusinessMessageReject(j), and a field that is missing or malformed converts into the matching
-//! Reject with `?`:
+//! Reject with `?`. The borrowed form, `NewOrderSingleRef` here, reads the message's strings where
+//! they are, without copying them:
 //!
 //! ```
 //! use turbojet::fields::Decimal;
 //! use turbojet::{Application, Context, Message, MessageReject, MsgType};
-//! use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingle, OrdStatus};
+//! use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 //!
 //! /// Acknowledges every order.
 //! struct OrderDesk;
@@ -44,12 +45,12 @@
 //!     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
 //!         match msg.msg_type() {
 //!             MsgType::NewOrderSingle => {
-//!                 let order: NewOrderSingle = msg.parse()?;
+//!                 let order: NewOrderSingleRef = msg.parse()?;
 //!                 let qty = order.order_qty.unwrap_or_default();
 //!                 let mut ack = ExecutionReport::new(
 //!                     "O1", "E1", ExecType::New, OrdStatus::New, order.side, qty, Decimal::ZERO, Decimal::ZERO,
 //!                 );
-//!                 ack.cl_ord_id = Some(order.cl_ord_id);
+//!                 ack.cl_ord_id = Some(order.cl_ord_id.into());
 //!                 ctx.send(ack);
 //!                 Ok(())
 //!             }
@@ -78,16 +79,16 @@
 //! ```
 //! # use turbojet::fields::Decimal;
 //! # use turbojet::{Application, Context, Message, MessageReject, MsgType};
-//! # use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingle, OrdStatus};
+//! # use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingle, NewOrderSingleRef, OrdStatus};
 //! # struct OrderDesk;
 //! # impl Application for OrderDesk {
 //! #     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
-//! #         let order: NewOrderSingle = msg.parse()?;
+//! #         let order: NewOrderSingleRef = msg.parse()?;
 //! #         let qty = order.order_qty.unwrap_or_default();
 //! #         let mut ack = ExecutionReport::new(
 //! #             "O1", "E1", ExecType::New, OrdStatus::New, order.side, qty, Decimal::ZERO, Decimal::ZERO,
 //! #         );
-//! #         ack.cl_ord_id = Some(order.cl_ord_id);
+//! #         ack.cl_ord_id = Some(order.cl_ord_id.into());
 //! #         ctx.send(ack);
 //! #         Ok(())
 //! #     }
@@ -229,7 +230,7 @@ pub use acceptor::Acceptor;
 pub use application::{Application, Context, MessageReject};
 pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
-pub use message::{FieldError, FixMessage, Message};
+pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use registry::{NotConnected, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry};
 pub use schedule::{Clock, SessionSchedule};

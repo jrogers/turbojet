@@ -107,7 +107,7 @@ compiled and run as a test.
 ```rust
 use turbojet::*;
 use turbojet::fields::Decimal;
-use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingle, OrdStatus};
+use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 
 struct MyApp;
 
@@ -117,12 +117,12 @@ impl Application for MyApp {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
                 // A missing or malformed field becomes a Reject(3) naming the tag.
-                let order: NewOrderSingle = msg.parse()?;
+                let order: NewOrderSingleRef = msg.parse()?;
                 let qty = order.order_qty.unwrap_or_default();
                 let mut ack = ExecutionReport::new(
                     "O1", "E1", ExecType::New, OrdStatus::New, order.side, qty, Decimal::ZERO, Decimal::ZERO,
                 );
-                ack.cl_ord_id = Some(order.cl_ord_id);
+                ack.cl_ord_id = Some(order.cl_ord_id.into());
                 ctx.send(ack);
                 Ok(())
             }
@@ -187,15 +187,28 @@ mod venue_tags {
 use venue_tags::*;
 
 fix_enum! { Priority { Normal = "N", Urgent = "U", } }
-fix_group! { Leg { symbol: req String = LEG_SYMBOL } }
+fix_group! { Leg / LegRef { symbol: req String = LEG_SYMBOL } }
 fix_message! {
     /// A venue-specific spread order.
-    SpreadOrder = "U1" {                  // or a MsgType variant, e.g. = NewOrderSingle
+    SpreadOrder / SpreadOrderRef = "U1" { // or a MsgType variant, e.g. = NewOrderSingle
         cl_ord_id: req String = CL_ORD_ID,
         priority: opt Priority = PRIORITY,
         legs: req_group Leg = NO_LEGS,    // at least one entry; `group` allows none
     }
 }
+```
+
+Each message and group comes in two forms. `SpreadOrder` owns its values: build one to send, or
+keep one. `SpreadOrderRef<'a>` borrows its strings, lists and groups from the message it was
+parsed from, so parsing it allocates nothing; read messages with it, and call `into_owned()` on
+one worth keeping:
+
+```rust
+let order: SpreadOrderRef = msg.parse()?; // borrows from msg
+for leg in &order.legs {
+    println!("{}", leg.symbol);
+}
+let kept: SpreadOrder = order.into_owned(); // or msg.parse::<SpreadOrder>()?
 ```
 
 Tags are paths to `u32` constants and are matched as patterns, so a misspelt tag is a compile
@@ -216,7 +229,7 @@ as `Vec` fields, defined with `fix_group!`; FIX 4.2 NewOrderSingle has `allocs` 
 (NoContraBrokers 382).
 
 ```rust
-let order: NewOrderSingle = msg.parse()?;
+let order: NewOrderSingleRef = msg.parse()?;
 for alloc in &order.allocs {
     println!("{} gets {:?}", alloc.alloc_account, alloc.alloc_shares);
 }
@@ -266,8 +279,9 @@ so rather than changing it.
 
 An initiator sends Username(553) and Password(554) from `InitiatorConfig::username` and
 `password`; an acceptor checks them in `Application::verify_logon`, where
-`logon.parse::<turbojet::admin::Logon>()` gives them typed. Passwords are `fields::Secret`, which
-`Debug` and `Display` show as `***` (`.expose()` gives the text); the message log masks them too,
+`logon.parse::<turbojet::admin::LogonRef>()` gives them typed. Passwords are `fields::Secret`
+(`SecretRef` when borrowed), which `Debug` and `Display` show as `***` (`.expose()` gives the
+text); the message log masks them too,
 and generated messages type Password(554) and NewPassword(925) fields as `Secret` as well.
 
 With `InitiatorConfig::next_expected_msg_seq_num`, the initiator's Logon carries

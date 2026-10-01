@@ -24,13 +24,13 @@ pub trait Application: Send + Sync + 'static {
     /// on an initiator, the server's). Return `Err` with a reason to refuse the logon; the
     /// connection is then dropped.
     ///
-    /// Credentials are in the typed Logon:
+    /// Credentials are in the typed Logon, read here in its borrowed form:
     ///
     /// ```
-    /// # use turbojet::{admin::Logon, fields::Secret, Message};
+    /// # use turbojet::{admin::LogonRef, Message};
     /// fn check(logon: &Message) -> Result<(), String> {
-    ///     let logon: Logon = logon.parse().map_err(|e| e.to_string())?;
-    ///     match (logon.username.as_deref(), logon.password.as_ref().map(Secret::expose)) {
+    ///     let logon: LogonRef = logon.parse().map_err(|e| e.to_string())?;
+    ///     match (logon.username, logon.password.map(|p| p.expose())) {
     ///         (Some("trader"), Some("secret")) => Ok(()),
     ///         _ => Err("unknown user or wrong password".into()),
     ///     }
@@ -61,8 +61,26 @@ pub trait Application: Send + Sync + 'static {
     /// (by ClOrdID, say) before acting on it again. Work handed off to another task counts as
     /// handled once this returns.
     ///
-    /// Parse typed messages with `msg.parse::<T>()?`; a [`FieldError`] converts into the
-    /// matching session-level reject.
+    /// Parse typed messages with [`Message::parse`]; a [`FieldError`] converts into the matching
+    /// session-level reject. The borrowed form, `NameRef`, reads the message without copying its
+    /// strings; [`into_owned`](crate::FixMessageRef::into_owned) gives the owned one to keep:
+    ///
+    /// ```
+    /// # use turbojet::{Context, FixMessageRef, Message, MessageReject, MsgType};
+    /// # use turbojet_fix44::messages::{NewOrderSingle, NewOrderSingleRef};
+    /// # fn book(_: NewOrderSingle) {}
+    /// fn on_message(ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+    ///     if msg.msg_type() != MsgType::NewOrderSingle {
+    ///         return Err(MessageReject::unsupported_message_type());
+    ///     }
+    ///     let order: NewOrderSingleRef = msg.parse()?;
+    ///     if order.symbol == Some("XYZ") {
+    ///         return Err(MessageReject::value_incorrect(55, "not traded here"));
+    ///     }
+    ///     book(order.into_owned());
+    ///     Ok(())
+    /// }
+    /// ```
     ///
     /// The default rejects every message as an unsupported type.
     fn on_message(&self, _ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {

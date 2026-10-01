@@ -551,8 +551,9 @@ impl Message {
         self.get(tag) == Some("Y")
     }
 
-    /// Parses the message as `T`, which must match its MsgType.
-    pub fn parse<T: FixMessage>(&self) -> Result<T, FieldError> {
+    /// Parses the message as `T`, which must match its MsgType: a typed message, or its borrowed
+    /// form (`NameRef`), whose strings borrow from the message.
+    pub fn parse<'a, T: FromMessage<'a>>(&'a self) -> Result<T, FieldError> {
         if self.msg_type() != T::MSG_TYPE {
             return Err(FieldError {
                 tag: tags::MSG_TYPE,
@@ -567,7 +568,7 @@ impl Message {
     /// if the message is otherwise valid. Header fields are never the body's. Use it where a
     /// counterparty's extra fields should be refused; the `validation` feature checks messages
     /// against a whole dictionary instead.
-    pub fn parse_strict<T: FixMessage>(&self) -> Result<T, FieldError> {
+    pub fn parse_strict<'a, T: FromMessage<'a>>(&'a self) -> Result<T, FieldError> {
         if self.msg_type() != T::MSG_TYPE {
             return Err(FieldError {
                 tag: tags::MSG_TYPE,
@@ -1551,6 +1552,34 @@ pub trait FixMessageRef<'a>: Copy + Sized {
 
     /// The owned message.
     fn into_owned(self) -> Self::Owned;
+}
+
+/// What [`Message::parse`] can parse into: a typed message, owned or borrowed.
+///
+/// Every [`FixMessage`] is one; `fix_message!` implements it for the borrowed form too.
+pub trait FromMessage<'a>: Sized {
+    /// The message's MsgType(35).
+    const MSG_TYPE: MsgType;
+
+    /// Reads the body fields; header fields, and body fields the message doesn't define, are
+    /// ignored.
+    fn from_message(msg: &'a Message) -> Result<Self, FieldError>;
+
+    /// [`from_message`](Self::from_message), failing with [`FieldErrorKind::NotDefined`] on the
+    /// first body tag the message doesn't define, if it's otherwise valid.
+    fn from_message_strict(msg: &'a Message) -> Result<Self, FieldError>;
+}
+
+impl<'a, T: FixMessage> FromMessage<'a> for T {
+    const MSG_TYPE: MsgType = <T as FixMessage>::MSG_TYPE;
+
+    fn from_message(msg: &'a Message) -> Result<Self, FieldError> {
+        <T as FixMessage>::from_message(msg)
+    }
+
+    fn from_message_strict(msg: &'a Message) -> Result<Self, FieldError> {
+        <T as FixMessage>::from_message_strict(msg)
+    }
 }
 
 /// A field that is missing or cannot be converted to its type.

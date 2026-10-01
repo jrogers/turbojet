@@ -185,7 +185,9 @@ macro_rules! fix_enum {
 ///   has a value that doesn't convert.
 ///
 /// Generates the struct, [`FixMessage`](crate::message::FixMessage) and `From<Name> for Message`;
-/// and `NameRef`, [`FixMessageRef`](crate::message::FixMessageRef) and `From<NameRef> for Name`.
+/// and `NameRef`, [`FixMessageRef`](crate::message::FixMessageRef), `From<NameRef> for Name` and
+/// [`FromMessage`](crate::message::FromMessage), so [`Message::parse`](crate::Message::parse)
+/// gives either.
 ///
 /// ```
 /// use turbojet::message::{FixMessage, FixMessageRef};
@@ -228,7 +230,7 @@ macro_rules! fix_enum {
 /// assert_eq!(msg.parse::<VenueAck>().unwrap(), ack);
 ///
 /// // Borrowed: the strings are the message's own.
-/// let borrowed = VenueAckRef::from_message(&msg).unwrap();
+/// let borrowed: VenueAckRef = msg.parse().unwrap();
 /// assert_eq!(borrowed.cl_ord_id, "ORD1");
 /// assert_eq!(borrowed.notes.iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
 /// assert_eq!(borrowed.into_owned(), ack);
@@ -346,6 +348,20 @@ macro_rules! fix_message {
 
             fn into_owned(self) -> $name {
                 $name { $( $field: $crate::fix_message!(@into_owned 'a, $presence $ty, self.$field), )+ }
+            }
+        }
+
+        $($cfg)*
+        #[allow(deprecated)]
+        impl<'a> $crate::message::FromMessage<'a> for $ref_name<'a> {
+            const MSG_TYPE: $crate::fields::MsgType = <Self as $crate::message::FixMessageRef<'a>>::MSG_TYPE;
+
+            fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                <Self as $crate::message::FixMessageRef<'a>>::from_message(msg)
+            }
+
+            fn from_message_strict(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                <Self as $crate::message::FixMessageRef<'a>>::from_message_strict(msg)
             }
         }
 
@@ -1053,6 +1069,19 @@ mod tests {
         assert_eq!(copy, order);
         let owned: TestOrder = order.into();
         assert_eq!(owned, msg.parse::<TestOrder>().unwrap());
+    }
+
+    #[test]
+    fn message_parse_gives_the_borrowed_form() {
+        let msg = raw("35=D|78=1|79=A|55=AAPL|9999=extra|");
+        let order: TestOrderRef<'_> = msg.parse().unwrap();
+        assert_eq!(order.symbol.as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
+        assert_eq!(order.into_owned(), msg.parse::<TestOrder>().unwrap());
+        let err = msg.parse_strict::<TestOrderRef<'_>>().unwrap_err();
+        assert_eq!((err.tag, err.kind), (9999, crate::message::FieldErrorKind::NotDefined));
+        // The MsgType is checked first, as for the owned form.
+        let err = raw("35=J|78=1|79=A|55=AAPL|").parse::<TestOrderRef<'_>>().unwrap_err();
+        assert_eq!((err.tag, err.kind), (MSG_TYPE, crate::message::FieldErrorKind::IncorrectValue("J".into())));
     }
 
     #[test]
