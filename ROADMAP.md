@@ -158,14 +158,16 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
   QuickFIX/J tests (one well-behaved peer), and could share its fault model with the
   fault-injecting proxy under "More interop tests".
 - **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
-  channel, so an application that sends faster than the connection writes grows it without limit.
-  Give it a configured capacity, and report a full queue to the caller (a new error) rather than
-  queueing. It changes the public API, and is the back-pressure half of "Throttling" below.
-- **Audit the limits** (S). List every collection and loop that grows with the counterparty's
-  input or with time, and give each a named limit or a comment saying why it needs none. Known so
-  far: the memory store and the disk store's index ("Bounded memory store", "Disk store
-  rotation"), concurrent connections ("Connection limits"), and the reply list in each
-  `Context`.
+  channel, so an application that sends faster than the connection writes grows it without limit;
+  so do the commands a session holds while logon is in progress. Give it a configured capacity,
+  and report a full queue to the caller (a new error) rather than queueing. It changes the public API, and is the back-pressure half of "Throttling" below.
+- **Chunked resends** (M). A ResendRequest is answered all at once: every stored message in the
+  range is read, decoded and encoded into one output buffer before any is written. The
+  counterparty chooses the range, and a ResendRequest for 1 to infinity after a busy day holds
+  every message of it in memory two or three times over. The spec requires resending the whole
+  range, so cap it per wake-up instead: resend a fixed number of messages, let the driver write
+  them, and carry on at the next wake-up, deciding what happens to the application's sends and
+  inbound messages in between.
 - **Assertion density** (M). Aim for about two assertions per function in `session`, `codec`,
   `message` and the stores: preconditions, postconditions, and pairs across code paths. For
   example, `MemoryStorage` checks a message's framing when it's stored but not when it's read
@@ -239,7 +241,8 @@ From the benchmarks.
   with fsync they block the runtime. Move them to a dedicated writer (or `spawn_blocking`),
   ideally together with batching.
 - **Bounded memory store** (S). `MemoryStorage` keeps every sent message forever. Cap it (by
-  count or age), gap-filling anything evicted.
+  count or age), gap-filling anything evicted. It also keeps every session it has opened, one per
+  CompID an acceptor admits, and never drops them.
 - **Disk store rotation** (M). The `.body` file grows until a sequence reset; add rotation or
   compaction for long-running sessions.
 - **Full-duplex connection I/O** (M). The driver writes a batch before reading again. If both
