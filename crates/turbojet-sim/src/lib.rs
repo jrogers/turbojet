@@ -13,7 +13,7 @@ pub mod rng;
 pub mod time;
 pub mod world;
 
-pub use world::{Failure, Options, Report, run};
+pub use world::{Failure, Options, Report, WRITE_DEADLOCK, run};
 
 /// One end of the simulated connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
