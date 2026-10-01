@@ -32,6 +32,9 @@ later, with:
   which the gateway does on SIGINT and SIGTERM;
 - a malformed body field (no `=`, an invalid tag, non-UTF-8 data) answered with a Reject rather
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
+- a long resend sent in steps of 256 sequence numbers, each written before the next is read from
+  the store, so a ResendRequest for everything never holds the whole range in memory; nothing
+  new goes out, and nothing more is read from the counterparty, until it ends;
 - data fields (RawData, XmlData, the Encoded* fields, a venue's own) carrying any bytes, SOH
   included: decoded by the length their Length field gives, stored and resent intact, checked on
   the way out, and typed as `Vec<u8>`;
@@ -161,13 +164,6 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
   channel, so an application that sends faster than the connection writes grows it without limit;
   so do the commands a session holds while logon is in progress. Give it a configured capacity,
   and report a full queue to the caller (a new error) rather than queueing. It changes the public API, and is the back-pressure half of "Throttling" below.
-- **Chunked resends** (M). A ResendRequest is answered all at once: every stored message in the
-  range is read, decoded and encoded into one output buffer before any is written. The
-  counterparty chooses the range, and a ResendRequest for 1 to infinity after a busy day holds
-  every message of it in memory two or three times over. The spec requires resending the whole
-  range, so cap it per wake-up instead: resend a fixed number of messages, let the driver write
-  them, and carry on at the next wake-up, deciding what happens to the application's sends and
-  inbound messages in between.
 - **Assertion density** (M). Aim for about two assertions per function in `session`, `codec`,
   `message` and the stores: preconditions, postconditions, and pairs across code paths. For
   example, `MemoryStorage` checks a message's framing when it's stored but not when it's read

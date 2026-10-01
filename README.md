@@ -63,7 +63,8 @@ developer experience**, after TigerBeetle's
 practice, and where Turbojet differs.
 
 - **Safe.** What a counterparty sends is bounded (message size, header fields, messages held
-  ahead of a gap), and what still grows without a limit is listed in the roadmap. Invariants are
+  ahead of a gap, how much of a resend is held at once), and what still grows without a limit
+  is listed in the roadmap. Invariants are
   asserted, paired where they can be (a message is checked as it's stored and again as it's read
   back), and the parsers and session state machine are fuzzed with those assertions on. The session is tested
   against QuickFIX/J and QuickFIX's scripted acceptance scenarios (see the warning above for what
@@ -158,7 +159,8 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 - `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`
 - `session::Session` – sans-IO state machine for either role; feed it messages and commands,
   call its timer when its next deadline falls due, write the encoded messages it leaves in
-  `output`, and close the connection once it `is_closed`
+  `output`, and close the connection once it `is_closed`. While it `is_resending`, write its
+  output and call `on_resume` for the next step, rather than feed it more
 - `connection::run` – drives a `Session` over any `AsyncRead + AsyncWrite`;
   `Acceptor::accept_stream` / `Initiator::run_stream` take such streams too
 - `tls` (feature `tls`) – TLS transport, see below

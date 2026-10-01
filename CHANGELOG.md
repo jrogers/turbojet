@@ -6,6 +6,15 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- A long resend goes out in steps of 256 sequence numbers, each written before the next is read
+  from the store, rather than all at once: a ResendRequest for everything a session has sent no
+  longer holds all of it in memory. Until the resend ends, the connection reads nothing more from
+  the counterparty and sends nothing new, Heartbeats included, so the order on the wire is
+  unchanged. Logging out (or shutting down) during a resend stops it.
+- `Session::is_resending` and `Session::on_resume`, for drivers of a `Session` other than
+  `connection::run`: while a session is resending, write its output and call `on_resume` for the
+  next step. `Session::next_deadline` is `None` meanwhile.
+
 - A `Message` that grows past 4 GiB panics. Its field offsets used to wrap silently, which
   would have corrupted the message.
 - Debug assertions check framing, sequence numbers and the gap queue: whatever is encoded,
