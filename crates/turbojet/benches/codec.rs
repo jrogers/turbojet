@@ -15,7 +15,7 @@ use turbojet_fix42::{ExecutionReport, NewOrderSingle};
 fn codec(c: &mut Criterion) {
     let order = common::with_header("CLIENT", "GATEWAY", 42, common::new_order_single(1).into());
     let order_wire = encode(&order).unwrap();
-    let report = common::with_header("GATEWAY", "CLIENT", 42, common::ack(common::new_order_single(1), 1).into());
+    let report = common::with_header("GATEWAY", "CLIENT", 42, common::ack_of(1).into());
     let report_wire = encode(&report).unwrap();
 
     let mut group = c.benchmark_group("codec");
@@ -38,7 +38,7 @@ fn codec(c: &mut Criterion) {
     group.bench_function("encode ExecutionReport", |b| b.iter(|| encode(black_box(&report)).unwrap()));
     group.finish();
 
-    let typed_report = common::ack(common::new_order_single(1), 1);
+    let typed_report = common::ack_of(1);
     let mut group = c.benchmark_group("typed");
     group.bench_function("parse NewOrderSingle", |b| b.iter(|| black_box(&order).parse::<NewOrderSingle>().unwrap()));
     group.bench_function("build ExecutionReport", |b| b.iter(|| black_box(&typed_report).to_message()));

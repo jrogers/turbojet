@@ -13,7 +13,8 @@ use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
 use turbojet_fix42::{
-    ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, OrdStatus, OrdType, Side, TimeInForce,
+    ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, NewOrderSingleRef, OrdStatus, OrdType, Side,
+    TimeInForce,
 };
 
 /// A typical limit order (~150 bytes on the wire).
@@ -34,7 +35,7 @@ pub fn new_order_single(cl_ord_id: u64) -> NewOrderSingle {
 }
 
 /// The acknowledgement an acceptor would send for `order`.
-pub fn ack(order: NewOrderSingle, id: u64) -> ExecutionReport {
+pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
     let order_id = format!("O{id}");
     let exec_id = format!("E{id}");
     let leaves_qty = order.order_qty.unwrap_or_default();
@@ -52,14 +53,20 @@ pub fn ack(order: NewOrderSingle, id: u64) -> ExecutionReport {
         cum_qty,
         avg_px,
     );
-    report.cl_ord_id = Some(order.cl_ord_id);
-    report.account = order.account;
+    report.cl_ord_id = Some(order.cl_ord_id.into());
+    report.account = order.account.map(Into::into);
     report.order_qty = order.order_qty;
     report.ord_type = Some(order.ord_type);
     report.price = order.price;
     report.time_in_force = order.time_in_force;
     report.transact_time = Some(UtcTimestamp::now());
     report
+}
+
+/// The acknowledgement of `new_order_single(id)`.
+pub fn ack_of(id: u64) -> ExecutionReport {
+    let order: Message = new_order_single(id).into();
+    ack(order.parse().unwrap(), id)
 }
 
 /// `body` with a standard header, as sent by `sender` to `target`.
@@ -105,8 +112,8 @@ pub fn orders(count: u64) -> Vec<Message> {
     (0..count).map(|i| with_header("CLIENT", "GATEWAY", i + 2, new_order_single(i).into())).collect()
 }
 
-/// Acknowledges every NewOrderSingle with an ExecutionReport: parses the typed order and builds a
-/// typed reply, as a real application would.
+/// Acknowledges every NewOrderSingle with an ExecutionReport: parses the borrowed typed order and
+/// builds a typed reply, as a real application would.
 #[derive(Default)]
 pub struct Acker {
     next_id: AtomicU64,
@@ -114,7 +121,7 @@ pub struct Acker {
 
 impl Application for Acker {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
-        let order: NewOrderSingle = msg.parse()?;
+        let order: NewOrderSingleRef = msg.parse()?;
         ctx.send(ack(order, self.next_id.fetch_add(1, Ordering::Relaxed)));
         Ok(())
     }

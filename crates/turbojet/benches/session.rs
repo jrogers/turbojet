@@ -142,8 +142,7 @@ fn session(c: &mut Criterion) {
 fn storage(c: &mut Criterion) {
     let id =
         SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
-    let report: Message =
-        common::with_header("GATEWAY", "CLIENT", 2, common::ack(common::new_order_single(1), 1).into());
+    let report: Message = common::with_header("GATEWAY", "CLIENT", 2, common::ack_of(1).into());
     let report = encode(&report).unwrap();
 
     let mut group = c.benchmark_group("storage record_outgoing");
