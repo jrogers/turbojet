@@ -1,8 +1,8 @@
 //! Heap allocations per order → ack, wire to wire (decode into one reused message, as the
 //! connection does, then the session, application and store; the session encodes the ack), with
-//! the memory store and the disk store (without fsync), each against an exact budget.
-//! `cargo test -p turbojet --test allocations -- --nocapture` prints a per-stage table for each
-//! store.
+//! the memory store and the disk store (without fsync), each against an exact budget; and typed
+//! parsing alone, borrowed and owned. `cargo test -p turbojet --test allocations -- --nocapture`
+//! prints a per-stage table for each store and a per-parse table.
 
 #[path = "../benches/common/mod.rs"]
 mod common;
@@ -14,10 +14,11 @@ use std::time::Instant;
 
 use counting::{Counts, Stage};
 use turbojet::codec::{DecodedInto, decode_into, encode};
-use turbojet::fields::UtcTimestamp;
+use turbojet::fields::{Decimal, UtcTimestamp};
 use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, DiskStorage, MemoryStorage, Message, MessageReject, SessionId};
+use turbojet_fix42::{NewOrderSingle, NewOrderSingleRef, PreAllocGrp};
 
 #[global_allocator]
 static ALLOCATOR: counting::Counting = counting::Counting;
@@ -325,4 +326,123 @@ fn order_to_ack_allocates_exactly_its_budget() {
         }
     }
     assert!(problems.is_empty(), "{}\n\n{}", problems.join("\n"), tables.join("\n"));
+}
+
+/// The benchmark order (`common::orders`), with a three-entry NoAllocs group if `with_allocs`, as
+/// received: with a standard header.
+fn order_message(with_allocs: bool) -> Message {
+    let mut order = common::new_order_single(1);
+    if with_allocs {
+        let alloc = |account: &str, shares: i64| {
+            let mut alloc = PreAllocGrp::new(account);
+            alloc.alloc_shares = Some(Decimal::new(shares, 0));
+            alloc
+        };
+        order.allocs = vec![alloc("ACCT-A", 50), alloc("ACCT-B", 30), alloc("ACCT-C", 20)];
+    }
+    common::with_header("CLIENT", "GATEWAY", 2, order.into())
+}
+
+/// Allocations and reallocs of `parse`, totalled over COUNTED calls after WARM_UP.
+fn parse_counts(mut parse: impl FnMut()) -> Counts {
+    for _ in 0..WARM_UP {
+        parse();
+    }
+    counting::take();
+    counting::set_counting(true);
+    for _ in 0..COUNTED {
+        parse();
+    }
+    counting::set_counting(false);
+    counting::take().into_iter().fold(Counts::ZERO, |mut sum, c| {
+        sum += c;
+        sum
+    })
+}
+
+/// Typed parsing alone, which the order → ack counts can't separate from building the reply: the
+/// borrowed twin allocates nothing, groups included, and the owned message copies out its
+/// strings and group entries. Budgets are allocations and reallocs over COUNTED parses, exact as
+/// above.
+#[test]
+fn typed_parsing_allocates_exactly_its_budget() {
+    let plain = order_message(false);
+    let with_allocs = order_message(true);
+    let parses: [(&str, Counts, u64, u64); 5] = [
+        (
+            "NewOrderSingleRef",
+            parse_counts(|| {
+                std::hint::black_box(plain.parse::<NewOrderSingleRef>().unwrap());
+            }),
+            0,
+            0,
+        ),
+        (
+            "NewOrderSingleRef, 3 allocs",
+            parse_counts(|| {
+                std::hint::black_box(with_allocs.parse::<NewOrderSingleRef>().unwrap());
+            }),
+            0,
+            0,
+        ),
+        (
+            "NewOrderSingleRef, 3 allocs read",
+            parse_counts(|| {
+                let order = with_allocs.parse::<NewOrderSingleRef>().unwrap();
+                assert_eq!(order.allocs.len(), 3);
+                for alloc in order.allocs.iter() {
+                    std::hint::black_box((alloc.alloc_account, alloc.alloc_shares));
+                }
+            }),
+            0,
+            0,
+        ),
+        (
+            "NewOrderSingle",
+            parse_counts(|| {
+                std::hint::black_box(plain.parse::<NewOrderSingle>().unwrap());
+            }),
+            // ClOrdID, Symbol and Account.
+            3000,
+            0,
+        ),
+        (
+            "NewOrderSingle, 3 allocs",
+            parse_counts(|| {
+                std::hint::black_box(with_allocs.parse::<NewOrderSingle>().unwrap());
+            }),
+            // Those, the entries' Vec and each entry's AllocAccount.
+            7000,
+            0,
+        ),
+    ];
+    check_parses(&parses);
+}
+
+/// Prints a table of per-parse counts and fails on any that differ from their budget.
+fn check_parses(parses: &[(&str, Counts, u64, u64)]) {
+    let mut table = format!(
+        "Allocations per typed parse ({} build, mean of {COUNTED} after {WARM_UP} warm-up)\n\n{:<34} {:>8} {:>8} {:>8}\n",
+        if cfg!(debug_assertions) { "debug" } else { "release" },
+        "parse",
+        "allocs",
+        "reallocs",
+        "bytes",
+    );
+    let per = |n: u64| n as f64 / COUNTED as f64;
+    let mut problems = Vec::new();
+    for &(name, c, allocs, reallocs) in parses {
+        writeln!(table, "{name:<34} {:>8.1} {:>8.1} {:>8.1}", per(c.allocs), per(c.reallocs), per(c.bytes)).unwrap();
+        for (what, actual, budget) in [("allocations", c.allocs, allocs), ("reallocs", c.reallocs, reallocs)] {
+            if actual > budget {
+                problems.push(format!("{name}: {actual} {what} over {COUNTED} parses, budget {budget}"));
+            } else if actual < budget {
+                problems.push(format!(
+                    "{name}: {actual} {what} over {COUNTED} parses, fewer than the budget of {budget}: lower it"
+                ));
+            }
+        }
+    }
+    println!("{table}");
+    assert!(problems.is_empty(), "{}\n\n{table}", problems.join("\n"));
 }
