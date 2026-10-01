@@ -74,7 +74,7 @@ practice, and where Turbojet differs.
 - **Fast.** Performance is part of the design, not an afterthought: outbound messages are
   batched into one buffer, and allocations per message are counted by stage against an exact
   budget on every test run. Encoding, decoding, the session layer and storage have benchmarks (see
-  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.2 µs, wire
+  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.1 µs, wire
   to wire.
 - **Embeddable.** Turbojet is a library, not a server: your code owns the process, the runtime and
   the business logic. Every layer is public, from the codec up through the sans-IO session state

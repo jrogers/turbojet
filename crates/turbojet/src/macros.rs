@@ -153,8 +153,14 @@ macro_rules! fix_enum {
 /// }
 /// ```
 ///
-/// A message has at least one field. Its doc comments are `Name`'s; its other attributes, such
-/// as `#[deprecated]`, apply to `NameRef` too, and a `#[cfg]` to everything generated.
+/// A message has at least one field. Its doc comments, derives and most other attributes are
+/// `Name`'s alone, since `NameRef`'s fields have other types; `#[deprecated]`, `#[doc(hidden)]`
+/// and the lint levels (`allow`, `expect`, `warn`, `deny`) apply to `NameRef` too, and a `#[cfg]`
+/// to everything generated.
+///
+/// `NameRef<'a>` is invariant in `'a`, because its fields' types are trait projections
+/// ([`FieldRef::Ref`](crate::fields::FieldRef::Ref)). That only matters when mixing borrows of
+/// different lifetimes: a `NameRef<'long>` doesn't shorten to a `NameRef<'short>` by itself.
 ///
 /// - `Type` is anything implementing [`FromFix`](crate::fields::FromFix),
 ///   [`ToFix`](crate::fields::ToFix) and [`FieldRef`](crate::fields::FieldRef): `String`, `u32`,
@@ -254,7 +260,7 @@ macro_rules! fix_message {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@attrs fix_message [] [] [] [$(#[$($meta)*])*]
+        $crate::fix_message!(@attrs fix_message [] [] [] [] [$(#[$($meta)*])*]
             $name, $ref_name, $crate::fields::MsgType::$msg_type,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
@@ -264,30 +270,51 @@ macro_rules! fix_message {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@attrs fix_message [] [] [] [$(#[$($meta)*])*]
+        $crate::fix_message!(@attrs fix_message [] [] [] [] [$(#[$($meta)*])*]
             $name, $ref_name, $crate::fields::MsgType::from_static($msg_type),
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     // Sorts a message's or group's attributes into its docs, which are the owned struct's alone;
-    // the rest, which the borrowed struct shares; and its `cfg`s, which every generated item
-    // shares, so a configured-out type leaves nothing behind. Then expands `$target!(@typed ..)`.
-    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [#[doc = $($value:tt)*] $($rest:tt)*] $($body:tt)*) => {
-        $crate::fix_message!(@attrs $target [$($doc)* #[doc = $($value)*]] [$($other)*] [$($cfg)*] [$($rest)*] $($body)*);
+    // those the borrowed struct shares (lint levels, `deprecated` and `doc(hidden)`, which mean the
+    // same for both); the rest, such as derives, which are the owned struct's alone, since the
+    // borrowed one's fields have other types; and its `cfg`s, which every generated item shares, so
+    // a configured-out type leaves nothing behind. Then expands `$target!(@typed ..)`.
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[doc = $($value:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)* #[doc = $($value)*]] [$($shared)*] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
     };
-    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [#[cfg $($predicate:tt)*] $($rest:tt)*] $($body:tt)*) => {
-        $crate::fix_message!(@attrs $target [$($doc)*] [$($other)* #[cfg $($predicate)*]] [$($cfg)* #[cfg $($predicate)*]]
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[cfg $($predicate:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[cfg $($predicate)*]] [$($owned)*] [$($cfg)* #[cfg $($predicate)*]]
             [$($rest)*] $($body)*);
     };
-    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [#[$($attr:tt)*] $($rest:tt)*] $($body:tt)*) => {
-        $crate::fix_message!(@attrs $target [$($doc)*] [$($other)* #[$($attr)*]] [$($cfg)*] [$($rest)*] $($body)*);
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[doc(hidden)] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[doc(hidden)]] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
     };
-    (@attrs $target:ident [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] [] $($body:tt)*) => {
-        $crate::$target!(@typed [$($doc)*] [$($other)*] [$($cfg)*] $($body)*);
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[deprecated $($args:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[deprecated $($args)*]] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
     };
-    (@typed [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $msg_type:expr,
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[allow $($args:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[allow $($args)*]] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[expect $($args:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[expect $($args)*]] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[warn $($args:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[warn $($args)*]] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[deny $($args:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)* #[deny $($args)*]] [$($owned)*] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [#[$($attr:tt)*] $($rest:tt)*] $($body:tt)*) => {
+        $crate::fix_message!(@attrs $target [$($doc)*] [$($shared)*] [$($owned)* #[$($attr)*]] [$($cfg)*] [$($rest)*] $($body)*);
+    };
+    (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [] $($body:tt)*) => {
+        $crate::$target!(@typed [$($doc)*] [$($shared)*] [$($owned)*] [$($cfg)*] $($body)*);
+    };
+    (@typed [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $msg_type:expr,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
         $($doc)*
-        $($other)*
+        $($shared)*
+        $($owned)*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@type $presence $ty), )+
@@ -327,7 +354,7 @@ macro_rules! fix_message {
         }
 
         #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
-        $($other)*
+        $($shared)*
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub struct $ref_name<'a> {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
@@ -550,13 +577,14 @@ macro_rules! fix_group {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@attrs fix_group [] [] [] [$(#[$($meta)*])*] $name, $ref_name,
+        $crate::fix_message!(@attrs fix_group [] [] [] [] [$(#[$($meta)*])*] $name, $ref_name,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
-    (@typed [$($doc:tt)*] [$($other:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident,
+    (@typed [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
         $($doc)*
-        $($other)*
+        $($shared)*
+        $($owned)*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@type $presence $ty), )+
@@ -583,7 +611,7 @@ macro_rules! fix_group {
         }
 
         #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
-        $($other)*
+        $($shared)*
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub struct $ref_name<'a> {
             $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
@@ -1170,6 +1198,43 @@ mod tests {
         assert_eq!(borrowed.id, "A");
         assert_eq!(msg.parse::<OldOrder>().unwrap(), borrowed.into_owned());
         assert_eq!(<OldOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, OldOrder::MSG_TYPE, "the owned one's");
+    }
+
+    /// Names only the borrowed twin: if it weren't deprecated too, the expectation would go
+    /// unfulfilled, which warns, and CI's `-D warnings` fails the build.
+    #[test]
+    #[expect(deprecated, reason = "the borrowed twin of a deprecated message is deprecated too")]
+    fn a_deprecated_message_marks_its_borrowed_twin() {
+        let msg = raw("35=U8|11=A|");
+        assert_eq!(msg.parse::<OldOrderRef>().unwrap().id, "A");
+    }
+
+    fix_group! {
+        /// Derives on a group entry, which the message's own derives need.
+        #[derive(Hash, PartialOrd)]
+        HashedEntry / HashedEntryRef { id: req String = ALLOC_ACCOUNT, qty: opt u32 = ALLOC_SHARES }
+    }
+
+    fix_message! {
+        /// Derives the borrowed struct couldn't take: its `Group` is neither `Hash` nor
+        /// `PartialOrd`.
+        #[derive(Hash, PartialOrd)]
+        HashedOrder / HashedOrderRef = "U9" {
+            id: req String = CL_ORD_ID,
+            entries: group HashedEntry = NO_ALLOCS,
+        }
+    }
+
+    /// A derive on a message or group goes on the owned struct only, so one the borrowed struct
+    /// can't take, as here, still compiles.
+    #[test]
+    fn derives_apply_to_the_owned_struct_only() {
+        use std::collections::HashSet;
+        let msg = raw("35=U9|11=A|78=1|79=X|80=5|");
+        let order: HashedOrder = msg.parse().unwrap();
+        assert_eq!(order.entries, [HashedEntry { id: "X".into(), qty: Some(5) }]);
+        assert!(order <= order.clone());
+        assert_eq!(HashSet::from([order.clone(), order]).len(), 1);
     }
 
     // ---- Edge cases, parsed both ways ----

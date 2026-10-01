@@ -75,12 +75,14 @@ Notable changes to the published crates.
   `fields::FieldRef` is each field type's borrowed form, and `FixMessageRef` and `FixGroupRef` are
   implemented by the borrowed types.
 - Breaking: `fix_message!` and `fix_group!` name both forms (`NewOrderSingle / NewOrderSingleRef =
-  "D" { .. }`, `Party / PartyRef { .. }`), and a message needs at least one field.
+  "D" { .. }`, `Party / PartyRef { .. }`), and a message needs at least one field. Derives and
+  most other attributes stay on the owned form; `#[deprecated]`, `#[doc(hidden)]` and lint levels
+  apply to the borrowed form too.
 - Breaking: a custom field type used in `fix_message!` or `fix_group!` needs a borrowed form: for a
   `FromFix + Copy` type, `impl_field_ref!(MyType)` makes it its own.
 - Breaking: `FixMessage` and `FixGroup` have a `Ref` associated type, the borrowed form.
 - Parsing the owned form is the borrowed parse followed by `into_owned()`, and is slower
-  than it was: about 10-35% for messages with flat or no groups and about 60% for a FIX 4.4
+  than it was: about 15-35% for messages with flat or no groups and about 60% for a FIX 4.4
   NewOrderSingle with nested groups.
 - `#[cfg]` on a `fix_message!` or `fix_group!` applies to everything it generates: a message
   configured out used to fail to compile.

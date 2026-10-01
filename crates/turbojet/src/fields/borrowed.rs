@@ -18,6 +18,9 @@ pub trait FieldRef<'a>: Sized {
 
     /// Parses a value without its tag or delimiter; fails as [`FromFix::from_fix`](super::FromFix::from_fix)
     /// would.
+    ///
+    /// Must be a deterministic, pure function of `s`: a [`List`] parses each value once when it's
+    /// checked and again as it's iterated, and expects the same result.
     fn parse_ref(s: &'a str) -> Result<Self::Ref, ValueError>;
 
     /// The owned value.
@@ -192,8 +195,8 @@ pub struct List<'a, T> {
 
 impl<'a, T: FieldRef<'a>> List<'a, T> {
     /// The values, in order.
-    pub fn iter(&self) -> impl Iterator<Item = T::Ref> + use<'a, T> {
-        self.raw.split(' ').map(|value| T::parse_ref(value).expect("checked when parsed"))
+    pub fn iter(&self) -> ListIter<'a, T> {
+        ListIter { values: self.raw.split(' '), _value: PhantomData }
     }
 
     /// How many values there are.
@@ -232,6 +235,40 @@ impl<'a, T: FieldRef<'a>> PartialEq for List<'a, T> {
         self.iter().eq(other.iter())
     }
 }
+
+impl<'a, T: FieldRef<'a>> IntoIterator for List<'a, T> {
+    type Item = T::Ref;
+    type IntoIter = ListIter<'a, T>;
+
+    fn into_iter(self) -> ListIter<'a, T> {
+        self.iter()
+    }
+}
+
+impl<'a, T: FieldRef<'a>> IntoIterator for &List<'a, T> {
+    type Item = T::Ref;
+    type IntoIter = ListIter<'a, T>;
+
+    fn into_iter(self) -> ListIter<'a, T> {
+        self.iter()
+    }
+}
+
+/// The values of a [`List`], in order.
+pub struct ListIter<'a, T> {
+    values: std::str::Split<'a, char>,
+    _value: PhantomData<fn() -> T>,
+}
+
+impl<'a, T: FieldRef<'a>> Iterator for ListIter<'a, T> {
+    type Item = T::Ref;
+
+    fn next(&mut self) -> Option<T::Ref> {
+        self.values.next().map(|value| T::parse_ref(value).expect("checked when parsed"))
+    }
+}
+
+impl<'a, T: FieldRef<'a>> std::iter::FusedIterator for ListIter<'a, T> {}
 
 /// Split as [`FromFix`](super::FromFix) splits `Vec<T>`: an empty value, or a doubled space, is a
 /// format error.
@@ -403,5 +440,18 @@ mod tests {
         assert_ne!(list, Vec::<Code<Side>>::parse_ref("1 Z 1").unwrap());
         let copy = list;
         assert_eq!(copy, list);
+    }
+
+    /// A list iterates by value and by reference, as `iter` does.
+    #[test]
+    fn lists_iterate_in_for_loops() {
+        let list = Vec::<String>::parse_ref("G 1").unwrap();
+        let mut by_ref = Vec::new();
+        for value in &list {
+            by_ref.push(value);
+        }
+        let by_value: Vec<&str> = list.into_iter().collect();
+        assert_eq!(by_ref, ["G", "1"]);
+        assert_eq!(by_value, by_ref);
     }
 }

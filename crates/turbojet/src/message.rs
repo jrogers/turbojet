@@ -1336,8 +1336,8 @@ pub trait FixGroupRef<'a>: Copy + Sized {
 
     /// Reads one entry from its fields.
     ///
-    /// Must be a pure function of the entry: a [`Group`] parses each entry once when it's
-    /// checked and again as it's iterated, and expects the same result.
+    /// Must be a deterministic, pure function of the entry: a [`Group`] parses each entry once
+    /// when it's checked and again as it's iterated, and expects the same result.
     fn from_fields(entry: Fields<'a>) -> Result<Self, FieldError>;
 
     /// The owned entry.
@@ -1402,11 +1402,12 @@ impl<'a, G: FixGroupRef<'a>> Group<'a, G> {
 }
 
 /// Asserts that `count` entries can span `start..end` of a message's `len` fields: each entry
-/// takes at least one. Out of line, so the panic's formatting isn't repeated for every group.
-#[inline(never)]
+/// takes at least one. Debug only, as it runs for every group parsed: the parser has already
+/// checked the range, and a bad one still panics as the group is iterated.
 fn check_range(len: usize, start: usize, end: usize, count: u32) {
-    assert!(start <= end && end <= len, "entries {start}..{end} out of bounds of {len} fields");
-    assert_eq!(count == 0, start == end, "entries {start}..{end} for a count of {count}");
+    debug_assert!(start <= end, "entries {start}..{end} run backwards");
+    debug_assert!(end <= len, "entries {start}..{end} out of bounds of {len} fields");
+    debug_assert_eq!(count == 0, start == end, "entries {start}..{end} for a count of {count}");
 }
 
 impl<G> Default for Group<'_, G> {
