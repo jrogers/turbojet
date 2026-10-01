@@ -30,7 +30,7 @@ fix_enum! {
 }
 
 fix_group! {
-    Leg {
+    Leg / LegRef {
         symbol: req String = venue_tags::LEG_SYMBOL,
         ratio: opt u32 = venue_tags::LEG_RATIO,
     }
@@ -38,7 +38,7 @@ fix_group! {
 
 fix_message! {
     /// A venue-specific spread order, MsgType U1.
-    SpreadOrder = "U1" {
+    SpreadOrder / SpreadOrderRef = "U1" {
         cl_ord_id: req String = venue_tags::CL_ORD_ID,
         priority: opt Priority = venue_tags::PRIORITY,
         legs: group Leg = venue_tags::NO_LEGS,
@@ -48,7 +48,7 @@ fix_message! {
 
 fix_message! {
     /// The venue's acknowledgement, MsgType U2.
-    SpreadAck = "U2" {
+    SpreadAck / SpreadAckRef = "U2" {
         cl_ord_id: req String = venue_tags::CL_ORD_ID,
         legs_accepted: req u32 = venue_tags::NO_LEGS,
     }
@@ -101,7 +101,7 @@ fn custom_types_round_trip() {
     assert_eq!(msg.to_string(), "35=U1|11=S1|5001=U|5002=2|5003=ESZ6|5004=1|5003=ESH7|");
     assert_eq!(msg.parse::<SpreadOrder>().unwrap(), order);
     // A known code given as a string still maps to its variant.
-    fix_message! { Order = "D" { cl_ord_id: req String = venue_tags::CL_ORD_ID } }
+    fix_message! { Order / OrderRef = "D" { cl_ord_id: req String = venue_tags::CL_ORD_ID } }
     assert_eq!(Order::MSG_TYPE, MsgType::NewOrderSingle);
 }
 

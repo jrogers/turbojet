@@ -7,7 +7,7 @@ use crate::message::tags::*;
 
 fix_message! {
     /// Heartbeat(0).
-    Heartbeat = Heartbeat {
+    Heartbeat / HeartbeatRef = Heartbeat {
         /// TestReqID(112).
         /// Required when answering a TestRequest.
         test_req_id: opt String = TEST_REQ_ID,
@@ -16,7 +16,7 @@ fix_message! {
 
 fix_message! {
     /// TestRequest(1).
-    TestRequest = TestRequest {
+    TestRequest / TestRequestRef = TestRequest {
         /// TestReqID(112).
         test_req_id: req String = TEST_REQ_ID,
     }
@@ -24,7 +24,7 @@ fix_message! {
 
 fix_message! {
     /// ResendRequest(2).
-    ResendRequest = ResendRequest {
+    ResendRequest / ResendRequestRef = ResendRequest {
         /// BeginSeqNo(7).
         begin_seq_no: req u64 = BEGIN_SEQ_NO,
         /// EndSeqNo(16).
@@ -35,7 +35,7 @@ fix_message! {
 
 fix_message! {
     /// Reject(3): a session-level rejection of a malformed message.
-    Reject = Reject {
+    Reject / RejectRef = Reject {
         /// RefSeqNum(45).
         ref_seq_num: req u64 = REF_SEQ_NUM,
         /// RefTagID(371).
@@ -51,7 +51,7 @@ fix_message! {
 
 fix_message! {
     /// SequenceReset(4), in gap-fill mode when `gap_fill_flag` is `Some(true)`.
-    SequenceReset = SequenceReset {
+    SequenceReset / SequenceResetRef = SequenceReset {
         /// GapFillFlag(123).
         gap_fill_flag: opt bool = GAP_FILL_FLAG,
         /// NewSeqNo(36).
@@ -61,7 +61,7 @@ fix_message! {
 
 fix_message! {
     /// Logout(5).
-    Logout = Logout {
+    Logout / LogoutRef = Logout {
         /// Text(58).
         text: opt String = TEXT,
     }
@@ -69,7 +69,7 @@ fix_message! {
 
 fix_message! {
     /// Logon(A).
-    Logon = Logon {
+    Logon / LogonRef = Logon {
         /// EncryptMethod(98).
         encrypt_method: req EncryptMethod = ENCRYPT_METHOD,
         /// HeartBtInt(108).
@@ -97,7 +97,7 @@ fix_message! {
 fix_message! {
     /// BusinessMessageReject(j): an application-level rejection the engine sends on behalf of the
     /// application.
-    BusinessMessageReject = BusinessMessageReject {
+    BusinessMessageReject / BusinessMessageRejectRef = BusinessMessageReject {
         /// RefSeqNum(45).
         ref_seq_num: opt u64 = REF_SEQ_NUM,
         /// RefMsgType(372).

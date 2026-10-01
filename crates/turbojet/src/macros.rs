@@ -136,12 +136,13 @@ macro_rules! fix_enum {
     };
 }
 
-/// Defines a typed message body.
+/// Defines a typed message body, in two forms: `Name`, which owns its values, and its borrowed
+/// twin `NameRef<'a>`, whose string, data, list and group fields borrow from the message.
 ///
 /// ```text
 /// fix_message! {
 ///     /// Docs.
-///     Name = MsgTypeVariant {           // or  Name = "U1" {  for a custom MsgType
+///     Name / NameRef = MsgTypeVariant { // or  Name / NameRef = "U1" {  for a custom MsgType
 ///         field: req Type = TAG,        // required
 ///         field: opt Type = TAG,        // optional: Option<Type>
 ///         field: group Entry = TAG,     // repeating group by its NumInGroup tag: Vec<Entry>
@@ -152,10 +153,16 @@ macro_rules! fix_enum {
 /// }
 /// ```
 ///
-/// - `Type` is anything implementing [`FromFix`](crate::fields::FromFix) and
-///   [`ToFix`](crate::fields::ToFix): `String`, `u32`, `u64`, `i64`, `bool`,
-///   [`Decimal`](crate::fields::Decimal), [`UtcTimestamp`](crate::fields::UtcTimestamp), or an
-///   enum from [`fix_enum!`]. `Entry` is defined with [`fix_group!`](crate::fix_group).
+/// A message has at least one field.
+///
+/// - `Type` is anything implementing [`FromFix`](crate::fields::FromFix),
+///   [`ToFix`](crate::fields::ToFix) and [`FieldRef`](crate::fields::FieldRef): `String`, `u32`,
+///   `u64`, `i64`, `bool`, [`Decimal`](crate::fields::Decimal),
+///   [`UtcTimestamp`](crate::fields::UtcTimestamp), or an enum from [`fix_enum!`]. `Entry` is
+///   defined with [`fix_group!`](crate::fix_group).
+/// - In `NameRef`, a field has its type's borrowed form ([`FieldRef::Ref`](crate::fields::FieldRef::Ref):
+///   `&str` for a `String`), a group is a [`Group`](crate::message::Group) of `EntryRef`s, and a
+///   data field is a `&[u8]`.
 /// - `TAG` is a path to a `u32` constant: Turbojet's are in
 ///   [`tags`](crate::message::tags); define your own for custom tags. Tags are matched as
 ///   patterns, so a misspelt one is a compile error.
@@ -170,14 +177,17 @@ macro_rules! fix_enum {
 ///   there already.
 /// - Fields are written in declaration order, after the standard header the session adds.
 ///   Parsing is a single pass that takes each tag's first occurrence and ignores unknown tags.
+///   It builds `NameRef`, checking every field, so it allocates nothing; parsing `Name` is that
+///   followed by [`into_owned`](crate::message::FixMessageRef::into_owned), and fails alike.
 ///   A group that is malformed, or has an entry that fails to parse, fails the parse where it is
 ///   found; otherwise the error is for the first field, in declaration order, that is missing or
 ///   has a value that doesn't convert.
 ///
-/// Generates the struct, [`FixMessage`](crate::message::FixMessage) and `From<_> for Message`.
+/// Generates the struct, [`FixMessage`](crate::message::FixMessage) and `From<Name> for Message`;
+/// and `NameRef`, [`FixMessageRef`](crate::message::FixMessageRef) and `From<NameRef> for Name`.
 ///
 /// ```
-/// use turbojet::message::FixMessage;
+/// use turbojet::message::{FixMessage, FixMessageRef};
 /// use turbojet::{fix_enum, fix_group, fix_message, Message, MsgType};
 ///
 /// // A venue's custom tags, alongside the standard ones.
@@ -194,12 +204,12 @@ macro_rules! fix_enum {
 /// }
 ///
 /// fix_group! {
-///     Note { note: req String = NOTE }
+///     Note / NoteRef { note: req String = NOTE }
 /// }
 ///
 /// fix_message! {
 ///     /// The venue's order acknowledgement, MsgType U1.
-///     VenueAck = "U1" {
+///     VenueAck / VenueAckRef = "U1" {
 ///         cl_ord_id: req String = CL_ORD_ID,
 ///         flag: opt VenueFlag = VENUE_FLAG,
 ///         notes: group Note = NO_NOTES,
@@ -215,6 +225,12 @@ macro_rules! fix_enum {
 /// assert_eq!(msg.to_string(), "35=U1|11=ORD1|5001=U|5002=1|5003=queued|");
 /// assert_eq!(msg.msg_type(), MsgType::from_code("U1"));
 /// assert_eq!(msg.parse::<VenueAck>().unwrap(), ack);
+///
+/// // Borrowed: the strings are the message's own.
+/// let borrowed = VenueAckRef::from_message(&msg).unwrap();
+/// assert_eq!(borrowed.cl_ord_id, "ORD1");
+/// assert_eq!(borrowed.notes.iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
+/// assert_eq!(borrowed.into_owned(), ack);
 /// ```
 ///
 /// A tag that doesn't exist fails to compile, rather than silently matching everything:
@@ -222,7 +238,7 @@ macro_rules! fix_enum {
 /// ```compile_fail
 /// use turbojet::message::tags::*;
 /// turbojet::fix_message! {
-///     Oops = NewOrderSingle { cl_ord_id: req String = CL_ORD_IDD }
+///     Oops / OopsRef = NewOrderSingle { cl_ord_id: req String = CL_ORD_IDD }
 /// }
 /// ```
 #[macro_export]
@@ -230,47 +246,49 @@ macro_rules! fix_message {
     // Each field's tags travel as one token tree, `[TAG]` or, for a data field, `[LEN => DATA]`.
     (
         $(#[$meta:meta])*
-        $name:ident = $msg_type:ident {
-            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),* $(,)?
+        $name:ident / $ref_name:ident = $msg_type:ident {
+            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@message [$(#[$meta])*] $name, $crate::fields::MsgType::$msg_type,
-            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),*);
+        $crate::fix_message!(@message [$(#[$meta])*] $name, $ref_name, $crate::fields::MsgType::$msg_type,
+            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     (
         $(#[$meta:meta])*
-        $name:ident = $msg_type:literal {
-            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),* $(,)?
+        $name:ident / $ref_name:ident = $msg_type:literal {
+            $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_message!(@message [$(#[$meta])*] $name, $crate::fields::MsgType::from_static($msg_type),
-            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),*);
+        $crate::fix_message!(@message [$(#[$meta])*] $name, $ref_name, $crate::fields::MsgType::from_static($msg_type),
+            $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
-    (@message [$(#[$meta:meta])*] $name:ident, $msg_type:expr,
-        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),*) => {
+    (@message [$(#[$meta:meta])*] $name:ident, $ref_name:ident, $msg_type:expr,
+        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq)]
         pub struct $name {
-            $( $(#[$fmeta])* pub $field: $crate::fix_message!(@type $presence $ty), )*
+            $( $(#[$fmeta])* pub $field: $crate::fix_message!(@type $presence $ty), )+
         }
 
         impl $crate::message::FixMessage for $name {
             const MSG_TYPE: $crate::fields::MsgType = $msg_type;
+            type Ref<'a> = $ref_name<'a>;
 
             fn from_message(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse msg.body(), false, $( $field : $presence $ty = $tags ),*)
+                <$ref_name<'_> as $crate::message::FixMessageRef<'_>>::from_message(msg)
+                    .map($crate::message::FixMessageRef::into_owned)
             }
 
             fn from_message_strict(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse msg.body(), true, $( $field : $presence $ty = $tags ),*)
+                <$ref_name<'_> as $crate::message::FixMessageRef<'_>>::from_message_strict(msg)
+                    .map($crate::message::FixMessageRef::into_owned)
             }
 
             fn to_message(&self) -> $crate::message::Message {
                 // Room for MsgType, every field, and typical value lengths.
-                const FIELDS: usize = 1 $( + $crate::fix_message!(@one $field) )*;
-                #[allow(unused_mut)]
+                const FIELDS: usize = 1 $( + $crate::fix_message!(@one $field) )+;
                 let mut msg = $crate::message::Message::with_capacity(Self::MSG_TYPE, 16 * FIELDS, FIELDS);
-                $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )*
+                $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )+
                 msg
             }
         }
@@ -278,6 +296,35 @@ macro_rules! fix_message {
         impl From<$name> for $crate::message::Message {
             fn from(body: $name) -> Self {
                 $crate::message::FixMessage::to_message(&body)
+            }
+        }
+
+        #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub struct $ref_name<'a> {
+            $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
+        }
+
+        impl<'a> $crate::message::FixMessageRef<'a> for $ref_name<'a> {
+            const MSG_TYPE: $crate::fields::MsgType = $msg_type;
+            type Owned = $name;
+
+            fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                $crate::fix_message!(@parse 'a, msg.body(), false, $( $field : $presence $ty = $tags ),+)
+            }
+
+            fn from_message_strict(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                $crate::fix_message!(@parse 'a, msg.body(), true, $( $field : $presence $ty = $tags ),+)
+            }
+
+            fn into_owned(self) -> $name {
+                $name { $( $field: $crate::fix_message!(@into_owned 'a, $presence $ty, self.$field), )+ }
+            }
+        }
+
+        impl From<$ref_name<'_>> for $name {
+            fn from(body: $ref_name<'_>) -> Self {
+                $crate::message::FixMessageRef::into_owned(body)
             }
         }
     };
@@ -291,14 +338,16 @@ macro_rules! fix_message {
     // a group error ends the pass at once, but a conversion failure is only noted (keeping the
     // earliest-declared one), and at the end the first of it and any missing required field wins.
     // With `$strict`, the first body tag not declared here is an error, once the rest is valid.
-    (@parse $fields:expr, $strict:expr, $( $field:ident : $presence:ident $ty:ty = $tags:tt ),*) => {{
-        let fields: $crate::message::Fields<'_> = $fields;
-        $( #[allow(unused_mut)] let mut $field = $crate::fix_message!(@slot $presence $ty); )*
+    //
+    // It builds the borrowed form, `Self`, whose values borrow from the message, `$lt`.
+    (@parse $lt:lifetime, $fields:expr, $strict:expr, $( $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {{
+        let fields: $crate::message::Fields<$lt> = $fields;
+        $( let mut $field = $crate::fix_message!(@slot $lt, $presence $ty); )+
         #[allow(unused_mut)]
         let mut failed: ::std::option::Option<$crate::message::FieldError> = None;
         let mut undeclared: ::std::option::Option<u32> = None;
         // An item, so not hygienic: named to stay clear of callers' tag constants.
-        const __DECLARED_TAGS: &[u32] = &[$( $crate::fix_message!(@key $tags) ),*];
+        const __DECLARED_TAGS: &[u32] = &[$( $crate::fix_message!(@key $tags) ),+];
         let (mut index, end) = fields.bounds();
         #[allow(unreachable_patterns)]
         while index < end {
@@ -310,7 +359,7 @@ macro_rules! fix_message {
             index = match tag {
                 // A data field's Length field matches too, so it counts as declared.
                 $( $crate::fix_message!(@pattern $tags) =>
-                    $crate::fix_message!(@take $presence $ty, $field, fields, index, tag, value, failed, __DECLARED_TAGS, $tags), )*
+                    $crate::fix_message!(@take $lt, $presence $ty, $field, fields, index, tag, value, failed, __DECLARED_TAGS, $tags), )+
                 _ => {
                     if $strict && undeclared.is_none() && !$crate::message::is_header_or_trailer(tag) {
                         undeclared = Some(tag);
@@ -330,10 +379,10 @@ macro_rules! fix_message {
                     });
                 }
                 _at += 1;
-            )*
+            )+
             return Err(error);
         }
-        let value = Self { $( $field: $crate::fix_message!(@finish $presence $ty, $field, $tags), )* };
+        let value = Self { $( $field: $crate::fix_message!(@finish $presence $ty, $field, $tags), )+ };
         if let Some(tag) = undeclared {
             return Err($crate::message::FieldError { tag, kind: $crate::message::FieldErrorKind::NotDefined });
         }
@@ -355,30 +404,47 @@ macro_rules! fix_message {
     (@type req_group $ty:ty) => { Vec<$ty> };
     (@type data $ty:ty) => { $ty };
     (@type opt_data $ty:ty) => { Option<$ty> };
-    (@slot req $ty:ty) => { None::<$ty> };
-    (@slot opt $ty:ty) => { None::<$ty> };
-    (@slot group $ty:ty) => { None::<Vec<$ty>> };
-    (@slot req_group $ty:ty) => { None::<Vec<$ty>> };
-    (@slot data $ty:ty) => { None::<$ty> };
-    (@slot opt_data $ty:ty) => { None::<$ty> };
-    (@take req $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
-        $crate::fix_message!(@take opt $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
+    // A field's type in the borrowed form, borrowing from the message for `$lt`.
+    (@reftype $lt:lifetime, req $ty:ty) => { <$ty as $crate::fields::FieldRef<$lt>>::Ref };
+    (@reftype $lt:lifetime, opt $ty:ty) => { Option<<$ty as $crate::fields::FieldRef<$lt>>::Ref> };
+    (@reftype $lt:lifetime, group $ty:ty) => {
+        $crate::message::Group<$lt, <$ty as $crate::message::FixGroup>::Ref<$lt>>
     };
-    (@take opt $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
-        $crate::message::take_value::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
+    (@reftype $lt:lifetime, req_group $ty:ty) => { $crate::fix_message!(@reftype $lt, group $ty) };
+    (@reftype $lt:lifetime, data $ty:ty) => { &$lt [u8] };
+    (@reftype $lt:lifetime, opt_data $ty:ty) => { Option<&$lt [u8]> };
+    // A borrowed field's owned value.
+    (@into_owned $lt:lifetime, req $ty:ty, $value:expr) => { <$ty as $crate::fields::FieldRef<$lt>>::into_owned($value) };
+    (@into_owned $lt:lifetime, opt $ty:ty, $value:expr) => { $value.map(<$ty as $crate::fields::FieldRef<$lt>>::into_owned) };
+    (@into_owned $lt:lifetime, group $ty:ty, $value:expr) => { $value.into_owned() };
+    (@into_owned $lt:lifetime, req_group $ty:ty, $value:expr) => { $value.into_owned() };
+    (@into_owned $lt:lifetime, data $ty:ty, $value:expr) => { $value.to_vec() };
+    (@into_owned $lt:lifetime, opt_data $ty:ty, $value:expr) => { $value.map(<[u8]>::to_vec) };
+    // Each field's slot while parsing: its borrowed value, if found yet.
+    (@slot $lt:lifetime, req $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, req $ty)> };
+    (@slot $lt:lifetime, opt $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, req $ty)> };
+    (@slot $lt:lifetime, group $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, group $ty)> };
+    (@slot $lt:lifetime, req_group $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, group $ty)> };
+    (@slot $lt:lifetime, data $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, data $ty)> };
+    (@slot $lt:lifetime, opt_data $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, data $ty)> };
+    (@take $lt:lifetime, req $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::fix_message!(@take $lt, opt $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
+    };
+    (@take $lt:lifetime, opt $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+        $crate::message::take_value_ref::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
         $index + 1
     }};
-    (@take req_group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
-        $crate::fix_message!(@take group $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
+    (@take $lt:lifetime, req_group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::fix_message!(@take $lt, group $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
-        $crate::message::take_group::<$ty>(&mut $slot, &$fields, $index, $tag)?
+    (@take $lt:lifetime, group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+        $crate::message::take_group_ref::<<$ty as $crate::message::FixGroup>::Ref<$lt>>(&mut $slot, &$fields, $index, $tag)?
     }};
-    (@take data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
-        $crate::fix_message!(@take opt_data $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
+    (@take $lt:lifetime, data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::fix_message!(@take $lt, opt_data $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take opt_data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
-        $crate::message::take_data(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
+    (@take $lt:lifetime, opt_data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+        $crate::message::take_data_ref(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
     };
     // Whether a field fails as missing, for the error path.
     (@missing req $slot:ident) => { $slot.is_none() };
@@ -391,7 +457,7 @@ macro_rules! fix_message {
     (@finish opt $ty:ty, $slot:ident, $tags:tt) => { $slot };
     (@finish group $ty:ty, $slot:ident, $tags:tt) => { $slot.unwrap_or_default() };
     (@finish req_group $ty:ty, $slot:ident, $tags:tt) => {
-        $crate::message::required_group($crate::fix_message!(@key $tags), $slot)?
+        $crate::message::required_group_ref($crate::fix_message!(@key $tags), $slot)?
     };
     (@finish data $ty:ty, $slot:ident, $tags:tt) => { $crate::fix_message!(@finish req $ty, $slot, $tags) };
     (@finish opt_data $ty:ty, $slot:ident, $tags:tt) => { $slot };
@@ -423,24 +489,26 @@ macro_rules! fix_message {
     };
 }
 
-/// Defines a repeating-group entry, with fields declared as in [`fix_message!`]. The first field
+/// Defines a repeating-group entry, `Name / NameRef { fields }`, with fields declared as in
+/// [`fix_message!`], which also says what the borrowed form `NameRef<'a>` holds. The first field
 /// is the group's delimiter, which starts every entry; make it `req`, or, if it's a nested group
 /// (its NumInGroup is then the delimiter), `req_group`. Groups may nest.
 ///
 /// Generates the struct and [`FixGroup`](crate::message::FixGroup), including its
-/// [`GroupSpec`](crate::message::GroupSpec).
+/// [`GroupSpec`](crate::message::GroupSpec); and `NameRef`,
+/// [`FixGroupRef`](crate::message::FixGroupRef) and `From<NameRef> for Name`.
 #[macro_export]
 macro_rules! fix_group {
     (
         $(#[$meta:meta])*
-        $name:ident {
+        $name:ident / $ref_name:ident {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
-        $crate::fix_group!(@group [$(#[$meta])*] $name,
+        $crate::fix_group!(@group [$(#[$meta])*] $name, $ref_name,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
-    (@group [$(#[$meta:meta])*] $name:ident,
+    (@group [$(#[$meta:meta])*] $name:ident, $ref_name:ident,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq)]
@@ -453,15 +521,41 @@ macro_rules! fix_group {
                 fields: &[ $( ($crate::fix_message!(@key $tags), $crate::fix_message!(@spec $presence $ty)) ),+ ],
                 lengths: &[ $( $crate::fix_message!(@length $tags) ),+ ],
             };
+            type Ref<'a> = $ref_name<'a>;
 
             fn from_fields(entry: $crate::message::Fields<'_>) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                // An undeclared tag ends a group entry, so strictness is the message's to apply.
-                $crate::fix_message!(@parse entry, false, $( $field : $presence $ty = $tags ),+)
+                <$ref_name<'_> as $crate::message::FixGroupRef<'_>>::from_fields(entry)
+                    .map($crate::message::FixGroupRef::into_owned)
             }
 
             #[allow(unused_mut)]
             fn write(&self, mut msg: &mut $crate::message::Message) {
                 $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )+
+            }
+        }
+
+        #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub struct $ref_name<'a> {
+            $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
+        }
+
+        impl<'a> $crate::message::FixGroupRef<'a> for $ref_name<'a> {
+            type Owned = $name;
+
+            fn from_fields(entry: $crate::message::Fields<'a>) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                // An undeclared tag ends a group entry, so strictness is the message's to apply.
+                $crate::fix_message!(@parse 'a, entry, false, $( $field : $presence $ty = $tags ),+)
+            }
+
+            fn into_owned(self) -> $name {
+                $name { $( $field: $crate::fix_message!(@into_owned 'a, $presence $ty, self.$field), )+ }
+            }
+        }
+
+        impl From<$ref_name<'_>> for $name {
+            fn from(entry: $ref_name<'_>) -> Self {
+                $crate::message::FixGroupRef::into_owned(entry)
             }
         }
     };
@@ -470,18 +564,18 @@ macro_rules! fix_group {
 #[cfg(test)]
 mod tests {
     use crate::message::tags::*;
-    use crate::message::{FixMessage, Message, tags};
+    use crate::message::{FixMessage, FixMessageRef, Message, tags};
 
     fix_group! {
         /// A nested group, keyed by existing tags for the test.
-        Note {
+        Note / NoteRef {
             id: req String = TRADING_SESSION_ID,
         }
     }
 
     fix_group! {
         /// A group with a member (Text) that also appears at the top level, and a nested group.
-        Leg {
+        Leg / LegRef {
             account: req String = ALLOC_ACCOUNT,
             text: opt String = TEXT,
             notes: group Note = NO_TRADING_SESSIONS,
@@ -489,7 +583,7 @@ mod tests {
     }
 
     fix_message! {
-        TestOrder = NewOrderSingle {
+        TestOrder / TestOrderRef = NewOrderSingle {
             legs: group Leg = NO_ALLOCS,
             symbol: req String = SYMBOL,
             text: opt String = TEXT,
@@ -498,14 +592,14 @@ mod tests {
 
     fix_group! {
         /// An entry whose nested group is required.
-        Allocation {
+        Allocation / AllocationRef {
             account: req String = ALLOC_ACCOUNT,
             sessions: req_group Note = NO_TRADING_SESSIONS,
         }
     }
 
     fix_message! {
-        TestAllocation = "J" {
+        TestAllocation / TestAllocationRef = "J" {
             id: req String = CL_ORD_ID,
             allocs: req_group Allocation = NO_ALLOCS,
             text: opt String = TEXT,
@@ -544,7 +638,7 @@ mod tests {
     }
 
     fix_message! {
-        LenientOrder = NewOrderSingle {
+        LenientOrder / LenientOrderRef = NewOrderSingle {
             side: req crate::fields::Code<TestSide> = SIDE,
             ord_type: opt crate::fields::Code<TestSide> = ORD_TYPE,
         }
@@ -563,14 +657,14 @@ mod tests {
 
     fix_group! {
         /// A group whose entries carry a password.
-        Credential {
+        Credential / CredentialRef {
             user: req String = USERNAME,
             secret: opt crate::fields::Secret = PASSWORD,
         }
     }
 
     fix_message! {
-        TestLogon = Logon {
+        TestLogon / TestLogonRef = Logon {
             username: opt String = USERNAME,
             password: opt crate::fields::Secret = PASSWORD,
             new_password: opt crate::fields::Secret = NEW_PASSWORD,
@@ -605,14 +699,14 @@ mod tests {
 
     fix_group! {
         /// An entry that starts with a nested group, whose NumInGroup is then the delimiter.
-        Assignment {
+        Assignment / AssignmentRef {
             notes: req_group Note = NO_TRADING_SESSIONS,
             text: opt String = TEXT,
         }
     }
 
     fix_message! {
-        TestAssignments = NewOrderSingle {
+        TestAssignments / TestAssignmentsRef = NewOrderSingle {
             assignments: group Assignment = NO_ALLOCS,
             symbol: req String = SYMBOL,
         }
@@ -708,7 +802,7 @@ mod tests {
 
     fix_message! {
         /// Fields whose values can fail to convert, declared out of tag order.
-        TestErrors = "U9" {
+        TestErrors / TestErrorsRef = "U9" {
             leaves: req u32 = LEAVES_QTY,
             id: req String = CL_ORD_ID,
             qty: opt u64 = ORDER_QTY,
@@ -769,7 +863,7 @@ mod tests {
 
     fix_group! {
         /// An entry with a venue's data field between two others.
-        Attachment {
+        Attachment / AttachmentRef {
             account: req String = ALLOC_ACCOUNT,
             blob: opt_data Vec<u8> = VENUE_DATA_LEN => VENUE_DATA,
             text: opt String = TEXT,
@@ -777,7 +871,7 @@ mod tests {
     }
 
     fix_message! {
-        DataOrder = NewOrderSingle {
+        DataOrder / DataOrderRef = NewOrderSingle {
             raw_data: data Vec<u8> = RAW_DATA_LENGTH => RAW_DATA,
             xml_data: opt_data Vec<u8> = XML_DATA_LEN => XML_DATA,
             attachments: group Attachment = NO_ALLOCS,
@@ -835,7 +929,7 @@ mod tests {
     }
 
     fix_message! {
-        TextOrder = NewOrderSingle {
+        TextOrder / TextOrderRef = NewOrderSingle {
             raw_data: opt String = RAW_DATA,
         }
     }
@@ -847,5 +941,134 @@ mod tests {
         assert_eq!((err.tag, err.kind), (RAW_DATA, crate::message::FieldErrorKind::IncorrectFormat(String::new())));
         let text = Message::new(crate::fields::MsgType::NewOrderSingle).with_data(RAW_DATA_LENGTH, RAW_DATA, b"ok");
         assert_eq!(text.parse::<TextOrder>().unwrap().raw_data.as_deref(), Some("ok"));
+    }
+
+    // ---- The borrowed form ----
+
+    /// Parses `text` as `T` and as `T::Ref`, leniently and strictly, and checks that the two
+    /// agree: the borrowed value made owned is the owned value, or both fail with the same error.
+    fn assert_same_parse<T: FixMessage + PartialEq + std::fmt::Debug>(text: &str) {
+        let msg = raw(text);
+        let owned = T::from_message(&msg);
+        let borrowed = <T::Ref<'_> as FixMessageRef<'_>>::from_message(&msg);
+        assert_eq!(borrowed.map(FixMessageRef::into_owned), owned, "{text}");
+        let owned = T::from_message_strict(&msg);
+        let borrowed = <T::Ref<'_> as FixMessageRef<'_>>::from_message_strict(&msg);
+        assert_eq!(borrowed.map(FixMessageRef::into_owned), owned, "strict: {text}");
+    }
+
+    #[test]
+    fn the_borrowed_form_parses_as_the_owned_one_does() {
+        let orders = [
+            "35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|",
+            "35=D|78=1|79=A|58=inside|55=AAPL|",
+            "35=D|78=2|79=A|55=AAPL|",
+            "35=D|78=1|79=A|386=1|55=AAPL|",
+            "35=D|55=X|9999=extra|",
+            "35=D|58=no symbol|",
+        ];
+        for text in orders {
+            assert_same_parse::<TestOrder>(text);
+        }
+        let allocations = [
+            "35=J|11=A1|78=2|79=X|386=1|336=S1|79=Y|386=2|336=S2|336=S3|58=hi|",
+            "35=J|11=A1|58=hi|",
+            "35=J|11=A1|78=0|58=hi|",
+            "35=J|11=A1|78=1|79=X|",
+            "35=J|11=A1|78=1|79=X|386=0|",
+            "35=J|78=1|79=A|",
+        ];
+        for text in allocations {
+            assert_same_parse::<TestAllocation>(text);
+        }
+        let errors = [
+            "35=U9|11=A|123=x|38=y|151=z|",
+            "35=U9|151=1|11=A|123=x|38=y|386=1|336=S|",
+            "35=U9|38=y|",
+            "35=U9|151=z|",
+            "35=U9|38=y|151=1|",
+            "35=U9|123=x|151=1|11=A|",
+            "35=U9|123=x|151=1|11=A|386=0|",
+            "35=U9|123=x|151=1|11=A|386=1|336=S|",
+            "35=U9|151=z|78=2|79=A|",
+            "35=U9|151=1|11=A|38=5|38=y|386=1|336=S|",
+            "35=U9|151=1|11=A|38=y|38=5|386=1|336=S|",
+            "35=U9|151=z|151=w|11=A|386=1|336=S|",
+            "35=U9|151=1|11=A|386=1|336=S|9999=x|",
+        ];
+        for text in errors {
+            assert_same_parse::<TestErrors>(text);
+        }
+        assert_same_parse::<TestAssignments>("35=D|78=2|386=2|336=A|336=B|58=first|386=1|336=C|55=X|");
+        assert_same_parse::<TestAssignments>("35=D|78=1|58=lost|55=X|");
+        assert_same_parse::<LenientOrder>("35=D|54=Z|40=1|");
+        assert_same_parse::<DataOrder>("35=D|55=IBM|");
+    }
+
+    #[test]
+    fn borrowed_fields_point_into_the_message() {
+        let msg = raw("35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|");
+        let order = TestOrderRef::from_message(&msg).unwrap();
+        assert_eq!((order.symbol, order.text), ("AAPL", Some("outside")));
+        assert_eq!(order.symbol.as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
+        // Copy, and convertible either way to the owned form.
+        let copy = order;
+        assert_eq!(copy, order);
+        let owned: TestOrder = order.into();
+        assert_eq!(owned, msg.parse::<TestOrder>().unwrap());
+    }
+
+    #[test]
+    fn a_borrowed_nested_group_iterates_as_the_owned_one() {
+        let msg = raw("35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|");
+        let borrowed = TestOrderRef::from_message(&msg).unwrap();
+        let owned: TestOrder = msg.parse().unwrap();
+        let borrowed_notes: Vec<Vec<&str>> =
+            borrowed.legs.iter().map(|leg| leg.notes.iter().map(|note| note.id).collect()).collect();
+        let owned_notes: Vec<Vec<&str>> =
+            owned.legs.iter().map(|leg| leg.notes.iter().map(|note| note.id.as_str()).collect()).collect();
+        assert_eq!(borrowed_notes, owned_notes);
+        assert_eq!(borrowed_notes, [vec!["S1", "S2"], vec![]]);
+        assert_eq!(borrowed.legs.into_owned(), owned.legs);
+        // A required group is never empty.
+        let msg = raw("35=J|11=A1|78=1|79=X|386=1|336=S1|");
+        let alloc = TestAllocationRef::from_message(&msg).unwrap();
+        assert_eq!(alloc.allocs.iter().next().map(|a| a.sessions.len()), Some(1));
+    }
+
+    #[test]
+    fn borrowed_data_fields_are_the_message_bytes() {
+        let wire = crate::codec::encode(&data_order().to_message().with(BEGIN_STRING, "FIX.4.4")).unwrap();
+        let data = crate::message::DataFields::standard().with(VENUE_DATA_LEN, VENUE_DATA);
+        let crate::codec::Decoded::Message(msg, _) = crate::codec::decode_with(&wire, &data) else { panic!() };
+        let order = DataOrderRef::from_message(&msg).unwrap();
+        assert_eq!(order.raw_data, b"\xff\x01\x00", "not UTF-8");
+        assert_eq!(order.raw_data.as_ptr(), msg.get_bytes(RAW_DATA).unwrap().as_ptr(), "not a copy");
+        assert_eq!(order.xml_data, None);
+        let blobs: Vec<Option<&[u8]>> = order.attachments.iter().map(|a| a.blob).collect();
+        assert_eq!(blobs, [Some(&b"x\x01y"[..]), None]);
+        assert_eq!(order.into_owned(), data_order());
+        assert_eq!(DataOrderRef::from_message_strict(&msg).unwrap(), order, "length fields are declared");
+    }
+
+    #[test]
+    fn the_borrowed_form_is_strict_on_request() {
+        let msg = raw("35=D|55=X|9999=extra|");
+        assert!(TestOrderRef::from_message(&msg).is_ok());
+        let err = TestOrderRef::from_message_strict(&msg).unwrap_err();
+        assert_eq!((err.tag, err.kind), (9999, crate::message::FieldErrorKind::NotDefined));
+        assert_eq!(<TestOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, TestOrder::MSG_TYPE);
+    }
+
+    #[test]
+    fn borrowed_debug_masks_passwords() {
+        let msg = raw("35=A|553=trader|554=hunter2|78=1|553=ops|554=hunter4|");
+        let logon = TestLogonRef::from_message(&msg).unwrap();
+        let debug = format!("{logon:?}");
+        assert_eq!(
+            debug,
+            "TestLogonRef { username: Some(\"trader\"), password: Some(***), new_password: None, \
+             credentials: [CredentialRef { user: \"ops\", secret: Some(***) }] }"
+        );
     }
 }

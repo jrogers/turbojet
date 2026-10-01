@@ -6,7 +6,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use crate::codec::push_digits;
-use crate::fields::{FromFix, MsgType, SessionRejectReason, ToFix, ValueError};
+use crate::fields::{FieldRef, FromFix, MsgType, SessionRejectReason, ToFix, ValueError};
 
 mod data;
 
@@ -830,22 +830,22 @@ pub fn conversion_failed(failed: &mut Option<FieldError>, tags: &[u32], tag: u32
 // inlined into every field of every generated message, they made large dictionaries slow to
 // compile (FIX 4.4's messages took 75 s in release, against 16 s) for a few percent of speed.
 
-/// Converts a field's first occurrence into its slot; a failure, including a binary value
-/// (`None`) in a field that isn't declared as data, is noted in `failed` (see
-/// [`conversion_failed`]). Later occurrences are ignored.
+/// Converts a field's first occurrence into its slot, borrowed from the message; a failure,
+/// including a binary value (`None`) in a field that isn't declared as data, is noted in `failed`
+/// (see [`conversion_failed`]). Later occurrences are ignored.
 #[doc(hidden)]
 #[inline(never)]
-pub fn take_value<T: FromFix>(
-    slot: &mut Option<T>,
+pub fn take_value_ref<'a, T: FieldRef<'a>>(
+    slot: &mut Option<T::Ref>,
     failed: &mut Option<FieldError>,
     tags: &[u32],
     tag: u32,
-    raw: Option<&str>,
+    raw: Option<&'a str>,
 ) {
     // After a failed conversion the slot stays empty and a repeat is converted too, but the parse
     // fails anyway, with the first occurrence's error.
     if slot.is_none() {
-        match raw.map(T::from_fix) {
+        match raw.map(T::parse_ref) {
             Some(Ok(value)) => *slot = Some(value),
             Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
             None => conversion_failed(failed, tags, tag, "", ValueError::Format),
@@ -853,11 +853,10 @@ pub fn take_value<T: FromFix>(
     }
 }
 
-/// Reads the repeating group whose NumInGroup field is at `index` into its slot, and returns the
-/// index after it. A second occurrence is skipped, like any repeated field.
-#[doc(hidden)]
-#[inline(never)]
-pub fn take_group<G: FixGroup>(
+/// Reads the repeating group whose NumInGroup field is at `index` into its slot, owned, and
+/// returns the index after it; what [`take_group_ref`] is checked against.
+#[cfg(test)]
+fn take_group<G: FixGroup>(
     slot: &mut Option<Vec<G>>,
     fields: &Fields<'_>,
     index: usize,
@@ -872,8 +871,8 @@ pub fn take_group<G: FixGroup>(
 }
 
 /// Checks the repeating group whose NumInGroup field is at `index` and stores it in its slot,
-/// borrowed, returning the index after it; as [`take_group`], which it mirrors: a second
-/// occurrence is skipped, and an entry that fails to parse fails with the same error.
+/// borrowed, returning the index after it. A second occurrence is skipped, like any repeated
+/// field, and an entry that fails to parse fails the parse.
 #[doc(hidden)]
 #[inline(never)]
 pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
@@ -886,13 +885,13 @@ pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
         return Ok(index + 1);
     }
     let spec = &<G::Owned as FixGroup>::SPEC;
-    // Within the view, as `Fields::group_at` scans.
+    // Within the view, as `Fields::group` scans.
     let (count, end) = check_group(fields.msg, index, fields.end, tag, spec)?;
     let group = Group::new(fields.msg, index + 1, end, count);
-    // Each entry is parsed now, in order, so a bad one fails the parse as `take_group` does; the
-    // entries are parsed again as the group is iterated. Not inside the walk above: a structural
-    // error anywhere in the group must win over an earlier entry's conversion error, as it does
-    // in `take_group`, which scans the whole group before converting any entry.
+    // Each entry is parsed now, in order, so a bad one fails the parse; the entries are parsed
+    // again as the group is iterated. Not inside the walk above: the group is checked whole before
+    // any entry is converted, so a structural error anywhere in it wins over an earlier entry's
+    // conversion error.
     let mut parsed = 0usize;
     for entry in group.entries() {
         G::from_fields(entry)?;
@@ -910,13 +909,19 @@ pub fn write_value<T: ToFix>(msg: &mut Message, tag: u32, value: &T) {
     msg.push(tag, value);
 }
 
-/// Takes a data field's first occurrence into its slot; its Length field, which comes first and
-/// which decoding has already checked, is skipped.
+/// Takes a data field's first occurrence into its slot, borrowed from the message; its Length
+/// field, which comes first and which decoding has already checked, is skipped.
 #[doc(hidden)]
 #[inline(never)]
-pub fn take_data(slot: &mut Option<Vec<u8>>, fields: &Fields<'_>, index: usize, tag: u32, data_tag: u32) -> usize {
+pub fn take_data_ref<'a>(
+    slot: &mut Option<&'a [u8]>,
+    fields: &Fields<'a>,
+    index: usize,
+    tag: u32,
+    data_tag: u32,
+) -> usize {
     if tag == data_tag && slot.is_none() {
-        *slot = Some(fields.bytes_at(index).to_vec());
+        *slot = Some(fields.bytes_at(index));
     }
     index + 1
 }
@@ -946,10 +951,11 @@ pub fn declared_at(tags: &[u32], tag: u32) -> usize {
     tags.iter().position(|&t| t == tag).unwrap_or(usize::MAX)
 }
 
-/// A required group's entries: `Missing` if absent or empty.
+/// A required group: `Missing` if absent or empty.
 #[doc(hidden)]
-pub fn required_group<T>(tag: u32, entries: Option<Vec<T>>) -> Result<Vec<T>, FieldError> {
-    entries.filter(|entries| !entries.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
+#[inline(never)]
+pub fn required_group_ref<G>(tag: u32, group: Option<Group<'_, G>>) -> Result<Group<'_, G>, FieldError> {
+    group.filter(|group| !group.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
 }
 
 /// Defines a repeating group: its fields in order, the first being the *delimiter* that starts
@@ -1072,13 +1078,8 @@ impl<'a> Fields<'a> {
 
     /// Scans the group whose NumInGroup field is at `index`, returning its entries and the index
     /// just past it.
-    #[doc(hidden)]
-    pub fn group_at(
-        &self,
-        index: usize,
-        count_tag: u32,
-        spec: &GroupSpec,
-    ) -> Result<(Vec<Fields<'a>>, usize), FieldError> {
+    #[cfg(test)]
+    fn group_at(&self, index: usize, count_tag: u32, spec: &GroupSpec) -> Result<(Vec<Fields<'a>>, usize), FieldError> {
         let (entries, end) = scan_group(self.msg, index, self.end, count_tag, spec)?;
         let msg = self.msg;
         Ok((entries.into_iter().map(|(start, end)| Fields { msg, start, end, excluded: Vec::new() }).collect(), end))
@@ -1311,6 +1312,9 @@ pub trait FixGroup: Sized {
     /// The group's fields, delimiter first.
     const SPEC: GroupSpec;
 
+    /// The entry's borrowed form, which parses it.
+    type Ref<'a>: FixGroupRef<'a, Owned = Self>;
+
     /// Reads one entry from its fields.
     fn from_fields(entry: Fields<'_>) -> Result<Self, FieldError>;
 
@@ -1510,6 +1514,9 @@ pub trait FixMessage: Sized + Into<Message> {
     /// The message's MsgType(35).
     const MSG_TYPE: MsgType;
 
+    /// The message's borrowed form, which parses it.
+    type Ref<'a>: FixMessageRef<'a, Owned = Self>;
+
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
     /// ignored.
     fn from_message(msg: &Message) -> Result<Self, FieldError>;
@@ -1520,6 +1527,30 @@ pub trait FixMessage: Sized + Into<Message> {
 
     /// The message body, starting with MsgType(35). The session adds the standard header.
     fn to_message(&self) -> Message;
+}
+
+/// A typed message's borrowed form, generated by `fix_message!` as `NameRef<'a>`: string, data,
+/// list and group fields borrow from the message, so parsing allocates nothing.
+///
+/// It parses as the owned message does, which is parsed through it: the same fields are checked
+/// and the same errors reported.
+pub trait FixMessageRef<'a>: Copy + Sized {
+    /// The message's MsgType(35).
+    const MSG_TYPE: MsgType;
+
+    /// The owned message.
+    type Owned: FixMessage;
+
+    /// Reads the body fields; header fields, and body fields the message doesn't define, are
+    /// ignored.
+    fn from_message(msg: &'a Message) -> Result<Self, FieldError>;
+
+    /// [`from_message`](Self::from_message), failing with [`FieldErrorKind::NotDefined`] on the
+    /// first body tag the message doesn't define, if it's otherwise valid.
+    fn from_message_strict(msg: &'a Message) -> Result<Self, FieldError>;
+
+    /// The owned message.
+    fn into_owned(self) -> Self::Owned;
 }
 
 /// A field that is missing or cannot be converted to its type.
@@ -2028,7 +2059,7 @@ mod tests {
 
     crate::fix_group! {
         /// A party's sub-ID, as `SUB_IDS`.
-        SubId {
+        SubId / SubIdRef {
             id: req String = PARTY_SUB_ID,
             kind: opt u32 = PARTY_SUB_ID_TYPE,
         }
@@ -2036,72 +2067,11 @@ mod tests {
 
     crate::fix_group! {
         /// A party, as `PARTIES`.
-        Party {
+        Party / PartyRef {
             id: req String = PARTY_ID,
             source: opt String = PARTY_ID_SOURCE,
             role: opt u32 = PARTY_ROLE,
             sub_ids: group SubId = NO_PARTY_SUB_IDS,
-        }
-    }
-
-    /// `SubId`'s borrowed form, written as `fix_group!` will generate it.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct SubIdRef<'a> {
-        id: &'a str,
-        kind: Option<u32>,
-    }
-
-    impl<'a> FixGroupRef<'a> for SubIdRef<'a> {
-        type Owned = SubId;
-
-        fn from_fields(entry: Fields<'a>) -> Result<Self, FieldError> {
-            Ok(SubIdRef {
-                id: entry.get(PARTY_SUB_ID).expect("the delimiter"),
-                kind: entry.opt_field(PARTY_SUB_ID_TYPE)?,
-            })
-        }
-
-        fn into_owned(self) -> SubId {
-            SubId { id: self.id.to_string(), kind: self.kind }
-        }
-    }
-
-    /// `Party`'s borrowed form, with a nested group.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    struct PartyRef<'a> {
-        id: &'a str,
-        source: Option<&'a str>,
-        role: Option<u32>,
-        sub_ids: Group<'a, SubIdRef<'a>>,
-    }
-
-    impl<'a> FixGroupRef<'a> for PartyRef<'a> {
-        type Owned = Party;
-
-        fn from_fields(entry: Fields<'a>) -> Result<Self, FieldError> {
-            let mut sub_ids = None;
-            let (mut index, end) = entry.bounds();
-            while index < end {
-                index = match entry.at(index).0 {
-                    NO_PARTY_SUB_IDS => take_group_ref(&mut sub_ids, &entry, index, NO_PARTY_SUB_IDS)?,
-                    _ => index + 1,
-                };
-            }
-            Ok(PartyRef {
-                id: entry.get(PARTY_ID).expect("the delimiter"),
-                source: entry.get(PARTY_ID_SOURCE),
-                role: entry.opt_field(PARTY_ROLE)?,
-                sub_ids: sub_ids.unwrap_or_else(Group::empty),
-            })
-        }
-
-        fn into_owned(self) -> Party {
-            Party {
-                id: self.id.to_string(),
-                source: self.source.map(str::to_string),
-                role: self.role,
-                sub_ids: self.sub_ids.into_owned(),
-            }
         }
     }
 

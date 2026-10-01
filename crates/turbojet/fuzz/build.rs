@@ -18,10 +18,10 @@ fn main() {
         println!("cargo::rerun-if-changed={path}");
         let source = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
         writeln!(out, "    ({begin_string:?}, &[").unwrap();
-        // Each message opens with `    Name = "MsgType" {` inside `fix_message!`.
+        // Each message opens with `    Name / NameRef = "MsgType" {` inside `fix_message!`.
         let names: Vec<_> = source
             .lines()
-            .filter_map(|line| line.strip_prefix("    ")?.strip_suffix("\" {")?.split_once(" = \""))
+            .filter_map(|line| line.strip_prefix("    ")?.strip_suffix("\" {")?.split_once(" / "))
             .map(|(name, _)| name)
             .collect();
         assert!(!names.is_empty(), "no messages found in {path}");
