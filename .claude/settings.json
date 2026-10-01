@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo bench *)",
+      "Bash(cargo build *)",
+      "Bash(cargo check *)",
+      "Bash(cargo doc *)",
+      "Bash(cargo fmt --all --check)",
+      "Bash(cargo +1.89 test *)",
+      "Bash(scripts/check.sh)",
+      "Bash(scripts/check.sh *)",
+      "Bash(rustup toolchain list)"
+    ]
+  }
+}
