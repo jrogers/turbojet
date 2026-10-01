@@ -160,6 +160,17 @@ fn nested_groups(c: &mut Criterion) {
     });
     group.finish();
 
+    #[cfg(feature = "validation")]
+    {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dictionaries/orchestra/OrchestraFIX44.xml");
+        let validator = turbojet::validation::Validator::new(&turbojet_dictionary::Dictionary::load(path).unwrap());
+        let mut group = c.benchmark_group("validation");
+        group.bench_function("validate FIX 4.4 NewOrderSingle with nested groups", |b| {
+            b.iter(|| validator.validate(black_box(&nested)).unwrap())
+        });
+        group.finish();
+    }
+
     eprintln!("wire size: FIX 4.4 NewOrderSingle with nested groups {} bytes", encode(&nested).unwrap().len());
     eprintln!(
         "type sizes: NewOrderSingle {} bytes, NewOrderSingleRef {} bytes, \
