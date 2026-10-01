@@ -10,6 +10,7 @@ pub mod net;
 pub mod node;
 pub mod queue;
 pub mod rng;
+pub mod store;
 pub mod time;
 pub mod world;
 

@@ -18,6 +18,7 @@ use crate::net::{ConnId, Net, Params};
 use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
 use crate::rng::Rng;
+use crate::store::LedgerStorage;
 use crate::time::{Clocks, SimTime};
 
 /// How a simulation runs.
@@ -91,7 +92,8 @@ struct Faults {
     connect_max: Duration,
     /// How long TCP keeps retransmitting into a black hole before failing the connection.
     give_up: Duration,
-    /// Resend this many sequence numbers per step, if set.
+    /// Resend this many sequence numbers per step, if set: small, so a resend after a lost
+    /// connection takes several steps, with the driver's input paused between them.
     resend_batch: Option<u64>,
 }
 
@@ -112,7 +114,7 @@ impl Faults {
             refuse: rng.pick(&[0, 100_000, 500_000]),
             connect_max: rng.pick(&[Duration::ZERO, secs(2), secs(15)]),
             give_up: secs(rng.between(60, 300)),
-            resend_batch: None,
+            resend_batch: if rng.chance(330_000) { Some(rng.between(1, 8)) } else { None },
         }
     }
 
@@ -187,7 +189,7 @@ struct World {
     rng: Rng,
     queue: Queue<Event>,
     nodes: [Node; 2],
-    storage: [Arc<MemoryStorage>; 2],
+    storage: [Arc<LedgerStorage>; 2],
     ids: [SessionId; 2],
     net: Net,
     checker: Checker,
@@ -243,9 +245,9 @@ impl World {
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
         initiator.heartbeat_interval = Duration::from_secs(rng.pick(&[1, 2, 5, 10, 30]));
         initiator.reconnect_interval = Duration::from_millis(rng.between(100, 5_000));
-        let mut faults = Faults::draw(&mut rng.fork(), initiator.heartbeat_interval);
-        faults.resend_batch = None;
-        let storage = [Arc::new(MemoryStorage::new()), Arc::new(MemoryStorage::new())];
+        let faults = Faults::draw(&mut rng.fork(), initiator.heartbeat_interval);
+        let ledger = || Arc::new(LedgerStorage::new(Arc::new(MemoryStorage::new())));
+        let storage = [ledger(), ledger()];
         let registry = |side: Side| {
             let storage: Arc<dyn SessionStorage> = storage[side.index()].clone();
             Arc::new(SessionRegistry::new(storage).with_clock(clocks.wall_clock()))
@@ -593,8 +595,15 @@ impl World {
         self.after(side, conn, now)
     }
 
-    /// Checks and counts what `side` wrote.
+    /// Checks what `side`'s store has recorded since the last call.
+    fn sync_ledger(&mut self, side: Side) -> Result<(), Violation> {
+        let ledger = self.storage[side.index()].ledger.lock().unwrap().clone();
+        self.checker.stored(side, &ledger)
+    }
+
+    /// Checks and counts what `side` wrote, after what its store recorded.
     fn observe(&mut self, side: Side, bytes: &[u8], now: SimTime) -> Result<(), Violation> {
+        self.sync_ledger(side)?;
         let mut rest = bytes;
         while let Decoded::Message(msg, len) = decode(rest) {
             if msg.get(tags::POSS_DUP_FLAG) == Some("Y") {
@@ -634,6 +643,9 @@ impl World {
 
     /// Checks deliveries, and schedules what `conn`'s driver on `side` would do next.
     fn after(&mut self, side: Side, conn: ConnId, now: SimTime) -> Result<(), Violation> {
+        for s in [Side::Initiator, Side::Acceptor] {
+            self.sync_ledger(s)?;
+        }
         for s in [Side::Initiator, Side::Acceptor] {
             let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap().clone();
             self.checker.delivered(s, &deliveries)?;

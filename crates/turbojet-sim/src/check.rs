@@ -9,6 +9,7 @@ use turbojet::{Message, MsgType};
 
 use crate::Side;
 use crate::app::{Delivery, id_of};
+use crate::store::Stored;
 use crate::time::SimTime;
 
 /// A broken invariant.
@@ -41,13 +42,23 @@ const RESEND_MAY_CHANGE: &[u32] = &[
     tags::ORIG_SENDING_TIME,
 ];
 
-/// What one side has sent in the current sequence epoch.
-#[derive(Default)]
+/// What one side has committed to sending in the current sequence epoch, from its store, and
+/// what of it has been on the wire.
 struct Sent {
-    /// The MsgSeqNum the next new message must have.
-    next_new: u64,
-    /// Application messages as first sent, by MsgSeqNum.
-    first: BTreeMap<u64, Message>,
+    /// The MsgSeqNum the store must record next.
+    next_recorded: u64,
+    /// Every MsgSeqNum recorded: an application message with the message, a session one `None`.
+    recorded: BTreeMap<u64, Option<Message>>,
+    /// The last new (not PossDup) MsgSeqNum written.
+    last_new: u64,
+    /// Ledger entries already checked.
+    ledger_seen: usize,
+}
+
+impl Default for Sent {
+    fn default() -> Self {
+        Self { next_recorded: 1, recorded: BTreeMap::new(), last_new: 0, ledger_seen: 0 }
+    }
 }
 
 /// What one side's application has received.
@@ -59,20 +70,68 @@ struct Received {
     ids: BTreeMap<String, u64>,
 }
 
+#[derive(Default)]
 pub struct Checker {
     sent: [Sent; 2],
     received: [Received; 2],
 }
 
+fn parse(bytes: &[u8]) -> Option<Message> {
+    match decode(bytes) {
+        Decoded::Message(msg, len) if len == bytes.len() => Some(msg),
+        _ => None,
+    }
+}
+
+fn number(msg: &Message, tag: u32) -> u64 {
+    msg.get(tag).and_then(|s| s.parse().ok()).unwrap_or(0)
+}
+
+/// A message's fields that a resend keeps.
+fn body(msg: &Message) -> Vec<(u32, String)> {
+    msg.fields().filter(|(tag, _)| !RESEND_MAY_CHANGE.contains(tag)).map(|(t, v)| (t, v.to_string())).collect()
+}
+
 impl Checker {
     pub fn new() -> Self {
-        let fresh = || Sent { next_new: 1, first: BTreeMap::new() };
-        Self { sent: [fresh(), fresh()], received: Default::default() }
+        Self::default()
     }
 
-    /// Application messages `side` has sent with a MsgSeqNum, by id.
+    /// Application messages `side` has committed to sending, by id.
     pub fn committed(&self, side: Side) -> impl Iterator<Item = &str> {
-        self.sent[side.index()].first.values().filter_map(id_of)
+        self.sent[side.index()].recorded.values().flatten().filter_map(id_of)
+    }
+
+    /// Rule 2 on what `side`'s store recorded since the last call: each MsgSeqNum once, in order.
+    pub fn stored(&mut self, side: Side, ledger: &[Stored]) -> Result<(), Violation> {
+        let sent = &mut self.sent[side.index()];
+        for entry in &ledger[sent.ledger_seen..] {
+            match entry {
+                Stored::Reset => {
+                    let seen = sent.ledger_seen;
+                    *sent = Sent { ledger_seen: seen, ..Sent::default() };
+                }
+                Stored::Sent { seq, bytes } => {
+                    if *seq != sent.next_recorded {
+                        return Err(violation(
+                            "2 sequence",
+                            format!("{side:?} stored {seq}, expected {}", sent.next_recorded),
+                        ));
+                    }
+                    let msg =
+                        match bytes {
+                            Some(bytes) => Some(parse(bytes).ok_or_else(|| {
+                                violation("1 valid output", format!("{side:?} stored garbage as {seq}"))
+                            })?),
+                            None => None,
+                        };
+                    sent.recorded.insert(*seq, msg);
+                    sent.next_recorded = seq + 1;
+                }
+            }
+            sent.ledger_seen += 1;
+        }
+        Ok(())
     }
 
     /// Rules 1-3, on what `side` wrote.
@@ -84,54 +143,48 @@ impl Checker {
                 other => return Err(violation("1 valid output", format!("{side:?} wrote {other:?}"))),
             };
             bytes = &bytes[len..];
-            self.sent_message(side, msg)?;
+            self.sent_message(side, &msg)?;
         }
         Ok(())
     }
 
-    fn sent_message(&mut self, side: Side, msg: Message) -> Result<(), Violation> {
+    fn sent_message(&mut self, side: Side, msg: &Message) -> Result<(), Violation> {
         let sent = &mut self.sent[side.index()];
-        let seq: u64 = msg.get(tags::MSG_SEQ_NUM).and_then(|s| s.parse().ok()).unwrap_or(0);
-        let poss_dup = msg.get(tags::POSS_DUP_FLAG) == Some("Y");
-        // A Logon resetting sequence numbers starts a new epoch.
-        if msg.msg_type() == MsgType::Logon && msg.get(tags::RESET_SEQ_NUM_FLAG) == Some("Y") && seq == 1 {
-            *sent = Sent { next_new: 1, first: BTreeMap::new() };
-        }
-        if !poss_dup {
-            // Rule 2: new messages take consecutive numbers.
-            if seq != sent.next_new {
+        let seq = number(msg, tags::MSG_SEQ_NUM);
+        let Some(recorded) = sent.recorded.get(&seq) else {
+            return Err(violation(
+                "2 sequence",
+                format!("{side:?} wrote {seq}, which its store never recorded: {msg}"),
+            ));
+        };
+        if msg.get(tags::POSS_DUP_FLAG) != Some("Y") {
+            // Rule 2: new messages go out in order, each once, as recorded.
+            if seq <= sent.last_new {
                 return Err(violation(
                     "2 sequence",
-                    format!("{side:?} sent new {seq}, expected {}: {msg}", sent.next_new),
+                    format!("{side:?} wrote new {seq} after {}: {msg}", sent.last_new),
                 ));
             }
-            sent.next_new += 1;
-            if !msg.msg_type().is_admin() {
-                sent.first.insert(seq, msg);
-            }
-            return Ok(());
-        }
-        if seq >= sent.next_new {
-            return Err(violation("2 sequence", format!("{side:?} resent {seq}, never sent: {msg}")));
+            sent.last_new = seq;
+            return match recorded {
+                Some(stored) if body(stored) != body(msg) => {
+                    Err(violation("2 sequence", format!("{side:?} wrote {seq} unlike it stored it: {stored} / {msg}")))
+                }
+                _ => Ok(()),
+            };
         }
         // Rule 3: a resend is the original, and a gap fill covers no application message.
         if msg.msg_type() == MsgType::SequenceReset {
-            let new_seq_no: u64 = msg.get(tags::NEW_SEQ_NO).and_then(|s| s.parse().ok()).unwrap_or(0);
-            if let Some((covered, _)) = sent.first.range(seq..new_seq_no).next() {
+            let new_seq_no = number(msg, tags::NEW_SEQ_NO);
+            if let Some((covered, _)) = sent.recorded.range(seq..new_seq_no).find(|(_, m)| m.is_some()) {
                 return Err(violation("3 resend", format!("{side:?} gap-filled {seq}..{new_seq_no} over {covered}")));
             }
             return Ok(());
         }
-        let Some(first) = sent.first.get(&seq) else {
-            return Err(violation(
-                "3 resend",
-                format!("{side:?} resent {seq}, not an application message it sent: {msg}"),
-            ));
+        let Some(first) = recorded else {
+            return Err(violation("3 resend", format!("{side:?} resent {seq}, a session message: {msg}")));
         };
-        let body = |m: &Message| -> Vec<(u32, String)> {
-            m.fields().filter(|(tag, _)| !RESEND_MAY_CHANGE.contains(tag)).map(|(t, v)| (t, v.to_string())).collect()
-        };
-        if body(first) != body(&msg) {
+        if body(first) != body(msg) {
             return Err(violation("3 resend", format!("{side:?} resent {seq} changed: was {first}, now {msg}")));
         }
         if msg.get(tags::ORIG_SENDING_TIME) != first.get(tags::SENDING_TIME) {
@@ -148,7 +201,7 @@ impl Checker {
         let sender = &self.sent[side.other().index()];
         let received = &mut self.received[side.index()];
         for delivery in &deliveries[received.seen..] {
-            let expected = sender.first.get(&delivery.seq).and_then(id_of);
+            let expected = sender.recorded.get(&delivery.seq).and_then(Option::as_ref).and_then(id_of);
             if expected != Some(delivery.id.as_str()) {
                 return Err(violation(
                     "4 delivery",
@@ -187,12 +240,6 @@ impl Checker {
     }
 }
 
-impl Default for Checker {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use turbojet::codec::encode;
@@ -221,52 +268,76 @@ mod tests {
         framed(msg, seq, &[(tags::POSS_DUP_FLAG, "Y"), (tags::ORIG_SENDING_TIME, "20260105-09:00:00.000")])
     }
 
-    #[test]
-    fn garbage_breaks_rule_1() {
-        let err = Checker::new().written(Side::Initiator, b"8=FIX.4.4\x019=5\x01junk", SimTime(0)).unwrap_err();
-        assert_eq!(err.rule, "1 valid output");
+    /// A checker and the initiator's store ledger.
+    #[derive(Default)]
+    struct Harness {
+        checker: Checker,
+        ledger: Vec<Stored>,
+    }
+
+    impl Harness {
+        /// The initiator stores `msg` as `seq`.
+        fn store(&mut self, msg: Message, seq: u64) -> Result<(), &'static str> {
+            self.ledger.push(Stored::Sent { seq, bytes: Some(framed(msg, seq, &[])) });
+            self.checker.stored(Side::Initiator, &self.ledger).map_err(|e| e.rule)
+        }
+
+        /// The initiator stores `msg` as `seq` and writes it.
+        fn send(&mut self, msg: Message, seq: u64) -> Result<(), &'static str> {
+            self.store(msg.clone(), seq)?;
+            self.write(&framed(msg, seq, &[]))
+        }
+
+        fn write(&mut self, bytes: &[u8]) -> Result<(), &'static str> {
+            self.checker.written(Side::Initiator, bytes, SimTime(0)).map_err(|e| e.rule)
+        }
     }
 
     #[test]
-    fn a_skipped_or_unsent_number_breaks_rule_2() {
-        let mut checker = Checker::new();
-        checker.written(Side::Initiator, &framed(order("a"), 1, &[]), SimTime(0)).unwrap();
-        assert_eq!(
-            checker.written(Side::Initiator, &framed(order("b"), 3, &[]), SimTime(0)).unwrap_err().rule,
-            "2 sequence"
-        );
-        let mut checker = Checker::new();
-        assert_eq!(
-            checker.written(Side::Initiator, &resend(order("a"), 1), SimTime(0)).unwrap_err().rule,
-            "2 sequence"
-        );
+    fn garbage_breaks_rule_1() {
+        assert_eq!(Harness::default().write(b"8=FIX.4.4\x019=5\x01junk"), Err("1 valid output"));
+    }
+
+    #[test]
+    fn a_skipped_unstored_or_repeated_number_breaks_rule_2() {
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        assert_eq!(h.store(order("b"), 3), Err("2 sequence"), "stored out of order");
+        let mut h = Harness::default();
+        assert_eq!(h.write(&framed(order("a"), 1, &[])), Err("2 sequence"), "written, never stored");
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        assert_eq!(h.write(&framed(order("a"), 1, &[])), Err("2 sequence"), "written new twice");
+    }
+
+    #[test]
+    fn a_number_stored_but_lost_before_writing_is_fine() {
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        h.store(order("b"), 2).unwrap();
+        assert_eq!(h.send(order("c"), 3), Ok(()));
+        assert_eq!(h.write(&resend(order("b"), 2)), Ok(()));
     }
 
     #[test]
     fn a_changed_resend_or_a_gap_fill_over_an_order_breaks_rule_3() {
-        let mut checker = Checker::new();
-        checker.written(Side::Initiator, &framed(order("a"), 1, &[]), SimTime(0)).unwrap();
-        checker.written(Side::Initiator, &resend(order("a"), 1), SimTime(0)).unwrap();
-        assert_eq!(checker.written(Side::Initiator, &resend(order("z"), 1), SimTime(0)).unwrap_err().rule, "3 resend");
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        assert_eq!(h.write(&resend(order("a"), 1)), Ok(()));
+        assert_eq!(h.write(&resend(order("z"), 1)), Err("3 resend"));
         let gap_fill = Message::new(MsgType::SequenceReset).with(tags::GAP_FILL_FLAG, "Y").with(tags::NEW_SEQ_NO, 2u64);
-        assert_eq!(checker.written(Side::Initiator, &resend(gap_fill, 1), SimTime(0)).unwrap_err().rule, "3 resend");
-    }
-
-    /// A checker that has seen the initiator send orders "a" as 1 and "b" as 2.
-    fn sent_a_and_b() -> Checker {
-        let mut checker = Checker::new();
-        for (seq, id) in [(1, "a"), (2, "b")] {
-            checker.written(Side::Initiator, &framed(order(id), seq, &[]), SimTime(0)).unwrap();
-        }
-        checker
+        assert_eq!(h.write(&resend(gap_fill, 1)), Err("3 resend"));
     }
 
     fn deliver(list: &[(&str, u64, bool)]) -> Result<(), &'static str> {
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        h.send(order("b"), 2).unwrap();
         let deliveries: Vec<_> = list
             .iter()
             .map(|(id, seq, redelivered)| Delivery { id: (*id).into(), seq: *seq, redelivered: *redelivered })
             .collect();
-        sent_a_and_b().delivered(Side::Acceptor, &deliveries).map_err(|e| e.rule)
+        h.checker.delivered(Side::Acceptor, &deliveries).map_err(|e| e.rule)
     }
 
     #[test]
