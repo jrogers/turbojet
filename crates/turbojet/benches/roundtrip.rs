@@ -9,7 +9,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use turbojet::{
@@ -120,7 +121,83 @@ fn transport(c: &mut Criterion, name: &str, tls: bool) {
     group.finish();
 }
 
+/// Messages a raw client asks to have resent in the `resend` benchmark.
+const RESENT: u64 = 100_000;
+
+/// Reads from `stream` until `count` more messages have ended (a CheckSum field each), keeping
+/// the last few bytes in `tail` so a CheckSum split across reads still counts.
+async fn read_messages(stream: &mut TcpStream, buf: &mut Vec<u8>, count: u64) {
+    let mut seen = 0;
+    let mut tail = [0u8; 3];
+    while seen < count {
+        buf.clear();
+        buf.extend_from_slice(&tail);
+        let n = stream.read_buf(buf).await.unwrap();
+        assert!(n > 0, "connection closed");
+        seen += buf.windows(4).filter(|w| w == b"\x0110=").count() as u64;
+        tail.copy_from_slice(&buf[buf.len() - 3..]);
+    }
+    assert_eq!(seen, count, "more arrived than expected");
+}
+
+/// A raw client's ResendRequest for 100,000 stored messages, answered by an acceptor over
+/// localhost: the session's steps, the driver's writes, and the client reading every byte.
+fn resend(c: &mut Criterion) {
+    let runtime = Runtime::new().unwrap();
+    let (mut stream, mut seq) = runtime.block_on(async {
+        let acceptor = Acceptor::new(
+            SessionConfig::new("FIX.4.2", "GATEWAY"),
+            Arc::new(turbojet::MemoryStorage::new()),
+            Arc::new(common::Acker::default()),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(acceptor.serve(listener));
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        stream.set_nodelay(true).unwrap();
+        let logon = Message::new(turbojet::MsgType::Logon)
+            .with(turbojet::message::tags::ENCRYPT_METHOD, "0")
+            .with(turbojet::message::tags::HEART_BT_INT, 30u64);
+        let encode = |seq, body| turbojet::codec::encode(&common::with_header("CLIENT", "GATEWAY", seq, body)).unwrap();
+        stream.write_all(&encode(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        read_messages(&mut stream, &mut buf, 1).await;
+        for first in (0..RESENT).step_by(1_000) {
+            let mut wire = Vec::new();
+            for id in first..first + 1_000 {
+                wire.extend(encode(id + 2, common::new_order_single(id).into()));
+            }
+            stream.write_all(&wire).await.unwrap();
+            read_messages(&mut stream, &mut buf, 1_000).await;
+        }
+        (stream, RESENT + 2)
+    });
+    let mut group = c.benchmark_group("resend tcp");
+    group.throughput(Throughput::Elements(RESENT)).sample_size(10);
+    group.bench_function(format!("{RESENT} messages (memory store)"), |b| {
+        b.iter_custom(|iters| {
+            runtime.block_on(async {
+                let mut buf = Vec::with_capacity(64 * 1024);
+                let mut total = Duration::ZERO;
+                for _ in 0..iters {
+                    let body = turbojet::admin::ResendRequest { begin_seq_no: 1, end_seq_no: 0 };
+                    let request = turbojet::codec::encode(&common::with_header("CLIENT", "GATEWAY", seq, body.into()));
+                    seq += 1;
+                    let start = Instant::now();
+                    stream.write_all(&request.unwrap()).await.unwrap();
+                    // The Logon is gap-filled, then every order's ExecutionReport is resent.
+                    read_messages(&mut stream, &mut buf, RESENT + 1).await;
+                    total += start.elapsed();
+                }
+                total
+            })
+        })
+    });
+    group.finish();
+}
+
 fn roundtrip(c: &mut Criterion) {
+    resend(c);
     transport(c, "tcp", false);
     #[cfg(feature = "tls")]
     transport(c, "tls", true);

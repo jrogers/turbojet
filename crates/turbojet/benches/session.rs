@@ -142,9 +142,9 @@ fn session(c: &mut Criterion) {
 /// Messages a counterparty asks to have resent in the `resend` benchmarks.
 const RESENT: u64 = 100_000;
 
-/// Answering a ResendRequest for everything a session has sent: reading the stored messages,
-/// decoding them and framing them again as resends. Each sample resends the same range of the
-/// same session.
+/// Answering a ResendRequest for everything a session has sent, in steps as the driver does:
+/// reading the stored messages, decoding them and framing them again as resends. Each sample
+/// resends the same range of the same session.
 fn resend(c: &mut Criterion) {
     let mut group = c.benchmark_group("resend");
     group.throughput(Throughput::Elements(RESENT)).sample_size(10);
@@ -172,6 +172,11 @@ fn resend(c: &mut Criterion) {
                     session.on_message(&request, now);
                     black_box(session.output());
                     session.clear_output();
+                    while session.is_resending() {
+                        session.on_resume(now);
+                        black_box(session.output());
+                        session.clear_output();
+                    }
                     total += start.elapsed();
                 }
                 total

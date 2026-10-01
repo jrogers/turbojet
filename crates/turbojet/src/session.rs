@@ -274,8 +274,14 @@ struct LogonRequest {
 const MAX_QUEUED: usize = 10_000;
 
 /// Sequence numbers resent per step of a replay (see [`Session::on_resume`]), so answering a
-/// ResendRequest holds at most this many stored messages, decoded and framed, at a time.
-const MAX_RESEND_BATCH: u64 = 1024;
+/// ResendRequest holds at most this many stored messages, decoded and framed, at a time: about
+/// 77 KB of typical ExecutionReports.
+///
+/// Measured resending 100,000 messages to a client over localhost (Apple M3, 2026-10-01): 64.2 ms
+/// in steps of 64, 57.7 ms of 256, 56.8 ms of 1,024 and 60.1 ms all at once. Steps start the
+/// client reading sooner; below about 256, the write per step starts to cost. The session's own
+/// work doesn't depend on the step: 51 ms from memory, 112 ms from disk, at every size.
+const MAX_RESEND_BATCH: u64 = 256;
 
 /// A resend in progress: what's left of the range asked for.
 struct Replay {
