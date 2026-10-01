@@ -2,6 +2,8 @@
 //! messages with a valid header (so they get past the codec) but any MsgType, MsgSeqNum and body
 //! fields, time passing, and the application or an operator acting on the session. Every message
 //! the session sends must encode and decode cleanly and, apart from resends, go out in sequence.
+//! A long resend goes out in steps: either each one at once, as the connection driver does, or
+//! when a `Resume` step says, with other steps fed in between, as a careless driver might.
 
 #![no_main]
 
@@ -37,6 +39,11 @@ struct Input {
     /// The counterparty's Logon: extra fields after EncryptMethod and HeartBtInt.
     logon: Vec<Field>,
     heartbeat_secs: u8,
+    /// Finish each resend before the next step, as the connection driver does.
+    resume_at_once: bool,
+    /// Sequence numbers resent per step, less one: small, so short inputs reach resends of
+    /// several steps.
+    resend_batch: u8,
     steps: Vec<Step>,
 }
 
@@ -50,6 +57,8 @@ enum Step {
     Logout,
     /// An operator changes sequence numbers.
     Sequence(Sequence),
+    /// The next step of a resend in progress.
+    Resume,
 }
 
 #[derive(Arbitrary, Debug)]
@@ -154,8 +163,10 @@ impl Application for App {
 }
 
 /// Checks what the session sent, and takes it from its output. Returns false once it has
-/// disconnected.
-fn check(session: &mut Session, next_out: &mut u64) -> bool {
+/// disconnected. With `may_skip`, new messages may skip sequence numbers: a ResendRequest fed in
+/// during a resend replaces it, dropping the new messages held behind it, and the counterparty
+/// finds the gap.
+fn check(session: &mut Session, next_out: &mut u64, may_skip: bool) -> bool {
     let mut rest = session.output();
     while !rest.is_empty() {
         // The engine must never send garbage.
@@ -172,6 +183,10 @@ fn check(session: &mut Session, next_out: &mut u64) -> bool {
         if msg.flag(tags::POSS_DUP_FLAG) {
             assert!(seq < *next_out, "resent {seq}, but only sent up to {}: {msg}", *next_out - 1);
             continue;
+        }
+        if may_skip {
+            assert!(seq >= *next_out, "{msg}");
+            *next_out = seq;
         }
         assert_eq!(seq, *next_out, "{msg}");
         *next_out += 1;
@@ -215,15 +230,19 @@ fuzz_target!(|input: Input| {
     let mut now = Instant::now();
     let heartbeat = 1 + u32::from(input.heartbeat_secs % 60);
     let mut next_out = 1;
+    let resend_batch = u64::from(input.resend_batch % 4) + 1;
     let (mut session, _commands) = if input.initiator {
         let mut config = InitiatorConfig::new(config, "CLIENT");
         config.heartbeat_interval = Duration::from_secs(heartbeat.into());
         let (mut session, commands) = Session::initiator(&config, registry, Arc::new(App), now);
+        session.set_resend_batch(resend_batch);
         session.on_connect(now);
-        assert!(check(&mut session, &mut next_out));
+        assert!(check(&mut session, &mut next_out, false));
         (session, commands)
     } else {
-        Session::acceptor(config, registry, Arc::new(App), now)
+        let (mut session, commands) = Session::acceptor(config, registry, Arc::new(App), now);
+        session.set_resend_batch(resend_batch);
+        (session, commands)
     };
 
     // The counterparty's Logon, or its reply to Turbojet's.
@@ -234,7 +253,7 @@ fuzz_target!(|input: Input| {
     push_fields(&mut fields, &input.logon, 1, next_out);
     let Some(logon) = inbound(&begin_string, "A", 1, false, 0, &fields) else { return };
     session.on_message(&logon, now);
-    if !check(&mut session, &mut next_out) {
+    if !check(&mut session, &mut next_out, false) {
         return;
     }
 
@@ -250,7 +269,11 @@ fuzz_target!(|input: Input| {
                     continue;
                 };
                 next_in = next_in.max(seq + 1);
+                let may_skip = session.is_resending();
                 session.on_message(&msg, now);
+                if !check(&mut session, &mut next_out, may_skip) {
+                    break;
+                }
             }
             Step::Elapse(secs) => {
                 now += Duration::from_secs(secs.into());
@@ -261,6 +284,7 @@ fuzz_target!(|input: Input| {
                 session.on_command(Command::Send(order), now);
             }
             Step::Logout => session.on_command(Command::Logout(None), now),
+            Step::Resume => session.on_resume(now),
             Step::Sequence(request) => {
                 let request = match request {
                     Sequence::Get => SequenceCommand::Get,
@@ -270,7 +294,7 @@ fuzz_target!(|input: Input| {
                 };
                 let (reply, mut numbers) = oneshot::channel();
                 session.on_command(Command::Sequence(request, reply), now);
-                if !check(&mut session, &mut next_out) {
+                if !check(&mut session, &mut next_out, false) {
                     break;
                 }
                 // The operator may move either number anywhere, backwards included.
@@ -280,8 +304,16 @@ fuzz_target!(|input: Input| {
                 }
             }
         }
-        if !check(&mut session, &mut next_out) {
+        if !check(&mut session, &mut next_out, false) {
             break;
+        }
+        // Each step covers at least one sequence number, and a range is at most the u16 an
+        // operator can set next_out to, so this ends.
+        while input.resume_at_once && session.is_resending() {
+            session.on_resume(now);
+            if !check(&mut session, &mut next_out, false) {
+                return;
+            }
         }
     }
 });

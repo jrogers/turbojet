@@ -510,6 +510,14 @@ impl Session {
         }
     }
 
+    /// Resends `batch` sequence numbers per step rather than the usual number, so that fuzzing
+    /// reaches resends of several steps with short inputs. Not part of the API.
+    #[doc(hidden)]
+    pub fn set_resend_batch(&mut self, batch: u64) {
+        assert!(batch > 0, "a step resends at least one sequence number");
+        self.resend_batch = batch;
+    }
+
     /// Whether the session has logged on at any point, even if it has since logged out.
     pub fn has_logged_on(&self) -> bool {
         self.ever_logged_on
