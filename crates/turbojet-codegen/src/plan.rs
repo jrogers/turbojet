@@ -184,10 +184,10 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
             m.name
         )));
     }
-    let mut message_names: HashSet<&str> = HashSet::new();
-    for name in messages.iter().map(|(m, _)| m.name.as_str()).chain(message_refs.iter().map(String::as_str)) {
-        if !message_names.insert(name) {
-            return Err(Error(format!("two types would both be named {name}")));
+    let mut message_names: HashSet<&str> = messages.iter().map(|(m, _)| m.name.as_str()).collect();
+    for ((m, _), twin) in messages.iter().zip(&message_refs) {
+        if !message_names.insert(twin) {
+            return Err(Error(format!("message {twin} is named like message {}'s borrowed twin", m.name)));
         }
     }
 
@@ -313,7 +313,7 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
     };
 
     let mut groups = Vec::new();
-    for def in &defs {
+    for (def, ref_name) in defs.iter().zip(group_refs.iter().cloned()) {
         let (name, members) = (def.count, def.members);
         let type_name = group_names[&def.key()].clone();
         let mut entry = slots(&type_name, members)?;
@@ -322,7 +322,6 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
         let first = entry.first_mut().expect("the loader rejects empty groups");
         first.presence = first.presence.required();
         let tag = dict.field(name).expect("the loader checks references").tag;
-        let ref_name = naming::ref_type(&type_name);
         groups.push(Struct { name: type_name, ref_name, doc: format!("An entry of {name}({tag})."), slots: entry });
     }
 
@@ -1050,6 +1049,47 @@ mod tests {
     }
 
     #[test]
+    fn groups_whose_twin_is_taken_get_entry() {
+        // Group Party's twin would be the enum PartyRef.
+        let dict = dict(
+            "<message name='M' msgtype='U1' msgcat='app'><field name='PartyRef' required='Y'/>\
+             <group name='NoParties' required='N'><field name='X' required='Y'/></group></message>",
+            "",
+            "<field number='1' name='X' type='STRING'/><field number='2' name='NoParties' type='NUMINGROUP'/>\
+             <field number='3' name='PartyRef' type='CHAR'><value enum='1' description='UP'/></field>",
+        );
+        let plan = build(&dict, &[], true).unwrap();
+        assert_eq!(plan.enums[0].name, "PartyRef");
+        assert_eq!((plan.groups[0].name.as_str(), plan.groups[0].ref_name.as_str()), ("PartyEntry", "PartyEntryRef"));
+
+        // Group As's twin would shadow the prelude's AsRef.
+        let dict = orchestra(
+            "",
+            "<fixr:field id='1' name='NoXs' type='NumInGroup'/><fixr:field id='2' name='X' type='String'/>",
+            "<fixr:group id='2001' name='As'><fixr:numInGroup id='1'/><fixr:fieldRef id='2'/></fixr:group>",
+            "<fixr:message id='1' name='M' msgType='U1'><fixr:structure><fixr:groupRef id='2001'/>\
+             </fixr:structure></fixr:message>",
+        );
+        let plan = build(&dict, &[], true).unwrap();
+        assert_eq!((plan.groups[0].name.as_str(), plan.groups[0].ref_name.as_str()), ("AsEntry", "AsEntryRef"));
+    }
+
+    #[test]
+    fn a_group_named_like_another_groups_twin_is_an_error() {
+        // Two official names: group Foo's twin is the group FooRef, and neither is renamed.
+        let dict = orchestra(
+            "",
+            "<fixr:field id='1' name='NoXs' type='NumInGroup'/><fixr:field id='2' name='X' type='String'/>\
+             <fixr:field id='3' name='NoYs' type='NumInGroup'/>",
+            "<fixr:group id='2001' name='Foo'><fixr:numInGroup id='1'/><fixr:fieldRef id='2'/></fixr:group>\
+             <fixr:group id='2002' name='FooRef'><fixr:numInGroup id='3'/><fixr:fieldRef id='2'/></fixr:group>",
+            "<fixr:message id='1' name='M' msgType='U1'><fixr:structure><fixr:groupRef id='2001'/>\
+             <fixr:groupRef id='2002'/></fixr:structure></fixr:message>",
+        );
+        assert_eq!(error(&dict), "two types would both be named FooRef");
+    }
+
+    #[test]
     fn messages_named_like_a_borrowed_twin_are_errors() {
         // Messages keep their official names, so these can't be resolved with a suffix.
         let twins = dict(
@@ -1058,7 +1098,7 @@ mod tests {
             "",
             "<field number='1' name='X' type='STRING'/>",
         );
-        assert_eq!(error(&twins), "two types would both be named FooRef");
+        assert_eq!(error(&twins), "message FooRef is named like message Foo's borrowed twin");
         let prelude = dict(
             "<message name='As' msgtype='U1' msgcat='app'><field name='X' required='Y'/></message>",
             "",
