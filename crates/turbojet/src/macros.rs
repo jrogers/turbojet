@@ -354,13 +354,13 @@ macro_rules! fix_message {
         $($cfg)*
         #[allow(deprecated)]
         impl<'a> $crate::message::FromMessage<'a> for $ref_name<'a> {
-            const MSG_TYPE: $crate::fields::MsgType = <Self as $crate::message::FixMessageRef<'a>>::MSG_TYPE;
+            const PARSED_MSG_TYPE: $crate::fields::MsgType = <Self as $crate::message::FixMessageRef<'a>>::MSG_TYPE;
 
-            fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+            fn parse_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 <Self as $crate::message::FixMessageRef<'a>>::from_message(msg)
             }
 
-            fn from_message_strict(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+            fn parse_strict_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 <Self as $crate::message::FixMessageRef<'a>>::from_message_strict(msg)
             }
         }

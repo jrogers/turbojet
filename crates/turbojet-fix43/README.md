@@ -5,9 +5,9 @@ enumerated field, a struct per message and repeating-group entry, and a tag cons
 (in `tags`). Session-level messages are in `turbojet::admin`.
 
 ```rust
-use turbojet::FixMessage;
+use turbojet::{FixMessage, FixMessageRef};
 use turbojet::fields::{FromFix, UtcTimestamp};
-use turbojet_fix43::{HandlInst, NewOrderSingle, OrdType, Parties, Side};
+use turbojet_fix43::{HandlInst, NewOrderSingle, NewOrderSingleRef, OrdType, Parties, Side};
 
 let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
 let mut order = NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, Side::Buy, now, OrdType::Market);
@@ -16,7 +16,13 @@ order.party_ids.push(Parties::new("FIRM"));
 let msg = order.to_message();
 let parsed: NewOrderSingle = msg.parse().unwrap();
 assert_eq!(parsed, order);
+let borrowed: NewOrderSingleRef = msg.parse().unwrap();
+assert_eq!(borrowed.into_owned(), order);
 ```
+
+Each message and group also has a borrowed form, such as `NewOrderSingleRef`, whose strings and
+groups borrow from the received message rather than copying it: read messages with it, and call
+`into_owned()` to keep one.
 
 FIX 4.3 components such as Instrument and OrderQtyData are flattened into the messages that use
 them (`order.symbol`, `order.order_qty`); repeating groups, Parties among them, are structs with

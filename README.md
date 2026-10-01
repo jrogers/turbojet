@@ -281,8 +281,8 @@ An initiator sends Username(553) and Password(554) from `InitiatorConfig::userna
 `password`; an acceptor checks them in `Application::verify_logon`, where
 `logon.parse::<turbojet::admin::LogonRef>()` gives them typed. Passwords are `fields::Secret`
 (`SecretRef` when borrowed), which `Debug` and `Display` show as `***` (`.expose()` gives the
-text); the message log masks them too,
-and generated messages type Password(554) and NewPassword(925) fields as `Secret` as well.
+text); the message log masks them too, and generated messages type Password(554) and
+NewPassword(925) fields as `Secret` as well.
 
 With `InitiatorConfig::next_expected_msg_seq_num`, the initiator's Logon carries
 NextExpectedMsgSeqNum(789), the FIX 4.4 way to recover a gap at logon: each side resends what the

@@ -1,9 +1,10 @@
 //! Order validation and booking for FIX 4.2 NewOrderSingle(D) and OrderCancelRequest(F).
 //!
 //! Requests arrive parsed, in their borrowed form, so malformed fields have been rejected already;
-//! a booked order copies what it keeps. What is left here is business validation; FIX 4.2 has no specific reason code for most of it, so
-//! those rejections use the spec's "Broker option" with an explanatory Text: BrokerCredit, which
-//! is OrdRejReason 0 and CxlRejReason 2 (the FIX 4.2 repository names both codes BrokerCredit).
+//! a booked order copies what it keeps. What is left here is business validation. FIX 4.2 has no
+//! specific reason code for most of it, so those rejections use the spec's "Broker option" with
+//! an explanatory Text: BrokerCredit, which is OrdRejReason 0 and CxlRejReason 2 (the FIX 4.2
+//! repository names both codes BrokerCredit).
 
 use std::collections::HashMap;
 use std::sync::Mutex;

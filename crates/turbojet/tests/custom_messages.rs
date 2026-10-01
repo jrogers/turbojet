@@ -131,6 +131,23 @@ fn strict_parsing_refuses_tags_the_message_does_not_define() {
     assert_eq!(missing.parse_strict::<SpreadOrder>().unwrap_err().kind, FieldErrorKind::Missing);
 }
 
+/// With the crate root glob-imported, `FixMessage`, `FixMessageRef` and `FromMessage` are all in
+/// scope, and each typed-message item must still resolve to one of them.
+#[test]
+fn typed_message_items_stay_unambiguous_under_a_glob_import() {
+    use turbojet::*;
+
+    let msg: Message = SpreadOrder { cl_ord_id: "S1".into(), priority: None, legs: vec![], text: None }.into();
+    assert_eq!(SpreadOrder::MSG_TYPE, MsgType::from_static("U1"));
+    assert_eq!(SpreadOrderRef::MSG_TYPE, SpreadOrder::MSG_TYPE);
+    let owned = SpreadOrder::from_message(&msg).unwrap();
+    let borrowed = SpreadOrderRef::from_message(&msg).unwrap();
+    assert_eq!(borrowed.into_owned(), owned);
+    assert_eq!(SpreadOrder::from_message_strict(&msg).unwrap(), owned);
+    assert_eq!(SpreadOrderRef::from_message_strict(&msg).unwrap(), borrowed);
+    assert_eq!(msg.parse::<SpreadOrderRef>().unwrap(), borrowed);
+}
+
 #[tokio::test]
 async fn custom_messages_travel_through_a_session() {
     let acceptor =

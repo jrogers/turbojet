@@ -5,9 +5,9 @@ enumerated field, a struct per message and repeating-group entry, and a tag cons
 (in `tags`). Session-level messages are in `turbojet::admin`.
 
 ```rust
-use turbojet::FixMessage;
+use turbojet::{FixMessage, FixMessageRef};
 use turbojet::fields::{FromFix, UtcTimestamp};
-use turbojet_fix42::{HandlInst, NewOrderSingle, OrdType, Side};
+use turbojet_fix42::{HandlInst, NewOrderSingle, NewOrderSingleRef, OrdType, Side};
 
 let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
 let order =
@@ -15,7 +15,13 @@ let order =
 let msg = order.to_message();
 let parsed: NewOrderSingle = msg.parse().unwrap();
 assert_eq!(parsed, order);
+let borrowed: NewOrderSingleRef = msg.parse().unwrap();
+assert_eq!(borrowed.into_owned(), order);
 ```
+
+Each message and group also has a borrowed form, such as `NewOrderSingleRef`, whose strings and
+groups borrow from the received message rather than copying it: read messages with it, and call
+`into_owned()` to keep one.
 
 Enumerated fields are strict: a code the dictionary doesn't list makes `parse` fail with an
 incorrect-value error for that tag. To accept a venue's extra values, merge its dictionary and

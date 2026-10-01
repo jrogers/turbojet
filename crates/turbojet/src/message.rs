@@ -554,13 +554,13 @@ impl Message {
     /// Parses the message as `T`, which must match its MsgType: a typed message, or its borrowed
     /// form (`NameRef`), whose strings borrow from the message.
     pub fn parse<'a, T: FromMessage<'a>>(&'a self) -> Result<T, FieldError> {
-        if self.msg_type() != T::MSG_TYPE {
+        if self.msg_type() != T::PARSED_MSG_TYPE {
             return Err(FieldError {
                 tag: tags::MSG_TYPE,
                 kind: FieldErrorKind::IncorrectValue(self.msg_type().to_fix()),
             });
         }
-        T::from_message(self)
+        T::parse_from(self)
     }
 
     /// Like [`parse`](Self::parse), but a body tag `T` doesn't define is an error
@@ -569,13 +569,13 @@ impl Message {
     /// counterparty's extra fields should be refused; the `validation` feature checks messages
     /// against a whole dictionary instead.
     pub fn parse_strict<'a, T: FromMessage<'a>>(&'a self) -> Result<T, FieldError> {
-        if self.msg_type() != T::MSG_TYPE {
+        if self.msg_type() != T::PARSED_MSG_TYPE {
             return Err(FieldError {
                 tag: tags::MSG_TYPE,
                 kind: FieldErrorKind::IncorrectValue(self.msg_type().to_fix()),
             });
         }
-        T::from_message_strict(self)
+        T::parse_strict_from(self)
     }
 
     /// Appends a field, even if the tag is already present.
@@ -1556,28 +1556,32 @@ pub trait FixMessageRef<'a>: Copy + Sized {
 
 /// What [`Message::parse`] can parse into: a typed message, owned or borrowed.
 ///
-/// Every [`FixMessage`] is one; `fix_message!` implements it for the borrowed form too.
+/// Implemented for every [`FixMessage`], and by `fix_message!` for each borrowed form. A
+/// [`FixMessageRef`] written by hand needs its own impl to be parsed with [`Message::parse`].
+///
+/// Its items are named apart from those of [`FixMessage`] and [`FixMessageRef`], so `Name::MSG_TYPE`
+/// and `Name::from_message` stay unambiguous with all three traits in scope.
 pub trait FromMessage<'a>: Sized {
-    /// The message's MsgType(35).
-    const MSG_TYPE: MsgType;
+    /// The message's MsgType(35), which [`Message::parse`] checks.
+    const PARSED_MSG_TYPE: MsgType;
 
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
-    /// ignored.
-    fn from_message(msg: &'a Message) -> Result<Self, FieldError>;
+    /// ignored. Doesn't check the MsgType.
+    fn parse_from(msg: &'a Message) -> Result<Self, FieldError>;
 
-    /// [`from_message`](Self::from_message), failing with [`FieldErrorKind::NotDefined`] on the
+    /// [`parse_from`](Self::parse_from), failing with [`FieldErrorKind::NotDefined`] on the
     /// first body tag the message doesn't define, if it's otherwise valid.
-    fn from_message_strict(msg: &'a Message) -> Result<Self, FieldError>;
+    fn parse_strict_from(msg: &'a Message) -> Result<Self, FieldError>;
 }
 
 impl<'a, T: FixMessage> FromMessage<'a> for T {
-    const MSG_TYPE: MsgType = <T as FixMessage>::MSG_TYPE;
+    const PARSED_MSG_TYPE: MsgType = <T as FixMessage>::MSG_TYPE;
 
-    fn from_message(msg: &'a Message) -> Result<Self, FieldError> {
+    fn parse_from(msg: &'a Message) -> Result<Self, FieldError> {
         <T as FixMessage>::from_message(msg)
     }
 
-    fn from_message_strict(msg: &'a Message) -> Result<Self, FieldError> {
+    fn parse_strict_from(msg: &'a Message) -> Result<Self, FieldError> {
         <T as FixMessage>::from_message_strict(msg)
     }
 }
