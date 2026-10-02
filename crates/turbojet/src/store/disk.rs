@@ -16,9 +16,12 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 /// Each session has up to three files in the store directory, named after its [`SessionId`]:
 ///
 /// - `<name>.seqnums`: the next outgoing and incoming sequence numbers and the incoming message in
-///   flight to the application (0 for none), as one fixed-width record rewritten in place. A
-///   record from before the third field was added reads as none in flight. The file is locked
-///   while the session is open, so two gateway processes cannot share a session.
+///   flight to the application (0 for none), in two fixed-size slots written alternately, each
+///   with a generation and a checksum; opening reads the valid one with the higher generation. A
+///   write that a crash or power loss tears damages only the slot it was writing, so the store
+///   reopens with the record before it. A file from before slots (one record, of two or three
+///   numbers) still reads, and the first write after it goes to the other slot. The file is
+///   locked while the session is open, so two gateway processes cannot share a session.
 /// - `<name>.created`: when the state was created or last reset, as a FIX UTCTimestamp, once
 ///   recorded; used by session schedules. Replaced atomically.
 /// - `<name>.body`: sent application messages, appended as the session stores them (see
@@ -69,6 +72,9 @@ struct DiskLog {
     next_outgoing: u64,
     next_incoming: u64,
     in_flight: Option<u64>,
+    /// The seqnums record's generation, and the slot holding it (none in a fresh file).
+    generation: u64,
+    slot: Option<usize>,
     created_path: PathBuf,
     created_at: Option<UtcTimestamp>,
     sync: bool,
@@ -89,7 +95,8 @@ impl DiskLog {
             ),
             TryLockError::Error(e) => e,
         })?;
-        let (mut next_outgoing, next_incoming, in_flight) = read_seqnums(&mut seqnums, &seqnums_path)?;
+        let Record { mut next_outgoing, next_incoming, in_flight, generation, slot } =
+            read_seqnums(&mut seqnums, &seqnums_path)?;
 
         let mut body = OpenOptions::new().read(true).append(true).create(true).open(&body_path)?;
         let (index, valid_len) = scan_body(&mut body, &body_path)?;
@@ -115,6 +122,8 @@ impl DiskLog {
             next_outgoing,
             next_incoming,
             in_flight,
+            generation,
+            slot,
             created_path,
             created_at,
             sync,
@@ -122,18 +131,20 @@ impl DiskLog {
     }
 
     fn write_seqnums(&mut self) -> io::Result<()> {
-        let in_flight = self.in_flight.unwrap_or(0);
-        // Always 63 bytes, since a u64 has at most 20 digits: formatted on the stack, not allocated.
-        let mut record = [0u8; 63];
-        writeln!(&mut record[..], "{:020} {:020} {in_flight:020}", self.next_outgoing, self.next_incoming)?;
+        let generation = self.generation + 1;
+        // The slot not holding the current record, so a torn write leaves that one whole.
+        let slot = self.slot.map_or(0, |current| 1 - current);
+        let record = slot_record(generation, self.next_outgoing, self.next_incoming, self.in_flight.unwrap_or(0));
+        let offset = (slot * SLOT) as u64;
         // In place, in one system call where the platform allows it.
         #[cfg(unix)]
-        std::os::unix::fs::FileExt::write_all_at(&self.seqnums, &record, 0)?;
+        std::os::unix::fs::FileExt::write_all_at(&self.seqnums, &record, offset)?;
         #[cfg(not(unix))]
         {
-            self.seqnums.seek(SeekFrom::Start(0))?;
+            self.seqnums.seek(SeekFrom::Start(offset))?;
             self.seqnums.write_all(&record)?;
         }
+        (self.generation, self.slot) = (generation, Some(slot));
         if self.sync {
             self.seqnums.sync_data()?;
         }
@@ -243,19 +254,103 @@ fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
     }
 }
 
-/// The next outgoing and incoming numbers and the message in flight, from a record of two
-/// numbers (written before the third was added) or three.
-fn read_seqnums(file: &mut File, path: &Path) -> io::Result<(u64, u64, Option<u64>)> {
-    let mut text = String::new();
-    file.read_to_string(&mut text)?;
-    if text.trim().is_empty() {
-        return Ok((1, 1, None));
+/// Bytes in each of the seqnums file's two slots.
+const SLOT: usize = 128;
+/// What starts a slot's record, setting it apart from a record from before slots.
+const SLOT_MARK: &str = "S2";
+
+/// The seqnums file's latest record.
+struct Record {
+    next_outgoing: u64,
+    next_incoming: u64,
+    in_flight: Option<u64>,
+    generation: u64,
+    /// The slot it's in: `None` for a fresh file, and 0 for a record from before slots, which
+    /// sits where slot 0 is, so the next write goes to slot 1 and leaves it whole.
+    slot: Option<usize>,
+}
+
+/// A slot's record: mark, generation, the three numbers and a checksum of them, padded with
+/// spaces to a newline. Written digit by digit on the stack: it's written for every message.
+fn slot_record(generation: u64, next_outgoing: u64, next_incoming: u64, in_flight: u64) -> [u8; SLOT] {
+    let mut record = [b' '; SLOT];
+    record[..SLOT_MARK.len()].copy_from_slice(SLOT_MARK.as_bytes());
+    // The numbers, each 20 digits (a u64 has at most 20) and a space apart, after the mark.
+    let start = SLOT_MARK.len() + 1;
+    for (i, n) in [generation, next_outgoing, next_incoming, in_flight].into_iter().enumerate() {
+        put_digits(&mut record[start + i * 21..start + i * 21 + 20], n);
     }
-    let numbers: Result<Vec<u64>, _> = text.split_whitespace().map(str::parse::<u64>).collect();
+    let end = start + 4 * 21 - 1;
+    let sum = record_checksum(&record[start..end]);
+    for (i, byte) in record[end + 1..end + 17].iter_mut().enumerate() {
+        *byte = b"0123456789abcdef"[usize::try_from((sum >> (60 - 4 * i)) & 0xf).expect("a nibble")];
+    }
+    record[SLOT - 1] = b'\n';
+    record
+}
+
+/// `n` in decimal, zero-padded to fill `out`.
+fn put_digits(out: &mut [u8], mut n: u64) {
+    for byte in out.iter_mut().rev() {
+        *byte = b'0' + (n % 10) as u8;
+        n /= 10;
+    }
+    debug_assert_eq!(n, 0, "fits");
+}
+
+/// FNV-1a over a record's numbers, so a torn or mixed one is recognised.
+fn record_checksum(numbers: &[u8]) -> u64 {
+    numbers.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| (hash ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01B3))
+}
+
+/// A slot's record, if it's whole: generation, next outgoing, next incoming, in flight.
+fn parse_slot(bytes: &[u8]) -> Option<[u64; 4]> {
+    let text = std::str::from_utf8(bytes.get(..SLOT)?).ok()?;
+    let mut fields = text.split_whitespace();
+    if fields.next()? != SLOT_MARK {
+        return None;
+    }
+    let numbers: Vec<&str> = fields.by_ref().take(4).collect();
+    let sum = u64::from_str_radix(fields.next()?, 16).ok()?;
+    let numbers_text = numbers.join(" ");
+    if fields.next().is_some() || numbers.len() != 4 || record_checksum(numbers_text.as_bytes()) != sum {
+        return None;
+    }
+    let parsed: Vec<u64> = numbers.iter().map(|n| n.parse().ok()).collect::<Option<_>>()?;
+    let [generation, out, inc, in_flight] = parsed.try_into().ok()?;
+    (out > 0 && inc > 0).then_some([generation, out, inc, in_flight])
+}
+
+/// The latest record in the seqnums file: the valid slot with the higher generation; or a record
+/// from before slots, of two numbers (from before the in-flight field) or three; or, for a
+/// fresh file or one whose first write was torn, both numbers at 1.
+fn read_seqnums(file: &mut File, path: &Path) -> io::Result<Record> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let slots = [0, 1].map(|slot| bytes.get(slot * SLOT..).and_then(parse_slot).map(|numbers| (slot, numbers)));
+    if let Some((slot, [generation, out, inc, in_flight])) = slots.into_iter().flatten().max_by_key(|(_, n)| n[0]) {
+        let in_flight = (in_flight > 0).then_some(in_flight);
+        return Ok(Record { next_outgoing: out, next_incoming: inc, in_flight, generation, slot: Some(slot) });
+    }
+    // No slot is whole. A record from before slots ends at its newline; slot 1 may hold a torn
+    // write made after it.
+    let old = bytes.iter().position(|&b| b == b'\n').map(|end| &bytes[..end]);
+    let old = old.and_then(|line| std::str::from_utf8(line).ok());
+    let numbers: Option<Vec<u64>> = old.and_then(|line| line.split_whitespace().map(|n| n.parse().ok()).collect());
+    let fresh = Record { next_outgoing: 1, next_incoming: 1, in_flight: None, generation: 0, slot: None };
+    let old = |next_outgoing, next_incoming, in_flight| Record {
+        next_outgoing,
+        next_incoming,
+        in_flight,
+        slot: Some(0),
+        ..fresh
+    };
     match numbers.as_deref() {
-        Ok(&[out, inc]) if out > 0 && inc > 0 => Ok((out, inc, None)),
-        Ok(&[out, inc, in_flight]) if out > 0 && inc > 0 => Ok((out, inc, (in_flight > 0).then_some(in_flight))),
-        _ => Err(invalid_data(format!("{} is corrupt: {text:?}", path.display()))),
+        Some(&[out, inc]) if out > 0 && inc > 0 => Ok(old(out, inc, None)),
+        Some(&[out, inc, in_flight]) if out > 0 && inc > 0 => Ok(old(out, inc, (in_flight > 0).then_some(in_flight))),
+        // Nothing past where slot 0 would end: at most a torn first write, so nothing was recorded.
+        _ if bytes.len() <= SLOT => Ok(fresh),
+        _ => Err(invalid_data(format!("{} is corrupt: {:?}", path.display(), String::from_utf8_lossy(&bytes)))),
     }
 }
 
@@ -374,7 +469,81 @@ mod tests {
         assert_eq!((log.next_outgoing(), log.next_incoming(), log.in_flight()), (5, 9, None));
         log.set_in_flight(9).unwrap();
         drop(log);
-        assert_eq!(std::fs::read_to_string(&path).unwrap().split_whitespace().count(), 3);
+        let log = storage(&dir).open(&id("A")).unwrap();
+        assert_eq!((log.next_outgoing(), log.next_incoming(), log.in_flight()), (5, 9, Some(9)));
+    }
+
+    fn seqnums_path(dir: &tempfile::TempDir) -> PathBuf {
+        dir.path().join(format!("{}.seqnums", file_stem(&id("A"))))
+    }
+
+    /// The numbers a store for "A" opens with.
+    fn numbers(dir: &tempfile::TempDir) -> (u64, u64, Option<u64>) {
+        let log = storage(dir).open(&id("A")).unwrap();
+        (log.next_outgoing(), log.next_incoming(), log.in_flight())
+    }
+
+    /// Runs `change` on the store for "A", then puts back the seqnums file as a power loss part-way
+    /// through that write could leave it: for each length of what reached the device, the new
+    /// bytes up to there over the old ones. Returns each reopened store's numbers.
+    fn torn(dir: &tempfile::TempDir, change: impl Fn(&mut dyn SessionLog)) -> Vec<(u64, u64, Option<u64>)> {
+        let path = seqnums_path(dir);
+        let before = std::fs::read(&path).unwrap_or_default();
+        {
+            let mut log = storage(dir).open(&id("A")).unwrap();
+            change(log.as_mut());
+        }
+        let after = std::fs::read(&path).unwrap();
+        // The bytes the write changed, which a tear leaves partly new.
+        let start = (0..after.len()).find(|&i| before.get(i) != Some(&after[i])).unwrap();
+        let end = (0..after.len()).rev().find(|&i| before.get(i) != Some(&after[i])).unwrap() + 1;
+        (start..=end)
+            .map(|cut| {
+                let mut bytes = after[..cut].to_vec();
+                bytes.extend(before.iter().skip(cut));
+                std::fs::write(&path, &bytes).unwrap();
+                let opened = numbers(dir);
+                std::fs::write(&path, &after).unwrap();
+                opened
+            })
+            .collect()
+    }
+
+    /// A power loss during the first write leaves the store as it was before: fresh.
+    #[test]
+    fn a_torn_first_record_reads_as_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let opened = torn(&dir, |log| log.set_next_incoming(2).unwrap());
+        assert!(opened.iter().all(|n| [(1, 1, None), (1, 2, None)].contains(n)), "{opened:?}");
+        assert_eq!(opened.first(), Some(&(1, 1, None)));
+    }
+
+    /// A torn rewrite never yields numbers that were never recorded, such as a mix of the old
+    /// and new digits (19 becoming 20, torn after the 2, would read as 29).
+    #[test]
+    fn a_torn_record_reads_as_the_old_one_or_the_new() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            for seq in 2..=19 {
+                log.set_next_incoming(seq).unwrap();
+            }
+        }
+        for (change, new) in [(20, (1, 20, None)), (99, (1, 99, None))] {
+            let old = numbers(&dir);
+            let opened = torn(&dir, |log| log.set_next_incoming(change).unwrap());
+            assert!(opened.iter().all(|n| *n == old || *n == new), "{old:?} to {new:?}: {opened:?}");
+            assert_eq!(numbers(&dir), new);
+        }
+    }
+
+    /// The first write after upgrading leaves a record from before slots intact until it's done.
+    #[test]
+    fn a_torn_first_write_over_an_old_record_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(seqnums_path(&dir), format!("{:020} {:020} {:020}\n", 5, 9, 0)).unwrap();
+        let opened = torn(&dir, |log| log.set_next_incoming(10).unwrap());
+        assert!(opened.iter().all(|n| [(5, 9, None), (5, 10, None)].contains(n)), "{opened:?}");
     }
 
     #[test]
