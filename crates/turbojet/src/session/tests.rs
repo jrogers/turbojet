@@ -1385,10 +1385,15 @@ fn covered(actions: &[Action]) -> Vec<u64> {
 /// A harness whose store keeps two of [`with_reports`]' ExecutionReports, which are all the same
 /// length.
 fn keeping_two_reports() -> Harness {
+    Harness::with_storage(Arc::new(MemoryStorage::new().with_max_session_bytes(2 * report_len())))
+}
+
+/// The length of each of [`with_reports`]' ExecutionReports, which are all the same.
+fn report_len() -> usize {
     let mut probe = with_reports(&Harness::new(), 4, 256);
     let lens: Vec<usize> = probe.peer_mut().log.sent_messages(2, 5).unwrap().iter().map(|(_, m)| m.len()).collect();
     assert!(lens.iter().all(|len| *len == lens[0]), "{lens:?}");
-    Harness::with_storage(Arc::new(MemoryStorage::new().with_max_session_bytes(2 * lens[0])))
+    lens[0]
 }
 
 #[test]
@@ -1401,6 +1406,22 @@ fn a_resend_gap_fills_messages_the_store_evicted() {
     assert_eq!(types(&out), ["SequenceReset", "ExecutionReport", "ExecutionReport"]);
     assert_eq!(covered(&out), [1, 2, 3, 4, 5]);
     assert_eq!(sent(&out)[1].get(tags::MSG_SEQ_NUM), Some("4"));
+}
+
+/// The same with a disk store, whose oldest segments go past its budget.
+#[test]
+fn a_resend_gap_fills_messages_the_disk_store_evicted() {
+    let dir = tempfile::tempdir().unwrap();
+    let len = u64::try_from(report_len()).unwrap();
+    let disk =
+        crate::DiskStorage::new(dir.path(), false).unwrap().with_max_session_bytes(2 * len).with_segment_bytes(len);
+    let h = Harness::with_storage(Arc::new(disk));
+    let mut s = with_reports(&h, 4, 256); // one report a segment; 2 and 3 deleted with theirs
+    assert_eq!(s.peer().log.evicted_through(), Some(3));
+
+    let out = s.recv(resend_request(6, 1), h.t0);
+    assert_eq!(types(&out), ["SequenceReset", "ExecutionReport", "ExecutionReport"]);
+    assert_eq!(covered(&out), [1, 2, 3, 4, 5]);
 }
 
 #[test]

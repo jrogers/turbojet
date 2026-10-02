@@ -1,6 +1,6 @@
 //! File-backed session storage: [`DiskStorage`].
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 
 /// Stores each session's state in files under one directory.
 ///
-/// Each session has up to three files in the store directory, named after its [`SessionId`]:
+/// Each session has these files in the store directory, named after its [`SessionId`]:
 ///
 /// - `<name>.seqnums`: the next outgoing and incoming sequence numbers and the incoming message in
 ///   flight to the application (0 for none), in two fixed-size slots written alternately, each
@@ -25,34 +25,88 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 ///   locked while the session is open, so two gateway processes cannot share a session.
 /// - `<name>.created`: when the state was created or last reset, as a FIX UTCTimestamp, once
 ///   recorded; used by session schedules. Replaced atomically.
-/// - `<name>.body`: sent application messages, appended as the session stores them (see
-///   [`SessionLog::record_outgoing`]), whatever their size. Opening the log scans
-///   it to index sequence numbers by file offset; resends then read messages back from disk.
+/// - `<name>.body`, `<name>.body.1`, `<name>.body.2` and so on: sent application messages, in
+///   segments, appended as the session stores them (see [`SessionLog::record_outgoing`]),
+///   whatever their size. A segment that has reached [`with_segment_bytes`] (64 MiB by default)
+///   is full, and the next batch starts another. Opening the log scans the segments to index
+///   sequence numbers by where they are; resends then read messages back from disk.
+///
+/// Each session keeps at most [`with_max_session_bytes`] of messages (1 GiB by default): past it,
+/// the oldest whole segments are deleted, and a resend that reaches back to their messages
+/// gap-fills them, so the counterparty never receives them again (the session logs a warning and
+/// counts it in `turbojet_resend_requests_evicted_total`).
 ///
 /// Changes are kept in memory until the session commits them, once per batch of work: then the
-/// messages stored since are appended to the body file in one write, and the sequence numbers
-/// written once. Without `sync` that's done at once; with it the commit is handed to the
-/// connection driver, which runs the writes and their `fsync`s on a blocking thread, so a batch
-/// of messages costs one `fsync` of each file rather than two per message.
+/// messages stored since are appended to a segment in one write, and the sequence numbers written
+/// once. Without `sync` that's done at once; with it the commit is handed to the connection
+/// driver, which runs the writes and their `fsync`s on a blocking thread, so a batch of messages
+/// costs one `fsync` of each file rather than two per message.
 ///
-/// Recovery on open: a partially written message at the end of the body file (from a crash
+/// Recovery on open: a partially written message at the end of a segment (from a crash
 /// mid-append) is truncated, and the next outgoing sequence number is advanced past the last
 /// stored message in case the crash landed between the body append and the seqnums update. A
 /// crash before a commit loses what it would have written, none of which has been sent.
+///
+/// [`with_segment_bytes`]: DiskStorage::with_segment_bytes
+/// [`with_max_session_bytes`]: DiskStorage::with_max_session_bytes
 pub struct DiskStorage {
     dir: PathBuf,
     sync: bool,
+    sizes: Sizes,
+}
+
+/// How much of a session's messages a store keeps, and in what size of segment.
+#[derive(Debug, Clone, Copy)]
+struct Sizes {
+    segment: u64,
+    max: u64,
 }
 
 impl DiskStorage {
-    /// Stores sessions under `dir`, creating it if needed.
+    /// The default byte budget for each session's stored messages: millions of typical orders and
+    /// reports, so a long outage's resends are rarely cut short, while a session that runs for
+    /// weeks without a sequence reset stops growing, on disk and in its index.
+    pub const DEFAULT_MAX_SESSION_BYTES: u64 = 1 << 30;
+
+    /// The default size of a segment: large enough that starting one is rare, small enough that
+    /// the oldest going takes a small part of the budget with it.
+    pub const DEFAULT_SEGMENT_BYTES: u64 = 64 << 20;
+
+    /// Stores sessions under `dir`, creating it if needed, with the default sizes.
     ///
     /// With `sync`, every write is followed by `fsync`, so state survives power loss at the cost
     /// of latency. Without it, writes survive a process crash but not an OS crash.
     pub fn new(dir: impl Into<PathBuf>, sync: bool) -> io::Result<Self> {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
-        Ok(Self { dir, sync })
+        let sizes = Sizes { segment: Self::DEFAULT_SEGMENT_BYTES, max: Self::DEFAULT_MAX_SESSION_BYTES };
+        Ok(Self { dir, sync, sizes })
+    }
+
+    /// Keeps at most `bytes` of each session's messages, deleting the oldest segments past it;
+    /// segments are made no larger than it.
+    ///
+    /// # Panics
+    ///
+    /// If `bytes` is zero.
+    #[must_use]
+    pub fn with_max_session_bytes(mut self, bytes: u64) -> Self {
+        assert!(bytes > 0, "max_session_bytes must be above zero");
+        self.sizes = Sizes { max: bytes, segment: self.sizes.segment.min(bytes) };
+        self
+    }
+
+    /// Starts a new segment once the current one holds `bytes` (a batch of messages isn't split).
+    ///
+    /// # Panics
+    ///
+    /// If `bytes` is zero, or more than the [budget](Self::with_max_session_bytes).
+    #[must_use]
+    pub fn with_segment_bytes(mut self, bytes: u64) -> Self {
+        let max = self.sizes.max;
+        assert!(bytes > 0 && bytes <= max, "segment_bytes must be from 1 to max_session_bytes ({max}), not {bytes}");
+        self.sizes.segment = bytes;
+        self
     }
 
     /// Whether `id` has stored state here (without creating it, as opening would).
@@ -63,29 +117,62 @@ impl DiskStorage {
 
 impl SessionStorage for DiskStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        Ok(Box::new(DiskLog::open(&self.dir, id, self.sync)?))
+        Ok(Box::new(DiskLog::open(&self.dir, id, self.sync, self.sizes)?))
     }
 }
 
-/// Offset and length of a stored message in the body file.
+/// Where a stored message is. Sixteen bytes, as the index holds one per message kept.
+#[derive(Debug, Clone, Copy)]
+struct Location {
+    offset: u64,
+    /// Below 4 GiB: a `Message` can't grow past it.
+    len: u32,
+    segment: u32,
+}
+
+/// Offset and length of a stored message in a segment.
 type Extent = (u64, usize);
 
+/// A batch for a commit to write: the segment's file, the bytes, and whether the file is new (so
+/// the directory needs a sync too).
+type BatchWrite = (Arc<File>, Vec<u8>, bool);
+
+/// One body segment: a file of messages in the order they were stored.
+struct Segment {
+    number: u32,
+    /// Shared with a commit under way on another thread.
+    file: Arc<File>,
+    /// Its length on disk.
+    len: u64,
+    /// The first and last MsgSeqNum stored in it, if any.
+    seqs: Option<(u64, u64)>,
+}
+
 struct DiskLog {
+    dir: PathBuf,
+    stem: String,
+    sizes: Sizes,
     /// Shared with a commit under way on another thread.
     seqnums: Arc<File>,
-    body: Arc<File>,
-    /// The body's length with the messages not yet written: offsets in `index` count them.
-    body_len: u64,
-    /// The body file's length: messages from here on are in `pending`.
-    written_len: u64,
-    /// Messages stored since the last commit, to be appended to the body file. Bounded by what
-    /// a session sends in one batch of work.
+    /// The segments kept, oldest first; empty until a message is stored. At most
+    /// `sizes.max / sizes.segment` full ones and the one being written (two more while a commit
+    /// that starts one also deletes one).
+    segments: VecDeque<Segment>,
+    /// The kept segments' length on disk.
+    total_len: u64,
+    /// Messages stored since the last commit, to be appended to a segment. Bounded by what a
+    /// session sends in one batch of work.
     pending: Vec<u8>,
+    /// The segment `pending` goes into, and where in it, chosen when it starts; and the first and
+    /// last MsgSeqNum in it.
+    pending_at: Option<(u32, u64)>,
+    pending_seqs: Option<(u64, u64)>,
+    /// Every message in the kept segments and `pending`: bounded by the budget.
+    index: BTreeMap<u64, Location>,
+    /// The highest MsgSeqNum of a message deleted with its segment.
+    evicted_through: Option<u64>,
     /// The sequence numbers have changed since the last commit.
     dirty: bool,
-    /// One entry per message stored until a sequence reset: unbounded, like the body file (ROADMAP
-    /// "Disk store rotation").
-    index: BTreeMap<u64, Extent>,
     next_outgoing: u64,
     next_incoming: u64,
     in_flight: Option<u64>,
@@ -98,10 +185,9 @@ struct DiskLog {
 }
 
 impl DiskLog {
-    fn open(dir: &Path, id: &SessionId, sync: bool) -> io::Result<Self> {
+    fn open(dir: &Path, id: &SessionId, sync: bool, sizes: Sizes) -> io::Result<Self> {
         let stem = file_stem(id);
         let seqnums_path = dir.join(format!("{stem}.seqnums"));
-        let body_path = dir.join(format!("{stem}.body"));
         let created_path = dir.join(format!("{stem}.created"));
 
         let mut seqnums = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&seqnums_path)?;
@@ -115,30 +201,33 @@ impl DiskLog {
         let Record { mut next_outgoing, next_incoming, in_flight, generation, slot } =
             read_seqnums(&mut seqnums, &seqnums_path)?;
 
-        let mut body = OpenOptions::new().read(true).append(true).create(true).open(&body_path)?;
-        let (index, valid_len) = scan_body(&mut body, &body_path)?;
-        let file_len = body.metadata()?.len();
-        if valid_len < file_len {
-            warn!(
-                path = %body_path.display(),
-                discarded = file_len - valid_len,
-                "truncating incomplete message at end of session store"
-            );
-            body.set_len(valid_len)?;
-        }
+        let (segments, index) = open_segments(dir, &stem)?;
         if let Some((&last, _)) = index.last_key_value() {
             next_outgoing = next_outgoing.max(last + 1);
         }
-
+        // Segments before the oldest kept were deleted, and their messages with them.
+        let evicted_through = match segments.front() {
+            Some(oldest) if oldest.number > 0 => {
+                let first = index.first_key_value().map_or(next_outgoing, |(&seq, _)| seq);
+                first.checked_sub(1).filter(|&seq| seq > 0)
+            }
+            _ => None,
+        };
+        let total_len = segments.iter().map(|s| s.len).sum();
         let created_at = read_created(&created_path)?;
         Ok(Self {
+            dir: dir.to_path_buf(),
+            stem,
+            sizes,
             seqnums: Arc::new(seqnums),
-            body: Arc::new(body),
-            body_len: valid_len,
-            written_len: valid_len,
+            segments,
+            total_len,
             pending: Vec::new(),
-            dirty: false,
+            pending_at: None,
+            pending_seqs: None,
             index,
+            evicted_through,
+            dirty: false,
             next_outgoing,
             next_incoming,
             in_flight,
@@ -162,13 +251,6 @@ impl DiskLog {
         (record, (slot * SLOT) as u64)
     }
 
-    /// Takes the messages not yet written, counting them as written, for the same reason.
-    fn take_pending(&mut self) -> Vec<u8> {
-        debug_assert_eq!(self.written_len + self.pending.len() as u64, self.body_len);
-        self.written_len = self.body_len;
-        std::mem::take(&mut self.pending)
-    }
-
     /// Writes the seqnums record now (a reset), syncing it if the store syncs.
     fn write_seqnums(&mut self) -> io::Result<()> {
         let (record, offset) = self.next_record();
@@ -177,6 +259,55 @@ impl DiskLog {
             self.seqnums.sync_data()?;
         }
         Ok(())
+    }
+
+    fn segment_path(&self, number: u32) -> PathBuf {
+        segment_path(&self.dir, &self.stem, number)
+    }
+
+    /// Where the next batch of messages goes: the end of the newest segment, or a new one if it's
+    /// full.
+    fn next_place(&self) -> (u32, u64) {
+        match self.segments.back() {
+            Some(newest) if newest.len < self.sizes.segment => (newest.number, newest.len),
+            Some(newest) => (newest.number + 1, 0),
+            None => (0, 0),
+        }
+    }
+
+    /// Moves `pending` into its segment's count, opening the segment if it's new, and returns what
+    /// the commit is to write.
+    fn place_pending(&mut self) -> io::Result<Option<BatchWrite>> {
+        let Some((number, offset)) = self.pending_at.take() else { return Ok(None) };
+        let created = self.segments.back().is_none_or(|newest| newest.number != number);
+        if created {
+            let file = OpenOptions::new().read(true).append(true).create(true).open(self.segment_path(number))?;
+            self.segments.push_back(Segment { number, file: Arc::new(file), len: 0, seqs: None });
+        }
+        let bytes = std::mem::take(&mut self.pending);
+        let segment = self.segments.back_mut().expect("just placed");
+        debug_assert_eq!((segment.number, segment.len), (number, offset), "a batch goes where it was placed");
+        segment.len += bytes.len() as u64;
+        segment.seqs = join_seqs(segment.seqs, self.pending_seqs.take());
+        self.total_len += bytes.len() as u64;
+        Ok(Some((segment.file.clone(), bytes, created)))
+    }
+
+    /// Deletes the oldest segments, never the newest, until what's kept is within the budget:
+    /// their messages leave the index. Returns the files to remove.
+    fn evict(&mut self) -> Vec<PathBuf> {
+        let mut removed = Vec::new();
+        while self.total_len > self.sizes.max && self.segments.len() > 1 {
+            let oldest = self.segments.pop_front().expect("more than one");
+            self.total_len -= oldest.len;
+            if let Some((_, last)) = oldest.seqs {
+                self.index = self.index.split_off(&(last + 1));
+                self.evicted_through = self.evicted_through.max(Some(last));
+            }
+            removed.push(self.segment_path(oldest.number));
+        }
+        debug_assert!(self.segments.len() <= 1 || self.total_len <= self.sizes.max);
+        removed
     }
 }
 
@@ -200,9 +331,14 @@ impl SessionLog for DiskLog {
         if let Some(bytes) = msg {
             // One whole message, as sent_messages checks when reading it back.
             debug_assert_eq!(frame_stored(bytes), Ok(bytes.len()));
+            if self.pending_at.is_none() {
+                self.pending_at = Some(self.next_place());
+            }
+            let (segment, start) = self.pending_at.expect("just placed");
+            let len = u32::try_from(bytes.len()).expect("a Message is below 4 GiB");
+            self.index.insert(seq, Location { offset: start + self.pending.len() as u64, len, segment });
             self.pending.extend_from_slice(bytes);
-            self.index.insert(seq, (self.body_len, bytes.len()));
-            self.body_len += bytes.len() as u64;
+            self.pending_seqs = join_seqs(self.pending_seqs, Some((seq, seq)));
         }
         self.next_outgoing = seq + 1;
         self.dirty = true;
@@ -214,43 +350,63 @@ impl SessionLog for DiskLog {
             return Ok(None);
         }
         let (record, offset) = self.next_record();
+        let write = self.place_pending()?;
+        let removed = self.evict();
         if !self.sync {
-            // Two cheap system calls: no reason to leave the connection's task. Body first, so
-            // a crash between them leaves messages the next open finds (see `open`).
-            (&*self.body).write_all(&self.pending)?;
-            self.written_len = self.body_len;
-            self.pending.clear();
+            // A few cheap system calls: no reason to leave the connection's task. Messages first,
+            // so a crash before the record leaves messages the next open finds (see `open`).
+            if let Some((file, mut bytes, _)) = write {
+                (&*file).write_all(&bytes)?;
+                bytes.clear();
+                self.pending = bytes;
+            }
             write_record(&self.seqnums, &record, offset)?;
-            return Ok(None);
+            return remove_files(&removed).map(|()| None);
         }
-        let (body, seqnums, pending) = (self.body.clone(), self.seqnums.clone(), self.take_pending());
+        let (seqnums, dir) = (self.seqnums.clone(), self.dir.clone());
         Ok(Some(Commit::blocking(move || {
-            if !pending.is_empty() {
-                (&*body).write_all(&pending)?;
-                body.sync_data()?;
+            if let Some((file, bytes, created)) = write {
+                (&*file).write_all(&bytes)?;
+                file.sync_data()?;
+                if created {
+                    // The new segment's name, so it survives a power loss too.
+                    sync_dir(&dir)?;
+                }
             }
             write_record(&seqnums, &record, offset)?;
-            seqnums.sync_data()
+            seqnums.sync_data()?;
+            // A deleted segment a power loss brings back only means more is kept: no sync.
+            remove_files(&removed)
         })))
     }
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
-        let extents: Vec<(u64, Extent)> = self.index.range(begin..=end).map(|(s, e)| (*s, *e)).collect();
-        let mut messages = Vec::with_capacity(extents.len());
-        for (seq, (offset, len)) in extents {
-            let bytes = if offset >= self.written_len {
-                // Not written yet.
-                let start = usize::try_from(offset - self.written_len).expect("pending fits in memory");
-                self.pending[start..start + len].to_vec()
-            } else {
-                (&*self.body).seek(SeekFrom::Start(offset))?;
-                let mut bytes = vec![0; len];
-                (&*self.body).read_exact(&mut bytes)?;
-                bytes
+        let locations: Vec<(u64, Location)> = self.index.range(begin..=end).map(|(s, l)| (*s, *l)).collect();
+        let mut messages = Vec::with_capacity(locations.len());
+        for (seq, Location { offset, len, segment: number }) in locations {
+            let len = len as usize;
+            let bytes = match self.pending_at {
+                Some((pending_number, start)) if pending_number == number && offset >= start => {
+                    // Not written yet.
+                    let at = usize::try_from(offset - start).expect("pending fits in memory");
+                    self.pending[at..at + len].to_vec()
+                }
+                _ => {
+                    let segment =
+                        self.segments.iter().find(|s| s.number == number).expect("an indexed segment is kept");
+                    (&*segment.file).seek(SeekFrom::Start(offset))?;
+                    let mut bytes = vec![0; len];
+                    (&*segment.file).read_exact(&mut bytes)?;
+                    bytes
+                }
             };
             match frame_stored(&bytes) {
                 Ok(n) if n == len => messages.push((seq, bytes)),
-                _ => return Err(invalid_data(format!("stored message {seq} at offset {offset} is corrupt"))),
+                _ => {
+                    return Err(invalid_data(format!(
+                        "stored message {seq} in segment {number} at offset {offset} is corrupt"
+                    )));
+                }
             }
         }
         Ok(messages)
@@ -259,13 +415,27 @@ impl SessionLog for DiskLog {
     fn reset(&mut self) -> io::Result<()> {
         // Rare (a logon or schedule reset, an operator), so written at once.
         self.pending.clear();
-        self.body.set_len(0)?;
-        if self.sync {
-            self.body.sync_data()?;
+        self.pending_at = None;
+        self.pending_seqs = None;
+        // Segment 0 is kept, emptied, for what's stored next; the rest go.
+        let mut kept = None;
+        let mut removed = Vec::new();
+        for segment in self.segments.drain(..) {
+            if segment.number == 0 {
+                segment.file.set_len(0)?;
+                if self.sync {
+                    segment.file.sync_data()?;
+                }
+                kept = Some(Segment { len: 0, seqs: None, ..segment });
+            } else {
+                removed.push(segment_path(&self.dir, &self.stem, segment.number));
+            }
         }
+        remove_files(&removed)?;
+        self.segments.extend(kept);
         self.index.clear();
-        self.body_len = 0;
-        self.written_len = 0;
+        self.total_len = 0;
+        self.evicted_through = None;
         self.next_outgoing = 1;
         self.next_incoming = 1;
         self.in_flight = None;
@@ -277,6 +447,10 @@ impl SessionLog for DiskLog {
         }
         self.created_at = None;
         Ok(())
+    }
+
+    fn evicted_through(&self) -> Option<u64> {
+        self.evicted_through
     }
 
     fn created_at(&self) -> Option<UtcTimestamp> {
@@ -305,6 +479,82 @@ impl SessionLog for DiskLog {
         self.created_at = Some(at);
         Ok(())
     }
+}
+
+/// The path of segment `number` of the session whose files start `stem`: `<stem>.body` for the
+/// first, as the single body file was named before segments.
+fn segment_path(dir: &Path, stem: &str, number: u32) -> PathBuf {
+    if number == 0 { dir.join(format!("{stem}.body")) } else { dir.join(format!("{stem}.body.{number}")) }
+}
+
+/// The segments of the session whose files start `stem`, oldest first, each scanned: a torn
+/// message at the end of one is truncated. Returns them and the index of their messages.
+fn open_segments(dir: &Path, stem: &str) -> io::Result<(VecDeque<Segment>, BTreeMap<u64, Location>)> {
+    let mut numbers = Vec::new();
+    let segment_prefix = format!("{stem}.body.");
+    for entry in fs::read_dir(dir)? {
+        let name = entry?.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.strip_suffix(".body") == Some(stem) {
+            numbers.push(0);
+        } else if let Some(number) = name.strip_prefix(&segment_prefix).and_then(|n| n.parse::<u32>().ok()) {
+            numbers.push(number);
+        }
+    }
+    numbers.sort_unstable();
+    let mut segments = VecDeque::with_capacity(numbers.len());
+    let mut index = BTreeMap::new();
+    for number in numbers {
+        let path = segment_path(dir, stem, number);
+        let mut file = OpenOptions::new().read(true).append(true).open(&path)?;
+        let (found, valid_len) = scan_body(&mut file, &path)?;
+        let file_len = file.metadata()?.len();
+        if valid_len < file_len {
+            warn!(
+                path = %path.display(),
+                discarded = file_len - valid_len,
+                "truncating incomplete message at end of session store"
+            );
+            file.set_len(valid_len)?;
+        }
+        let seqs = found.first_key_value().zip(found.last_key_value()).map(|((&first, _), (&last, _))| (first, last));
+        for (seq, (offset, len)) in found {
+            let len = u32::try_from(len)
+                .map_err(|_| invalid_data(format!("{}: message {seq} is too long", path.display())))?;
+            index.insert(seq, Location { offset, len, segment: number });
+        }
+        segments.push_back(Segment { number, file: Arc::new(file), len: valid_len, seqs });
+    }
+    Ok((segments, index))
+}
+
+/// The first and last of two ranges of MsgSeqNum, either of which may be empty.
+fn join_seqs(a: Option<(u64, u64)>, b: Option<(u64, u64)>) -> Option<(u64, u64)> {
+    match (a, b) {
+        (Some((first, _)), Some((_, last))) => Some((first, last)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Removes `paths`, any already gone.
+fn remove_files(paths: &[PathBuf]) -> io::Result<()> {
+    for path in paths {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+/// Makes a file created in `dir` survive a power loss: its name is in the directory.
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(dir)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = dir;
+    Ok(())
 }
 
 /// Writes a seqnums record into its slot, in place, in one system call where the platform allows.
@@ -636,7 +886,7 @@ mod tests {
             let mut log = storage(&dir).open(&id("A")).unwrap();
             log.record_outgoing(1, Some(&app_message(1))).unwrap();
             log.set_next_incoming(5).unwrap();
-            assert_eq!(fs::metadata(body_path(&dir, "A")).unwrap().len(), 0);
+            assert!(!body_path(&dir, "A").exists(), "no segment until a commit writes one");
         }
         assert_eq!(numbers(&dir), (1, 1, None));
         assert!(storage(&dir).open(&id("A")).unwrap().sent_messages(1, 1).unwrap().is_empty());
@@ -654,7 +904,7 @@ mod tests {
         }
         assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3, "reads see what isn't committed");
         let commit = log.commit().unwrap().expect("a commit to run");
-        assert_eq!(fs::metadata(body_path(&dir, "A")).unwrap().len(), 0);
+        assert_eq!(fs::metadata(body_path(&dir, "A")).unwrap().len(), 0, "created, but not yet written");
         // No call is made of the log until the commit has run.
         commit.run().unwrap();
         assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3);
@@ -663,6 +913,109 @@ mod tests {
         let mut log = synced.open(&id("A")).unwrap();
         assert_eq!(log.next_outgoing(), 4);
         assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3);
+    }
+
+    /// A store whose segments hold `per_segment` messages of [`app_message`]'s size (seq 1 to 9),
+    /// keeping at most `kept` messages' worth.
+    fn rotating(dir: &tempfile::TempDir, per_segment: u64, kept: u64) -> DiskStorage {
+        let len = app_message(1).len() as u64;
+        storage(dir).with_segment_bytes(per_segment * len).with_max_session_bytes(kept * len)
+    }
+
+    /// Stores `seqs` on `log`, committing each.
+    fn store_each(log: &mut dyn SessionLog, seqs: std::ops::RangeInclusive<u64>) {
+        for seq in seqs {
+            log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
+            commit_now(log).unwrap();
+        }
+    }
+
+    fn stored(log: &mut dyn SessionLog) -> Vec<u64> {
+        log.sent_messages(1, u64::MAX).unwrap().into_iter().map(|(seq, _)| seq).collect()
+    }
+
+    fn segment_path(dir: &tempfile::TempDir, n: u64) -> PathBuf {
+        let body = body_path(dir, "A");
+        if n == 0 { body } else { body.with_extension(format!("body.{n}")) }
+    }
+
+    #[test]
+    fn a_full_segment_starts_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 100);
+        {
+            let mut log = storage.open(&id("A")).unwrap();
+            store_each(log.as_mut(), 1..=5);
+            assert_eq!(stored(log.as_mut()), [1, 2, 3, 4, 5]);
+        }
+        let len = app_message(1).len() as u64;
+        let lens: Vec<u64> = (0..3).map(|n| fs::metadata(segment_path(&dir, n)).unwrap().len()).collect();
+        assert_eq!(lens, [2 * len, 2 * len, len]);
+        let mut log = storage.open(&id("A")).unwrap();
+        assert_eq!(stored(log.as_mut()), [1, 2, 3, 4, 5], "reopened across segments");
+        assert_eq!((log.next_outgoing(), log.evicted_through()), (6, None));
+    }
+
+    #[test]
+    fn the_oldest_segments_go_past_the_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 4);
+        {
+            let mut log = storage.open(&id("A")).unwrap();
+            store_each(log.as_mut(), 1..=7);
+            // Segments {1, 2} and {3, 4} went as 5 and then 7 passed four messages' worth.
+            assert_eq!(stored(log.as_mut()), [5, 6, 7]);
+            assert_eq!(log.evicted_through(), Some(4));
+        }
+        assert!(!segment_path(&dir, 0).exists() && !segment_path(&dir, 1).exists());
+        let mut log = storage.open(&id("A")).unwrap();
+        assert_eq!(stored(log.as_mut()), [5, 6, 7]);
+        assert_eq!((log.next_outgoing(), log.evicted_through()), (8, Some(4)));
+    }
+
+    #[test]
+    fn a_torn_write_in_the_newest_segment_is_truncated() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 100);
+        {
+            let mut log = storage.open(&id("A")).unwrap();
+            store_each(log.as_mut(), 1..=3);
+        }
+        let partial = &app_message(4)[..20];
+        OpenOptions::new().append(true).open(segment_path(&dir, 1)).unwrap().write_all(partial).unwrap();
+        let mut log = storage.open(&id("A")).unwrap();
+        assert_eq!(stored(log.as_mut()), [1, 2, 3]);
+        store_each(log.as_mut(), 4..=4);
+        assert_eq!(stored(log.as_mut()), [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn a_reset_deletes_every_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 4);
+        let mut log = storage.open(&id("A")).unwrap();
+        store_each(log.as_mut(), 1..=7);
+        log.reset().unwrap();
+        assert!(
+            (0..4).all(|n| !segment_path(&dir, n).exists() || fs::metadata(segment_path(&dir, n)).unwrap().len() == 0)
+        );
+        assert_eq!((stored(log.as_mut()), log.evicted_through()), (vec![], None));
+        store_each(log.as_mut(), 1..=1);
+        assert_eq!(fs::metadata(segment_path(&dir, 0)).unwrap().len(), app_message(1).len() as u64);
+    }
+
+    #[test]
+    fn conforms_with_small_segments() {
+        let dir = tempfile::tempdir().unwrap();
+        check(&storage(&dir).with_segment_bytes(300).with_max_session_bytes(1 << 20));
+        check(&DiskStorage::new(dir.path().join("synced"), true).unwrap().with_segment_bytes(300));
+    }
+
+    #[test]
+    #[should_panic(expected = "segment")]
+    fn a_segment_larger_than_the_budget_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let _ = storage(&dir).with_max_session_bytes(5).with_segment_bytes(10);
     }
 
     #[test]
