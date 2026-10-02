@@ -23,13 +23,23 @@ rules:
    SendingTime, and a gap fill never covers an application message.
 4. Each application receives what the other side sent, in order, and once (a repeat only when
    marked `maybe_redelivered`).
+5. Nothing stored is lost: a delivery never passes a message the sender stored.
+6. A store reopens with exactly the numbers it last recorded, crash or not; a change a power loss
+   tore shows up as either made or not.
 
 When the workload and faults stop, the sessions have until the slowest recovery could take to
 settle: one connection, both sides logged on over it, every application message stored delivered,
 and each side's next outgoing number the other's next expected.
 
-Stores are in memory so far; crashes, torn disk writes, operators and schedules come next (see
-ROADMAP.md, "Deterministic simulation testing").
+Half the seeds keep state in memory (standing for files that survive a process crash), the rest in
+`DiskStorage`. Either node's process can crash, between events or inside a store call (which
+either takes effect or not); a store call can also just fail. A crash between the application
+handling a message and the session recording it is redelivered, marked `maybe_redelivered`. Disk
+seeds lose power too: with sync, the call in progress is torn at a byte (on some seeds within a
+sector, mixing old and new bytes); without it, the files go back to what the OS had written back,
+a loss `DiskStorage` documents, after which only rule 1 and "the store reopens" are checked.
+
+Operators and schedules come next (see ROADMAP.md, "Deterministic simulation testing").
 
 ## Known failures
 

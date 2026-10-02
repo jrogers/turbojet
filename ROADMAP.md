@@ -45,6 +45,8 @@ later, with:
   timestamps written at the precision they arrived with (seconds to nanoseconds), and SendingTime
   at a configured one;
 - memory and disk session storage, session schedules, and operator control of sequence numbers;
+  the disk store keeps its sequence numbers in two checksummed slots, so a write torn by a power
+  loss falls back to the record before it;
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 0.9 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
@@ -166,9 +168,11 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
   sessions, the simulated driver, time and workload, the safety checks on what each side stores,
   writes and delivers, the settle check and seed replay (`scripts/sim.sh`), over a TCP-like
   network that splits, delays and stalls writes, fills send buffers, resets connections and
-  black-holes them, with memory stores and resends in small steps. It found a write deadlock in
-  the connection driver (both ends' send buffers full, each waiting for the other to read), since
-  fixed. Crashes, torn writes, operators and schedules are still to do.
+  black-holes them, with resends in small steps; process crashes, between events and inside store
+  calls; store errors; and memory and disk stores, the disk ones losing power with and without
+  sync. It found a write deadlock in the connection driver (both ends' send buffers full, each
+  waiting for the other to read) and torn sequence-number records that `DiskStorage` couldn't
+  reopen or misread, both since fixed. Operators and schedules are still to do.
 - **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
   channel, so an application that sends faster than the connection writes grows it without limit;
   so do the commands a session holds while logon is in progress. Give it a configured capacity,

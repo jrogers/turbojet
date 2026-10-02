@@ -11,6 +11,11 @@ Notable changes to the published crates.
   longer holds all of it in memory. Until the resend ends, the connection sends nothing new,
   Heartbeats included, and what the counterparty sends is read but not processed, so the order on
   the wire is unchanged. Logging out (or shutting down) during a resend stops it.
+- `DiskStorage` keeps its sequence numbers in two slots, written alternately, each with a
+  generation and a checksum, so a write torn by a power loss falls back to the record before it.
+  A torn record used to leave the store unable to open, or read as numbers never recorded (a torn
+  19 to 20 could read as 29). Files from before still read; the first write after one leaves it
+  intact.
 - The connection driver reads while its output waits to be written. It used to write all of a
   wake-up's output before reading again, so once both ends' send buffers were full, each waited
   for the other to read and the connection hung, its timers unable to fire. Handle commands now
