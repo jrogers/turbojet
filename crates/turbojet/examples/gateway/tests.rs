@@ -513,3 +513,36 @@ fn gateway_requires_an_allow_list_unless_told_to_accept_anyone() {
     assert_eq!(crate::parse_args(args(&["--allow-any"])).unwrap().allowed, None);
     assert!(crate::parse_args(args(&["--allow-any", "--allow", "CLIENT1"])).is_err(), "contradictory");
 }
+
+#[test]
+fn gateway_reads_holidays_for_its_schedule() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("holidays.txt");
+    std::fs::write(&file, "# 2026\n2026-12-25\n").unwrap();
+    let path = file.to_str().unwrap();
+    let christmas = chrono::NaiveDate::from_ymd_opt(2026, 12, 25).unwrap();
+
+    let schedule = crate::parse_args(args(&["--allow-any", "--schedule", "daily 08:00-17:00", "--holidays", path]))
+        .unwrap()
+        .config
+        .schedule
+        .unwrap();
+    assert!(schedule.holidays().contains(christmas));
+
+    // The order of the options doesn't matter.
+    let schedule = crate::parse_args(args(&["--allow-any", "--holidays", path, "--schedule", "daily 08:00-17:00"]))
+        .unwrap()
+        .config
+        .schedule
+        .unwrap();
+    assert!(schedule.holidays().contains(christmas));
+
+    let err = crate::parse_args(args(&["--allow-any", "--holidays", path])).err().expect("needs --schedule");
+    assert!(err.contains("--holidays requires --schedule"), "{err}");
+
+    std::fs::write(&file, "2026-12-32\n").unwrap();
+    let err = crate::parse_args(args(&["--allow-any", "--schedule", "daily 08:00-17:00", "--holidays", path]))
+        .err()
+        .expect("bad date");
+    assert!(err.contains("line 1"), "{err}");
+}

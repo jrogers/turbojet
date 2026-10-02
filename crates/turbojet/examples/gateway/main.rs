@@ -10,7 +10,7 @@ mod tests;
 
 use std::collections::HashSet;
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -19,7 +19,8 @@ use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use turbojet::{
-    Acceptor, DiskStorage, MemoryStorage, SequenceError, SessionConfig, SessionId, SessionRegistry, SessionStorage, tls,
+    Acceptor, DiskStorage, HolidayCalendar, MemoryStorage, SequenceError, SessionConfig, SessionId, SessionRegistry,
+    SessionSchedule, SessionStorage, tls,
 };
 
 use app::GatewayApp;
@@ -49,6 +50,8 @@ Options:
   --schedule S         Only allow sessions in these hours, resetting sequence numbers each
                        period, e.g. \"daily 08:00-17:00 mon-fri America/New_York\" or
                        \"weekly sun 17:00-fri 17:00 America/New_York\" (default: always open)
+  --holidays FILE      With --schedule: start no session on these dates (one YYYY-MM-DD per
+                       line in the schedule's time zone, # comments); read at startup
   --metrics-listen A   Serve Prometheus metrics at http://A/metrics
   --log-format F       `text` (default) or `json`
   -h, --help           Show this help
@@ -108,6 +111,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut tls_match_comp_id = false;
     let mut metrics_listen = None;
     let mut json_logs = false;
+    let mut holidays = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or(format!("{arg} requires a value"));
@@ -130,6 +134,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let text = value()?;
                 config.schedule = Some(text.parse().map_err(|e| format!("invalid --schedule '{text}': {e}"))?);
             }
+            "--holidays" => holidays = Some(PathBuf::from(value()?)),
             "--metrics-listen" => {
                 let addr = value()?;
                 metrics_listen = Some(addr.parse().map_err(|e| format!("invalid --metrics-listen '{addr}': {e}"))?);
@@ -164,6 +169,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         (Some(_), true) => return Err("--allow and --allow-any are mutually exclusive".into()),
         _ => {}
     }
+    if let Some(path) = holidays {
+        let schedule = config.schedule.take().ok_or("--holidays requires --schedule")?;
+        config.schedule = Some(schedule.with_holidays(read_holidays(&path)?));
+    }
     if fsync && store_dir.is_none() {
         return Err("--fsync requires --store-dir".into());
     }
@@ -182,6 +191,22 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         _ => return Err("--tls-cert and --tls-key must be given together".into()),
     };
     Ok(Args { listen, config, allowed, store_dir, fsync, tls, tls_match_comp_id, metrics_listen, json_logs })
+}
+
+/// Reads `--holidays FILE`, naming the file in any error.
+fn read_holidays(path: &Path) -> Result<HolidayCalendar, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("cannot read --holidays '{}': {e}", path.display()))?;
+    text.parse().map_err(|e| format!("invalid --holidays '{}': {e}", path.display()))
+}
+
+/// The schedule's holidays for the startup log: how many, and the last, so that a calendar
+/// that has run out (and so silently does nothing) shows.
+fn describe_holidays(schedule: Option<&SessionSchedule>) -> String {
+    match schedule.map(SessionSchedule::holidays).and_then(|h| Some((h.len(), h.last()?))) {
+        Some((count, last)) => format!("{count} (last {last})"),
+        None => "none".to_string(),
+    }
 }
 
 impl TlsArgs {
@@ -373,6 +398,7 @@ async fn main() -> ExitCode {
         begin_string = %config.begin_string,
         tls = tls_mode,
         schedule = %config.schedule.as_ref().map_or("always open".to_string(), |s| s.to_string()),
+        holidays = %describe_holidays(config.schedule.as_ref()),
         tls_match_comp_id,
         "FIX gateway listening"
     );
