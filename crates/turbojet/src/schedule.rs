@@ -17,6 +17,7 @@
 //! (skipped when clocks go forward) is taken as the equivalent time on the old offset, i.e. just
 //! after the gap; one that occurs twice (when clocks go back) is taken as the first occurrence.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -171,6 +172,66 @@ impl Period {
     /// Whether `time` is inside the period.
     pub fn contains(&self, time: DateTime<Utc>) -> bool {
         self.start <= time && time < self.end
+    }
+}
+
+/// Dates on which no session period starts, in the schedule's time zone. A period that starts the
+/// day before a holiday and runs into it is unaffected.
+///
+/// Parses from text: one `YYYY-MM-DD` per line, with blank lines and `#` comments allowed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HolidayCalendar {
+    dates: BTreeSet<NaiveDate>,
+}
+
+impl HolidayCalendar {
+    /// A calendar of `dates`.
+    pub fn new(dates: impl IntoIterator<Item = NaiveDate>) -> Self {
+        Self { dates: dates.into_iter().collect() }
+    }
+
+    /// Whether `date` is a holiday.
+    pub fn contains(&self, date: NaiveDate) -> bool {
+        self.dates.contains(&date)
+    }
+
+    /// The latest holiday. After it, the calendar has no effect.
+    pub fn last(&self) -> Option<NaiveDate> {
+        self.dates.last().copied()
+    }
+
+    /// The number of holidays.
+    pub fn len(&self) -> usize {
+        self.dates.len()
+    }
+
+    /// Whether there are no holidays.
+    pub fn is_empty(&self) -> bool {
+        self.dates.is_empty()
+    }
+}
+
+impl FromIterator<NaiveDate> for HolidayCalendar {
+    fn from_iter<I: IntoIterator<Item = NaiveDate>>(dates: I) -> Self {
+        Self::new(dates)
+    }
+}
+
+impl FromStr for HolidayCalendar {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, String> {
+        let mut dates = BTreeSet::new();
+        for (index, line) in s.lines().enumerate() {
+            let text = line.split_once('#').map_or(line, |(before, _)| before).trim();
+            if text.is_empty() {
+                continue;
+            }
+            let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
+                .map_err(|_| format!("line {}: invalid date '{text}' (expected YYYY-MM-DD)", index + 1))?;
+            dates.insert(date);
+        }
+        Ok(Self { dates })
     }
 }
 
@@ -503,5 +564,31 @@ mod tests {
     #[cfg(not(feature = "tz"))]
     fn schedule_err(s: &str) -> String {
         s.parse::<SessionSchedule>().unwrap_err()
+    }
+
+    fn date(s: &str) -> NaiveDate {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    #[test]
+    fn holiday_calendars_parse_one_date_per_line() {
+        let calendar: HolidayCalendar =
+            "# NYSE 2026\n2026-12-25\n\n  2026-11-26  # Thanksgiving\n2026-12-25\n".parse().unwrap();
+        assert!(calendar.contains(date("2026-12-25")));
+        assert!(calendar.contains(date("2026-11-26")));
+        assert!(!calendar.contains(date("2026-12-24")));
+        assert_eq!(calendar.last(), Some(date("2026-12-25")));
+        assert_eq!(calendar.len(), 2, "duplicates collapse");
+        assert_eq!(calendar, HolidayCalendar::new([date("2026-11-26"), date("2026-12-25")]));
+        assert!("".parse::<HolidayCalendar>().unwrap().is_empty());
+    }
+
+    #[test]
+    fn holiday_calendars_reject_bad_dates_with_their_line() {
+        let err = "2026-12-25\n2026-13-01\n".parse::<HolidayCalendar>().unwrap_err();
+        assert!(err.contains("line 2"), "{err}");
+        assert!(err.contains("'2026-13-01'"), "{err}");
+        let err = "2026-12-25 2026-12-26".parse::<HolidayCalendar>().unwrap_err();
+        assert!(err.contains("line 1"), "{err}");
     }
 }

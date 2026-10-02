@@ -237,7 +237,7 @@ pub use reconnect::ReconnectPolicy;
 pub use registry::{
     CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry,
 };
-pub use schedule::{Clock, SessionSchedule};
+pub use schedule::{Clock, HolidayCalendar, SessionSchedule};
 pub use session::{ApplVersion, Session, SessionConfig};
 pub use store::{DiskStorage, MemoryStorage, SessionId, SessionStorage};
 #[cfg(feature = "metrics")]
