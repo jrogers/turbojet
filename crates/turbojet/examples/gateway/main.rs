@@ -44,6 +44,8 @@ Options:
                        certificate; `optional` admits them, but still refuses invalid ones
   --tls-match-comp-id  With --tls-client-ca: a client certificate must name the SenderCompID
                        (as its subject CN or a DNS name) that logs on with it
+                       On Unix, SIGHUP reloads the TLS certificate, key and client CAs from their
+                       files: new connections use them, and connected sessions carry on
   --schedule S         Only allow sessions in these hours, resetting sequence numbers each
                        period, e.g. \"daily 08:00-17:00 mon-fri America/New_York\" or
                        \"weekly sun 17:00-fri 17:00 America/New_York\" (default: always open)
@@ -191,6 +193,31 @@ impl TlsArgs {
         }
     }
 
+    /// The certificate, key and client CAs, read from their files now.
+    fn load(&self) -> std::io::Result<(tls::Identity, tls::ClientTrust)> {
+        let identity = tls::Identity::from_pem_files(&self.cert, &self.key)?;
+        let client_trust = match (&self.client_ca, self.client_cert_required) {
+            (None, _) => tls::ClientTrust::None,
+            (Some(ca), true) => tls::ClientTrust::Required(tls::Trust::from_pem_files(ca)?),
+            (Some(ca), false) => tls::ClientTrust::Optional(tls::Trust::from_pem_files(ca)?),
+        };
+        Ok((identity, client_trust))
+    }
+
+    /// Reloads the certificate, key and client CAs into `server`, or keeps those in use if any
+    /// fails to load.
+    fn reload(&self, server: &tls::ServerTls) {
+        let reloaded = self.load().and_then(|(identity, client_trust)| {
+            server.set_client_trust(client_trust)?;
+            server.set_identity(identity);
+            Ok(())
+        });
+        match reloaded {
+            Ok(()) => info!(cert = %self.cert.display(), "reloaded the TLS certificates"),
+            Err(e) => warn!("keeping the TLS certificates in use: {e}"),
+        }
+    }
+
     fn describe(&self) -> &'static str {
         match self.client_auth() {
             tls::ClientAuth::None => "server-only",
@@ -318,14 +345,19 @@ async fn main() -> ExitCode {
         }
     };
     let tls_mode = tls.as_ref().map_or("off", TlsArgs::describe);
-    let tls = match &tls {
-        Some(args) => match tls::acceptor(&args.cert, &args.key, args.client_auth()) {
-            Ok(acceptor) => Some(acceptor),
-            Err(e) => {
-                error!("cannot load TLS configuration: {e}");
-                return ExitCode::FAILURE;
+    let tls = match tls {
+        Some(args) => {
+            match args.load().and_then(|(identity, client_trust)| tls::ServerTls::new(identity, client_trust)) {
+                Ok(server) => {
+                    reload_on_hangup(args, server.clone());
+                    Some(server.acceptor())
+                }
+                Err(e) => {
+                    error!("cannot load TLS configuration: {e}");
+                    return ExitCode::FAILURE;
+                }
             }
-        },
+        }
         None => None,
     };
     let listener = match TcpListener::bind(&listen).await {
@@ -373,6 +405,24 @@ async fn main() -> ExitCode {
         () = shutdown_signal() => warn!("exiting without waiting for sessions to log out"),
     }
     ExitCode::SUCCESS
+}
+
+/// On Unix, reloads the TLS certificates from their files on each SIGHUP, the usual signal for
+/// it (certbot and cert-manager hooks can send it).
+fn reload_on_hangup(args: TlsArgs, server: tls::ServerTls) {
+    #[cfg(unix)]
+    tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let Ok(mut hangup) = signal(SignalKind::hangup()) else {
+            warn!("cannot listen for SIGHUP; TLS certificates won't be reloaded");
+            return;
+        };
+        while hangup.recv().await.is_some() {
+            args.reload(&server);
+        }
+    });
+    #[cfg(not(unix))]
+    let _ = (args, server);
 }
 
 /// Completes on Ctrl-C (SIGINT) or, on Unix, SIGTERM, which service managers and `docker stop`
