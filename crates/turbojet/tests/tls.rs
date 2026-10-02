@@ -34,7 +34,24 @@ impl Pki {
         // An unrelated CA and a client certificate it issued, for trust failures.
         let other = pki.ca("other-ca");
         pki.issue("stranger", &other, vec!["stranger.example".into()], ExtendedKeyUsagePurpose::ClientAuth);
+        // A renewal of the server's certificate, and one from the other CA.
+        pki.issue("server-renewed", &ca, vec!["localhost".into()], ExtendedKeyUsagePurpose::ServerAuth);
+        pki.issue("server-other", &other, vec!["localhost".into()], ExtendedKeyUsagePurpose::ServerAuth);
         pki
+    }
+
+    /// A file's contents, as certificates arrive from a secrets store rather than a file.
+    fn pem(&self, name: &str) -> Vec<u8> {
+        std::fs::read(self.path(name)).unwrap()
+    }
+
+    /// The named certificate and key, from memory.
+    fn identity(&self, name: &str) -> tls::Identity {
+        tls::Identity::from_pem(&self.pem(&format!("{name}.pem")), &self.pem(&format!("{name}.key"))).unwrap()
+    }
+
+    fn trust(&self, ca: &str) -> tls::Trust {
+        tls::Trust::from_pem(&self.pem(&format!("{ca}.pem"))).unwrap()
     }
 
     fn path(&self, name: &str) -> PathBuf {
@@ -515,4 +532,97 @@ async fn a_connection_past_the_limit_gets_no_handshake() {
     let started = std::time::Instant::now();
     let err = attempt(&initiator).await.expect_err("refused");
     assert!(started.elapsed() < Duration::from_secs(1), "refused at once, not after {:?}: {err}", started.elapsed());
+}
+
+// ---- Certificates replaced while running ----
+
+/// Serves `server` on a free port with an acceptor that records events, returning the address.
+async fn serve(server: &tls::ServerTls) -> (String, mpsc::UnboundedReceiver<Event>) {
+    let (app, events) = recorder();
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.serve_tls(listener, server.acceptor()));
+    (addr, events)
+}
+
+/// The leaf certificate a server at `addr` presents now, by a handshake trusting `connector`.
+async fn presented(addr: &str, connector: &tls::TlsConnector) -> Vec<u8> {
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let name = tls::ServerName::try_from("localhost").unwrap();
+    let stream = timeout(Duration::from_secs(5), connector.connect(name, tcp)).await.unwrap().unwrap();
+    stream.get_ref().1.peer_certificates().unwrap()[0].to_vec()
+}
+
+fn der(pem: &[u8]) -> Vec<u8> {
+    use rustls::pki_types::pem::PemObject;
+    rustls::pki_types::CertificateDer::from_pem_slice(pem).unwrap().to_vec()
+}
+
+use tls::rustls;
+
+#[tokio::test]
+async fn a_new_server_certificate_is_presented_from_the_next_handshake() {
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
+    let (addr, mut events) = serve(&server).await;
+    let (initiator, mut client) = initiator(addr.as_str());
+    let client_tls = tls::ClientTls::new(pki.trust("ca"), None).unwrap();
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let handle = initiator.handle();
+    tokio::spawn(initiator.run());
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut events).await, Event::LoggedOn));
+    assert_eq!(presented(&addr, &client_tls.connector()).await, der(&pki.pem("server.pem")));
+
+    server.set_identity(pki.identity("server-renewed"));
+    assert_eq!(presented(&addr, &client_tls.connector()).await, der(&pki.pem("server-renewed.pem")));
+    // The session connected before carries on.
+    handle.send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "after")).unwrap();
+    loop {
+        if let Event::Message(msg) = next(&mut client).await
+            && msg.get(tags::CL_ORD_ID) == Some("after")
+        {
+            break;
+        }
+    }
+}
+
+#[test]
+fn a_key_that_isnt_the_certificates_is_refused() {
+    let pki = Pki::new();
+    let mismatched = tls::Identity::from_pem(&pki.pem("server-renewed.pem"), &pki.pem("server.key"));
+    assert_eq!(mismatched.unwrap_err().kind(), io::ErrorKind::InvalidData);
+    assert!(tls::Trust::from_pem(b"").is_err(), "no CAs");
+}
+
+#[tokio::test]
+async fn an_initiator_trusts_a_new_ca_once_given_it() {
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server-other"), tls::ClientTrust::None).unwrap();
+    let (addr, _events) = serve(&server).await;
+    let client_tls = tls::ClientTls::new(pki.trust("ca"), None).unwrap();
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    assert!(attempt(&initiator).await.is_err(), "the server's CA isn't trusted");
+
+    client_tls.set_trust(pki.trust("other-ca")).unwrap();
+    let mut client = tokio::spawn(async move { initiator.connect_once().await });
+    // Logged on: the session runs until the test ends.
+    assert!(timeout(Duration::from_millis(500), &mut client).await.is_err(), "connected and running");
+}
+
+#[tokio::test]
+async fn an_acceptor_trusts_new_client_cas_once_given_them() {
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::Required(pki.trust("ca"))).unwrap();
+    let (addr, _events) = serve(&server).await;
+    let client_tls = tls::ClientTls::new(pki.trust("ca"), Some(pki.identity("stranger"))).unwrap();
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    assert!(attempt(&initiator).await.is_err(), "the client's CA isn't trusted");
+
+    server.set_client_trust(tls::ClientTrust::Required(pki.trust("other-ca"))).unwrap();
+    let mut client = tokio::spawn(async move { initiator.connect_once().await });
+    assert!(timeout(Duration::from_millis(500), &mut client).await.is_err(), "connected and running");
 }
