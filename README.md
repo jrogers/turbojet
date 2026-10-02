@@ -267,7 +267,8 @@ session.reset_sequence_numbers().await?; // both to 1; disconnected sessions onl
 
 - A connected session applies the change on its connection task, so its state stays consistent.
   Raising the outgoing number while logged on also sends the counterparty a SequenceReset in
-  reset mode, so it expects the new number instead of detecting a gap.
+  gap-fill mode, so it expects the new number instead of detecting a gap; a counterparty still
+  filling an earlier gap applies it once that's filled, so nothing sent before is lost.
 - A disconnected session has its stored state changed directly; it is claimed in the registry
   meanwhile, so it can't log on half-way through.
 - Outgoing numbers never move backwards (sent numbers must not be reused); resetting to 1 needs

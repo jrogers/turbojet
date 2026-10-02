@@ -11,7 +11,8 @@ There are 16 scenarios (128 tests, plus a check on the harness itself):
 - Heartbeats both ways at HeartBtInt=1, and answering a TestRequest (`heartbeat.rs`);
 - a NewOrderSingle each way, field for field, and one with XmlData containing SOH (`app.rs`);
 - gap fills and resends in each direction (`gap_recovery.rs`);
-- SequenceReset-Reset from either side, and MsgSeqNum too low at either side (`seq_reset.rs`).
+- a SequenceReset from either side (reset mode from QuickFIX/J; gap-fill mode from Turbojet's
+  operator skipping ahead), and MsgSeqNum too low at either side (`seq_reset.rs`).
 
 The QuickFIX/J side is a small Java program (`peer/`) that runs one session and is driven over
 stdin and stdout. The crate isn't published.

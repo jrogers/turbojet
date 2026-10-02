@@ -11,6 +11,10 @@ Notable changes to the published crates.
   longer holds all of it in memory. Until the resend ends, the connection sends nothing new,
   Heartbeats included, and what the counterparty sends is read but not processed, so the order on
   the wire is unchanged. Logging out (or shutting down) during a resend stops it.
+- Raising a logged-on session's next outgoing number (`SessionHandle::set_next_outgoing`) tells
+  the counterparty with a SequenceReset in gap-fill mode rather than reset mode. Reset mode made a
+  counterparty still filling an earlier gap abandon it, losing messages already sent; in gap-fill
+  mode it waits its turn.
 - `DiskStorage` keeps its sequence numbers in two slots, written alternately, each with a
   generation and a checksum, so a write torn by a power loss falls back to the record before it.
   A torn record used to leave the store unable to open, or read as numbers never recorded (a torn

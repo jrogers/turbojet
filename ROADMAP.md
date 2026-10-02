@@ -62,7 +62,7 @@ later, with:
 - sessions tested against QuickFIX/J in CI (`turbojet-interop`), with Turbojet as initiator and as
   acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2: logon and logout, reconnection,
   heartbeats and TestRequests, application messages (one with XmlData containing SOH), gap fills
-  and resends in each direction, SequenceReset-Reset and MsgSeqNum too low. They found Heartbeats
+  and resends in each direction, SequenceResets in both modes and MsgSeqNum too low. They found Heartbeats
   going out a second late, since fixed.
 - QuickFIX's 235 scripted session acceptance scenarios, which cover the FIX specification's
   session test cases, run on every build (`turbojet-acceptance`). They found four deviations from
@@ -172,7 +172,11 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
   calls; store errors; and memory and disk stores, the disk ones losing power with and without
   sync. It found a write deadlock in the connection driver (both ends' send buffers full, each
   waiting for the other to read) and torn sequence-number records that `DiskStorage` couldn't
-  reopen or misread, both since fixed. Operators and schedules are still to do.
+  reopen or misread, both since fixed; logout requests, operators skipping numbers ahead and
+  resetting both sides, and daily schedules with a sequence reset each morning, which found an
+  operator's skip ahead making a counterparty abandon a gap (since fixed). Still to do: a hostile
+  mode (messages dropped, duplicated, reordered or corrupted), self-tests that plant bugs for the
+  checker to find, and a nightly run.
 - **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
   channel, so an application that sends faster than the connection writes grows it without limit;
   so do the commands a session holds while logon is in progress. Give it a configured capacity,

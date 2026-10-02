@@ -39,7 +39,13 @@ seeds lose power too: with sync, the call in progress is torn at a byte (on some
 sector, mixing old and new bytes); without it, the files go back to what the OS had written back,
 a loss `DiskStorage` documents, after which only rule 1 and "the store reopens" are checked.
 
-Operators and schedules come next (see ROADMAP.md, "Deterministic simulation testing").
+Applications ask to log out now and then; operators move a side's next outgoing number ahead
+(connected or not) and reset both sides (logging them out first); and a quarter of the seeds run
+to a daily schedule, whose next period starts the next morning with a sequence reset. A store
+reset starts a new epoch: messages left undelivered in the old one were dropped by the operator.
+
+A hostile mode and checker self-tests come next (see ROADMAP.md, "Deterministic simulation
+testing").
 
 ## Known failures
 
