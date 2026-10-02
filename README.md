@@ -42,7 +42,7 @@ cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --
     --allow CLIENT1,CLIENT2 [--store-dir ./store [--fsync]] \
     [--tls-cert server.pem --tls-key server.key \
       [--tls-client-ca ca.pem [--tls-client-auth optional] [--tls-match-comp-id]]] \
-    [--schedule "daily 08:00-17:00 mon-fri America/New_York"] \
+    [--schedule "daily 08:00-17:00 mon-fri America/New_York" [--holidays holidays.txt]] \
     [--metrics-listen 127.0.0.1:9000] [--log-format json]
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
@@ -368,6 +368,19 @@ config.schedule = Some("daily 08:00-17:00 mon-fri America/New_York".parse()?);
   based on when the store's state was created (`SessionLog::created_at`). State from before
   creation times were recorded is kept and resets from the next period; custom stores that don't
   record creation times never reset on schedule (a warning says so).
+
+Holidays are dates, in the schedule's time zone, on which no period starts. Give them as a
+`HolidayCalendar`, which parses one `YYYY-MM-DD` per line with `#` comments (the gateway reads one
+with `--holidays FILE`):
+
+```rust
+let holidays: HolidayCalendar = std::fs::read_to_string("holidays.txt")?.parse()?;
+config.schedule = Some(schedule.with_holidays(holidays));
+```
+
+A period that starts the day before a holiday still runs into it, and the period after one resets
+sequence numbers as any new period does. A weekly schedule skips only a week that starts on a
+holiday. A refused logon, or an initiator waiting, names the holiday.
 
 Times are in UTC, a fixed offset, or, with turbojet's `tz` feature, an IANA zone that follows
 daylight saving. `SessionConfig::clock` supplies wall-clock time; replace it with

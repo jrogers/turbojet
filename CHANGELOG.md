@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Session schedules can skip holidays: a `HolidayCalendar`, set with
+  `SessionSchedule::with_holidays`, lists dates (in the schedule's time zone) on which no period
+  starts. It parses one `YYYY-MM-DD` per line. A refused logon or an initiator's wait names the
+  holiday. The example gateway reads one with `--holidays FILE`.
 - TLS certificates can be given from memory as well as files, and replaced while running:
   `tls::ServerTls` (an acceptor's certificate and the CAs it trusts for client certificates) and
   `tls::ClientTls` (an initiator's trusted CAs and client certificate), built from

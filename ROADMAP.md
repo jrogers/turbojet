@@ -46,7 +46,8 @@ later, with:
 - typed dates, times (UTC and with a zone), MonthYear, `char` and multi-value lists, with
   timestamps written at the precision they arrived with (seconds to nanoseconds), and SendingTime
   at a configured one;
-- memory and disk session storage, session schedules, and operator control of sequence numbers;
+- memory and disk session storage, session schedules with holiday calendars, and operator control
+  of sequence numbers;
   the disk store keeps its sequence numbers in two checksummed slots, so a write torn by a power
   loss falls back to the record before it; both stores keep each session's newest messages up
   to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
@@ -270,7 +271,6 @@ From the benchmarks.
   and their state; starts, stops, logs out and resets them; triggers resends; and browses and
   searches the message log live. A web console on top is what commercial engines sell on. The
   gateway should use it.
-- **Holiday calendars** (S). Schedules have no notion of exchange holidays.
 - **Throttling** (M). Optional per-session inbound and outbound message-rate limits. (The
   back-pressure half is done: a full send queue refuses sends, or `send_when_ready` waits.)
 - **Inbound message persistence** (M). Only sent messages are stored. An optional audit store of
@@ -355,6 +355,8 @@ Behaviour that's deliberate or documented, but worth revisiting.
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- A weekly schedule honours only a holiday on its start day: a mid-week holiday doesn't close it.
+  Holidays don't shorten a day either (no early closes).
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
