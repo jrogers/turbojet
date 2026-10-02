@@ -29,6 +29,10 @@ use chrono::{
 const WEEK: [Weekday; 7] =
     [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
 
+/// Most candidate periods a search looks through: over a year of daily periods, enough to cross
+/// any run of holidays, while a calendar that closes every day still ends the search.
+const MAX_CANDIDATES: usize = 400;
+
 /// A source of wall-clock time. [`Clock::system`] in production; tests can supply their own with
 /// [`Clock::from_fn`] to exercise schedules without waiting.
 #[derive(Clone)]
@@ -290,7 +294,7 @@ impl SessionSchedule {
 
     /// The period containing `time`, if any.
     pub fn period_at(&self, time: DateTime<Utc>) -> Option<Period> {
-        self.periods_near(time).into_iter().filter(|p| p.contains(time)).max_by_key(|p| p.start)
+        self.periods_around(time).take_while(|p| p.start <= time).filter(|p| p.contains(time)).last()
     }
 
     /// Whether `time` falls inside a period.
@@ -298,40 +302,62 @@ impl SessionSchedule {
         self.period_at(time).is_some()
     }
 
-    /// The start of the first period beginning after `time`.
+    /// The start of the first period beginning after `time`, if one begins within about a year.
     pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.periods_near(time).into_iter().map(|p| p.start).filter(|start| *start > time).min()
+        self.periods_around(time).map(|p| p.start).find(|start| *start > time)
     }
 
-    /// Periods starting from a little before `time` to more than a week after it: enough to find
-    /// the period containing `time` and the next one to start.
-    fn periods_near(&self, time: DateTime<Utc>) -> Vec<Period> {
+    /// Periods in start order, from early enough that the first can still contain `time` (a daily
+    /// period lasts at most a day, a weekly one at most a week).
+    fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = Period> + '_ {
         let today = self.time_zone.to_local(time).date();
+        let back = match self.kind {
+            Kind::Daily { .. } => 2,
+            Kind::Weekly { .. } => 8,
+        };
+        self.periods_from(today - chrono::Duration::days(back))
+    }
+
+    /// Periods in start order, starting on `first` (a local date) or later, at most
+    /// `MAX_CANDIDATES` days (weekly: weeks) of them.
+    fn periods_from(&self, first: NaiveDate) -> impl Iterator<Item = Period> + '_ {
+        let (first, step) = match &self.kind {
+            Kind::Daily { .. } => (first, chrono::Duration::days(1)),
+            Kind::Weekly { start_day, .. } => {
+                let ahead = (7 + start_day.num_days_from_monday() - first.weekday().num_days_from_monday()) % 7;
+                (first + chrono::Duration::days(i64::from(ahead)), chrono::Duration::weeks(1))
+            }
+        };
+        std::iter::successors(Some(first), move |date| Some(*date + step))
+            .take(MAX_CANDIDATES)
+            .filter(|date| self.starts_on(*date))
+            .map(|date| self.period_starting(date))
+    }
+
+    /// Whether a period starts on `date`, a local date (for weekly schedules, one on the start day).
+    fn starts_on(&self, date: NaiveDate) -> bool {
+        match &self.kind {
+            Kind::Daily { days, .. } => days[date.weekday().num_days_from_monday() as usize],
+            Kind::Weekly { .. } => true,
+        }
+    }
+
+    /// The period starting on `date`, a local date the schedule starts a period on.
+    fn period_starting(&self, date: NaiveDate) -> Period {
         let local = |date: NaiveDate, at: NaiveTime| self.time_zone.to_utc(date.and_time(at));
         match &self.kind {
-            Kind::Daily { start, end, days } => (-2..=8)
-                .map(|offset| today + chrono::Duration::days(offset))
-                .filter(|date| days[date.weekday().num_days_from_monday() as usize])
-                .map(|date| {
-                    let end_date = if end > start { date } else { date + chrono::Duration::days(1) };
-                    Period { start: local(date, *start), end: local(end_date, *end) }
-                })
-                .collect(),
+            Kind::Daily { start, end, .. } => {
+                let end_date = if end > start { date } else { date + chrono::Duration::days(1) };
+                Period { start: local(date, *start), end: local(end_date, *end) }
+            }
             Kind::Weekly { start_day, start, end_day, end } => {
-                let since_start_day =
-                    (7 + today.weekday().num_days_from_monday() - start_day.num_days_from_monday()) % 7;
-                let anchor = today - chrono::Duration::days(i64::from(since_start_day));
+                debug_assert_eq!(date.weekday(), *start_day);
                 let span = (7 + end_day.num_days_from_monday() - start_day.num_days_from_monday()) % 7;
-                (-1..=2)
-                    .map(|week| anchor + chrono::Duration::weeks(week))
-                    .map(|start_date| {
-                        let mut end_date = start_date + chrono::Duration::days(i64::from(span));
-                        if end_date.and_time(*end) <= start_date.and_time(*start) {
-                            end_date += chrono::Duration::weeks(1);
-                        }
-                        Period { start: local(start_date, *start), end: local(end_date, *end) }
-                    })
-                    .collect()
+                let mut end_date = date + chrono::Duration::days(i64::from(span));
+                if end_date.and_time(*end) <= date.and_time(*start) {
+                    end_date += chrono::Duration::weeks(1);
+                }
+                Period { start: local(date, *start), end: local(end_date, *end) }
             }
         }
     }
