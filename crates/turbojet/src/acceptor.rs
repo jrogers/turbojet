@@ -1,9 +1,10 @@
 //! Accepts inbound connections, each of which may log on as any permitted counterparty.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::io;
-use std::net::SocketAddr;
-use std::sync::Arc;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -17,6 +18,18 @@ use crate::registry::{SessionHandle, SessionRegistry};
 use crate::session::{Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
+use crate::telemetry;
+
+/// The most connections an [`Acceptor`] keeps open at once by default: well above the
+/// counterparties one usually serves, while bounding the tasks a flood of connections can start.
+pub const DEFAULT_MAX_CONNECTIONS: usize = 1024;
+
+/// The most connections from one IP address an [`Acceptor`] keeps open at once by default: room
+/// for a counterparty's sessions and reconnects, while one address can't take every place.
+pub const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 16;
+
+/// How often a refused connection is reported in the log, at most: a flood shouldn't flood it.
+const REFUSALS_REPORTED_EVERY: Duration = Duration::from_secs(60);
 
 /// A FIX acceptor. Cheap to clone; clones share sessions, storage and [shutdown](Acceptor::shutdown).
 ///
@@ -24,12 +37,17 @@ use crate::store::{SessionId, SessionStorage};
 /// [`Application::verify_logon`] refuses it, and each CompID accepted gets its own stored state
 /// (files, with [`DiskStorage`](crate::DiskStorage)) and metric series. Check the CompID, and
 /// the client certificate if using mutual TLS, in `verify_logon`.
+///
+/// It keeps at most [`DEFAULT_MAX_CONNECTIONS`] connections open at once, and at most
+/// [`DEFAULT_MAX_CONNECTIONS_PER_IP`] from one IP address, closing any past either as soon as it's
+/// accepted (see [`with_max_connections`](Acceptor::with_max_connections)).
 #[derive(Clone)]
 pub struct Acceptor {
     config: SessionConfig,
     registry: Arc<SessionRegistry>,
     app: Arc<dyn Application>,
     shutdown: Arc<Shutdown>,
+    limits: Arc<Limits>,
 }
 
 impl Acceptor {
@@ -41,7 +59,26 @@ impl Acceptor {
     pub fn new(config: SessionConfig, storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Self {
         config.assert_valid();
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.clock.clone()));
-        Self { config, registry, app, shutdown: Arc::new(Shutdown::new()) }
+        let limits = Arc::new(Limits::new(DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP));
+        Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits }
+    }
+
+    /// Keeps at most `connections` connections open at once, closing any more as soon as they're
+    /// accepted, before a TLS handshake or a task. Every connection counts, from accept until it
+    /// closes, logged on or not. Set it before serving or cloning: clones share the limits.
+    #[must_use]
+    pub fn with_max_connections(mut self, connections: usize) -> Self {
+        self.limits = Arc::new(Limits::new(connections, self.limits.max_per_ip));
+        self
+    }
+
+    /// Keeps at most `connections` connections from one IP address open at once, as
+    /// [`with_max_connections`](Acceptor::with_max_connections) does overall. Counterparties
+    /// behind one address (a NAT, or a hub serving several firms) share it.
+    #[must_use]
+    pub fn with_max_connections_per_ip(mut self, connections: usize) -> Self {
+        self.limits = Arc::new(Limits::new(self.limits.max_total, connections));
+        self
     }
 
     /// A handle to the session with counterparty `target_comp_id`, usable whenever it is
@@ -108,8 +145,8 @@ impl Acceptor {
         Fut: Future<Output = io::Result<()>> + Send + 'static,
     {
         let mut shutdown = self.shutdown.signal();
-        // One task per connection, with no cap yet (ROADMAP "Connection limits"); each waits at
-        // most the logon timeout for a Logon.
+        // One task per connection, at most `limits.max_total` of them; each waits at most the
+        // logon timeout for a Logon.
         loop {
             let accepted = tokio::select! {
                 biased;
@@ -134,6 +171,8 @@ impl Acceptor {
                     continue;
                 }
             };
+            // Past a limit, closed at once: no handshake, no task.
+            let Some(place) = self.limits.admit(addr.ip()) else { continue };
             if let Err(e) = stream.set_nodelay(true) {
                 warn!(%addr, "cannot set TCP_NODELAY: {e}");
             }
@@ -144,6 +183,7 @@ impl Acceptor {
             tokio::spawn(
                 async move {
                     let _open = open;
+                    let _place = place;
                     info!("connection accepted");
                     match connection.await {
                         Ok(()) => info!("connection closed"),
@@ -188,6 +228,93 @@ impl Acceptor {
     /// closed without logging on. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {
         self.shutdown.run(text, self.config.logout_timeout).await
+    }
+}
+
+/// How many connections an acceptor has open, overall and by IP address, against its limits.
+struct Limits {
+    max_total: usize,
+    max_per_ip: usize,
+    open: Mutex<Open>,
+}
+
+#[derive(Default)]
+struct Open {
+    total: usize,
+    /// Only addresses with a connection open: an entry goes when its count reaches zero, so the
+    /// map holds at most `max_total` entries.
+    per_ip: HashMap<IpAddr, usize>,
+    /// Refusals since the last reported, and when that was.
+    refused: u64,
+    reported: Option<Instant>,
+}
+
+impl Limits {
+    fn new(max_total: usize, max_per_ip: usize) -> Self {
+        Self { max_total, max_per_ip, open: Mutex::default() }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Open> {
+        self.open.lock().expect("connection limits lock poisoned")
+    }
+
+    /// A place for a connection from `ip`, given back when it's dropped; or `None`, counted and
+    /// (now and then) logged, if either limit is reached.
+    fn admit(self: &Arc<Self>, ip: IpAddr) -> Option<Place> {
+        let mut open = self.lock();
+        let from_ip = open.per_ip.get(&ip).copied().unwrap_or(0);
+        let reason = if open.total >= self.max_total {
+            "total"
+        } else if from_ip >= self.max_per_ip {
+            "per_ip"
+        } else {
+            open.total += 1;
+            *open.per_ip.entry(ip).or_default() += 1;
+            debug_assert!(open.total <= self.max_total && open.per_ip.len() <= open.total);
+            return Some(Place { limits: self.clone(), ip });
+        };
+        telemetry::connection_refused(reason);
+        open.refused += 1;
+        if open.reported.is_none_or(|at| at.elapsed() >= REFUSALS_REPORTED_EVERY) {
+            let busiest = open.per_ip.iter().max_by_key(|(_, n)| **n).map(|(ip, n)| format!("{ip} ({n})"));
+            warn!(
+                refused = open.refused,
+                open = open.total,
+                max = self.max_total,
+                max_per_ip = self.max_per_ip,
+                busiest = busiest.as_deref().unwrap_or("none"),
+                last = %ip,
+                "refusing connections past the acceptor's limit ({reason})"
+            );
+            open.refused = 0;
+            open.reported = Some(Instant::now());
+        }
+        None
+    }
+
+    /// Connections open, and addresses they're from: for tests.
+    #[cfg(test)]
+    fn open(&self) -> (usize, usize) {
+        let open = self.lock();
+        (open.total, open.per_ip.len())
+    }
+}
+
+/// One open connection's place in its acceptor's limits.
+struct Place {
+    limits: Arc<Limits>,
+    ip: IpAddr,
+}
+
+impl Drop for Place {
+    fn drop(&mut self) {
+        let mut open = self.limits.lock();
+        open.total -= 1;
+        let from_ip = open.per_ip.get_mut(&self.ip).expect("a place is counted");
+        *from_ip -= 1;
+        if *from_ip == 0 {
+            open.per_ip.remove(&self.ip);
+        }
     }
 }
 
@@ -285,5 +412,67 @@ mod tests {
         };
         assert_eq!(reply.msg_type(), MsgType::Logon);
         assert!(!serving.is_finished(), "still serving");
+    }
+    /// Serves `acceptor` on a free local port, returning its address.
+    async fn serving(acceptor: Acceptor) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(acceptor.serve(listener));
+        addr
+    }
+
+    fn quiet_acceptor() -> Acceptor {
+        Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing))
+    }
+
+    /// Whether the acceptor closed `client` at once: a read returns end-of-file rather than
+    /// waiting (a connection it kept waits silently for a Logon).
+    async fn refused(client: &mut TcpStream) -> bool {
+        let mut buf = [0; 16];
+        match tokio::time::timeout(Duration::from_millis(300), client.read(&mut buf)).await {
+            Ok(Ok(0) | Err(_)) => true,
+            Ok(Ok(_)) => panic!("the acceptor sent something before a Logon"),
+            Err(_) => false,
+        }
+    }
+
+    #[tokio::test]
+    async fn connections_past_the_limit_are_closed_at_once() {
+        let acceptor = quiet_acceptor().with_max_connections(2).with_max_connections_per_ip(10);
+        let limits = acceptor.limits.clone();
+        let addr = serving(acceptor).await;
+        let mut first = TcpStream::connect(addr).await.unwrap();
+        let mut second = TcpStream::connect(addr).await.unwrap();
+        let mut third = TcpStream::connect(addr).await.unwrap();
+        assert!(refused(&mut third).await, "a third is past the limit");
+        assert!(!refused(&mut first).await && !refused(&mut second).await, "the first two wait for a Logon");
+
+        // Closing one gives its place back.
+        drop(first);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut again = TcpStream::connect(addr).await.unwrap();
+        assert!(!refused(&mut again).await);
+        drop((second, again));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(limits.open(), (0, 0), "every place is given back");
+    }
+
+    #[tokio::test]
+    async fn connections_past_the_per_ip_limit_are_closed_at_once() {
+        let addr = serving(quiet_acceptor().with_max_connections_per_ip(1)).await;
+        let mut first = TcpStream::connect(addr).await.unwrap();
+        let mut second = TcpStream::connect(addr).await.unwrap();
+        assert!(refused(&mut second).await, "one from 127.0.0.1 at a time");
+        assert!(!refused(&mut first).await);
+    }
+
+    #[test]
+    fn the_limits_are_bounded_by_default() {
+        let acceptor =
+            Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+        assert_eq!(
+            (acceptor.limits.max_total, acceptor.limits.max_per_ip),
+            (DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP)
+        );
     }
 }

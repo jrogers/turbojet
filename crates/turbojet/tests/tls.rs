@@ -494,3 +494,25 @@ async fn initiator_shutdown_abandons_a_tls_handshake() {
     let result = timeout(Duration::from_secs(1), connecting).await.expect("still connecting").unwrap();
     assert!(result.is_err(), "connected after shutdown");
 }
+
+/// A connection past the acceptor's limit is closed before any TLS handshake: the initiator's
+/// fails at once rather than waiting out the handshake timeout.
+#[tokio::test]
+async fn a_connection_past_the_limit_gets_no_handshake() {
+    let pki = Pki::new();
+    let (app, _events) = recorder();
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app)
+        .with_max_connections(1);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.serve_tls(listener, pki.acceptor(Auth::None)));
+    // Holds the only place, waiting silently in its handshake.
+    let _held = tokio::net::TcpStream::connect(&addr).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let started = std::time::Instant::now();
+    let err = attempt(&initiator).await.expect_err("refused");
+    assert!(started.elapsed() < Duration::from_secs(1), "refused at once, not after {:?}: {err}", started.elapsed());
+}

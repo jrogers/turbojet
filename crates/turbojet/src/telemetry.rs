@@ -32,13 +32,14 @@
 //! | `turbojet_resend_requests_received_total` | counter | `session` |
 //! | `turbojet_resend_requests_evicted_total` | counter | `session` |
 //! | `turbojet_garbled_messages_total` | counter | |
+//! | `turbojet_connections_refused_total` | counter | `reason` (`total` or `per_ip`) |
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |
 //! | `turbojet_next_incoming_seq` | gauge | `session` |
 //! | `turbojet_next_outgoing_seq` | gauge | `session` |
 //!
 //! `session` is the session ID, e.g. `FIX.4.2:GATEWAY->CLIENT1`.
 
-pub(crate) use imp::{SessionMetrics, application_panic, garbled_message};
+pub(crate) use imp::{SessionMetrics, application_panic, connection_refused, garbled_message};
 
 #[cfg(feature = "metrics")]
 pub use imp::describe_metrics;
@@ -66,6 +67,10 @@ mod imp {
             "ResendRequests reaching messages the store had evicted, which were gap-filled"
         );
         describe_counter!("turbojet_garbled_messages_total", "Inbound data discarded as garbled");
+        describe_counter!(
+            "turbojet_connections_refused_total",
+            "Connections an acceptor closed at once, past its limit overall or per IP address"
+        );
         describe_counter!("turbojet_application_panics_total", "Application callbacks that panicked, by callback");
         describe_gauge!("turbojet_session_logged_on", "1 while the session is logged on, else 0");
         describe_gauge!("turbojet_next_incoming_seq", "Next expected inbound MsgSeqNum");
@@ -78,6 +83,10 @@ mod imp {
 
     pub(crate) fn application_panic(callback: &'static str) {
         counter!("turbojet_application_panics_total", "callback" => callback).increment(1);
+    }
+
+    pub(crate) fn connection_refused(reason: &'static str) {
+        counter!("turbojet_connections_refused_total", "reason" => reason).increment(1);
     }
 
     pub(crate) struct SessionMetrics {
@@ -190,6 +199,9 @@ mod imp {
 
     #[inline(always)]
     pub(crate) fn application_panic(_callback: &'static str) {}
+
+    #[inline(always)]
+    pub(crate) fn connection_refused(_reason: &'static str) {}
 
     /// No-op stand-in when the `metrics` feature is off.
     pub(crate) struct SessionMetrics;
