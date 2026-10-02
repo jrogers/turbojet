@@ -597,7 +597,7 @@ impl World {
 
     /// Checks what `side`'s store has recorded since the last call.
     fn sync_ledger(&mut self, side: Side) -> Result<(), Violation> {
-        let ledger = self.storage[side.index()].ledger.lock().unwrap().clone();
+        let ledger = self.storage[side.index()].ledger.lock().unwrap();
         self.checker.stored(side, &ledger)
     }
 
@@ -647,7 +647,7 @@ impl World {
             self.sync_ledger(s)?;
         }
         for s in [Side::Initiator, Side::Acceptor] {
-            let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap().clone();
+            let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap();
             self.checker.delivered(s, &deliveries)?;
         }
         let Some(wants) = self.nodes[side.index()].wants(conn) else {
