@@ -37,8 +37,8 @@ const WEEK: [Weekday; 7] =
 /// over seven years of weeks), enough to cross any run of holidays, while a calendar that closes
 /// every day still ends the search.
 const MAX_CANDIDATES: usize = 400;
-// Over a year: 366 days, plus the 8-day look-back of a weekly search.
-const _: () = assert!(MAX_CANDIDATES > 366 + 8);
+// A daily search covers over a year after its 2-day look-back.
+const _: () = assert!(MAX_CANDIDATES > 366 + 2);
 
 /// A source of wall-clock time. [`Clock::system`] in production; tests can supply their own with
 /// [`Clock::from_fn`] to exercise schedules without waiting.
@@ -325,7 +325,7 @@ impl SessionSchedule {
 
     /// The period containing `time`, if any.
     pub fn period_at(&self, time: DateTime<Utc>) -> Option<Period> {
-        self.dated_period_at(time).map(|(_, period)| period)
+        self.periods_around(time).take_while(|p| p.start <= time).filter(|p| p.contains(time)).last()
     }
 
     /// Whether `time` falls inside a period.
@@ -333,10 +333,10 @@ impl SessionSchedule {
         self.period_at(time).is_some()
     }
 
-    /// The start of the first period beginning after `time`, if one begins within `MAX_CANDIDATES`
-    /// (400) days (weekly schedules: weeks).
+    /// The start of the first period beginning after `time`, if one begins within about 400 days
+    /// (weekly schedules: weeks).
     pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.periods_around(time).map(|(_, p)| p.start).find(|start| *start > time)
+        self.periods_around(time).map(|p| p.start).find(|start| *start > time)
     }
 
     /// Why the schedule doesn't allow a session at `time`, naming the holiday if one is the reason;
@@ -352,35 +352,39 @@ impl SessionSchedule {
         })
     }
 
-    /// The holiday that removed the period `time` would otherwise be in, if any.
+    /// The holiday that removed the period `time` would otherwise be in, if any. The date comes
+    /// from the calendar, so it is the period's start date even where a start in a DST gap
+    /// resolves to the next local date.
     fn holiday_at(&self, time: DateTime<Utc>) -> Option<NaiveDate> {
-        let open = Self { holidays: HolidayCalendar::default(), ..self.clone() };
-        // The date the period starts on, not the local date of its start: a start in a DST gap
-        // that straddles midnight resolves to just after the gap, on the next local date.
-        let (date, _) = open.dated_period_at(time)?;
-        self.holidays.contains(date).then_some(date)
-    }
-
-    /// The period containing `time`, if any, with the local date it starts on.
-    fn dated_period_at(&self, time: DateTime<Utc>) -> Option<(NaiveDate, Period)> {
-        self.periods_around(time).take_while(|(_, p)| p.start <= time).filter(|(_, p)| p.contains(time)).last()
-    }
-
-    /// Periods in start order, with the local dates they start on, from early enough that the first
-    /// can still contain `time` (a daily period lasts at most a day, a weekly one at most a week).
-    fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = (NaiveDate, Period)> + '_ {
         let today = self.time_zone.to_local(time).date();
-        // A period's own length back (a day, or a week), plus a day's margin.
-        let back = match self.kind {
+        self.holidays
+            .dates
+            .range(today - chrono::Duration::days(self.look_back())..=today)
+            .rev()
+            .copied()
+            .filter(|date| self.regular_start(*date))
+            .find(|date| self.period_starting(*date).contains(time))
+    }
+
+    /// Periods in start order, from early enough that the first can still contain `time` (a daily
+    /// period lasts at most a day, a weekly one at most a week).
+    fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = Period> + '_ {
+        let today = self.time_zone.to_local(time).date();
+        self.periods_from(today - chrono::Duration::days(self.look_back()))
+    }
+
+    /// How many days before `time`'s local date a period containing it can start: a period's own
+    /// length (a day, or a week), plus a day's margin.
+    fn look_back(&self) -> i64 {
+        match self.kind {
             Kind::Daily { .. } => 2,
             Kind::Weekly { .. } => 8,
-        };
-        self.periods_from(today - chrono::Duration::days(back))
+        }
     }
 
-    /// Periods in start order, with the local dates they start on, starting on `first` or later, at
-    /// most `MAX_CANDIDATES` days (weekly: weeks) of them.
-    fn periods_from(&self, first: NaiveDate) -> impl Iterator<Item = (NaiveDate, Period)> + '_ {
+    /// Periods in start order, starting on `first` (a local date) or later, at most
+    /// `MAX_CANDIDATES` days (weekly: weeks) of them.
+    fn periods_from(&self, first: NaiveDate) -> impl Iterator<Item = Period> + '_ {
         let (first, step) = match &self.kind {
             Kind::Daily { .. } => (first, chrono::Duration::days(1)),
             Kind::Weekly { start_day, .. } => {
@@ -391,17 +395,21 @@ impl SessionSchedule {
         std::iter::successors(Some(first), move |date| Some(*date + step))
             .take(MAX_CANDIDATES)
             .filter(|date| self.starts_on(*date))
-            .map(|date| (date, self.period_starting(date)))
+            .map(|date| self.period_starting(date))
     }
 
-    /// Whether a period starts on `date`, a local date (for weekly schedules, one on the start day):
-    /// never on a holiday, and for a daily schedule only on its days.
+    /// Whether a period starts on `date`, a local date: never on a holiday, otherwise as
+    /// [`regular_start`](Self::regular_start) says.
     fn starts_on(&self, date: NaiveDate) -> bool {
+        !self.holidays.contains(date) && self.regular_start(date)
+    }
+
+    /// Whether a period would start on `date`, a local date, ignoring holidays: for a daily
+    /// schedule one of its days, for a weekly one its start day.
+    fn regular_start(&self, date: NaiveDate) -> bool {
         match &self.kind {
-            Kind::Daily { days, .. } => {
-                !self.holidays.contains(date) && days[date.weekday().num_days_from_monday() as usize]
-            }
-            Kind::Weekly { .. } => !self.holidays.contains(date),
+            Kind::Daily { days, .. } => days[date.weekday().num_days_from_monday() as usize],
+            Kind::Weekly { start_day, .. } => date.weekday() == *start_day,
         }
     }
 
@@ -732,7 +740,14 @@ mod tests {
              2026-12-25 is a holiday); next session starts 2026-12-28 08:00:00 UTC"
         );
         // Evening of the holiday: outside hours anyway, so no holiday is named.
-        assert!(!s.closed_reason(at("2026-12-25 18:00")).unwrap().contains("holiday"));
+        assert_eq!(
+            s.closed_reason(at("2026-12-25 18:00")).unwrap(),
+            "outside session time (schedule 'daily 08:00:00-17:00:00 mon,tue,wed,thu,fri UTC'); \
+             next session starts 2026-12-28 08:00:00 UTC"
+        );
+        let weekly = closed("weekly sun 17:00-fri 17:00", &["2026-12-20"]);
+        let reason = weekly.closed_reason(at("2026-12-22 12:00")).unwrap();
+        assert!(reason.contains("; 2026-12-20 is a holiday)"), "{reason}");
     }
 
     #[cfg(feature = "tz")]
@@ -757,7 +772,8 @@ mod tests {
     #[cfg(feature = "tz")]
     #[test]
     fn holidays_are_dates_in_the_schedules_time_zone() {
-        // 22:00 in New York on the 25th is 03:00 UTC on the 26th: still the 25th's period.
+        // 04:00 UTC on the 25th is 23:00 on the 24th in New York, inside the 24th's period;
+        // 04:00 UTC on the 26th is 23:00 on the 25th, when the 25th's period would have run.
         let s = closed("daily 22:00-06:00 America/New_York", &["2026-12-25"]);
         assert!(s.is_active(at("2026-12-25 04:00")), "the 24th's period, until 06:00 New York");
         assert!(!s.is_active(at("2026-12-26 04:00")));
