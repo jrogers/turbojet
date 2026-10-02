@@ -9,6 +9,7 @@ use std::time::Duration;
 use turbojet::codec::{DecodedInto, decode_into};
 use turbojet::message::DataFields;
 use turbojet::registry::CommandReceiver;
+use turbojet::store::Commit;
 use turbojet::{InitiatorConfig, Message, Session, SessionConfig, SessionRegistry};
 
 use crate::Side;
@@ -64,6 +65,8 @@ struct Running {
     stuck: Option<SimTime>,
     /// Output the send buffer hasn't taken yet.
     outbox: Vec<u8>,
+    /// The store's commit under way: the session waits for it.
+    commit: Option<Commit>,
 }
 
 /// What a driver step leaves for the world: new output from the session (to check; the node
@@ -79,6 +82,8 @@ pub struct Effects {
 
 /// What a connection's driver is waiting for, for the world to schedule.
 pub struct Wants {
+    /// A commit is under way, for the world to finish.
+    pub commit: bool,
     pub resume: bool,
     pub read: bool,
     pub commands: bool,
@@ -136,6 +141,7 @@ impl Node {
             timer: now.after(MAX_TIMER_SLEEP),
             stuck: None,
             outbox: Vec::new(),
+            commit: None,
         };
         assert!(self.running.insert(conn, running).is_none(), "a connection starts once");
         self.step(conn, now, |session, instant| session.on_connect(instant))
@@ -176,7 +182,7 @@ impl Node {
         running.buf.append(&mut running.unread);
         if running.session.is_closed() {
             running.buf.clear();
-        } else if running.session.is_resending() || running.deferred {
+        } else if running.session.is_resending() || running.deferred || running.commit.is_some() {
             running.deferred = true;
         } else {
             running.deferred = feed(running, data_fields, instant);
@@ -195,7 +201,7 @@ impl Node {
     /// otherwise, once logged on and not resending or backed up, sends, up to a batch.
     pub fn commands(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
-        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed()) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.commit.is_none()) else {
             return Effects::default();
         };
         if let Some(command) = running.commands.try_control() {
@@ -222,13 +228,23 @@ impl Node {
     pub fn timer(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
         let clocks = self.clocks.clone();
-        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.timer <= now) else {
+        let Some(running) =
+            self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.commit.is_none() && r.timer <= now)
+        else {
             return Effects::default();
         };
         running.timer = now.after(MAX_TIMER_SLEEP);
         running.session.on_timer(instant);
         running.stuck = running.session.next_deadline().map(|d| clocks.sim_time(d)).filter(|d| *d <= now);
         self.settle(conn, now)
+    }
+
+    /// The commit branch: the store's commit has finished, and what it covers can be written.
+    pub fn committed(&mut self, conn: ConnId, now: SimTime) -> Effects {
+        let Some(commit) = self.running.get_mut(&conn).and_then(|r| r.commit.take()) else {
+            return Effects::default();
+        };
+        self.step(conn, now, |session, instant| session.on_committed(commit.run(), instant))
     }
 
     /// Output the send buffer hasn't taken yet.
@@ -246,7 +262,7 @@ impl Node {
     /// The session has closed and its output has all gone: the driver closes the connection and
     /// returns.
     pub fn finished(&self, conn: ConnId) -> bool {
-        self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty())
+        self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty() && r.commit.is_none())
     }
 
     /// The process crashes: every session goes, without writing anything more, with the
@@ -285,19 +301,24 @@ impl Node {
         let Some(running) = self.running.get_mut(&conn) else { return Effects::default() };
         let instant = clocks.instant(now);
         loop {
-            if running.deferred && !running.session.is_resending() && !running.session.is_closed() {
+            let committing = running.commit.is_some();
+            if running.deferred && !running.session.is_resending() && !running.session.is_closed() && !committing {
                 running.deferred = feed(running, data_fields, instant);
             }
             // A Logout that was waiting for the sends queued before it, now they've been taken.
             while !running.session.is_closed()
+                && running.commit.is_none()
                 && let Some(command) = running.commands.try_control()
             {
                 running.session.on_command(command, instant);
             }
             // Whatever the session did is committed before it's written.
-            running.session.commit_blocking(instant);
-            // Input that stopped for the commit goes on.
-            if !(running.deferred && !running.session.is_resending() && !running.session.is_closed()) {
+            if running.commit.is_none() {
+                running.commit = running.session.take_commit(instant);
+            }
+            // Input that stopped for a commit made at once goes on.
+            let stopped = running.deferred && running.commit.is_none();
+            if !(stopped && !running.session.is_resending() && !running.session.is_closed()) {
                 break;
             }
         }
@@ -322,12 +343,15 @@ impl Node {
     pub fn wants(&self, conn: ConnId) -> Option<Wants> {
         let running = self.running.get(&conn)?;
         let closed = running.session.is_closed();
+        let committing = running.commit.is_some();
         Some(Wants {
+            commit: committing,
             resume: running.resumes(),
             read: !running.unread.is_empty() || running.fin,
             commands: !closed
+                && !committing
                 && (running.commands.has_control() || running.takes_sends() && running.commands.has_sends()),
-            timer: (!closed).then_some(running.timer),
+            timer: (!closed && !committing).then_some(running.timer),
         })
     }
 }
@@ -338,12 +362,13 @@ impl Running {
         self.session.has_logged_on()
             && !self.session.is_resending()
             && !self.session.is_closed()
+            && self.commit.is_none()
             && self.outbox.len() < COMMANDS_PAUSE_AT
     }
 
     /// The resume branch is enabled.
     fn resumes(&self) -> bool {
-        self.session.is_resending() && self.outbox.is_empty() && !self.session.is_closed()
+        self.session.is_resending() && self.outbox.is_empty() && !self.session.is_closed() && self.commit.is_none()
     }
 }
 

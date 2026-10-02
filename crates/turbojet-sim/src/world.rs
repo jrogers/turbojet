@@ -56,6 +56,9 @@ pub enum Plant {
     ForgetMessages,
     /// Resent application messages reach the checker with their ids changed.
     AlterResends,
+    /// The acceptor's store reports each commit done before it is: its changes reach the ledger
+    /// only with the next one.
+    EarlyCommit,
 }
 
 impl Options {
@@ -244,6 +247,8 @@ enum Event {
     Read(Side, ConnId),
     Commands(Side, ConnId),
     Resume(Side, ConnId),
+    /// The store's commit under way finishes.
+    Committed(Side, ConnId),
     /// Room in the send buffer: the driver writes more of its output.
     Writable(Side, ConnId),
     Timer(Side, ConnId, SimTime),
@@ -281,6 +286,7 @@ struct Pending {
     read: bool,
     commands: bool,
     resume: bool,
+    commit: bool,
     writable: bool,
     timer: Option<SimTime>,
 }
@@ -294,6 +300,10 @@ pub const WRITE_DEADLOCK: &str = "write deadlock";
 /// waits for that before giving up.
 const RESET_BOTH_CHECK: Duration = Duration::from_millis(100);
 const RESET_BOTH_LIMIT: Duration = Duration::from_secs(60);
+
+/// How long a slow store's commit takes, mostly (an fsync), and now and then (a busy device).
+const COMMIT_TIME: Duration = Duration::from_millis(5);
+const SLOW_COMMIT_TIME: Duration = Duration::from_millis(50);
 
 /// How often the OS writes back a disk store without sync.
 const WRITE_BACK_EVERY: Duration = Duration::from_secs(5);
@@ -309,6 +319,9 @@ struct World {
     faults: Faults,
     clocks: Clocks,
     rng: Rng,
+    /// How long commits take, on seeds whose stores are slow to commit, apart from `rng` so that
+    /// seeds keep the faults they had before slow commits were simulated.
+    commit_rng: Option<Rng>,
     queue: Queue<Event>,
     nodes: [Node; 2],
     storage: [Arc<LedgerStorage>; 2],
@@ -375,8 +388,9 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
     }
 }
 
-/// Each side's store, of `kind`, wrapped to keep a ledger; and for disk stores, their directory.
-fn stores(kind: StoreKind) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
+/// Each side's store, of `kind`, wrapped to keep a ledger, slow to commit if `slow`, the acceptor's
+/// with the planted bug of committing early if `early`; and for disk stores, their directory.
+fn stores(kind: StoreKind, slow: bool, early: bool) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
     let dir = matches!(kind, StoreKind::Disk { .. }).then(|| tempfile::tempdir().expect("a temp dir"));
     let store = |name: &str| -> Arc<dyn SessionStorage> {
         match &dir {
@@ -384,11 +398,12 @@ fn stores(kind: StoreKind) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2
             Some(dir) => Arc::new(DiskStorage::new(dir.path().join(name), false).expect("a store directory")),
         }
     };
-    let ledger = |name: &str| {
+    let ledger = |name: &str, early: bool| {
         let files = dir.as_ref().map(|dir| DiskFiles::new(dir.path().join(name)));
-        Arc::new(LedgerStorage::new(store(name), files))
+        let storage = LedgerStorage::new(store(name), files);
+        Arc::new(if slow || early { storage.slow_commits(early) } else { storage })
     };
-    let storage = [ledger("initiator"), ledger("acceptor")];
+    let storage = [ledger("initiator", false), ledger("acceptor", early)];
     (dir, storage)
 }
 
@@ -468,7 +483,10 @@ impl World {
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
         initiator.heartbeat_interval = heartbeat;
         initiator.reconnect_interval = reconnect;
-        let (dir, storage) = stores(faults.store);
+        let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
+        let early = options.plant == Some(Plant::EarlyCommit);
+        let slow = commit_rng.chance(500_000) || early;
+        let (dir, storage) = stores(faults.store, slow, early);
         if options.plant == Some(Plant::ForgetMessages) {
             storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
         }
@@ -481,6 +499,7 @@ impl World {
             faults,
             clocks,
             rng,
+            commit_rng: slow.then_some(commit_rng),
             queue: Queue::new(),
             nodes,
             storage,
@@ -717,6 +736,13 @@ impl World {
                 let effects = self.nodes[side.index()].resume(conn, now);
                 self.apply(side, conn, effects, now)?;
             }
+            Event::Committed(side, conn) => {
+                if self.pending.get(&(side, conn)).is_some_and(|p| p.commit) {
+                    self.pending_for(side, conn).commit = false;
+                    let effects = self.nodes[side.index()].committed(conn, now);
+                    self.apply(side, conn, effects, now)?;
+                }
+            }
             Event::Writable(side, conn) => {
                 self.pending_for(side, conn).writable = false;
                 self.write_out(side, conn, now);
@@ -796,8 +822,16 @@ impl World {
                     in_record: self.rng.chance(500_000).then(|| self.rng.between(0, 1000)),
                     sub_sector: self.faults.sub_sector,
                 });
+                // Only a commit writes a disk store's files, so only a commit tears; and only a disk
+                // store's commit can fail without its changes taking effect.
+                let calls: &[Call] = if matches!(self.faults.store, StoreKind::Disk { .. }) {
+                    &[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight, Call::Commit]
+                } else {
+                    &[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight]
+                };
+                let call = self.rng.pick(calls);
                 let trap = Trap {
-                    call: self.rng.pick(&[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight]),
+                    call: if tear.is_some() { Call::Commit } else { call },
                     applies: self.rng.chance(500_000),
                     crash,
                     tear,
@@ -1159,6 +1193,13 @@ impl World {
             pending.resume = true;
             push.push((now, Event::Resume(side, conn)));
         }
+        if wants.commit && !pending.commit {
+            pending.commit = true;
+            let rng = self.commit_rng.as_mut().expect("only slow stores leave commits under way");
+            let most = if rng.chance(100_000) { SLOW_COMMIT_TIME } else { COMMIT_TIME };
+            let took = Duration::from_micros(rng.between(0, most.as_micros().try_into().expect("short")));
+            push.push((now.after(took), Event::Committed(side, conn)));
+        }
         if wants.read && !pending.read {
             pending.read = true;
             push.push((now, Event::Read(side, conn)));
@@ -1185,7 +1226,7 @@ impl World {
         self.in_flight == 0
             && !self.connecting
             && !self.down.iter().any(|d| *d)
-            && self.pending.values().all(|p| !p.read && !p.commands && !p.resume && !p.writable)
+            && self.pending.values().all(|p| !p.read && !p.commands && !p.resume && !p.writable && !p.commit)
     }
 
     /// Liveness: one connection, both sides logged on over it, every application message sent

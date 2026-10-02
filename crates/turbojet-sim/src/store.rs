@@ -1,6 +1,8 @@
 //! A store wrapper that tells the checker what each side committed to sending: every MsgSeqNum
 //! it used and the message it stored, as the session recorded them, whether or not they reached
-//! the wire.
+//! the wire. Changes reach the ledger when the store commits them; ones that may or may not have
+//! taken effect (a commit cut short, or changes a store kept though they were never committed)
+//! reach it as uncertain, for the next open to settle.
 
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -9,7 +11,7 @@ use turbojet::SessionId;
 
 use crate::files::{DiskFiles, Snapshot, Tear};
 use turbojet::fields::UtcTimestamp;
-use turbojet::store::{SessionLog, SessionStorage};
+use turbojet::store::{Commit, SessionLog, SessionStorage};
 
 /// One change to a side's outgoing sequence, in the order the session made them.
 #[derive(Debug, Clone)]
@@ -24,8 +26,9 @@ pub enum Stored {
     Opened { next_outgoing: u64, next_incoming: u64 },
     /// The store failed to open.
     OpenFailed(String),
-    /// A power loss tore this change: it took effect or not, as the next open shows.
-    Uncertain(Box<Stored>),
+    /// These changes, in order, may have taken effect, wholly or in part, as the next open shows:
+    /// a power loss tore their commit, or the session ended before committing them.
+    Uncertain(Vec<Stored>),
 }
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
@@ -36,11 +39,12 @@ pub enum Call {
     RecordOutgoing,
     SetNextIncoming,
     SetInFlight,
+    Commit,
 }
 
 /// What happens at the next call of a kind: it takes effect or not, then fails; and with
-/// `crash`, the process dies there too. With `tear` (a disk store, power lost), the call's writes
-/// are cut short instead: what reached the device decides whether it took effect.
+/// `crash`, the process dies there too. With `tear` (a disk store's commit, power lost), its
+/// writes are cut short instead: what reached the device decides what took effect.
 #[derive(Debug, Clone, Copy)]
 pub struct Trap {
     pub call: Call,
@@ -67,6 +71,12 @@ pub struct LedgerStorage {
     written_back: Mutex<Snapshot>,
     /// A planted bug: from this many messages stored on, keep each one's number but not the message.
     forget: Arc<Mutex<Option<u64>>>,
+    /// Commits take a while: the store hands each back to the driver to run, as one with fsync
+    /// does, and the world decides when it finishes.
+    slow: bool,
+    /// A planted bug: a commit reaches the ledger only with the next one, so it's reported done
+    /// before it is.
+    early: bool,
 }
 
 impl LedgerStorage {
@@ -79,7 +89,16 @@ impl LedgerStorage {
             files,
             written_back: Mutex::default(),
             forget: Arc::default(),
+            slow: false,
+            early: false,
         }
+    }
+
+    /// Commits take a while to finish; with `early`, the planted bug of reporting them done first.
+    pub fn slow_commits(mut self, early: bool) -> Self {
+        self.slow = true;
+        self.early = early;
+        self
     }
 
     /// Plants a bug: from the `n`th message stored, keep its number but not the message.
@@ -128,6 +147,10 @@ impl SessionStorage for LedgerStorage {
             traps: self.traps.clone(),
             files: self.files.clone(),
             forget: self.forget.clone(),
+            pending: Vec::new(),
+            late: Vec::new(),
+            slow: self.slow,
+            early: self.early,
         }))
     }
 }
@@ -138,44 +161,107 @@ struct LedgerLog {
     traps: Arc<Mutex<Traps>>,
     files: Option<Arc<DiskFiles>>,
     forget: Arc<Mutex<Option<u64>>>,
+    /// Changes since the last commit.
+    pending: Vec<Stored>,
+    /// The planted bug: the last commit's changes, reported done but not yet in the ledger.
+    late: Vec<Stored>,
+    slow: bool,
+    early: bool,
+}
+
+/// A commit's changes, on their way to the ledger: there once the commit has run, or uncertain
+/// if it never does (the connection or the process ended first), since the store may have
+/// written them already.
+struct InCommit {
+    changes: Vec<Stored>,
+    ledger: Ledger,
+}
+
+impl InCommit {
+    fn done(mut self) {
+        self.ledger.lock().unwrap().append(&mut self.changes);
+    }
+}
+
+impl Drop for InCommit {
+    fn drop(&mut self) {
+        if !self.changes.is_empty() {
+            let changes = std::mem::take(&mut self.changes);
+            self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
+        }
+    }
+}
+
+impl Drop for LedgerLog {
+    /// Changes never committed may still have taken effect: a memory store makes them at once.
+    fn drop(&mut self) {
+        let mut ledger = self.ledger.lock().unwrap();
+        ledger.append(&mut self.late);
+        if !self.pending.is_empty() {
+            ledger.push(Stored::Uncertain(std::mem::take(&mut self.pending)));
+        }
+    }
 }
 
 impl LedgerLog {
+    /// The trap armed for `call`, if any, which this call springs.
+    fn spring(&self, call: Call) -> Option<Trap> {
+        let mut traps = self.traps.lock().unwrap();
+        match traps.armed {
+            Some(trap) if trap.call == call => {
+                traps.armed = None;
+                traps.sprung = Some(trap.crash);
+                Some(trap)
+            }
+            _ => None,
+        }
+    }
+
     /// Runs `call` through `f` unless a trap is armed for it: then `f` runs only if the trap says
     /// it applies, and the call fails either way.
     fn call(&mut self, call: Call, f: impl FnOnce(&mut Self) -> io::Result<()>) -> io::Result<()> {
-        let trap = {
-            let mut traps = self.traps.lock().unwrap();
-            match traps.armed {
-                Some(trap) if trap.call == call => {
-                    traps.armed = None;
-                    traps.sprung = Some(trap.crash);
-                    Some(trap)
-                }
-                _ => None,
-            }
-        };
-        match trap {
+        match self.spring(call) {
             None => f(self),
-            Some(Trap { tear: Some(tear), .. }) if self.files.is_some() => {
-                let files = self.files.clone().expect("checked");
-                let before = files.snapshot();
-                let recorded = self.ledger.lock().unwrap().len();
-                f(self)?;
-                files.tear(&before, tear);
-                // What the call recorded may not have survived: the next open says.
-                let mut ledger = self.ledger.lock().unwrap();
-                if ledger.len() > recorded {
-                    let change = ledger.pop().expect("one change");
-                    ledger.push(Stored::Uncertain(Box::new(change)));
-                }
-                Err(io::Error::other(format!("power lost in {call:?}")))
-            }
             Some(trap) => {
                 if trap.applies {
                     f(self)?;
                 }
                 Err(io::Error::other(format!("simulated failure in {call:?}")))
+            }
+        }
+    }
+
+    /// The changes since the last commit, as one about to finish: with the planted bug, the
+    /// last commit's instead, these held back for the next.
+    fn committing(&mut self) -> Vec<Stored> {
+        let changes = std::mem::take(&mut self.pending);
+        if self.early { std::mem::replace(&mut self.late, changes) } else { changes }
+    }
+
+    /// The store's commit, sprung by a trap: it takes effect or not and fails, or with `tear`,
+    /// its writes are cut short by a power loss, and what took effect is uncertain.
+    fn trapped_commit(&mut self, trap: Trap) -> io::Result<Option<Commit>> {
+        match (trap.tear, self.files.clone()) {
+            (Some(tear), Some(files)) => {
+                let before = files.snapshot();
+                // A disk store without fsync, as the simulator's are, writes in the call.
+                assert!(self.inner.commit()?.is_none(), "the simulator's disk stores commit at once");
+                files.tear(&before, tear);
+                let changes = std::mem::take(&mut self.pending);
+                self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
+                Err(io::Error::other("power lost in Commit"))
+            }
+            _ => {
+                if trap.applies {
+                    assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
+                    let changes = std::mem::take(&mut self.pending);
+                    self.ledger.lock().unwrap().extend(changes);
+                } else {
+                    // Not committed, so lost with the log: a memory store keeps them, though.
+                    let changes = std::mem::take(&mut self.pending);
+                    self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
+                }
+                Err(io::Error::other("simulated failure in Commit"))
             }
         }
     }
@@ -193,7 +279,7 @@ impl SessionLog for LedgerLog {
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
         self.call(Call::SetNextIncoming, |log| {
             log.inner.set_next_incoming(seq)?;
-            log.ledger.lock().unwrap().push(Stored::Incoming { seq });
+            log.pending.push(Stored::Incoming { seq });
             Ok(())
         })
     }
@@ -207,7 +293,7 @@ impl SessionLog for LedgerLog {
                     *n == 0
                 });
             log.inner.record_outgoing(seq, if forget { None } else { msg })?;
-            log.ledger.lock().unwrap().push(Stored::Sent { seq, bytes: msg.map(<[u8]>::to_vec) });
+            log.pending.push(Stored::Sent { seq, bytes: msg.map(<[u8]>::to_vec) });
             Ok(())
         })
     }
@@ -216,10 +302,37 @@ impl SessionLog for LedgerLog {
         self.inner.sent_messages(begin, end)
     }
 
+    /// Written at once, superseding what came before it, committed or not.
     fn reset(&mut self) -> io::Result<()> {
         self.inner.reset()?;
-        self.ledger.lock().unwrap().push(Stored::Reset);
+        let mut ledger = self.ledger.lock().unwrap();
+        ledger.append(&mut self.late);
+        ledger.append(&mut self.pending);
+        ledger.push(Stored::Reset);
         Ok(())
+    }
+
+    fn commit(&mut self) -> io::Result<Option<Commit>> {
+        if let Some(trap) = self.spring(Call::Commit) {
+            return self.trapped_commit(trap);
+        }
+        // The inner stores commit at once (a disk store without fsync, or memory); a slow one
+        // hands the commit back, finishing when the world says. With nothing to commit, there's
+        // nothing to wait for.
+        assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
+        if self.pending.is_empty() {
+            return Ok(None);
+        }
+        let in_commit = InCommit { changes: self.committing(), ledger: self.ledger.clone() };
+        if self.slow {
+            Ok(Some(Commit::blocking(move || {
+                in_commit.done();
+                Ok(())
+            })))
+        } else {
+            in_commit.done();
+            Ok(None)
+        }
     }
 
     fn in_flight(&self) -> Option<u64> {

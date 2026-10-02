@@ -56,8 +56,11 @@ struct Sent {
     last_new: u64,
     /// Ledger entries already checked.
     ledger_seen: usize,
-    /// A change a power loss tore, until the store's next open shows what became of it.
-    uncertain: Option<Stored>,
+    /// Changes that may or may not have taken effect (a commit a power loss tore, or changes never
+    /// committed), until the store's next open shows what became of them.
+    uncertain: Vec<Stored>,
+    /// The operators' skips under way when those changes were made, which they may include.
+    uncertain_skips: BTreeSet<u64>,
     /// What was recorded in the epoch before this one, for deliveries checked only after a reset
     /// (a delivery and the reset that follows it can come in one step).
     previous: BTreeMap<u64, Option<Message>>,
@@ -108,6 +111,34 @@ impl Sent {
     }
 }
 
+impl Sent {
+    /// What of `changes` took effect, as a store that opens with `opened` (next outgoing, next
+    /// incoming) shows, if that's possible: the messages before the outgoing number it opens with,
+    /// in order, and an incoming number it had before them or one of them recorded. A disk store
+    /// writes a commit's messages before its numbers, and recovers the outgoing number from the
+    /// messages; a memory store keeps every change.
+    fn settle(&self, side: Side, changes: &[Stored], skips: &BTreeSet<u64>, opened: (u64, u64)) -> Option<Sent> {
+        let mut after = self.clone();
+        after.skip_to.extend(skips.iter().copied());
+        for change in changes {
+            match change {
+                Stored::Sent { seq, .. } if *seq >= opened.0 => break,
+                Stored::Sent { .. } => after.apply(side, change).ok()?,
+                Stored::Incoming { .. } => {}
+                // A reset is written at once, and the ledger has it as certain.
+                _ => return None,
+            }
+        }
+        let incoming_recorded = changes.iter().any(|c| matches!(c, Stored::Incoming { seq } if *seq == opened.1));
+        if after.next_recorded != opened.0 || (opened.1 != self.incoming && !incoming_recorded) {
+            return None;
+        }
+        after.incoming = opened.1;
+        after.skip_to.clone_from(&self.skip_to);
+        Some(after)
+    }
+}
+
 impl Default for Sent {
     fn default() -> Self {
         Self {
@@ -116,7 +147,8 @@ impl Default for Sent {
             recorded: BTreeMap::new(),
             last_new: 0,
             ledger_seen: 0,
-            uncertain: None,
+            uncertain: Vec::new(),
+            uncertain_skips: BTreeSet::new(),
             skip_to: BTreeSet::new(),
             previous: BTreeMap::new(),
         }
@@ -207,23 +239,23 @@ impl Checker {
         let sent = &mut self.sent[side.index()];
         for entry in &ledger[sent.ledger_seen..] {
             match entry {
-                Stored::Uncertain(change) => sent.uncertain = Some((**change).clone()),
+                Stored::Uncertain(changes) => {
+                    sent.uncertain.extend(changes.iter().cloned());
+                    sent.uncertain_skips.extend(sent.skip_to.iter().copied());
+                }
                 Stored::OpenFailed(e) => return Err(violation("6 store", format!("{side:?}'s store won't open: {e}"))),
                 Stored::Opened { next_outgoing, next_incoming } => {
                     let opened = (*next_outgoing, *next_incoming);
-                    let uncertain = sent.uncertain.take();
+                    let uncertain = std::mem::take(&mut sent.uncertain);
+                    let uncertain_skips = std::mem::take(&mut sent.uncertain_skips);
                     if lossy {
                         // What was lost is lost: carry on from what the store has.
                         sent.recorded.retain(|seq, _| *seq < opened.0);
                         (sent.next_recorded, sent.incoming) = opened;
                     } else if opened != (sent.next_recorded, sent.incoming) {
-                        // Rule 6: a store reopens with what it recorded, crash or not; a change a
-                        // power loss tore took effect or didn't.
-                        let applied = uncertain.and_then(|change| {
-                            let mut after = sent.clone();
-                            after.apply(side, &change).ok()?;
-                            (opened == (after.next_recorded, after.incoming)).then_some(after)
-                        });
+                        // Rule 6: a store reopens with what it recorded, crash or not; changes it
+                        // wasn't sure of took effect or didn't.
+                        let applied = sent.settle(side, &uncertain, &uncertain_skips, opened);
                         let Some(applied) = applied else {
                             return Err(violation(
                                 "6 store",

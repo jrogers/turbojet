@@ -92,3 +92,8 @@ fn a_store_that_forgets_messages_is_caught() {
 fn an_altered_resend_is_caught() {
     caught(Plant::AlterResends, &["3 resend"]);
 }
+
+#[test]
+fn a_commit_reported_before_it_is_made_is_caught() {
+    caught(Plant::EarlyCommit, &["2 sequence"]);
+}
