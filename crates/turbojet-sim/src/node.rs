@@ -2,7 +2,7 @@
 //! as `connection::run` in `turbojet/src/connection.rs` does. Keep the two in step: each method
 //! here is one branch of that driver's loop.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -44,6 +44,8 @@ pub struct Node {
     data_fields: DataFields,
     /// Resend this many sequence numbers per step, if set.
     pub resend_batch: Option<u64>,
+    /// Connections whose session has logged on, until the world asks after they end.
+    logged_on: BTreeSet<ConnId>,
 }
 
 /// The session on one connection, and its driver's state.
@@ -96,7 +98,8 @@ impl Node {
             Role::Initiator(config) => config.session.data_fields.clone(),
             Role::Acceptor(config) => config.data_fields.clone(),
         };
-        Self { side, role, registry, app, clocks, running: BTreeMap::new(), data_fields, resend_batch: None }
+        let (running, logged_on) = (BTreeMap::new(), BTreeSet::new());
+        Self { side, role, registry, app, clocks, running, data_fields, resend_batch: None, logged_on }
     }
 
     pub fn conns(&self) -> impl Iterator<Item = ConnId> + '_ {
@@ -265,6 +268,11 @@ impl Node {
         self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty() && r.commit.is_none())
     }
 
+    /// Whether the session on `conn`, which has ended, had logged on; asked once.
+    pub fn had_logged_on(&mut self, conn: ConnId) -> bool {
+        self.logged_on.remove(&conn)
+    }
+
     /// The process crashes: every session goes, without writing anything more, with the
     /// process's registry; the connections it had are returned for the OS to reset. A restart
     /// comes with a new registry.
@@ -272,6 +280,7 @@ impl Node {
         self.app.crash();
         let conns = self.running.keys().copied().collect();
         self.running.clear();
+        self.logged_on.clear();
         conns
     }
 
@@ -299,6 +308,9 @@ impl Node {
         let clocks = &self.clocks;
         let data_fields = &self.data_fields;
         let Some(running) = self.running.get_mut(&conn) else { return Effects::default() };
+        if running.session.has_logged_on() {
+            self.logged_on.insert(conn);
+        }
         let instant = clocks.instant(now);
         loop {
             let committing = running.commit.is_some();

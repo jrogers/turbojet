@@ -229,7 +229,7 @@ async fn acceptor_closes_a_connection_stuck_writing() {
 fn initiator(addr: &str, reconnect: Duration) -> (Initiator, mpsc::UnboundedReceiver<Event>) {
     let (app, events) = recorder();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
-    config.reconnect_interval = reconnect;
+    config.reconnect = turbojet::ReconnectPolicy::fixed(reconnect);
     (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app), events)
 }
 

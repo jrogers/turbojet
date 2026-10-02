@@ -13,8 +13,8 @@ use turbojet::message::tags;
 use turbojet::store::SessionStorage;
 
 use turbojet::{
-    DiskStorage, InitiatorConfig, MemoryStorage, SequenceError, SequenceNumbers, SessionConfig, SessionHandle,
-    SessionId, SessionRegistry, SessionSchedule,
+    DiskStorage, InitiatorConfig, MemoryStorage, ReconnectPolicy, SequenceError, SequenceNumbers, SessionConfig,
+    SessionHandle, SessionId, SessionRegistry, SessionSchedule,
 };
 
 use crate::Side;
@@ -322,6 +322,10 @@ struct World {
     /// How long commits take, on seeds whose stores are slow to commit, apart from `rng` so that
     /// seeds keep the faults they had before slow commits were simulated.
     commit_rng: Option<Rng>,
+    /// The initiator's reconnect jitter, apart from `rng` for the same reason.
+    reconnect_rng: Rng,
+    /// Connects in a row that haven't logged on, as Initiator::run counts them.
+    reconnect_attempt: u32,
     queue: Queue<Event>,
     nodes: [Node; 2],
     storage: [Arc<LedgerStorage>; 2],
@@ -482,7 +486,15 @@ impl World {
         };
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
         initiator.heartbeat_interval = heartbeat;
-        initiator.reconnect_interval = reconnect;
+        // Fixed or backing off, chosen and jittered apart from `rng` so that seeds keep the faults
+        // they had before reconnects backed off.
+        let mut reconnect_rng = Rng::new(options.seed ^ 0x7ec0_22ec);
+        initiator.reconnect = if reconnect_rng.chance(500_000) {
+            ReconnectPolicy::fixed(reconnect)
+        } else {
+            let max = reconnect * u32::try_from(reconnect_rng.between(2, 20)).expect("small");
+            ReconnectPolicy { jitter: reconnect_rng.chance(500_000), ..ReconnectPolicy::exponential(reconnect, max) }
+        };
         let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
         let early = options.plant == Some(Plant::EarlyCommit);
         let slow = commit_rng.chance(500_000) || early;
@@ -500,6 +512,8 @@ impl World {
             clocks,
             rng,
             commit_rng: slow.then_some(commit_rng),
+            reconnect_rng,
+            reconnect_attempt: 0,
             queue: Queue::new(),
             nodes,
             storage,
@@ -543,7 +557,7 @@ impl World {
         let header = format!(
             "seed {}: {:?}, {:?}",
             self.options.seed,
-            self.nodes[0].initiator_config().map(|c| (c.heartbeat_interval, c.reconnect_interval)),
+            self.nodes[0].initiator_config().map(|c| (c.heartbeat_interval, c.reconnect)),
             self.faults
         );
         self.record(&header);
@@ -572,8 +586,19 @@ impl World {
         self.nodes[0].initiator_config().expect("the initiator").heartbeat_interval
     }
 
-    fn reconnect_interval(&self) -> Duration {
-        self.nodes[0].initiator_config().expect("the initiator").reconnect_interval
+    fn reconnect_policy(&self) -> ReconnectPolicy {
+        self.nodes[0].initiator_config().expect("the initiator").reconnect
+    }
+
+    /// The wait before the initiator connects again, as Initiator::run's backoff gives it:
+    /// `logged_on` if the session that ended had logged on, which starts the count again.
+    fn reconnect_delay(&mut self, logged_on: bool) -> Duration {
+        if logged_on {
+            self.reconnect_attempt = 0;
+        }
+        let delay = self.reconnect_policy().delay(self.reconnect_attempt, self.reconnect_rng.next_u64());
+        self.reconnect_attempt = self.reconnect_attempt.saturating_add(1);
+        delay
     }
 
     /// Somewhere between half and one and a half times `mean` after `now`.
@@ -585,7 +610,7 @@ impl World {
     fn run(&mut self) -> Result<(), Violation> {
         let busy_end = self.busy_end;
         let end = busy_end.after(self.options.quiet);
-        let limit = end.after(self.faults.settle_limit(self.reconnect_interval(), self.heartbeat()));
+        let limit = end.after(self.faults.settle_limit(self.reconnect_policy().max, self.heartbeat()));
         let mut same_time = (SimTime(0), 0u64);
         while let Some(at) = self.queue.peek_time() {
             same_time = if at == same_time.0 { (at, same_time.1 + 1) } else { (at, 1) };
@@ -690,7 +715,10 @@ impl World {
                     }
                 }
             }
-            Event::ConnectFailed(g) => self.queue.push(now.after(self.reconnect_interval()), Event::Connect(g)),
+            Event::ConnectFailed(g) => {
+                let delay = self.reconnect_delay(false);
+                self.queue.push(now.after(delay), Event::Connect(g));
+            }
             Event::Established(_) => {
                 // As Initiator::run, one connection at a time.
                 assert!(self.nodes[Side::Initiator.index()].conns().next().is_none(), "the initiator connects once");
@@ -911,6 +939,10 @@ impl World {
             Event::ResetBothStep => self.reset_both_step(now)?,
             Event::Restart(side) => {
                 self.down[side.index()] = false;
+                if side == Side::Initiator {
+                    // A new process: its backoff starts again.
+                    self.reconnect_attempt = 0;
+                }
                 let storage: Arc<dyn SessionStorage> = self.storage[side.index()].clone();
                 let registry = Arc::new(SessionRegistry::new(storage).with_clock(self.clocks.wall_clock()));
                 self.nodes[side.index()].restart(registry);
@@ -1203,9 +1235,11 @@ impl World {
             self.in_flight += 1;
             self.queue.push(now.after(Duration::from_micros(100)), Event::Fail { side: side.other(), conn });
         }
+        let logged_on = side == Side::Initiator && self.nodes[side.index()].had_logged_on(conn);
         if side == Side::Initiator && !self.connecting && !self.down[side.index()] {
             self.connecting = true;
-            self.queue.push(now.after(self.reconnect_interval()), Event::Connect(self.generation));
+            let delay = self.reconnect_delay(logged_on);
+            self.queue.push(now.after(delay), Event::Connect(self.generation));
         }
     }
 

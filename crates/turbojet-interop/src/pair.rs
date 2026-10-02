@@ -138,7 +138,7 @@ impl Setup {
                 let mut config = InitiatorConfig::new(session, QFJ);
                 config.heartbeat_interval = Duration::from_secs(options.heartbeat_secs.into());
                 config.reset_on_logon = options.reset_on_logon;
-                config.reconnect_interval = Duration::from_secs(options.reconnect_secs.into());
+                config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_secs(options.reconnect_secs.into()));
                 let addr = format!("127.0.0.1:{}", peer.port());
                 let initiator = Initiator::new(addr, config, storage, app);
                 let handle = initiator.handle();

@@ -14,6 +14,7 @@ use crate::application::Application;
 use crate::connection;
 use crate::fields::Secret;
 use crate::peer::ConnectionInfo;
+use crate::reconnect::{Backoff, ReconnectPolicy};
 use crate::registry::{SessionHandle, SessionRegistry};
 use crate::session::{Session, SessionConfig};
 use crate::shutdown::Shutdown;
@@ -42,14 +43,16 @@ pub struct InitiatorConfig {
     pub password: Option<Secret>,
     /// How long a TCP connect to one endpoint may take before trying the next.
     pub connect_timeout: Duration,
-    /// Delay in [`Initiator::run`] after a session ends, or after every endpoint has failed.
-    pub reconnect_interval: Duration,
+    /// How long [`Initiator::run`] waits after a session ends, or after every endpoint has
+    /// failed, before connecting again.
+    pub reconnect: ReconnectPolicy,
 }
 
 impl InitiatorConfig {
     /// A configuration for logging on to `target_comp_id`: a 30-second heartbeat, no sequence
     /// reset, NextExpectedMsgSeqNum or credentials on logon, a 10-second connect timeout, and
-    /// reconnection every 5 seconds.
+    /// reconnection after 1 second, backing off to 60 with jitter while attempts fail (see
+    /// [`ReconnectPolicy`]).
     pub fn new(session: SessionConfig, target_comp_id: impl Into<String>) -> Self {
         Self {
             session,
@@ -60,15 +63,17 @@ impl InitiatorConfig {
             username: None,
             password: None,
             connect_timeout: Duration::from_secs(10),
-            reconnect_interval: Duration::from_secs(5),
+            reconnect: ReconnectPolicy::default(),
         }
     }
 
-    /// Checks the configuration: the session's ([`SessionConfig::check`]), and a heartbeat
-    /// interval of whole seconds from 1 to 3600. HeartBtInt(108) is a whole number of seconds, so
-    /// anything else would promise the counterparty a different interval from the one kept.
+    /// Checks the configuration: the session's ([`SessionConfig::check`]), the reconnect
+    /// policy's ([`ReconnectPolicy::check`]), and a heartbeat interval of whole seconds from 1 to
+    /// 3600. HeartBtInt(108) is a whole number of seconds, so anything else would promise the
+    /// counterparty a different interval from the one kept.
     pub fn check(&self) -> Result<(), String> {
         self.session.check()?;
+        self.reconnect.check()?;
         let interval = self.heartbeat_interval;
         if interval.subsec_nanos() != 0 || !(1..=3600).contains(&interval.as_secs()) {
             return Err(format!("heartbeat_interval must be whole seconds from 1 to 3600, not {interval:?}"));
@@ -214,14 +219,15 @@ impl Initiator {
         self.registry.handle(self.session_id())
     }
 
-    /// Keeps the session connected: calls [`Initiator::connect_once`] repeatedly, waiting
-    /// `reconnect_interval` between calls, and outside the session schedule (if any) waiting for
-    /// the next period instead. Runs until [shutdown](Initiator::shutdown) (returning once the
+    /// Keeps the session connected: calls [`Initiator::connect_once`] repeatedly, waiting as the
+    /// [reconnect policy](InitiatorConfig::reconnect) says between calls, and outside the session
+    /// schedule (if any) waiting for the next period instead. Runs until [shutdown](Initiator::shutdown) (returning once the
     /// session has closed), or until the future is dropped or the task is aborted.
     pub async fn run(self) {
         let span = tracing::info_span!("initiator", session = %self.session_id());
         async {
             let mut waiting = false;
+            let mut backoff = Backoff::new(self.config.reconnect);
             while !self.shutdown.is_started() {
                 if let Some((wait, reason)) = self.schedule_wait() {
                     if !waiting {
@@ -233,12 +239,17 @@ impl Initiator {
                     continue;
                 }
                 waiting = false;
-                match self.connect_once().await {
+                let (logged_on, result) = self.connect().await;
+                match result {
                     Ok(()) => info!("disconnected"),
                     Err(e) if self.shutdown.is_started() => info!("{e}"),
                     Err(e) => warn!("{e}"),
                 }
-                self.unless_shutdown(tokio::time::sleep(self.config.reconnect_interval)).await.ok();
+                let delay = backoff.next_delay(logged_on);
+                if !self.shutdown.is_started() {
+                    info!(?delay, "reconnecting after a delay");
+                }
+                self.unless_shutdown(tokio::time::sleep(delay)).await.ok();
             }
             info!("shut down");
         }
@@ -254,18 +265,23 @@ impl Initiator {
     /// Outside the session schedule, or after [shutdown](Initiator::shutdown) has started, fails
     /// immediately without connecting.
     pub async fn connect_once(&self) -> io::Result<()> {
+        self.connect().await.1
+    }
+
+    /// [`connect_once`](Self::connect_once), also saying whether a session logged on.
+    async fn connect(&self) -> (bool, io::Result<()>) {
         if let Some((_, reason)) = self.schedule_wait() {
-            return Err(io::Error::new(io::ErrorKind::NotConnected, reason));
+            return (false, Err(io::Error::new(io::ErrorKind::NotConnected, reason)));
         }
         let mut errors = Vec::with_capacity(self.endpoints.len());
         for (index, endpoint) in self.endpoints.iter().enumerate() {
             if self.shutdown.is_started() {
-                return Err(shutting_down());
+                return (false, Err(shutting_down()));
             }
             let role = if index == 0 { "primary" } else { "backup" };
             let span = tracing::info_span!("endpoint", addr = %endpoint.addr, role);
             match self.attempt(endpoint).instrument(span).await {
-                Attempt::Established(result) => return result,
+                Attempt::Established(result) => return (true, result),
                 Attempt::Failed(e) => {
                     let next = self.endpoints.get(index + 1).map_or("none left", |next| next.addr.as_str());
                     warn!(addr = %endpoint.addr, role, next, "endpoint failed: {e}");
@@ -273,7 +289,9 @@ impl Initiator {
                 }
             }
         }
-        Err(io::Error::new(io::ErrorKind::NotConnected, format!("no endpoint available ({})", errors.join("; "))))
+        let error =
+            io::Error::new(io::ErrorKind::NotConnected, format!("no endpoint available ({})", errors.join("; ")));
+        (false, Err(error))
     }
 
     /// Runs the session over an already-established stream (e.g. one from a custom transport),

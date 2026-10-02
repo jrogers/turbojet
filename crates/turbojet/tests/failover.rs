@@ -75,7 +75,7 @@ impl Harness {
 
     fn initiator(&self, primary: &str) -> Initiator {
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
-        config.reconnect_interval = Duration::from_millis(100);
+        config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
         config.connect_timeout = Duration::from_secs(2);
         Initiator::new(primary, config, Arc::new(MemoryStorage::new()), self.app("client", false))
     }
@@ -186,4 +186,35 @@ async fn keeps_retrying_until_an_endpoint_comes_up() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (_backup, _) = h.acceptor("backup", Some(&backup_addr), false).await;
     h.logged_on("backup").await;
+}
+
+/// While attempts keep failing, the initiator waits longer each time, as its reconnect policy says.
+#[tokio::test]
+async fn failing_attempts_back_off() {
+    // Accepts each connection and closes it at once: no session logs on.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let (attempts, mut attempted) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            drop(stream);
+            let _ = attempts.send(tokio::time::Instant::now());
+        }
+    });
+    let h = Harness::new();
+    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+    config.reconnect = turbojet::ReconnectPolicy {
+        jitter: false,
+        ..turbojet::ReconnectPolicy::exponential(Duration::from_millis(100), Duration::from_millis(400))
+    };
+    let initiator = Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), h.app("client", false));
+    tokio::spawn(initiator.run());
+    let mut at = Vec::new();
+    for _ in 0..5 {
+        at.push(timeout(Duration::from_secs(5), attempted.recv()).await.unwrap().unwrap());
+    }
+    let gaps: Vec<u128> = at.windows(2).map(|w| (w[1] - w[0]).as_millis()).collect();
+    for (gap, expected) in gaps.iter().zip([100, 200, 400, 400]) {
+        assert!((expected..expected + 150).contains(gap), "gaps {gaps:?}: expected about {expected} ms");
+    }
 }
