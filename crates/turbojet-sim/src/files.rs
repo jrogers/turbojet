@@ -55,22 +55,29 @@ impl DiskFiles {
     pub fn tear(&self, before: &Snapshot, tear: Tear) {
         let after = self.snapshot();
         let appended = after.body_len - before.body_len;
-        let rewrote = before.seqnums != after.seqnums;
-        let record = if rewrote { after.seqnums.len() as u64 } else { 0 };
+        // The bytes of the seqnums file the write changed, wherever in the file they are.
+        let changed = (0..after.seqnums.len()).filter(|&i| before.seqnums.get(i) != Some(&after.seqnums[i]));
+        let (lo, hi) = changed
+            .fold(None, |range, i| match range {
+                None => Some((i, i + 1)),
+                Some((lo, _)) => Some((lo, i + 1)),
+            })
+            .unwrap_or((0, 0));
+        let record = (hi - lo) as u64;
         let reached = match tear.in_record {
             Some(part) => appended + record * part / 1000,
             None => (appended + record) * tear.cut / 1000,
         };
         let body_kept = reached.min(appended);
         self.truncate_body(before.body_len + body_kept);
-        if rewrote {
+        if record > 0 {
             let written = usize::try_from(reached - body_kept).expect("a short record");
             let seqnums = if tear.sub_sector {
-                // The new record's first bytes over the old one's.
-                let mut mixed = after.seqnums[..written].to_vec();
-                mixed.extend(before.seqnums.iter().skip(written));
+                // The new bytes reached the device up to `written`, the old ones are left after.
+                let mut mixed = after.seqnums[..lo + written].to_vec();
+                mixed.extend(before.seqnums.iter().skip(lo + written));
                 mixed
-            } else if written == after.seqnums.len() {
+            } else if written as u64 == record {
                 after.seqnums
             } else {
                 before.seqnums.clone()
