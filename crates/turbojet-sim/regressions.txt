@@ -2,3 +2,5 @@
 1790908086718259130 two operator skips answered at once: the checker expected only the later (simulator bug)
 1790908151362597223 a delivery just before a crash, checked only after an operator's reset (simulator bug)
 1790948868095225165 a memory store lost the in-flight window when the next incoming number was recorded mid-batch
+1790949492150797139 a recovered in-flight window cleared by a later batch before its messages came back
+1790950128329746529 an operator's skip that failed in the store but took effect, landing with a later commit (simulator bug)

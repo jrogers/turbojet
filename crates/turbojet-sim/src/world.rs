@@ -1006,9 +1006,13 @@ impl World {
             };
             let Operator { side, to, .. } = self.operators.swap_remove(i);
             self.record(&format!("operator: {side:?} answered {result:?}"));
-            // What the skip recorded is checked before the checker stops expecting it.
+            // What the skip recorded is checked before the checker stops expecting it. A store
+            // failure may have taken effect all the same, and lands with the session's next
+            // commit, so that skip stays expected.
             self.sync_ledger(side)?;
-            self.checker.skip_done(side, to);
+            if !matches!(result, Err(SequenceError::Storage(_))) {
+                self.checker.skip_done(side, to);
+            }
         }
         Ok(())
     }
