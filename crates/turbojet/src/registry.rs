@@ -33,13 +33,14 @@ impl Command {
     }
 }
 
-/// The session's end of a [`Receipt`]: answered with the message's MsgSeqNum once it's stored,
-/// or why it was dropped. Dropped unanswered, the receipt reads [`Dropped::Disconnected`].
+/// The session's end of a [`Receipt`]: answered with the message's MsgSeqNum once it's stored
+/// and committed, or why it was dropped. Dropped unanswered, the receipt reads [`Dropped::Disconnected`].
 pub type ReceiptSender = oneshot::Sender<Result<u64, Dropped>>;
 
 /// What became of a message queued with [`SessionHandle::send`]: a future that resolves to its
-/// MsgSeqNum once the session has stored it (from then on it's resent if the counterparty misses
-/// it, across reconnects and restarts), or to why it was dropped. Ignoring it is fine.
+/// MsgSeqNum once the session has stored it and the store has committed it (from then on it's
+/// resent if the counterparty misses it, across reconnects and restarts), or to why it was
+/// dropped. Ignoring it is fine.
 #[derive(Debug)]
 pub struct Receipt(oneshot::Receiver<Result<u64, Dropped>>);
 
@@ -73,10 +74,11 @@ pub enum Dropped {
     /// The session wouldn't send it, for the reason given: a value containing SOH, an
     /// ApplVerID(1128) the session doesn't support, or a session-level message type.
     Rejected(String),
-    /// The session store failed while recording it, and the session disconnects. A store can
-    /// fail after the write took effect (a failed fsync, say), so the message may have been stored
-    /// after all: if so, it's resent when the counterparty asks for it, as any stored message is.
-    /// Sending it again risks a duplicate.
+    /// The session store failed while recording or committing it, and the session disconnects;
+    /// or the connection ended while its commit was under way. A store can fail after the write
+    /// took effect (a failed fsync, say), so the message may have been stored after all: if so,
+    /// it's resent when the counterparty asks for it, as any stored message is. Sending it again
+    /// risks a duplicate.
     Storage,
 }
 
@@ -86,7 +88,7 @@ impl fmt::Display for Dropped {
             Self::Disconnected => f.write_str("the connection ended before the message was sent"),
             Self::LoggingOut => f.write_str("the session was logging out"),
             Self::Rejected(reason) => write!(f, "the session wouldn't send it: {reason}"),
-            Self::Storage => f.write_str("the session store failed recording it (it may have been stored)"),
+            Self::Storage => f.write_str("the session store failed or stopped recording it (it may have been stored)"),
         }
     }
 }

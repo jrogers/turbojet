@@ -32,8 +32,8 @@ use crate::initiator::InitiatorConfig;
 use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags};
 use crate::peer::ConnectionInfo;
 use crate::registry::{
-    Command, CommandReceiver, CommandSender, Dropped, SequenceCommand, SequenceError, SequenceNumbers, SessionRegistry,
-    apply_sequence_command, command_queues,
+    Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
+    SessionRegistry, apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, SessionId, SessionLog};
@@ -384,6 +384,8 @@ pub struct Session {
     /// Operator replies, sent once the changes they report are committed. At most one per
     /// command, and commands are taken in batches between commits.
     replies: Vec<HeldReply>,
+    /// Receipts for messages stored, answered once they're committed. At most one per command.
+    receipts: Vec<(ReceiptSender, u64)>,
     /// The resend in progress, if any; see [`on_resume`](Self::on_resume).
     replay: Option<Replay>,
     /// New messages sent while a resend is in progress, framed and stored, to follow it. Drivers
@@ -486,6 +488,7 @@ impl Session {
             recovered: None,
             drain_waiting: false,
             replies: Vec::new(),
+            receipts: Vec::new(),
             replay: None,
             held: Vec::new(),
             resend_batch: MAX_RESEND_BATCH,
@@ -726,9 +729,14 @@ impl Session {
                     warn!(msg_type = %msg.msg_type(), "dropping message: session is logging out");
                     Err(Dropped::LoggingOut)
                 };
-                // The application may not be waiting to hear.
-                if let Some(receipt) = receipt {
-                    let _ = receipt.send(outcome);
+                // The application may not be waiting to hear. A message stored is reported once
+                // it's committed.
+                match (receipt, outcome) {
+                    (Some(receipt), Ok(seq)) => self.receipts.push((receipt, seq)),
+                    (Some(receipt), outcome) => {
+                        let _ = receipt.send(outcome);
+                    }
+                    (None, _) => {}
                 }
             }
             Command::Logout(text) if self.status == Status::Active => self.logout(text.as_deref(), now),
@@ -2015,6 +2023,13 @@ impl Session {
         self.peer.as_ref().map(|p| &p.metrics)
     }
 
+    /// Messages stored whose commit failed, or never finished: they may have been stored.
+    fn fail_receipts(&mut self) {
+        for (receipt, _) in self.receipts.drain(..) {
+            let _ = receipt.send(Err(Dropped::Storage));
+        }
+    }
+
     /// The session cannot continue without durable state, so it disconnects.
     fn storage_failed(&mut self, e: io::Error) {
         error!("session store failed: {e}; disconnecting");
@@ -2024,6 +2039,7 @@ impl Session {
         for (reply, _) in self.replies.drain(..) {
             let _ = reply.send(Err(SequenceError::Storage(io::Error::new(e.kind(), e.to_string()))));
         }
+        self.fail_receipts();
         self.close();
     }
 
@@ -2195,6 +2211,9 @@ impl Session {
         self.committed = self.output.len();
         self.window_end = self.opening.take().map(|start| start + DELIVERIES_PER_COMMIT);
         self.window_wanted = false;
+        for (receipt, seq) in self.receipts.drain(..) {
+            let _ = receipt.send(Ok(seq));
+        }
         if self.window_end.is_some() && std::mem::take(&mut self.drain_waiting) {
             self.after_incoming(now);
             return true;
@@ -2285,6 +2304,7 @@ fn logon_message(
 
 impl Drop for Session {
     fn drop(&mut self) {
+        self.fail_receipts();
         self.discard_pending();
         self.notify_logout();
         if let Some(peer) = self.peer.take() {

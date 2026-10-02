@@ -1092,6 +1092,28 @@ fn messages_queued_behind_a_gap_are_handled_a_window_at_a_time() {
 }
 
 #[test]
+fn a_receipt_waits_for_its_message_to_be_committed() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    assert!(run_commit(&mut s, h.t0));
+    let order = || Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "1");
+
+    let (receipt, mut stored) = tokio::sync::oneshot::channel();
+    s.on_command(Command::Send(order(), Some(receipt)), h.t0);
+    assert!(stored.try_recv().is_err(), "stored, but not committed yet");
+    assert!(run_commit(&mut s, h.t0));
+    assert_eq!(stored.try_recv().unwrap(), Ok(2));
+
+    let (receipt, mut failed) = tokio::sync::oneshot::channel();
+    s.on_command(Command::Send(order(), Some(receipt)), h.t0);
+    *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("disk full")));
+    assert!(run_commit(&mut s, h.t0));
+    assert_eq!(failed.try_recv().unwrap(), Err(Dropped::Storage), "it may have been stored");
+}
+
+#[test]
 fn an_operator_hears_of_a_change_once_it_is_committed() {
     let storage = Arc::new(DeferringStorage::default());
     let h = Harness::with_storage(storage.clone());
