@@ -6,6 +6,7 @@
 
 pub mod app;
 pub mod check;
+pub mod files;
 pub mod net;
 pub mod node;
 pub mod queue;

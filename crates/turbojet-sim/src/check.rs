@@ -44,6 +44,7 @@ const RESEND_MAY_CHANGE: &[u32] = &[
 
 /// What one side has committed to sending in the current sequence epoch, from its store, and
 /// what of it has been on the wire.
+#[derive(Clone)]
 struct Sent {
     /// The MsgSeqNum the store must record next.
     next_recorded: u64,
@@ -55,11 +56,42 @@ struct Sent {
     last_new: u64,
     /// Ledger entries already checked.
     ledger_seen: usize,
+    /// A change a power loss tore, until the store's next open shows what became of it.
+    uncertain: Option<Stored>,
+}
+
+impl Sent {
+    /// Rule 2 on one change the store recorded: each MsgSeqNum once, in order.
+    fn apply(&mut self, side: Side, change: &Stored) -> Result<(), Violation> {
+        match change {
+            Stored::Reset => *self = Sent { ledger_seen: self.ledger_seen, ..Sent::default() },
+            Stored::Incoming { seq } => self.incoming = *seq,
+            Stored::Sent { seq, bytes } => {
+                if *seq != self.next_recorded {
+                    return Err(violation(
+                        "2 sequence",
+                        format!("{side:?} stored {seq}, expected {}", self.next_recorded),
+                    ));
+                }
+                let msg = match bytes {
+                    Some(bytes) => Some(
+                        parse(bytes)
+                            .ok_or_else(|| violation("1 valid output", format!("{side:?} stored garbage as {seq}")))?,
+                    ),
+                    None => None,
+                };
+                self.recorded.insert(*seq, msg);
+                self.next_recorded = seq + 1;
+            }
+            Stored::Opened { .. } | Stored::OpenFailed(_) | Stored::Uncertain(_) => unreachable!("handled by stored"),
+        }
+        Ok(())
+    }
 }
 
 impl Default for Sent {
     fn default() -> Self {
-        Self { next_recorded: 1, incoming: 1, recorded: BTreeMap::new(), last_new: 0, ledger_seen: 0 }
+        Self { next_recorded: 1, incoming: 1, recorded: BTreeMap::new(), last_new: 0, ledger_seen: 0, uncertain: None }
     }
 }
 
@@ -76,6 +108,7 @@ struct Received {
 pub struct Checker {
     sent: [Sent; 2],
     received: [Received; 2],
+    lossy: bool,
 }
 
 fn parse(bytes: &[u8]) -> Option<Message> {
@@ -107,47 +140,54 @@ impl Checker {
     /// Rules 2 and 6 on what `side`'s store recorded since the last call: each MsgSeqNum once, in
     /// order, and a store that opens with the numbers it last recorded.
     pub fn stored(&mut self, side: Side, ledger: &[Stored]) -> Result<(), Violation> {
+        let lossy = self.lossy;
         let sent = &mut self.sent[side.index()];
         for entry in &ledger[sent.ledger_seen..] {
             match entry {
-                Stored::Reset => {
-                    let seen = sent.ledger_seen;
-                    *sent = Sent { ledger_seen: seen, ..Sent::default() };
-                }
-                Stored::Incoming { seq } => sent.incoming = *seq,
+                Stored::Uncertain(change) => sent.uncertain = Some((**change).clone()),
+                Stored::OpenFailed(e) => return Err(violation("6 store", format!("{side:?}'s store won't open: {e}"))),
                 Stored::Opened { next_outgoing, next_incoming } => {
-                    // Rule 6: what a store recorded is what it reopens with, crash or not.
-                    if (*next_outgoing, *next_incoming) != (sent.next_recorded, sent.incoming) {
-                        return Err(violation(
-                            "6 store",
-                            format!(
-                                "{side:?}'s store opened at {next_outgoing} out, {next_incoming} in; it recorded {} out, {} in",
-                                sent.next_recorded, sent.incoming
-                            ),
-                        ));
-                    }
-                }
-                Stored::Sent { seq, bytes } => {
-                    if *seq != sent.next_recorded {
-                        return Err(violation(
-                            "2 sequence",
-                            format!("{side:?} stored {seq}, expected {}", sent.next_recorded),
-                        ));
-                    }
-                    let msg =
-                        match bytes {
-                            Some(bytes) => Some(parse(bytes).ok_or_else(|| {
-                                violation("1 valid output", format!("{side:?} stored garbage as {seq}"))
-                            })?),
-                            None => None,
+                    let opened = (*next_outgoing, *next_incoming);
+                    let uncertain = sent.uncertain.take();
+                    if lossy {
+                        // What was lost is lost: carry on from what the store has.
+                        sent.recorded.retain(|seq, _| *seq < opened.0);
+                        (sent.next_recorded, sent.incoming) = opened;
+                    } else if opened != (sent.next_recorded, sent.incoming) {
+                        // Rule 6: a store reopens with what it recorded, crash or not; a change a
+                        // power loss tore took effect or didn't.
+                        let applied = uncertain.and_then(|change| {
+                            let mut after = sent.clone();
+                            after.apply(side, &change).ok()?;
+                            (opened == (after.next_recorded, after.incoming)).then_some(after)
+                        });
+                        let Some(applied) = applied else {
+                            return Err(violation(
+                                "6 store",
+                                format!(
+                                    "{side:?}'s store opened at {} out, {} in; it recorded {} out, {} in",
+                                    opened.0, opened.1, sent.next_recorded, sent.incoming
+                                ),
+                            ));
                         };
-                    sent.recorded.insert(*seq, msg);
-                    sent.next_recorded = seq + 1;
+                        *sent = applied;
+                    }
                 }
+                change => sent.apply(side, change).or_else(|e| if lossy { Ok(()) } else { Err(e) })?,
             }
             sent.ledger_seen += 1;
         }
         Ok(())
+    }
+
+    /// A power loss on a store without fsync has lost what the OS hadn't written back: from now
+    /// on only rule 1 holds, and the sessions needn't settle.
+    pub fn lose(&mut self) {
+        self.lossy = true;
+    }
+
+    pub fn is_lossy(&self) -> bool {
+        self.lossy
     }
 
     /// Rules 1-3, on what `side` wrote.
@@ -159,7 +199,9 @@ impl Checker {
                 other => return Err(violation("1 valid output", format!("{side:?} wrote {other:?}"))),
             };
             bytes = &bytes[len..];
-            self.sent_message(side, &msg)?;
+            if !self.lossy {
+                self.sent_message(side, &msg)?;
+            }
         }
         Ok(())
     }
@@ -214,6 +256,10 @@ impl Checker {
 
     /// Rule 4, on what `side`'s application has received since the last call.
     pub fn delivered(&mut self, side: Side, deliveries: &[Delivery]) -> Result<(), Violation> {
+        if self.lossy {
+            self.received[side.index()].seen = deliveries.len();
+            return Ok(());
+        }
         let sender = &self.sent[side.other().index()];
         let received = &mut self.received[side.index()];
         for delivery in &deliveries[received.seen..] {

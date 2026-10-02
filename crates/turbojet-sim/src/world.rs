@@ -14,6 +14,7 @@ use turbojet::{DiskStorage, InitiatorConfig, MemoryStorage, SessionConfig, Sessi
 use crate::Side;
 use crate::app::{RecordingApp, order, report};
 use crate::check::{Checker, Violation};
+use crate::files::{DiskFiles, Tear};
 use crate::net::{ConnId, Net, Params};
 use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
@@ -107,6 +108,12 @@ struct Faults {
     /// million that one crashes the process rather than just failing the call.
     trap_every: Option<Duration>,
     trap_crashes: u32,
+    /// Disk stores with sync: the chance in a million that a trap that crashes is a power loss
+    /// tearing the call's write, and whether a seqnums record can tear within a sector.
+    tears: u32,
+    sub_sector: bool,
+    /// Disk stores without sync: mean time between power losses, if any.
+    power_loss_every: Option<Duration>,
 }
 
 impl Faults {
@@ -137,6 +144,9 @@ impl Faults {
             ]),
             trap_every: rng.pick(&[None, Some(secs(30)), Some(secs(5))]),
             trap_crashes: rng.pick(&[0, 500_000, 1_000_000]),
+            tears: rng.pick(&[0, 500_000]),
+            sub_sector: rng.chance(300_000),
+            power_loss_every: rng.pick(&[None, Some(secs(60)), Some(secs(20))]),
         }
     }
 
@@ -204,6 +214,10 @@ enum Event {
     Restart(Side),
     /// A trap is set in the next store call of a kind on one node.
     Trap,
+    /// The OS writes back both disk stores (without sync).
+    WriteBack,
+    /// A node loses power (a disk store without sync).
+    PowerLoss,
 }
 
 /// What's scheduled for one connection's driver, so each kind of wake-up is queued once.
@@ -220,6 +234,9 @@ struct Pending {
 /// driver used to write all its output before reading again, so once both send buffers filled,
 /// neither read again; it now reads while output waits, and this would be a regression.
 pub const WRITE_DEADLOCK: &str = "write deadlock";
+
+/// How often the OS writes back a disk store without sync.
+const WRITE_BACK_EVERY: Duration = Duration::from_secs(5);
 
 /// Most events at one instant before the run counts as spinning: the drivers and network do
 /// a bounded amount at once, so far fewer than this is normal.
@@ -293,7 +310,11 @@ fn stores(kind: StoreKind) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2
             Some(dir) => Arc::new(DiskStorage::new(dir.path().join(name), false).expect("a store directory")),
         }
     };
-    let storage = [Arc::new(LedgerStorage::new(store("initiator"))), Arc::new(LedgerStorage::new(store("acceptor")))];
+    let ledger = |name: &str| {
+        let files = dir.as_ref().map(|dir| DiskFiles::new(dir.path().join(name)));
+        Arc::new(LedgerStorage::new(store(name), files))
+    };
+    let storage = [ledger("initiator"), ledger("acceptor")];
     (dir, storage)
 }
 
@@ -366,6 +387,13 @@ impl World {
 
     /// The first events: a trace header, the first connect, the workload and the faults.
     fn schedule_start(&mut self) {
+        if self.faults.store == (StoreKind::Disk { sync: false }) {
+            self.queue.push(SimTime(0), Event::WriteBack);
+            if let Some(every) = self.faults.power_loss_every {
+                let at = self.after_about(SimTime(0), every);
+                self.queue.push(at, Event::PowerLoss);
+            }
+        }
         let header = format!(
             "seed {}: {:?}, {:?}",
             self.options.seed,
@@ -417,7 +445,8 @@ impl World {
                     detail: format!("{} events, {} at {at}", self.events, same_time.1),
                 });
             }
-            if at > end && self.idle() && self.check_settled().is_ok() {
+            if at > end && (self.checker.is_lossy() || self.idle() && self.check_settled().is_ok()) {
+                // A seed that lost data to a power loss isn't required to settle.
                 return Ok(());
             }
             if at > limit {
@@ -605,14 +634,45 @@ impl World {
             }
             Event::Trap => {
                 let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
+                let crash = self.rng.chance(self.faults.trap_crashes);
+                let tear = (crash
+                    && self.faults.store == StoreKind::Disk { sync: true }
+                    && self.rng.chance(self.faults.tears))
+                .then(|| Tear {
+                    cut: self.rng.between(0, 1000),
+                    in_record: self.rng.chance(500_000).then(|| self.rng.between(0, 1000)),
+                    sub_sector: self.faults.sub_sector,
+                });
                 let trap = Trap {
                     call: self.rng.pick(&[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight]),
                     applies: self.rng.chance(500_000),
-                    crash: self.rng.chance(self.faults.trap_crashes),
+                    crash,
+                    tear,
                 };
                 self.record(&format!("trap {side:?} {trap:?}"));
                 self.storage[side.index()].arm(trap);
                 self.again(busy, now, self.faults.trap_every, Event::Trap);
+            }
+            Event::WriteBack => {
+                for storage in &self.storage {
+                    storage.write_back();
+                }
+                if busy {
+                    self.queue.push(now.after(WRITE_BACK_EVERY), Event::WriteBack);
+                }
+            }
+            Event::PowerLoss => {
+                let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
+                if !self.down[side.index()] {
+                    self.crash(side, now);
+                    let (kept, new_seqnums) = (self.rng.between(0, 1000), self.rng.chance(500_000));
+                    self.record(&format!(
+                        "power lost {side:?}: kept {kept}/1000 of the body since, new seqnums {new_seqnums}"
+                    ));
+                    self.storage[side.index()].lose_power(kept, new_seqnums);
+                    self.checker.lose();
+                }
+                self.again(busy, now, self.faults.power_loss_every, Event::PowerLoss);
             }
             Event::Restart(side) => {
                 self.down[side.index()] = false;
@@ -835,6 +895,10 @@ impl World {
     /// with a MsgSeqNum delivered, and the sequence numbers agreed.
     fn check_settled(&self) -> Result<(), Violation> {
         let fail = |detail: String| Err(Violation { rule: "liveness", detail });
+        // A power loss lost what the sessions needed to agree: settling isn't promised.
+        if self.checker.is_lossy() {
+            return Ok(());
+        }
         for node in &self.nodes {
             let sessions: Vec<_> = node.sessions().collect();
             match sessions.as_slice() {

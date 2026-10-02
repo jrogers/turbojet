@@ -6,6 +6,8 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use turbojet::SessionId;
+
+use crate::files::{DiskFiles, Snapshot, Tear};
 use turbojet::fields::UtcTimestamp;
 use turbojet::store::{SessionLog, SessionStorage};
 
@@ -20,6 +22,10 @@ pub enum Stored {
     Reset,
     /// The store was opened (at logon), with these numbers.
     Opened { next_outgoing: u64, next_incoming: u64 },
+    /// The store failed to open.
+    OpenFailed(String),
+    /// A power loss tore this change: it took effect or not, as the next open shows.
+    Uncertain(Box<Stored>),
 }
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
@@ -33,12 +39,14 @@ pub enum Call {
 }
 
 /// What happens at the next call of a kind: it takes effect or not, then fails; and with
-/// `crash`, the process dies there too.
+/// `crash`, the process dies there too. With `tear` (a disk store, power lost), the call's writes
+/// are cut short instead: what reached the device decides whether it took effect.
 #[derive(Debug, Clone, Copy)]
 pub struct Trap {
     pub call: Call,
     pub applies: bool,
     pub crash: bool,
+    pub tear: Option<Tear>,
 }
 
 #[derive(Default)]
@@ -53,11 +61,34 @@ pub struct LedgerStorage {
     inner: Arc<dyn SessionStorage>,
     pub ledger: Ledger,
     traps: Arc<Mutex<Traps>>,
+    /// A disk store's files, which a power loss tears.
+    files: Option<Arc<DiskFiles>>,
+    /// The files as the OS last wrote them back (a store without fsync).
+    written_back: Mutex<Snapshot>,
 }
 
 impl LedgerStorage {
-    pub fn new(inner: Arc<dyn SessionStorage>) -> Self {
-        Self { inner, ledger: Ledger::default(), traps: Arc::default() }
+    pub fn new(inner: Arc<dyn SessionStorage>, files: Option<DiskFiles>) -> Self {
+        let files = files.map(Arc::new);
+        Self { inner, ledger: Ledger::default(), traps: Arc::default(), files, written_back: Mutex::default() }
+    }
+
+    /// The OS writes back what's been written so far.
+    pub fn write_back(&self) {
+        if let Some(files) = &self.files {
+            *self.written_back.lock().unwrap() = files.snapshot();
+        }
+    }
+
+    /// Power is lost (the process is already gone): the files keep what the OS had written back,
+    /// and some of what followed.
+    pub fn lose_power(&self, kept: u64, new_seqnums: bool) {
+        if let Some(files) = &self.files {
+            let mut written_back = self.written_back.lock().unwrap();
+            files.revert(&written_back, kept, new_seqnums);
+            // What survived is on the device now.
+            *written_back = files.snapshot();
+        }
     }
 
     /// Sets `trap` for the next call of its kind, replacing any not yet sprung.
@@ -73,10 +104,16 @@ impl LedgerStorage {
 
 impl SessionStorage for LedgerStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        let inner = self.inner.open(id)?;
+        let inner =
+            self.inner.open(id).inspect_err(|e| self.ledger.lock().unwrap().push(Stored::OpenFailed(e.to_string())))?;
         let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
         self.ledger.lock().unwrap().push(opened);
-        Ok(Box::new(LedgerLog { inner, ledger: self.ledger.clone(), traps: self.traps.clone() }))
+        Ok(Box::new(LedgerLog {
+            inner,
+            ledger: self.ledger.clone(),
+            traps: self.traps.clone(),
+            files: self.files.clone(),
+        }))
     }
 }
 
@@ -84,6 +121,7 @@ struct LedgerLog {
     inner: Box<dyn SessionLog>,
     ledger: Ledger,
     traps: Arc<Mutex<Traps>>,
+    files: Option<Arc<DiskFiles>>,
 }
 
 impl LedgerLog {
@@ -103,6 +141,20 @@ impl LedgerLog {
         };
         match trap {
             None => f(self),
+            Some(Trap { tear: Some(tear), .. }) if self.files.is_some() => {
+                let files = self.files.clone().expect("checked");
+                let before = files.snapshot();
+                let recorded = self.ledger.lock().unwrap().len();
+                f(self)?;
+                files.tear(&before, tear);
+                // What the call recorded may not have survived: the next open says.
+                let mut ledger = self.ledger.lock().unwrap();
+                if ledger.len() > recorded {
+                    let change = ledger.pop().expect("one change");
+                    ledger.push(Stored::Uncertain(Box::new(change)));
+                }
+                Err(io::Error::other(format!("power lost in {call:?}")))
+            }
             Some(trap) => {
                 if trap.applies {
                     f(self)?;
