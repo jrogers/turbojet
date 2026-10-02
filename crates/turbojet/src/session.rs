@@ -370,10 +370,9 @@ pub struct Session {
     /// A commit the store returned is under way: nothing more is fed in until it ends.
     committing: bool,
     /// Incoming messages before this may be handed to the application: the end of the in-flight
-    /// window the store last committed, if that commit opened one.
+    /// window the store last committed. Each commit while receiving records one, starting at the
+    /// next incoming number, for the batch after it.
     window_end: Option<u64>,
-    /// Input, or messages that waited for a gap, wait for a window: the next commit opens one.
-    window_wanted: bool,
     /// The start of the window the commit under way opens.
     opening: Option<u64>,
     /// The window the store had in flight when the session was bound: the messages in it may have
@@ -483,7 +482,6 @@ impl Session {
             committed: 0,
             committing: false,
             window_end: None,
-            window_wanted: false,
             opening: None,
             recovered: None,
             drain_waiting: false,
@@ -601,11 +599,8 @@ impl Session {
         if self.committing {
             return false;
         }
-        if !self.receiving() || self.covers(self.peer().log.next_incoming()) {
-            return true;
-        }
-        self.window_wanted = true;
-        false
+        // Otherwise the next commit records a window that covers it.
+        !self.receiving() || self.covers(self.peer().log.next_incoming())
     }
 
     /// Commits on this thread until nothing is left to commit, running any commit the store
@@ -1558,7 +1553,6 @@ impl Session {
             // One in sequence waits for a window to be handled in, as input does.
             if *entry.key() == next && !entry.get().answered && !covered {
                 self.drain_waiting = true;
-                self.window_wanted = true;
                 break;
             }
             let (seq_num, queued) = entry.remove_entry();
@@ -1602,7 +1596,12 @@ impl Session {
         // The committed window marks it in flight: still marked after a crash, it tells the next
         // connection that the resend of this message may have been handled already.
         debug_assert!(self.covers(seq_num), "{seq_num} is handed over in a committed window");
-        let redelivered = self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
+        // A message in the window recovered from before a restart may have been handled then if
+        // it's coming again: flagged as a resend, or answering our ResendRequest (in case the
+        // counterparty doesn't flag its resends). New messages can't have been.
+        let resent = msg.flag(tags::POSS_DUP_FLAG) || self.resend.is_some();
+        let redelivered =
+            resent && self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
         if redelivered {
             info!(seq_num, "delivering a message that may have been handled before a restart");
         }
@@ -2221,12 +2220,16 @@ impl Session {
         let next = peer.log.next_incoming();
         // A recovered window still in use is kept: a new one starts where it does.
         let recovered = self.recovered.filter(|start| next < start + DELIVERIES_PER_COMMIT);
-        if self.window_wanted && receiving {
+        if receiving {
+            // Every commit records the window the next batch is handed over in, so that batch
+            // needs no commit of its own first. Unchanged, it costs nothing.
             let start = recovered.unwrap_or(next);
-            peer.log.set_in_flight(start)?;
+            if peer.log.in_flight() != Some(start) {
+                peer.log.set_in_flight(start)?;
+            }
             self.opening = Some(start);
-        } else if self.window_end.is_some() && recovered.is_none() {
-            // The batch is over: its window closes with this commit.
+        } else if self.status == Status::Closed && recovered.is_none() && peer.log.in_flight().is_some() {
+            // The session has ended cleanly, so nothing is in flight.
             peer.log.set_next_incoming(next)?;
         }
         peer.log.commit()
@@ -2239,7 +2242,6 @@ impl Session {
     fn finish_commit(&mut self, now: Instant) -> bool {
         self.committed = self.output.len();
         self.window_end = self.opening.take().map(|start| start + DELIVERIES_PER_COMMIT);
-        self.window_wanted = false;
         if self.store_failed {
             // Nothing was committed: the store failed, and the session is closing.
             self.fail_receipts();
@@ -2279,7 +2281,6 @@ impl Session {
     /// opens the window now, running the store's commit on this thread if it returns one.
     fn open_window_now(&mut self, now: Instant) {
         debug!("committing the in-flight window on the calling thread");
-        self.window_wanted = true;
         match self.begin_commit() {
             Ok(None) => {
                 self.finish_commit(now);

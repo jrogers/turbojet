@@ -972,8 +972,8 @@ impl SessionLog for RecordingLog {
 }
 
 /// The incoming number is saved once the application has handled the message and its replies
-/// are stored, so a crash before then gets the message resent. Input is marked in flight first,
-/// once per batch.
+/// are stored, so a crash before then gets the message resent. The window it's handed over in was
+/// recorded by the commit before.
 #[test]
 fn the_incoming_number_is_saved_after_the_application() {
     let writes = Arc::new(Mutex::new(Vec::new()));
@@ -981,16 +981,16 @@ fn the_incoming_number_is_saved_after_the_application() {
     let mut s = h.logged_on();
     writes.lock().unwrap().clear();
     s.recv(order(2, "A"), h.t0);
-    // The window is recorded again after the number moves on, and cleared as the batch ends.
-    assert_eq!(*writes.lock().unwrap(), ["in flight 2", "outgoing 2", "incoming 3", "in flight 2", "incoming 3"]);
-    // Each batch opens a window of its own, whatever it holds.
+    // The window is recorded again after the number moves on, and the next one as the batch ends.
+    assert_eq!(*writes.lock().unwrap(), ["outgoing 2", "incoming 3", "in flight 2", "in flight 3"]);
     writes.lock().unwrap().clear();
     s.recv(client(3, MsgType::Heartbeat), h.t0);
-    assert_eq!(*writes.lock().unwrap(), ["in flight 3", "incoming 4", "in flight 3", "incoming 4"]);
+    assert_eq!(*writes.lock().unwrap(), ["incoming 4", "in flight 3", "in flight 4"]);
 }
 
-/// After a crash while messages from 2 on were with the application, their resends are marked as
-/// possibly handled already, up to a window's worth; later messages aren't.
+/// After a crash while messages from 2 on may have been with the application, those that come
+/// again are marked as possibly handled already: flagged as resends, or answering our
+/// ResendRequest. New messages aren't, nor resends past the window.
 #[test]
 fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
     let storage = Arc::new(MemoryStorage::new());
@@ -1007,15 +1007,18 @@ fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
     }
     let h = Harness::with_storage(storage);
     let mut s = h.session();
-    // The counterparty logs on at 3, having sent 2 before the crash: we ask for 2 again.
-    assert_eq!(types(&s.recv(logon(3), h.t0)), ["Logon", "ResendRequest"]);
+    // The counterparty logs on at 4, having sent 2 and 3 before the crash: we ask for them again.
+    assert_eq!(types(&s.recv(logon(4), h.t0)), ["Logon", "ResendRequest"]);
     assert_eq!(types(&s.recv(resend_of(order(2, "B")), h.t0)), ["ExecutionReport"]);
-    s.recv(gap_fill(3, 4), h.t0);
-    s.recv(order(4, "D"), h.t0);
+    // Resent without PossDupFlag, but answering our ResendRequest.
+    s.recv(order(3, "C"), h.t0);
+    s.recv(gap_fill(4, 5), h.t0); // its Logon
+    s.recv(order(5, "D"), h.t0);
     let past = 2 + DELIVERIES_PER_COMMIT;
-    s.recv(gap_fill(5, past), h.t0);
-    s.recv(order(past, "E"), h.t0);
-    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, false], "4 might have been handled, {past} not");
+    s.recv(gap_fill(6, past), h.t0);
+    s.recv(resend_of(order(past, "E")), h.t0);
+    let marked = h.app.redelivered.lock().unwrap().clone();
+    assert_eq!(marked, [true, true, false, false], "2 and 3 might have been handled; 5 is new, {past} past the window");
 }
 
 // ---- Group commit ----
@@ -1041,29 +1044,72 @@ fn output_waits_for_its_commit() {
     assert!(s.take_commit(h.t0).is_none(), "nothing more to commit");
 }
 
+/// Each commit records the window the next batch is handed over in, so a batch costs one commit:
+/// its own, after it.
 #[test]
-fn input_waits_for_a_window_to_be_committed() {
+fn a_batch_needs_only_its_own_commit() {
     let storage = Arc::new(DeferringStorage::default());
     let h = Harness::with_storage(storage.clone());
     let mut s = h.session();
     s.on_message(&logon(1), h.t0);
     assert!(run_commit(&mut s, h.t0));
     assert_eq!(types(&taken(&mut s, false)), ["Logon"]);
+    assert_eq!(s.peer().log.in_flight(), Some(2), "the Logon's commit recorded the first window");
     storage.calls.lock().unwrap().clear();
 
-    assert!(!s.ready_for_input(), "the first message of a batch needs a window");
-    assert!(run_commit(&mut s, h.t0));
+    for _ in 0..2 {
+        assert!(s.ready_for_input(), "the last commit recorded a window");
+        let next = s.peer().log.next_incoming();
+        s.on_message(&order(next, "A"), h.t0);
+        s.on_message(&order(next + 1, "B"), h.t0);
+        assert!(s.output().is_empty());
+        assert!(run_commit(&mut s, h.t0), "the batch's end");
+        assert_eq!(types(&taken(&mut s, false)), ["ExecutionReport", "ExecutionReport"]);
+        assert!(s.take_commit(h.t0).is_none(), "one commit");
+    }
+    let commits = storage.calls.lock().unwrap().iter().filter(|c| *c == "commit").count();
+    assert_eq!(commits, 2);
+    assert_eq!(s.peer().log.in_flight(), Some(6));
+}
+
+/// A session that ends cleanly leaves nothing in flight; one whose connection drops keeps the
+/// window, since the batch it was handling may not have been recorded.
+#[test]
+fn a_clean_end_clears_the_window_and_a_dropped_connection_keeps_it() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
     assert_eq!(s.peer().log.in_flight(), Some(2));
-    assert!(s.ready_for_input());
+    assert_eq!(types(&s.recv(client(2, MsgType::Logout), h.t0)), ["Logout", "DISCONNECT"]);
+    assert_eq!(s.peer().log.in_flight(), None, "logged out");
+
+    let storage = Arc::new(MemoryStorage::new());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    drop(s); // the connection drops
+    let id =
+        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    assert_eq!(storage.open(&id).unwrap().in_flight(), Some(3));
+}
+
+/// A step of a resend changes nothing stored, so it costs no commit.
+#[test]
+fn a_resend_step_costs_no_commit() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.set_resend_batch(1);
+    s.on_message(&logon(1), h.t0);
+    assert!(run_commit(&mut s, h.t0));
     s.on_message(&order(2, "A"), h.t0);
-    s.on_message(&order(3, "B"), h.t0);
-    assert!(s.output().is_empty());
-    assert!(run_commit(&mut s, h.t0), "the batch's end");
-    assert_eq!(types(&taken(&mut s, false)), ["ExecutionReport", "ExecutionReport"]);
-    let calls = storage.calls.lock().unwrap().clone();
-    let expected = ["in flight 2", "commit", "outgoing 2", "incoming 3", "in flight 2", "outgoing 3", "incoming 4"];
-    assert_eq!(calls, [&expected[..], &["in flight 2", "incoming 4", "commit"]].concat());
-    assert!(!s.ready_for_input(), "the batch's commit closed the window");
+    assert!(run_commit(&mut s, h.t0));
+    s.on_message(&resend_request(3, 1), h.t0);
+    assert!(run_commit(&mut s, h.t0), "the ResendRequest's number");
+    assert!(s.is_resending());
+    while s.is_resending() {
+        s.on_resume(h.t0);
+        assert!(s.take_commit(h.t0).is_none(), "a resend step stores nothing");
+    }
 }
 
 /// Regression: a store that makes each change as it's made (as `MemoryStorage` does) still has
@@ -1073,15 +1119,14 @@ fn input_waits_for_a_window_to_be_committed() {
 fn a_batch_cut_short_leaves_its_window_in_a_store_without_commits() {
     let h = Harness::new();
     let mut s = h.logged_on();
-    assert!(!s.ready_for_input());
-    s.commit_blocking(h.t0);
+    assert!(s.ready_for_input());
     s.on_message(&order(2, "A"), h.t0);
     s.on_message(&order(3, "B"), h.t0);
     // The process stops before the batch's commit.
     let log = &s.peer().log;
     assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(2)));
     s.commit_blocking(h.t0);
-    assert_eq!(s.peer().log.in_flight(), None, "the batch's end clears it");
+    assert_eq!(s.peer().log.in_flight(), Some(4), "the batch's end records the next window");
 }
 
 #[test]
@@ -1110,7 +1155,8 @@ fn messages_queued_behind_a_gap_are_handled_a_window_at_a_time() {
     let mut windows: Vec<String> =
         writes.lock().unwrap().iter().filter(|w| w.starts_with("in flight")).cloned().collect();
     windows.dedup();
-    assert_eq!(windows, ["in flight 2".to_string(), format!("in flight {}", 2 + DELIVERIES_PER_COMMIT)]);
+    let expected = [2, 2 + DELIVERIES_PER_COMMIT, last + 1].map(|start| format!("in flight {start}"));
+    assert_eq!(windows, expected, "one exhausted mid-batch, then the next batch's");
 }
 
 #[test]
@@ -2129,22 +2175,28 @@ fn storage_failure_during_logon_sends_no_resend() {
     assert_eq!(types(&out), ["DISCONNECT"]);
 }
 
+/// Logon uses three writes: our Logon reply, the incoming sequence number, and the window the
+/// first batch is handed over in.
+const LOGON_WRITES: usize = 3;
+
+/// The order was handed over, but its reply couldn't be stored: the session disconnects without
+/// recording the order as received, so it's resent, inside the window, and marked.
 #[test]
-fn storage_failure_disconnects_before_delivering_the_message() {
-    // Logon uses two writes: our Logon reply and the incoming sequence number. The third, marking
-    // the order in flight, fails.
-    let h = failing_after(2);
+fn storage_failure_storing_a_reply_disconnects_without_recording_the_message() {
+    let h = failing_after(LOGON_WRITES);
     let mut s = h.logged_on();
     assert_eq!(types(&s.recv(order(2, "A"), h.t0)), ["DISCONNECT"]);
-    assert_eq!(h.app.received(), 0);
+    assert_eq!(h.app.received(), 1);
     assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+    let log = &s.peer().log;
+    assert_eq!((log.next_incoming(), log.in_flight()), (2, Some(2)));
 }
 
 /// Regression (simulator): an operator's skip whose SequenceReset fails to store closes the
 /// session, and the skip itself, stored after, is never committed: it's reported as failed.
 #[test]
 fn an_operator_skip_whose_sequence_reset_fails_is_reported_failed() {
-    let storage = FailingStorage { ok_writes: 2, once: true, inner: MemoryStorage::new() };
+    let storage = FailingStorage { ok_writes: LOGON_WRITES, once: true, inner: MemoryStorage::new() };
     let h = Harness::with_storage(Arc::new(storage));
     let mut s = h.logged_on();
     let (reply, mut answer) = tokio::sync::oneshot::channel();
@@ -2155,8 +2207,8 @@ fn an_operator_skip_whose_sequence_reset_fails_is_reported_failed() {
 
 #[test]
 fn storage_failure_while_sending_suppresses_the_message() {
-    // The third write, storing the Heartbeat, fails; the TestRequest's number isn't saved either.
-    let h = failing_after(2);
+    // The write storing the Heartbeat fails; the TestRequest's number isn't saved either.
+    let h = failing_after(LOGON_WRITES);
     let mut s = h.logged_on();
     let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
     assert_eq!(types(&out), ["DISCONNECT"]);

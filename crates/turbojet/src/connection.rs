@@ -486,20 +486,21 @@ mod tests {
         permits.send(()).unwrap();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
 
-        // An order: its window's commit is held, and a second order arrives meanwhile.
+        // An order: handed over at once (the Logon's commit recorded its window), its reply held
+        // for its commit, and a second order arrives meanwhile, to be the next batch.
         let order = |id: &str| Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id);
         peer.write_all(&from_peer(2, order("A"))).await.unwrap();
         nothing_yet(&mut peer, &mut buf).await;
         peer.write_all(&from_peer(3, order("B"))).await.unwrap();
         nothing_yet(&mut peer, &mut buf).await;
-        permits.send(()).unwrap(); // the window
+        permits.send(()).unwrap(); // A's batch
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].get(tags::CL_ORD_ID), Some("A"));
         nothing_yet(&mut peer, &mut buf).await;
-        permits.send(()).unwrap(); // the orders' replies
-        let acks = receive(&mut peer, &mut buf, 2).await;
-        assert_eq!(acks.iter().map(|m| m.get(tags::CL_ORD_ID).unwrap()).collect::<Vec<_>>(), ["A", "B"]);
+        permits.send(()).unwrap(); // B's
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].get(tags::CL_ORD_ID), Some("B"));
         let calls = calls.lock().unwrap().clone();
         let commits = calls.iter().filter(|c| *c == "commit").count();
-        assert_eq!(commits, 3, "the Logon, the window, and both orders together: {calls:?}");
+        assert_eq!(commits, 3, "the Logon, then each order's batch: {calls:?}");
     }
 
     /// A resend longer than one step goes out in order over a connection whose buffer holds only
