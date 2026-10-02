@@ -2481,6 +2481,41 @@ mod metrics_tests {
     }
 
     #[test]
+    fn counts_each_inbound_reject() {
+        let recorder = DebuggingRecorder::new();
+        let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
+        ::metrics::with_local_recorder(&recorder, || {
+            let mut s = h.logged_on();
+            s.recv(order(2, "A"), h.at(1));
+            s.recv(order(3, "B"), h.at(1));
+            for seq_num in 4..7 {
+                s.recv(order(seq_num, "X"), h.at_millis(1_500));
+            }
+            s.recv(order(7, "C"), h.at(2));
+            let snapshot = Snapshot::take(&recorder);
+            assert_eq!(snapshot.value("turbojet_throttled_total", &[("direction", "inbound")]), 3.0);
+            assert_eq!(snapshot.value("turbojet_throttled_total", &[("direction", "outbound")]), 0.0);
+            assert_eq!(snapshot.value("turbojet_rejects_sent_total", &[("type", "business")]), 3.0);
+        });
+    }
+
+    #[test]
+    fn counts_each_inbound_delay_hold() {
+        let recorder = DebuggingRecorder::new();
+        let h = Harness::with_inbound_delay(2, Duration::from_secs(1));
+        ::metrics::with_local_recorder(&recorder, || {
+            let mut s = h.logged_on();
+            s.recv(order(2, "A"), h.at(1));
+            assert_eq!(Snapshot::take(&recorder).value("turbojet_throttled_total", &[("direction", "inbound")]), 0.0);
+            s.recv(order(3, "B"), h.at(1)); // fills the window: a hold
+            s.recv(order(4, "C"), h.at(2)); // A and B have expired
+            s.recv(order(5, "D"), h.at(2)); // fills it again
+            s.recv(order(6, "E"), h.at_millis(3_500));
+            assert_eq!(Snapshot::take(&recorder).value("turbojet_throttled_total", &[("direction", "inbound")]), 2.0);
+        });
+    }
+
+    #[test]
     fn retrying_a_resend_request_is_not_a_new_gap() {
         let recorder = DebuggingRecorder::new();
         let h = Harness::new();
@@ -4009,6 +4044,105 @@ fn a_test_request_outstanding_when_input_is_held_does_not_drop_the_counterparty(
     }
     // Silence counts from the end of the hold, at 6.5s.
     assert_eq!(types(&s.timer(h.at_millis(7_700))), ["TestRequest"]);
+}
+
+/// A log sink shared between a subscriber and the test that reads it.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Runs `f` with what it logs at DEBUG and above captured on this thread, and returns the lines.
+fn logged(f: impl FnOnce()) -> Vec<String> {
+    let captured = Captured::default();
+    let sink = captured.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_ansi(false)
+        .with_writer(move || sink.clone())
+        .finish();
+    tracing::subscriber::with_default(subscriber, f);
+    let bytes = captured.0.lock().unwrap().clone();
+    String::from_utf8(bytes).unwrap().lines().map(String::from).collect()
+}
+
+/// How many of `lines` contain every one of `parts`.
+fn count(lines: &[String], parts: &[&str]) -> usize {
+    lines.iter().filter(|line| parts.iter().all(|part| line.contains(part))).count()
+}
+
+#[test]
+fn inbound_reject_warns_once_per_connection_and_logs_each_reject_at_debug() {
+    let lines = logged(|| {
+        // Each with its own store, so the second logs on afresh.
+        for _ in 0..2 {
+            let h = Harness::with_inbound_reject(1, Duration::from_secs(60));
+            let mut s = h.logged_on();
+            s.recv(order(2, "A"), h.at(1));
+            for seq_num in 3..6 {
+                assert_throttled(&s.recv(order(seq_num, "X"), h.at(2)), seq_num);
+            }
+        }
+    });
+    let warning = ["WARN", "inbound rate limit 1/1m reached: rejecting messages over it"];
+    assert_eq!(count(&lines, &warning), 2, "once on each connection: {lines:#?}");
+    assert_eq!(count(&lines, &["DEBUG", "rejecting a message over the inbound rate limit"]), 6, "{lines:#?}");
+    assert_eq!(count(&lines, &["WARN", "business reject"]), 0, "no warning per message: {lines:#?}");
+}
+
+#[test]
+fn an_application_business_reject_still_warns() {
+    let h = Harness::with_inbound_reject(10, Duration::from_secs(60));
+    let lines = logged(|| {
+        let mut s = h.logged_on();
+        assert_eq!(types(&s.recv(client(2, MsgType::from_code("G")), h.at(1))), ["BusinessMessageReject"]);
+    });
+    assert_eq!(count(&lines, &["WARN", "business reject"]), 1, "{lines:#?}");
+    assert_eq!(count(&lines, &["rate limit"]), 0, "{lines:#?}");
+}
+
+#[test]
+fn inbound_delay_warns_once_per_connection() {
+    let lines = logged(|| {
+        // Each with its own store, so the second logs on afresh.
+        for _ in 0..2 {
+            let h = Harness::with_inbound_delay(1, Duration::from_secs(1));
+            let mut s = h.logged_on();
+            // Each fills the window: three holds.
+            for (seq_num, at) in [(2, 1), (3, 2), (4, 3)] {
+                s.recv(order(seq_num, "A"), h.at(at));
+                assert_eq!(s.input_free_at(), Some(h.at(at + 1)));
+            }
+        }
+    });
+    let warning = ["WARN", "inbound rate limit 1/1s reached: delaying input"];
+    assert_eq!(count(&lines, &warning), 2, "once on each connection: {lines:#?}");
+}
+
+#[test]
+fn held_sends_warn_once_per_connection() {
+    let lines = logged(|| {
+        // Each with its own store, so the second logs on afresh.
+        for _ in 0..2 {
+            let h = Harness::with_outbound_limit(1, Duration::from_secs(1));
+            let mut s = h.logged_on();
+            for at in [1, 2, 3] {
+                s.command(send_command("A"), h.at(at));
+                assert!(!s.can_send(h.at(at)));
+                s.on_sends_held();
+            }
+        }
+    });
+    let warning = ["WARN", "outbound rate limit 1/1s reached: sends wait"];
+    assert_eq!(count(&lines, &warning), 2, "once on each connection: {lines:#?}");
 }
 
 #[test]

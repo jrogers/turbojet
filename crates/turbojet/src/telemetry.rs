@@ -31,6 +31,7 @@
 //! | `turbojet_sequence_gaps_total` | counter | `session` |
 //! | `turbojet_resend_requests_received_total` | counter | `session` |
 //! | `turbojet_resend_requests_evicted_total` | counter | `session` |
+//! | `turbojet_throttled_total` | counter | `session`, `direction` (`inbound` or `outbound`) |
 //! | `turbojet_garbled_messages_total` | counter | |
 //! | `turbojet_connections_refused_total` | counter | `reason` (`total` or `per_ip`) |
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |
@@ -38,6 +39,17 @@
 //! | `turbojet_next_outgoing_seq` | gauge | `session` |
 //!
 //! `session` is the session ID, e.g. `FIX.4.2:GATEWAY->CLIENT1`.
+//!
+//! `turbojet_throttled_total` counts application messages held back or rejected by a session's
+//! [`outbound_limit`](crate::SessionConfig::outbound_limit) or
+//! [`inbound_limit`](crate::SessionConfig::inbound_limit):
+//!
+//! - outbound, one per send that waited for the window: the send the connection found waiting
+//!   when the window was full, and each send queued behind it, as they're taken;
+//! - inbound with [`Reject`](crate::InboundLimit::Reject), one per message rejected;
+//! - inbound with [`Delay`](crate::InboundLimit::Delay), one per hold: each time a message fills
+//!   the window, which holds input until it frees up. What the counterparty sends meanwhile waits
+//!   unread, in the transport, so it can't be counted message by message.
 
 pub(crate) use imp::{SessionMetrics, application_panic, connection_refused, garbled_message};
 
@@ -71,6 +83,10 @@ mod imp {
             "turbojet_connections_refused_total",
             "Connections an acceptor closed at once, past its limit overall or per IP address"
         );
+        describe_counter!(
+            "turbojet_throttled_total",
+            "Application messages that waited for, or were rejected by, a rate limit; inbound Delay counts holds"
+        );
         describe_counter!("turbojet_application_panics_total", "Application callbacks that panicked, by callback");
         describe_gauge!("turbojet_session_logged_on", "1 while the session is logged on, else 0");
         describe_gauge!("turbojet_next_incoming_seq", "Next expected inbound MsgSeqNum");
@@ -101,6 +117,8 @@ mod imp {
         sequence_gaps: Counter,
         resend_requests_received: Counter,
         resend_requests_evicted: Counter,
+        throttled_inbound: Counter,
+        throttled_outbound: Counter,
         logged_on: Gauge,
         next_incoming: Gauge,
         next_outgoing: Gauge,
@@ -112,6 +130,7 @@ mod imp {
             let counter = |name: &'static str| counter!(name, "session" => session.clone());
             let gauge = |name: &'static str| gauge!(name, "session" => session.clone());
             let rejects = |kind: &'static str| counter!("turbojet_rejects_sent_total", "session" => session.clone(), "type" => kind);
+            let throttled = |direction: &'static str| counter!("turbojet_throttled_total", "session" => session.clone(), "direction" => direction);
             Self {
                 messages_received: counter("turbojet_messages_received_total"),
                 messages_sent: counter("turbojet_messages_sent_total"),
@@ -124,6 +143,8 @@ mod imp {
                 sequence_gaps: counter("turbojet_sequence_gaps_total"),
                 resend_requests_received: counter("turbojet_resend_requests_received_total"),
                 resend_requests_evicted: counter("turbojet_resend_requests_evicted_total"),
+                throttled_inbound: throttled("inbound"),
+                throttled_outbound: throttled("outbound"),
                 logged_on: gauge("turbojet_session_logged_on"),
                 next_incoming: gauge("turbojet_next_incoming_seq"),
                 next_outgoing: gauge("turbojet_next_outgoing_seq"),
@@ -178,6 +199,14 @@ mod imp {
 
         pub(crate) fn resend_request_evicted(&self) {
             self.resend_requests_evicted.increment(1);
+        }
+
+        pub(crate) fn throttled_inbound(&self) {
+            self.throttled_inbound.increment(1);
+        }
+
+        pub(crate) fn throttled_outbound(&self, messages: u64) {
+            self.throttled_outbound.increment(messages);
         }
 
         pub(crate) fn next_incoming(&self, seq: u64) {
@@ -236,6 +265,10 @@ mod imp {
         pub(crate) fn resend_request_received(&self) {}
         #[inline(always)]
         pub(crate) fn resend_request_evicted(&self) {}
+        #[inline(always)]
+        pub(crate) fn throttled_inbound(&self) {}
+        #[inline(always)]
+        pub(crate) fn throttled_outbound(&self, _messages: u64) {}
         #[inline(always)]
         pub(crate) fn next_incoming(&self, _seq: u64) {}
         #[inline(always)]

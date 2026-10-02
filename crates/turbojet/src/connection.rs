@@ -142,6 +142,9 @@ where
     // a batch before committing it. Commits made at once aren't: smaller batches let the
     // counterparty start on the replies sooner (see READ_BUFFER_SIZE).
     let mut commits_wait = false;
+    // Whether application sends have waited for the outbound window since the queue was last
+    // empty: those taken meanwhile count as throttled.
+    let mut sends_held = false;
 
     // A connection made once shutdown has started closes without logging on.
     match shutdown.as_ref().and_then(Signal::started_now) {
@@ -318,9 +321,14 @@ where
             // sends when `takes_sends` and the outbound window allows.
             Some(next) = commands.next_with(sends), if !closed && !committing => {
                 // A noticed send arms the wait for the window, next time round.
-                let Next::Command(command) = next else { continue };
+                let Next::Command(command) = next else {
+                    sends_held = true;
+                    session.on_sends_held();
+                    continue;
+                };
                 let now = Instant::now().into_std();
                 let sending = matches!(command, Command::Send(..));
+                let mut sends = u64::from(sending);
                 session.on_command(command, now);
                 // Take whatever else is already queued, so a burst of sends becomes one write, up
                 // to what the outbound window allows.
@@ -330,6 +338,15 @@ where
                     }
                     let Some(command) = commands.try_send() else { break };
                     session.on_command(command, now);
+                    sends += 1;
+                }
+                // The noticed send and those queued behind it waited. Sends queued once the
+                // queue has emptied haven't.
+                if sends_held && sends > 0 {
+                    if let Some(metrics) = session.metrics() {
+                        metrics.throttled_outbound(sends);
+                    }
+                    sends_held = commands.has_sends();
                 }
             }
             // The outbound window has freed up for the sends it held: they're taken next time
@@ -685,6 +702,85 @@ mod tests {
         let (late, at) = receive_timed(&mut peer, &mut buf, 1, start).await.remove(0);
         assert_eq!(late.get(tags::CL_ORD_ID), Some("late"));
         assert_eq!(at, Duration::from_millis(200));
+    }
+
+    /// With 5 per 200 ms: 7 sends at once, of which 2 wait; a second later 5 more, which fill
+    /// the window without waiting, then 1 more, which waits. 3 sends wait, in two holds.
+    async fn sends_waiting_in_two_holds() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(5, Duration::from_millis(200)), 30).await;
+        let start = Instant::now();
+        for i in 0..7 {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+        receive_timed(&mut peer, &mut buf, 7, start).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        for i in 7..12 {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+        receive_timed(&mut peer, &mut buf, 5, start).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        handle.send(order("late")).unwrap();
+        let (late, at) = receive_timed(&mut peer, &mut buf, 1, start).await.remove(0);
+        assert_eq!(late.get(tags::CL_ORD_ID), Some("late"));
+        assert_eq!(at, Duration::from_millis(1_400), "a window after the second burst");
+    }
+
+    /// Each send that waited for the outbound window counts once: those that didn't, don't.
+    #[cfg(feature = "metrics")]
+    #[tokio::test(start_paused = true)]
+    async fn sends_that_wait_for_the_outbound_window_are_counted() {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        // Thread-local: the test runtime is single-threaded, so the connection task records here.
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        sends_waiting_in_two_holds().await;
+        let throttled: Vec<_> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, ..)| key.key().name() == "turbojet_throttled_total")
+            .map(|(key, _, _, value)| {
+                let direction = key.key().labels().find(|l| l.key() == "direction").unwrap().value().to_string();
+                (direction, value)
+            })
+            .collect();
+        let count = |direction: &str| match throttled.iter().find(|(d, _)| d == direction) {
+            Some((_, metrics_util::debugging::DebugValue::Counter(n))) => *n,
+            other => panic!("{direction}: {other:?}"),
+        };
+        assert_eq!(count("outbound"), 3);
+        assert_eq!(count("inbound"), 0);
+    }
+
+    /// Sends waiting for the outbound window log one warning on the connection, not one per
+    /// send or per hold.
+    #[tokio::test(start_paused = true)]
+    async fn sends_waiting_for_the_outbound_window_warn_once() {
+        let captured = Captured::default();
+        let sink = captured.clone();
+        let subscriber = tracing_subscriber::fmt().with_ansi(false).with_writer(move || sink.clone()).finish();
+        // Thread-local: the test runtime is single-threaded, so the connection task logs here.
+        let _guard = tracing::subscriber::set_default(subscriber);
+        sends_waiting_in_two_holds().await;
+        let logged = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+        let warnings: Vec<_> = logged.lines().filter(|line| line.contains("rate limit")).collect();
+        assert_eq!(warnings.len(), 1, "{logged}");
+        assert!(warnings[0].contains("WARN"), "{logged}");
+        assert!(warnings[0].contains("outbound rate limit 5/200ms reached: sends wait"), "{logged}");
+    }
+
+    /// A log sink shared between a subscriber and the test that reads it.
+    #[derive(Clone, Default)]
+    struct Captured(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(data);
+            Ok(data.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 
     /// A Logout asked for while a send that arrived after the window filled waits for it, goes

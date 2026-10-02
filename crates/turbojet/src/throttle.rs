@@ -189,6 +189,11 @@ impl Window {
         Self { limit, times: VecDeque::with_capacity(limit.messages_len()) }
     }
 
+    /// The limit the window keeps.
+    pub(crate) fn limit(&self) -> RateLimit {
+        self.limit
+    }
+
     /// When another message may go, if not at `now`: a whole window after the oldest message,
     /// once the window holds `limit.messages`.
     pub(crate) fn free_at(&self, now: Instant) -> Option<Instant> {

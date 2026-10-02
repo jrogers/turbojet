@@ -103,6 +103,9 @@ pub struct SessionConfig {
     /// nor wait; nor does a message the session refuses to send. A message counts when the
     /// session frames it, not when it's written, and each connection starts with an empty
     /// window. `None` (the default) means no limit.
+    ///
+    /// The first time sends wait on a connection, it logs a warning; after that they wait
+    /// quietly, and `turbojet_throttled_total` counts them (see [`telemetry`](crate::telemetry)).
     pub outbound_limit: Option<RateLimit>,
     /// At most this many application messages received per window, counted on each connection,
     /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
@@ -129,6 +132,10 @@ pub struct SessionConfig {
     /// handled once it's filled. It answers our own request, so it can't be too fast, and
     /// rejecting it would lose messages we asked for. PossDupFlag(43)=Y alone doesn't exempt a
     /// message: it's only the sender's claim, and would let a counterparty past the limit.
+    ///
+    /// The first time the limit is reached on a connection, it logs a warning; after that,
+    /// `turbojet_throttled_total` counts holds and rejects (see [`telemetry`](crate::telemetry)),
+    /// and each reject is logged at DEBUG only, so a flood doesn't flood the log.
     pub inbound_limit: Option<InboundLimit>,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
@@ -452,6 +459,12 @@ pub struct Session {
     /// what happens to one over it; see [`deliver`](Self::deliver). A new connection starts with
     /// an empty window.
     inbound: Option<Inbound>,
+    /// Whether this connection has warned that sends wait for the outbound window. It warns once,
+    /// not once per send, which a flood would turn into a flood of warnings.
+    outbound_warned: bool,
+    /// Whether this connection has warned that the inbound limit was reached, once, as for
+    /// `outbound_warned`.
+    inbound_warned: bool,
     /// Scratch space for [`frame_into`](Self::frame_into)'s header, kept to reuse its allocation.
     header: String,
     /// Scratch space for the stored copy of a message, when it differs from the one sent.
@@ -549,6 +562,8 @@ impl Session {
             pending: Vec::new(),
             outbound,
             inbound,
+            outbound_warned: false,
+            inbound_warned: false,
             header: String::new(),
             wall_clock: Cell::new(None),
             stored: Vec::new(),
@@ -683,6 +698,18 @@ impl Session {
             return None;
         }
         self.outbound.as_ref().and_then(Window::free_at_or_none)
+    }
+
+    /// Tells the session its driver has started holding application sends because
+    /// [`can_send`](Self::can_send) said no. The first time on a connection, it logs a warning:
+    /// a flood of sends waits quietly after that. The driver counts the sends that waited.
+    pub(crate) fn on_sends_held(&mut self) {
+        if std::mem::replace(&mut self.outbound_warned, true) {
+            return;
+        }
+        if let Some(window) = &self.outbound {
+            warn!("outbound rate limit {} reached: sends wait", window.limit());
+        }
     }
 
     /// When the inbound window frees up, if it's full under an [`InboundLimit::Delay`]; `None` if
@@ -1729,8 +1756,11 @@ impl Session {
         // for. PossDupFlag alone is the sender's claim, so it would let any message past.
         let requested = self.resend.is_some() || !arrived;
         if !requested && self.over_inbound_limit(now) {
+            // Logged at debug: a flood over the limit would otherwise log a warning per message.
+            // The limit's first warning on the connection says it's being reached.
+            debug!(msg_type = %msg.msg_type(), seq_num, "rejecting a message over the inbound rate limit");
             let text = "throttle limit exceeded".into();
-            return self.business_reject(msg, seq_num, BusinessRejectReason::Other, text, now);
+            return self.send_business_reject(msg, seq_num, BusinessRejectReason::Other, text, now);
         }
         let redelivered =
             resent && self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
@@ -1768,20 +1798,33 @@ impl Session {
     /// Delay every one is recorded and none is over: the driver holds input while the window is
     /// full (see [`input_free_at`](Self::input_free_at)), so the message that fills it is the last
     /// until it frees up.
+    ///
+    /// Each message rejected, and each one that fills a Delay window, counts as throttled: the
+    /// input a hold keeps waiting is unread, so a hold is counted, not the messages it holds.
     fn over_inbound_limit(&mut self, now: Instant) -> bool {
         let Some(inbound) = &mut self.inbound else { return false };
-        match inbound.over {
-            Over::Delay => {
-                inbound.window.record(now);
-                false
-            }
-            Over::Reject => {
-                if inbound.window.free_at(now).is_some() {
-                    return true;
-                }
-                inbound.window.record(now);
-                false
-            }
+        let rejected = inbound.over == Over::Reject && inbound.window.free_at(now).is_some();
+        if !rejected {
+            inbound.window.record(now);
+        }
+        let holds = inbound.over == Over::Delay && inbound.window.free_at_or_none().is_some();
+        if rejected || holds {
+            let (limit, over) = (inbound.window.limit(), inbound.over);
+            self.inbound_throttled(limit, over);
+        }
+        rejected
+    }
+
+    /// Counts a message rejected by the inbound limit, or a hold, and warns the first time on
+    /// the connection.
+    fn inbound_throttled(&mut self, limit: RateLimit, over: Over) {
+        self.peer().metrics.throttled_inbound();
+        if std::mem::replace(&mut self.inbound_warned, true) {
+            return;
+        }
+        match over {
+            Over::Delay => warn!("inbound rate limit {limit} reached: delaying input"),
+            Over::Reject => warn!("inbound rate limit {limit} reached: rejecting messages over it"),
         }
     }
 
@@ -1794,6 +1837,18 @@ impl Session {
         now: Instant,
     ) {
         warn!(msg_type = %msg.msg_type(), %reason, %text, "business reject");
+        self.send_business_reject(msg, seq_num, reason, text, now);
+    }
+
+    /// [`business_reject`](Self::business_reject), without the warning.
+    fn send_business_reject(
+        &mut self,
+        msg: &Message,
+        seq_num: u64,
+        reason: BusinessRejectReason,
+        text: String,
+        now: Instant,
+    ) {
         self.peer().metrics.business_reject();
         let reply = BusinessMessageReject {
             ref_seq_num: Some(seq_num),
