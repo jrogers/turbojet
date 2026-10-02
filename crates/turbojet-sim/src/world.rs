@@ -21,6 +21,7 @@ use crate::Side;
 use crate::app::{RecordingApp, order, report};
 use crate::check::{Checker, Violation};
 use crate::files::{DiskFiles, Tear};
+use crate::hostile::Proxy;
 use crate::net::{ConnId, Net, Params};
 use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
@@ -127,6 +128,8 @@ struct Faults {
     reset_both_every: Option<Duration>,
     /// Both sides run to a daily schedule whose first period ends in the busy phase.
     scheduled: bool,
+    /// A hostile middlebox tampers with this many messages in a million during the busy phase.
+    hostile: Option<u32>,
 }
 
 impl Faults {
@@ -164,6 +167,7 @@ impl Faults {
             skip_every: rng.pick(&[None, Some(secs(30)), Some(secs(10))]),
             reset_both_every: rng.pick(&[None, None, Some(secs(60))]),
             scheduled: rng.chance(250_000),
+            hostile: rng.chance(200_000).then(|| rng.pick(&[10_000, 50_000])),
         }
     }
 
@@ -306,6 +310,8 @@ struct World {
     schedule: Option<SessionSchedule>,
     /// When the workload and faults stop.
     busy_end: SimTime,
+    /// The hostile middlebox, on a hostile seed.
+    proxy: Option<Proxy>,
     /// Arrivals, closes and failures on their way.
     in_flight: usize,
     next_id: u64,
@@ -428,6 +434,7 @@ impl World {
         let (dir, storage) = stores(faults.store);
         let nodes = nodes([Role::Initiator(initiator), Role::Acceptor(config("GATEWAY"))], &storage, &clocks, &faults);
         let net = Net::new(faults.net.clone(), rng.fork());
+        let proxy = faults.hostile.map(|rate| Proxy::new(rate, rng.fork()));
         let mut world = Self {
             options,
             faults,
@@ -450,6 +457,7 @@ impl World {
             resetting: None,
             schedule,
             busy_end,
+            proxy,
             in_flight: 0,
             next_id: 0,
             digest: 0xcbf2_9ce4_8422_2325,
@@ -621,6 +629,16 @@ impl World {
             Event::Arrive { to, conn, bytes } => {
                 self.in_flight -= 1;
                 if !self.reset.contains(&conn) {
+                    let bytes = match &mut self.proxy {
+                        // The middlebox reads what arrives at once, so the pipe drains as it does.
+                        Some(proxy) => {
+                            let passed = proxy.pass(conn, to, &bytes, busy);
+                            self.net.read(conn, to, bytes.len());
+                            self.wake_writer(to.other(), conn, now);
+                            passed
+                        }
+                        None => bytes,
+                    };
                     self.nodes[to.index()].receive(conn, &bytes);
                 }
                 self.after(to, conn, now)?;
@@ -940,13 +958,10 @@ impl World {
             self.crash(side, now);
             return Ok(());
         }
-        if effects.read > 0 {
+        // Behind a middlebox, it has read already.
+        if effects.read > 0 && self.proxy.is_none() {
             self.net.read(conn, side, effects.read);
-            let writer = side.other();
-            if !self.nodes[writer.index()].unwritten(conn).is_empty() && !self.pending_for(writer, conn).writable {
-                self.pending_for(writer, conn).writable = true;
-                self.queue.push(now, Event::Writable(writer, conn));
-            }
+            self.wake_writer(side.other(), conn, now);
         }
         if !effects.output.is_empty() {
             self.observe(side, &effects.output, now)?;
@@ -958,6 +973,14 @@ impl World {
             self.write_out(side, conn, now);
         }
         self.after(side, conn, now)
+    }
+
+    /// Room in `writer`'s send buffer on `conn`: it writes more, if it has more.
+    fn wake_writer(&mut self, writer: Side, conn: ConnId, now: SimTime) {
+        if !self.nodes[writer.index()].unwritten(conn).is_empty() && !self.pending_for(writer, conn).writable {
+            self.pending_for(writer, conn).writable = true;
+            self.queue.push(now, Event::Writable(writer, conn));
+        }
     }
 
     /// Writes as much of `side`'s output on `conn` as the send buffer takes, and closes the
@@ -1013,6 +1036,11 @@ impl World {
     /// reconnects after its interval.
     fn ended(&mut self, side: Side, conn: ConnId, now: SimTime) {
         self.pending.remove(&(side, conn));
+        if let Some(proxy) = &mut self.proxy
+            && !self.nodes[side.other().index()].conns().any(|c| c == conn)
+        {
+            proxy.forget(conn);
+        }
         if !self.black_holed.contains(&conn) && !self.nodes[side.other().index()].unwritten(conn).is_empty() {
             self.in_flight += 1;
             self.queue.push(now.after(Duration::from_micros(100)), Event::Fail { side: side.other(), conn });

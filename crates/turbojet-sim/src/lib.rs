@@ -7,6 +7,7 @@
 pub mod app;
 pub mod check;
 pub mod files;
+pub mod hostile;
 pub mod net;
 pub mod node;
 pub mod queue;
