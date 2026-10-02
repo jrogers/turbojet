@@ -93,12 +93,15 @@ pub struct SessionConfig {
     /// ([`SendError::Full`](crate::SendError::Full)) rather than queue it without limit. 10,000
     /// by default.
     pub send_queue: usize,
-    /// At most this many application messages sent per window, counted on each connection.
+    /// At most this many application messages sent per window (see [`RateLimit`]).
     /// [`SessionHandle::send`](crate::SessionHandle::send)s beyond it wait in the send queue
     /// until the window allows them, so a full queue hands them back as usual. Replies the
     /// application makes in [`Application::on_message`] can't wait: they go out at once but
     /// count, so they can take a window past the limit, and queued sends then wait longer. Admin
-    /// messages and resends neither count nor wait. `None` (the default) means no limit.
+    /// messages, the BusinessMessageRejects the session sends itself, and resends neither count
+    /// nor wait; nor does a message the session refuses to send. A message counts when the
+    /// session frames it, not when it's written, and each connection starts with an empty
+    /// window. `None` (the default) means no limit.
     pub outbound_limit: Option<RateLimit>,
     /// At most this many application messages received per window, counted on each connection,
     /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
@@ -632,10 +635,19 @@ impl Session {
 
     /// Whether an application message may be sent at `now` under
     /// [`outbound_limit`](SessionConfig::outbound_limit): true unless the window is full. Check it
-    /// before taking each application send from the queue, and leave the send there if not;
-    /// [`next_deadline`](Self::next_deadline) includes when the window frees up.
+    /// before taking each application send from the queue, and leave the send there if not.
     pub fn can_send(&self, now: Instant) -> bool {
         self.outbound.as_ref().is_none_or(|window| window.free_at(now).is_none())
+    }
+
+    /// When the outbound window frees up, if it's full; `None` if it isn't, or there's no
+    /// [`outbound_limit`](SessionConfig::outbound_limit). It may have passed: a driver holding
+    /// sends because [`can_send`](Self::can_send) said no waits until then. It isn't part of
+    /// [`next_deadline`](Self::next_deadline): only the driver knows whether sends are waiting,
+    /// and with none, waking for the window would cost a wake-up per message at a steady rate
+    /// near the limit.
+    pub fn send_free_at(&self) -> Option<Instant> {
+        self.outbound.as_ref().and_then(Window::free_at_or_none)
     }
 
     /// Commits on this thread until nothing is left to commit, running any commit the store
@@ -840,11 +852,6 @@ impl Session {
     /// harmless: it acts only on what is due.
     pub fn on_timer(&mut self, now: Instant) {
         self.wall_clock.set(None);
-        // Once the outbound window has freed up, its free-up time leaves the deadline: see
-        // `next_deadline`.
-        if let Some(window) = &mut self.outbound {
-            window.expire(now);
-        }
         if self.period_ended() {
             match self.status {
                 Status::Active => {
@@ -886,8 +893,7 @@ impl Session {
 
     /// When [`on_timer`](Self::on_timer) next has something to do: a logon or logout timeout, a
     /// Heartbeat or TestRequest falling due, or an unanswered ResendRequest. `None` once closed,
-    /// and while [`is_resending`](Self::is_resending). While the outbound window is full, also
-    /// when it frees up, so that sends waiting for [`can_send`](Self::can_send) are taken then.
+    /// and while [`is_resending`](Self::is_resending).
     ///
     /// Schedule boundaries aren't included, since they are wall-clock times; call `on_timer` at
     /// least once a second as well. A timeout too long to represent as an `Instant` (such as
@@ -910,14 +916,7 @@ impl Session {
                     None => self.last_received.checked_add(probe_after(interval)),
                 };
                 let resend = self.resend.as_ref().and_then(|r| r.progress_at.checked_add(resend_timeout(interval)));
-                // The session can't tell whether sends are waiting in the driver's queue, so a
-                // full window always counts. `on_timer` at its free-up time expires it, which
-                // takes it out of the deadline. Left in the past, it would hide the deadlines
-                // after it: a driver that finds the deadline still past after `on_timer` waits
-                // for its once-a-second ceiling rather than spin, so a Heartbeat would go late.
-                // With no sends waiting, this costs one wake-up each time the window fills.
-                let free = self.outbound.as_ref().and_then(Window::free_at_or_none);
-                [heartbeat, test_request, resend, free].into_iter().flatten().min()
+                [heartbeat, test_request, resend].into_iter().flatten().min()
             }
             Status::Closed => None,
         }

@@ -3675,31 +3675,26 @@ impl Harness {
     }
 }
 
-/// When the outbound window frees up if it's full, whatever the time.
-fn outbound_free_at(s: &Session) -> Option<Instant> {
-    s.outbound.as_ref().expect("an outbound limit").free_at_or_none()
-}
-
 #[test]
-fn queued_sends_stop_at_the_limit_and_resume_a_window_after_the_first() {
+fn can_send_turns_false_at_the_limit_until_a_window_after_the_first() {
     let h = Harness::with_outbound_limit(2, Duration::from_secs(1));
     let mut s = h.logged_on();
     assert!(s.can_send(h.t0), "the Logon doesn't count");
+    assert_eq!(s.send_free_at(), None);
     assert_eq!(types(&s.command(send_command("A"), h.at(1))), ["NewOrderSingle"]);
     assert!(s.can_send(h.at(1)), "one of two");
+    assert_eq!(s.send_free_at(), None);
     assert_eq!(types(&s.command(send_command("B"), h.at_millis(1_100))), ["NewOrderSingle"]);
     assert!(!s.can_send(h.at_millis(1_100)));
     assert!(!s.can_send(h.at(2) - Duration::from_nanos(1)));
-    assert_eq!(s.next_deadline(), Some(h.at(2)), "the window frees a second after the first send");
-    assert!(s.can_send(h.at(2)));
-    // The timer at that deadline has nothing to send, and the deadline moves on to the next
-    // Heartbeat rather than stay in the past.
-    assert!(s.timer(h.at(2)).is_empty());
+    assert_eq!(s.send_free_at(), Some(h.at(2)), "the window frees a second after the first send");
+    assert!(s.can_send(h.at(2)), "half-open: A no longer counts a whole window later");
+    // Waiting for the window is the driver's: the timer's deadline is the next Heartbeat.
     assert_eq!(s.next_deadline(), Some(h.at_millis(31_100)));
-    assert!(s.can_send(h.at(2)));
     assert_eq!(types(&s.command(send_command("C"), h.at(2))), ["NewOrderSingle"]);
     assert!(!s.can_send(h.at(2)), "B and C fill the window");
-    assert_eq!(s.next_deadline(), Some(h.at_millis(2_100)));
+    assert_eq!(s.send_free_at(), Some(h.at_millis(2_100)));
+    assert_eq!(s.next_deadline(), Some(h.at(32)));
 }
 
 #[test]
@@ -3720,7 +3715,7 @@ fn admin_messages_and_resends_neither_count_nor_wait() {
     assert_eq!(resent.get(tags::POSS_DUP_FLAG), Some("Y"));
     assert_eq!(resent.get(tags::ORIG_SENDING_TIME), original.get(tags::SENDING_TIME));
     // None of them counted: the window still holds the one send, and frees when it expires.
-    assert_eq!(outbound_free_at(&s), Some(h.at(60)));
+    assert_eq!(s.send_free_at(), Some(h.at(60)));
     assert!(!s.can_send(h.at(59)));
     assert!(s.can_send(h.at(60)));
 }
@@ -3737,7 +3732,30 @@ fn replies_from_on_message_go_out_at_once_but_count() {
     assert_eq!(types(&s.recv(order(4, "C"), h.at_millis(1_200))), ["ExecutionReport"]);
     assert!(!s.can_send(h.at(2)));
     assert!(s.can_send(h.at_millis(2_100)));
-    assert_eq!(outbound_free_at(&s), Some(h.at_millis(2_100)));
+    assert_eq!(s.send_free_at(), Some(h.at_millis(2_100)));
+}
+
+#[test]
+fn the_sessions_own_business_rejects_neither_count_nor_wait() {
+    let h = Harness::with_outbound_limit(1, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.command(send_command("A"), h.t0);
+    assert!(!s.can_send(h.t0));
+    let out = s.recv(client(2, MsgType::from_code("G")), h.at_millis(100));
+    assert_eq!(types(&out), ["BusinessMessageReject"]);
+    assert_eq!(s.send_free_at(), Some(h.at(1)), "still the send at t0");
+    assert!(s.can_send(h.at(1)));
+}
+
+#[test]
+fn a_refused_send_does_not_count() {
+    let h = Harness::with_outbound_limit(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.command(send_command("A"), h.t0);
+    let injected = Message::new(MsgType::ExecutionReport).with(tags::TEXT, "fine\x0139=8");
+    assert!(s.command(Command::send(injected), h.at_millis(100)).is_empty(), "refused");
+    assert!(s.can_send(h.at_millis(100)), "one of two");
+    assert_eq!(s.send_free_at(), None);
 }
 
 #[test]

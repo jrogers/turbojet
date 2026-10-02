@@ -19,7 +19,11 @@ pub const MAX_LIMIT_PER: Duration = Duration::from_secs(24 * 60 * 60);
 ///
 /// The window slides: whenever a message would make `messages + 1` within `per`, it waits (or,
 /// inbound, is rejected). That is exactly a venue's "N per second", which a token bucket only
-/// approximates.
+/// approximates. Windows are half-open: a message at `t` no longer counts at `t + per`, so with
+/// `1/1s`, messages at `t` and `t + 1s` are both allowed.
+///
+/// Each connection keeps a ring of the last `messages` times for each limited direction, 16 bytes
+/// a message, allocated when the connection's session is made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RateLimit {
     /// How many messages a window allows, `1..=MAX_LIMIT_MESSAGES`.
@@ -84,6 +88,10 @@ impl FromStr for RateLimit {
         let (messages, per) =
             s.split_once('/').ok_or_else(|| format!("expected a rate limit N/W, e.g. 100/1s, not '{s}'"))?;
         let messages = messages.trim();
+        // `u32::from_str` takes a leading `+`; a count is plain digits.
+        if !messages.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(format!("invalid message count '{messages}' in '{s}'"));
+        }
         let messages = messages.parse().map_err(|_| format!("invalid message count '{messages}' in '{s}'"))?;
         let limit = Self { messages, per: parse_per(per.trim())? };
         limit.check()?;
@@ -160,9 +168,9 @@ impl Window {
         self.free_at_or_none().filter(|at| *at > now)
     }
 
-    /// When the window frees up if it's full, whether or not that has passed. It needs no `now`,
-    /// for deadlines computed without one; just after [`expire`](Self::expire), it's later than the
-    /// time given to that.
+    /// When the window frees up if it's full, whether or not that has passed. It needs no `now`.
+    /// [`record`](Self::record) expires the window first, so it's always later than the last
+    /// message recorded.
     pub(crate) fn free_at_or_none(&self) -> Option<Instant> {
         if self.times.len() < self.limit.messages_len() {
             return None;
@@ -174,16 +182,20 @@ impl Window {
     /// expires before the rest, so the window still frees up at the right time.
     pub(crate) fn record(&mut self, now: Instant) {
         debug_assert!(self.times.back().is_none_or(|last| *last <= now), "times are recorded in order");
+        // Otherwise, after a long gap, a reply past full would leave the window freeing up at a
+        // time already past.
+        self.expire(now);
         if self.times.len() == self.limit.messages_len() {
             self.times.pop_front();
         }
         self.times.push_back(now);
         debug_assert!(self.times.len() <= self.limit.messages_len());
+        debug_assert!(self.free_at_or_none().is_none_or(|at| at > now), "a window frees up after its last message");
     }
 
-    /// Forgets the messages a whole window old at `now`, which no longer count: so a full window
-    /// stops reporting a free-up time once it has passed. At most `limit.messages` steps.
-    pub(crate) fn expire(&mut self, now: Instant) {
+    /// Forgets the messages a whole window old at `now`, which no longer count. At most
+    /// `limit.messages` steps.
+    fn expire(&mut self, now: Instant) {
         while self.times.front().is_some_and(|at| *at + self.limit.per <= now) {
             self.times.pop_front();
         }
@@ -247,6 +259,7 @@ mod tests {
         assert!(error("100").contains("N/W"), "{}", error("100"));
         assert!(error("x/1s").contains("'x'"), "{}", error("x/1s"));
         assert!(error("-1/1s").contains("'-1'"), "{}", error("-1/1s"));
+        assert!(error("+5/1s").contains("'+5'"), "{}", error("+5/1s"));
         assert!(error("100/1h2").contains("'1h2'"), "{}", error("100/1h2"));
         assert!(error("100/").contains("''"), "{}", error("100/"));
         assert!(error("100/1").contains("'1'"), "{}", error("100/1"));
@@ -321,6 +334,23 @@ mod tests {
         assert_eq!(window.times.len(), 1);
         window.expire(t0 + ms(5000));
         assert!(window.times.is_empty());
+    }
+
+    #[test]
+    fn recording_after_a_long_gap_frees_the_window_after_the_new_message() {
+        // Three sends fill the window; long after it frees, a reply would push out only the
+        // oldest and leave the window "full" until 1.1s, already past.
+        let t0 = Instant::now();
+        let ms = Duration::from_millis;
+        let mut window = Window::new(RateLimit::new(3, Duration::from_secs(1)));
+        for at in [0, 100, 200] {
+            window.record(t0 + ms(at));
+        }
+        window.expire(t0 + ms(1000));
+        window.record(t0 + ms(5000));
+        assert_eq!(window.free_at_or_none(), None, "only the reply is in the window");
+        assert_eq!(window.free_at(t0 + ms(5000)), None);
+        assert_eq!(window.times.len(), 1);
     }
 
     #[test]
