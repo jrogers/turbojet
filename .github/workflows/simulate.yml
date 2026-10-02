@@ -1,0 +1,45 @@
+name: Simulate
+
+# Runs the deterministic simulator (crates/turbojet-sim) on random seeds for a while each night,
+# beyond the fixed seeds every push runs. Run it by hand for a longer or shorter session.
+on:
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds of random seeds
+        default: "1800"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Stops at the first failure, printing its seed. `shell: bash` sets pipefail, so a failure
+      # survives the tee.
+      - name: Random seeds
+        shell: bash
+        run: scripts/sim.sh ${{ inputs.seconds || 1800 }} | tee sim.log
+      # The failing seed's whole trace, to read or replay locally (scripts/sim.sh 0 <seed> -v).
+      - name: Trace the failure
+        if: failure()
+        shell: bash
+        run: |
+          seed=$(grep -oE '^seed [0-9]+ failed' sim.log | head -1 | cut -d' ' -f2)
+          if [ -n "$seed" ]; then scripts/sim.sh 0 "$seed" -v > "trace-$seed.txt" || true; fi
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: simulation-trace
+          path: |
+            sim.log
+            trace-*.txt
