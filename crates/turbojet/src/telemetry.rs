@@ -30,6 +30,7 @@
 //! | `turbojet_rejects_sent_total` | counter | `session`, `type` (`session` or `business`) |
 //! | `turbojet_sequence_gaps_total` | counter | `session` |
 //! | `turbojet_resend_requests_received_total` | counter | `session` |
+//! | `turbojet_resend_requests_evicted_total` | counter | `session` |
 //! | `turbojet_garbled_messages_total` | counter | |
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |
 //! | `turbojet_next_incoming_seq` | gauge | `session` |
@@ -60,6 +61,10 @@ mod imp {
         describe_counter!("turbojet_rejects_sent_total", "Reject(3) and BusinessMessageReject(j) messages sent");
         describe_counter!("turbojet_sequence_gaps_total", "Inbound sequence gaps detected (ResendRequests sent)");
         describe_counter!("turbojet_resend_requests_received_total", "ResendRequests received");
+        describe_counter!(
+            "turbojet_resend_requests_evicted_total",
+            "ResendRequests reaching messages the store had evicted, which were gap-filled"
+        );
         describe_counter!("turbojet_garbled_messages_total", "Inbound data discarded as garbled");
         describe_counter!("turbojet_application_panics_total", "Application callbacks that panicked, by callback");
         describe_gauge!("turbojet_session_logged_on", "1 while the session is logged on, else 0");
@@ -86,6 +91,7 @@ mod imp {
         business_rejects: Counter,
         sequence_gaps: Counter,
         resend_requests_received: Counter,
+        resend_requests_evicted: Counter,
         logged_on: Gauge,
         next_incoming: Gauge,
         next_outgoing: Gauge,
@@ -108,6 +114,7 @@ mod imp {
                 business_rejects: rejects("business"),
                 sequence_gaps: counter("turbojet_sequence_gaps_total"),
                 resend_requests_received: counter("turbojet_resend_requests_received_total"),
+                resend_requests_evicted: counter("turbojet_resend_requests_evicted_total"),
                 logged_on: gauge("turbojet_session_logged_on"),
                 next_incoming: gauge("turbojet_next_incoming_seq"),
                 next_outgoing: gauge("turbojet_next_outgoing_seq"),
@@ -158,6 +165,10 @@ mod imp {
 
         pub(crate) fn resend_request_received(&self) {
             self.resend_requests_received.increment(1);
+        }
+
+        pub(crate) fn resend_request_evicted(&self) {
+            self.resend_requests_evicted.increment(1);
         }
 
         pub(crate) fn next_incoming(&self, seq: u64) {
@@ -211,6 +222,8 @@ mod imp {
         pub(crate) fn sequence_gap(&self) {}
         #[inline(always)]
         pub(crate) fn resend_request_received(&self) {}
+        #[inline(always)]
+        pub(crate) fn resend_request_evicted(&self) {}
         #[inline(always)]
         pub(crate) fn next_incoming(&self, _seq: u64) {}
         #[inline(always)]

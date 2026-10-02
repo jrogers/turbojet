@@ -60,8 +60,17 @@ pub trait SessionLog: Send {
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>>;
 
     /// Resets both sequence numbers to 1, discards stored messages, and clears
-    /// [`created_at`](SessionLog::created_at) and [`in_flight`](SessionLog::in_flight).
+    /// [`created_at`](SessionLog::created_at), [`in_flight`](SessionLog::in_flight) and
+    /// [`evicted_through`](SessionLog::evicted_through).
     fn reset(&mut self) -> io::Result<()>;
+
+    /// The highest sequence number whose message the store has discarded to stay within a limit,
+    /// if any: nothing at or below it can be resent, so a resend gap-fills it. The session logs a
+    /// warning when a ResendRequest reaches it. Stores that keep every message until a reset
+    /// return `None` (the default).
+    fn evicted_through(&self) -> Option<u64> {
+        None
+    }
 
     /// The incoming message being handed to the application when this was last recorded, if it
     /// hadn't been handled by then: set by [`set_in_flight`](SessionLog::set_in_flight), cleared

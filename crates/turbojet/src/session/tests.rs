@@ -1152,6 +1152,27 @@ fn covered(actions: &[Action]) -> Vec<u64> {
         .collect()
 }
 
+/// A harness whose store keeps two of [`with_reports`]' ExecutionReports, which are all the same
+/// length.
+fn keeping_two_reports() -> Harness {
+    let mut probe = with_reports(&Harness::new(), 4, 256);
+    let lens: Vec<usize> = probe.peer_mut().log.sent_messages(2, 5).unwrap().iter().map(|(_, m)| m.len()).collect();
+    assert!(lens.iter().all(|len| *len == lens[0]), "{lens:?}");
+    Harness::with_storage(Arc::new(MemoryStorage::new().with_max_session_bytes(2 * lens[0])))
+}
+
+#[test]
+fn a_resend_gap_fills_messages_the_store_evicted() {
+    let h = keeping_two_reports();
+    let mut s = with_reports(&h, 4, 256); // our 1: Logon, 2 to 5: ExecutionReports, 2 and 3 evicted
+    assert_eq!(s.peer().log.evicted_through(), Some(3));
+
+    let out = s.recv(resend_request(6, 1), h.t0);
+    assert_eq!(types(&out), ["SequenceReset", "ExecutionReport", "ExecutionReport"]);
+    assert_eq!(covered(&out), [1, 2, 3, 4, 5]);
+    assert_eq!(sent(&out)[1].get(tags::MSG_SEQ_NUM), Some("4"));
+}
+
 #[test]
 fn a_long_resend_goes_out_in_steps() {
     let h = Harness::new();
@@ -2162,6 +2183,21 @@ mod metrics_tests {
             let after = Snapshot::take(&recorder);
             assert_eq!(after.value("turbojet_disconnects_total", &[]), 1.0);
             assert_eq!(after.value("turbojet_session_logged_on", &[]), 0.0);
+        });
+    }
+
+    #[test]
+    fn counts_resend_requests_that_reach_evicted_messages() {
+        let recorder = DebuggingRecorder::new();
+        let h = keeping_two_reports();
+        ::metrics::with_local_recorder(&recorder, || {
+            let mut s = with_reports(&h, 4, 256); // 2 and 3 evicted
+            s.recv(resend_request(6, 4), h.t0);
+            s.recv(resend_request(7, 3), h.t0);
+            s.recv(resend_request(8, 1), h.t0);
+            let snapshot = Snapshot::take(&recorder);
+            assert_eq!(snapshot.value("turbojet_resend_requests_evicted_total", &[]), 2.0);
+            assert_eq!(snapshot.value("turbojet_resend_requests_received_total", &[]), 3.0);
         });
     }
 

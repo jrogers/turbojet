@@ -1551,6 +1551,10 @@ impl Session {
             let reason = Some(SessionRejectReason::ValueIsIncorrect);
             return self.reject(msg, Some(tags::BEGIN_SEQ_NO), reason, "Invalid resend range", now);
         }
+        if let Some(evicted_through) = self.peer().log.evicted_through().filter(|evicted| begin <= *evicted) {
+            warn!(begin, end, evicted_through, "resend reaches messages the store has evicted; gap-filling them");
+            self.peer().metrics.resend_request_evicted();
+        }
         self.resend(begin, end, now);
     }
 
