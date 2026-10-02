@@ -193,12 +193,27 @@ fn resend(c: &mut Criterion) {
     group.finish();
 }
 
+/// Records `n` messages from `seq` on, committing after each `per_commit`, and runs any commit
+/// the store hands back, as the driver would: what it costs to make them durable.
+fn store_messages(log: &mut dyn SessionLog, report: &[u8], seq: u64, n: u64, per_commit: u64) {
+    for i in 1..=n {
+        log.record_outgoing(seq + i - 1, Some(report)).unwrap();
+        if i % per_commit == 0
+            && let Some(commit) = log.commit().unwrap()
+        {
+            commit.run().unwrap();
+        }
+    }
+}
+
 fn storage(c: &mut Criterion) {
     let id =
         SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
     let report: Message = common::with_header("GATEWAY", "CLIENT", 2, common::ack_of(1).into());
     let report = encode(&report).unwrap();
 
+    // Storing a message and committing it, one per commit (one at a time) or 100 (a busy
+    // connection's batch).
     let mut group = c.benchmark_group("storage record_outgoing");
     group.throughput(Throughput::Elements(1));
     let memory = MemoryStorage::new();
@@ -206,39 +221,45 @@ fn storage(c: &mut Criterion) {
     let disk = DiskStorage::new(dir.path(), false).unwrap();
     for (name, storage) in [("memory", &memory as &dyn SessionStorage), ("disk", &disk as &dyn SessionStorage)] {
         let mut log: Box<dyn SessionLog> = storage.open(&id).unwrap();
-        group.bench_function(name, |b| {
-            b.iter_custom(|iters| {
-                // Reset (untimed) every CHUNK writes so the store doesn't grow without bound.
-                let mut total = Duration::ZERO;
-                let mut remaining = iters;
-                while remaining > 0 {
-                    let n = remaining.min(CHUNK);
-                    log.reset().unwrap();
-                    let start = Instant::now();
-                    for seq in 1..=n {
-                        log.record_outgoing(seq, Some(&report)).unwrap();
+        for per_commit in [1, 100] {
+            let name = if per_commit == 1 { name.to_string() } else { format!("{name}, {per_commit} per commit") };
+            group.bench_function(name, |b| {
+                b.iter_custom(|iters| {
+                    // Reset (untimed) every CHUNK writes so the store doesn't grow without bound.
+                    let mut total = Duration::ZERO;
+                    let mut remaining = iters;
+                    while remaining > 0 {
+                        let n = remaining.min(CHUNK);
+                        log.reset().unwrap();
+                        let start = Instant::now();
+                        store_messages(log.as_mut(), &report, 1, n, per_commit);
+                        total += start.elapsed();
+                        remaining -= n;
                     }
-                    total += start.elapsed();
-                    remaining -= n;
-                }
-                total
-            })
-        });
+                    total
+                })
+            });
+        }
     }
     group.finish();
 
-    // fsync per write: dominated by the device, so fewer samples.
+    // With fsync: dominated by the device, so fewer samples.
     let mut group = c.benchmark_group("storage record_outgoing");
     group.sample_size(10).measurement_time(Duration::from_secs(10));
     let dir = tempfile::tempdir().unwrap();
     let mut log = DiskStorage::new(dir.path(), true).unwrap().open(&id).unwrap();
-    let mut seq = 0;
-    group.bench_function("disk + fsync", |b| {
-        b.iter(|| {
-            seq += 1;
-            log.record_outgoing(seq, Some(&report)).unwrap()
-        })
-    });
+    let mut seq = 1;
+    for per_commit in [1, 100] {
+        let name =
+            if per_commit == 1 { "disk + fsync".to_string() } else { format!("disk + fsync, {per_commit} per commit") };
+        group.throughput(Throughput::Elements(per_commit));
+        group.bench_function(name, |b| {
+            b.iter(|| {
+                store_messages(log.as_mut(), &report, seq, per_commit, per_commit);
+                seq += per_commit;
+            })
+        });
+    }
     group.finish();
 }
 
