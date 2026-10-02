@@ -233,6 +233,29 @@ pub struct CommandReceiver {
     taken: u64,
     /// A Logout waiting for the sends queued before it.
     held: Option<(Option<String>, u64)>,
+    /// A send taken off its queue only to notice it (see [`Sends::Notice`]), first in line. It
+    /// isn't counted in `taken` until it's handed out, so a Logout queued after it still waits.
+    noticed: Option<(Message, ReceiptSender)>,
+}
+
+/// What [`CommandReceiver::next_with`] does with application sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Sends {
+    /// Hands the next one out.
+    Take,
+    /// Returns [`Next::Noticed`] once one is waiting, keeping it first in line: for a driver that
+    /// can't take sends yet (the outbound window is full) but must know when one waits.
+    Notice,
+    /// Leaves them queued.
+    Ignore,
+}
+
+/// What [`CommandReceiver::next_with`] found.
+#[derive(Debug)]
+pub(crate) enum Next {
+    Command(Command),
+    /// A send is waiting, not taken; see [`Sends::Notice`].
+    Noticed,
 }
 
 /// A session's command queues, sends holding up to `send_queue` messages.
@@ -241,7 +264,7 @@ pub fn command_queues(send_queue: usize) -> (CommandSender, CommandReceiver) {
     let (sends, sends_rx) = mpsc::channel(send_queue);
     let (control, control_rx) = mpsc::channel(CONTROL_QUEUE);
     let sender = CommandSender { sends, control, queued: Arc::default() };
-    (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None })
+    (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None, noticed: None })
 }
 
 impl CommandReceiver {
@@ -266,23 +289,55 @@ impl CommandReceiver {
     /// else, or, if `sends`, an application message. Cancel-safe: a Logout that has arrived but
     /// isn't due yet is kept for later.
     pub async fn next(&mut self, sends: bool) -> Option<Command> {
+        match self.next_with(if sends { Sends::Take } else { Sends::Ignore }).await? {
+            Next::Command(command) => Some(command),
+            Next::Noticed => unreachable!("sends are only noticed when asked to be"),
+        }
+    }
+
+    /// [`next`](Self::next), with application sends taken, noticed or ignored as `sends` says.
+    /// Cancel-safe, as `next` is: a noticed send is kept, first in line.
+    pub(crate) async fn next_with(&mut self, sends: Sends) -> Option<Next> {
         loop {
             if let Some(command) = self.try_control() {
-                return Some(command);
+                return Some(Next::Command(command));
             }
+            if sends == Sends::Take
+                && let Some(command) = self.take_noticed()
+            {
+                return Some(Next::Command(command));
+            }
+            // One noticed send is enough: then only control commands are waited for.
+            let receiving = match sends {
+                Sends::Take => true,
+                Sends::Notice => self.noticed.is_none(),
+                Sends::Ignore => false,
+            };
             tokio::select! {
                 biased;
                 control = self.control.recv() => {
                     if let Some(command) = self.take(control?) {
-                        return Some(command);
+                        return Some(Next::Command(command));
                     }
                 }
-                send = self.sends.recv(), if sends => {
+                send = self.sends.recv(), if receiving => {
+                    let (msg, receipt) = send?;
+                    if sends == Sends::Notice {
+                        self.noticed = Some((msg, receipt));
+                        return Some(Next::Noticed);
+                    }
                     self.taken += 1;
-                    return send.map(|(msg, receipt)| Command::Send(msg, Some(receipt)));
+                    return Some(Next::Command(Command::Send(msg, Some(receipt))));
                 }
             }
         }
+    }
+
+    /// The noticed send, if any, now taken.
+    fn take_noticed(&mut self) -> Option<Command> {
+        let (msg, receipt) = self.noticed.take()?;
+        self.taken += 1;
+        Some(Command::Send(msg, Some(receipt)))
     }
 
     /// A control command as it comes off its queue: a Logout not yet due is held (a second one
@@ -302,6 +357,9 @@ impl CommandReceiver {
 
     /// The next queued application message, if any.
     pub fn try_send(&mut self) -> Option<Command> {
+        if let Some(command) = self.take_noticed() {
+            return Some(command);
+        }
         let (msg, receipt) = self.sends.try_recv().ok()?;
         self.taken += 1;
         Some(Command::Send(msg, Some(receipt)))
@@ -309,7 +367,7 @@ impl CommandReceiver {
 
     /// Whether application messages are waiting.
     pub fn has_sends(&self) -> bool {
-        !self.sends.is_empty()
+        self.noticed.is_some() || !self.sends.is_empty()
     }
 
     /// Whether a logout or operator command could be taken now: one queued, or a Logout whose

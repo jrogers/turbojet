@@ -10,7 +10,7 @@ use tracing::{Instrument, debug, warn};
 
 use crate::codec::{DecodedInto, decode_into};
 use crate::message::Message;
-use crate::registry::{Command, CommandReceiver};
+use crate::registry::{Command, CommandReceiver, Next, Sends};
 use crate::session::Session;
 use crate::shutdown::Signal;
 use crate::telemetry;
@@ -262,6 +262,13 @@ where
         let now = Instant::now().into_std();
         let takes_sends = session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT;
         let can_send = session.can_send(now);
+        // With the window full, a send that arrives is noticed, not taken, so the driver goes
+        // round and waits for the window below rather than for the timer.
+        let sends = match (takes_sends, can_send) {
+            (true, true) => Sends::Take,
+            (true, false) => Sends::Notice,
+            (false, _) => Sends::Ignore,
+        };
         // Sends the window holds wake the driver when it frees. The driver, not the session's
         // deadline, owns this wake-up: only it knows whether sends are waiting, and waking for the
         // window with none would cost a wake-up per message at a steady rate near the limit.
@@ -304,7 +311,9 @@ where
             // Logout and operator commands, whatever else is going on (a Logout once the sends
             // queued before it have been taken, which the outbound limit may slow); application
             // sends when `takes_sends` and the outbound window allows.
-            Some(command) = commands.next(takes_sends && can_send), if !closed && !committing => {
+            Some(next) = commands.next_with(sends), if !closed && !committing => {
+                // A noticed send arms the wait for the window, next time round.
+                let Next::Command(command) = next else { continue };
                 let now = Instant::now().into_std();
                 let sending = matches!(command, Command::Send(..));
                 session.on_command(command, now);
@@ -601,6 +610,50 @@ mod tests {
         let mut rest = Vec::new();
         let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
         assert!(closed.expect("did not close").is_ok());
+    }
+
+    /// A send that arrives once the window has filled, with nothing queued, goes out as soon as
+    /// the window frees, not when the timer next fires (a second after the last time it did).
+    #[tokio::test(start_paused = true)]
+    async fn a_send_after_a_full_window_waits_for_the_window_not_the_timer() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(5, Duration::from_millis(200)), 30).await;
+        let start = Instant::now();
+        for i in 0..5 {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+        assert!(receive_timed(&mut peer, &mut buf, 5, start).await.iter().all(|(_, at)| at.is_zero()));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        handle.send(order("late")).unwrap();
+
+        let (late, at) = receive_timed(&mut peer, &mut buf, 1, start).await.remove(0);
+        assert_eq!(late.get(tags::CL_ORD_ID), Some("late"));
+        assert_eq!(at, Duration::from_millis(200));
+    }
+
+    /// A Logout asked for while a send that arrived after the window filled waits for it, goes
+    /// out after it: the send is first in line, though not yet taken.
+    #[tokio::test(start_paused = true)]
+    async fn a_logout_waits_for_a_send_that_arrived_after_the_window_filled() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(5, Duration::from_millis(200)), 30).await;
+        let start = Instant::now();
+        for i in 0..5 {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+        receive_timed(&mut peer, &mut buf, 5, start).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let receipt = handle.send(order("late")).unwrap();
+        // Long enough for the connection to notice the send.
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        handle.logout(Some("done")).unwrap();
+        let numbers = tokio::time::timeout(Duration::from_millis(1), handle.sequence_numbers()).await;
+        assert!(numbers.expect("answered while the send waits").is_ok());
+
+        let sent = receive_timed(&mut peer, &mut buf, 2, start).await;
+        let seen: Vec<_> =
+            sent.iter().map(|(m, at)| (m.msg_type(), m.get(tags::CL_ORD_ID).map(String::from), *at)).collect();
+        let at = Duration::from_millis(200);
+        assert_eq!(seen, [(MsgType::NewOrderSingle, Some("late".into()), at), (MsgType::Logout, None, at)]);
+        assert_eq!(receipt.await, Ok(7));
     }
 
     /// Heartbeats go out when due while the outbound window, much longer than HeartBtInt, holds
