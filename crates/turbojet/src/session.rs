@@ -750,6 +750,10 @@ impl Session {
         if self.peer.is_none() {
             return Err(SequenceError::Invalid("the session has not been identified yet".into()));
         }
+        if self.store_failed && request != SequenceCommand::Get {
+            // Nothing more is committed, so the change would never be stored.
+            return Err(SequenceError::Storage(io::Error::other("the session store has failed")));
+        }
         match request {
             SequenceCommand::Reset => return Err(SequenceError::Connected),
             SequenceCommand::SetNextOutgoing(seq)
@@ -2236,6 +2240,10 @@ impl Session {
         self.committed = self.output.len();
         self.window_end = self.opening.take().map(|start| start + DELIVERIES_PER_COMMIT);
         self.window_wanted = false;
+        if self.store_failed {
+            // Nothing was committed: the store failed, and the session is closing.
+            self.fail_receipts();
+        }
         for (receipt, seq) in self.receipts.drain(..) {
             let _ = receipt.send(Ok(seq));
         }
@@ -2251,6 +2259,13 @@ impl Session {
     /// incoming number may have let queued messages be handled since).
     fn send_replies(&mut self) {
         if self.replies.is_empty() {
+            return;
+        }
+        if self.store_failed {
+            // The change, made after the store failed, can't have been committed.
+            for (reply, _) in self.replies.drain(..) {
+                let _ = reply.send(Err(SequenceError::Storage(io::Error::other("the session store has failed"))));
+            }
             return;
         }
         let peer = self.peer.as_ref().expect("operator changes need a bound session");

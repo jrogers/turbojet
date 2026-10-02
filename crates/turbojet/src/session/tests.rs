@@ -1135,6 +1135,24 @@ fn a_receipt_waits_for_its_message_to_be_committed() {
     assert_eq!(failed.try_recv().unwrap(), Err(Dropped::Storage), "it may have been stored");
 }
 
+/// Regression (simulator): once its store has failed, a session that's still bound (its output
+/// draining) commits nothing more, so an operator's change there would never be stored; it's
+/// refused rather than reported as made.
+#[test]
+fn an_operator_change_after_the_store_failed_is_refused() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("disk full")));
+    assert!(run_commit(&mut s, h.t0));
+    assert!(s.is_closed());
+    let (reply, mut answer) = tokio::sync::oneshot::channel();
+    s.on_command(Command::Sequence(SequenceCommand::SetNextOutgoing(50), reply), h.t0);
+    s.commit_blocking(h.t0);
+    assert!(matches!(answer.try_recv().unwrap(), Err(SequenceError::Storage(_))));
+}
+
 #[test]
 fn an_operator_hears_of_a_change_once_it_is_committed() {
     let storage = Arc::new(DeferringStorage::default());
@@ -2011,31 +2029,40 @@ fn shutdown_before_logon_disconnects() {
 
 // ---- Storage failures ----
 
-/// Storage whose logs fail every write after the first `ok_writes` (counted per log), over a
-/// memory store that keeps its state across reopening.
+/// Storage whose logs fail every write after the first `ok_writes` (counted per log), or with
+/// `once`, only the one after them, over a memory store that keeps its state across reopening.
 struct FailingStorage {
     ok_writes: usize,
+    once: bool,
     inner: MemoryStorage,
 }
 
 struct FailingLog {
     inner: Box<dyn SessionLog>,
-    remaining: usize,
+    remaining: Option<usize>,
+    once: bool,
 }
 
 impl FailingLog {
     fn write(&mut self) -> io::Result<()> {
-        if self.remaining == 0 {
-            return Err(io::Error::other("disk full"));
+        match self.remaining {
+            Some(0) => {
+                self.remaining = (!self.once).then_some(0);
+                Err(io::Error::other("disk full"))
+            }
+            Some(n) => {
+                self.remaining = Some(n - 1);
+                Ok(())
+            }
+            None => Ok(()),
         }
-        self.remaining -= 1;
-        Ok(())
     }
 }
 
 impl SessionStorage for FailingStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        Ok(Box::new(FailingLog { inner: self.inner.open(id)?, remaining: self.ok_writes }))
+        let inner = self.inner.open(id)?;
+        Ok(Box::new(FailingLog { inner, remaining: Some(self.ok_writes), once: self.once }))
     }
 }
 
@@ -2071,7 +2098,7 @@ impl SessionLog for FailingLog {
 }
 
 fn failing_after(ok_writes: usize) -> Harness {
-    Harness::with_storage(Arc::new(FailingStorage { ok_writes, inner: MemoryStorage::new() }))
+    Harness::with_storage(Arc::new(FailingStorage { ok_writes, once: false, inner: MemoryStorage::new() }))
 }
 
 #[test]
@@ -2086,7 +2113,7 @@ fn storage_failure_during_logon_disconnects_without_reply() {
 /// nor the resend the counterparty's NextExpectedMsgSeqNum asks for.
 #[test]
 fn storage_failure_during_logon_sends_no_resend() {
-    let storage = FailingStorage { ok_writes: 0, inner: MemoryStorage::new() };
+    let storage = FailingStorage { ok_writes: 0, once: false, inner: MemoryStorage::new() };
     let id =
         SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
     {
@@ -2111,6 +2138,19 @@ fn storage_failure_disconnects_before_delivering_the_message() {
     assert_eq!(types(&s.recv(order(2, "A"), h.t0)), ["DISCONNECT"]);
     assert_eq!(h.app.received(), 0);
     assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+}
+
+/// Regression (simulator): an operator's skip whose SequenceReset fails to store closes the
+/// session, and the skip itself, stored after, is never committed: it's reported as failed.
+#[test]
+fn an_operator_skip_whose_sequence_reset_fails_is_reported_failed() {
+    let storage = FailingStorage { ok_writes: 2, once: true, inner: MemoryStorage::new() };
+    let h = Harness::with_storage(Arc::new(storage));
+    let mut s = h.logged_on();
+    let (reply, mut answer) = tokio::sync::oneshot::channel();
+    let out = s.command(Command::Sequence(SequenceCommand::SetNextOutgoing(50), reply), h.t0);
+    assert_eq!(types(&out), ["DISCONNECT"]);
+    assert!(matches!(answer.try_recv().unwrap(), Err(SequenceError::Storage(_))));
 }
 
 #[test]
