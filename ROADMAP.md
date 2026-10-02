@@ -29,7 +29,8 @@ later, with:
   a command (`turbojet-codegen`);
 - acceptor and initiator transports, TLS with optional mutual authentication, initiator
   failover, and graceful shutdown (every session logged out, bounded by the logout timeout),
-  which the gateway does on SIGINT and SIGTERM;
+  which the gateway does on SIGINT and SIGTERM; initiators reconnect with a configurable backoff
+  (by default 1 s to 60 s, jittered), and acceptors limit connections overall and per IP address;
 - a malformed body field (no `=`, an invalid tag, non-UTF-8 data) answered with a Reject rather
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
 - a long resend sent in steps of 256 sequence numbers, each written before the next is read from
@@ -274,11 +275,6 @@ From the benchmarks.
 - **Holiday calendars** (S). Schedules have no notion of exchange holidays.
 - **Throttling** (M). Optional per-session inbound and outbound message-rate limits. (The
   back-pressure half is done: a full send queue refuses sends, or `send_when_ready` waits.)
-- **Connection limits** (S). An acceptor starts a task for every connection, and each may wait
-  the whole logon timeout before sending anything; there's no cap on concurrent connections,
-  overall or per IP address. Add optional limits, refusing connections beyond them.
-- **Reconnect backoff** (S). An initiator retries at a fixed `reconnect_interval`. After a venue
-  outage, many initiators then retry in lockstep. Back off exponentially, with jitter and a cap.
 - **Inbound message persistence** (M). Only sent messages are stored. An optional audit store of
   received messages would help post-incident analysis beyond what the logs keep.
 - **Message log retention** (M). A message log of both directions, kept apart from the resend

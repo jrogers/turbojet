@@ -6,6 +6,15 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: `InitiatorConfig::reconnect_interval` is replaced by `reconnect`, a
+  `ReconnectPolicy`. By default an initiator waits 1 s before reconnecting, doubling while
+  attempts keep failing up to 60 s, each wait a random half to all of that, and 1 s again once a
+  session has logged on; it used to wait 5 s every time. `ReconnectPolicy::fixed` keeps a fixed
+  wait.
+- An acceptor keeps at most 1,024 connections open at once, and 16 from one IP address
+  (`Acceptor::with_max_connections`, `with_max_connections_per_ip`); one past either is closed as
+  soon as it's accepted, before any TLS handshake, and counted in the new
+  `turbojet_connections_refused_total`.
 - Breaking: stores commit once per batch of work (everything from one read, one batch of sends,
   one step of a resend), and nothing the batch sends is written before its commit is done.
   `SessionLog::commit` (by default, nothing to do) lets a store buffer its changes and make them

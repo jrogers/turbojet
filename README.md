@@ -388,8 +388,17 @@ Each connection attempt starts at the primary. An endpoint fails over to the nex
 connect fails or exceeds `connect_timeout` (default 10s), the TLS handshake fails, or the
 connection ends before logon (e.g. the acceptor refuses it). Once a session has logged on,
 it stays on that endpoint until it ends; the next attempt then starts at the primary again,
-so the initiator fails back as soon as the primary is reachable. If every endpoint fails,
-`run()` waits `reconnect_interval` and starts over.
+so the initiator fails back as soon as the primary is reachable. If every endpoint fails, or a
+session ends, `run()` waits and starts over, as `InitiatorConfig::reconnect` says: by default
+1 s, doubling while attempts keep failing up to 60 s, each wait a random half to all of that so
+initiators that lost a venue together don't all come back together, and 1 s again once a session
+has logged on. `ReconnectPolicy::fixed` waits the same every time.
+
+An acceptor keeps at most 1,024 connections open at once, and 16 from one IP address
+(`Acceptor::with_max_connections`, `with_max_connections_per_ip`), counting every connection
+until it closes, logged on or not. One past either is closed as soon as it's accepted, before any
+TLS handshake, and counted in `turbojet_connections_refused_total`. Counterparties behind one
+address (a NAT, or a hub serving several firms) share its limit.
 
 All endpoints are treated as the same FIX session (e.g. a counterparty's primary and DR
 sites), so sequence numbers carry over and the `SessionHandle` stays valid across failovers.
@@ -509,7 +518,8 @@ metric is labelled with `session`:
 | `turbojet_resend_requests_evicted_total` (reaching messages the store evicted) | counter |
 | `turbojet_session_logged_on`, `turbojet_next_incoming_seq`, `turbojet_next_outgoing_seq` | gauge |
 
-plus an unlabelled `turbojet_garbled_messages_total`, and `turbojet_application_panics_total` by
+plus an unlabelled `turbojet_garbled_messages_total`, `turbojet_connections_refused_total` by
+`reason` (`total` or `per_ip`), and `turbojet_application_panics_total` by
 `callback` (a panicking callback is caught; see the `Application` docs). Handles are created once
 per session, so recording is a counter increment: measured A/B, order → ack costs nothing extra
 with no recorder installed, and about 2% (≈25 ns) with a Prometheus recorder. The gateway serves
