@@ -14,8 +14,12 @@ use turbojet::store::{SessionLog, SessionStorage};
 pub enum Stored {
     /// MsgSeqNum `seq` was used: for an application message, with the message as sent.
     Sent { seq: u64, bytes: Option<Vec<u8>> },
+    /// The next incoming MsgSeqNum was recorded as `seq`.
+    Incoming { seq: u64 },
     /// Both sequence numbers went back to 1, and stored messages were discarded.
     Reset,
+    /// The store was opened (at logon), with these numbers.
+    Opened { next_outgoing: u64, next_incoming: u64 },
 }
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
@@ -34,7 +38,10 @@ impl LedgerStorage {
 
 impl SessionStorage for LedgerStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        Ok(Box::new(LedgerLog { inner: self.inner.open(id)?, ledger: self.ledger.clone() }))
+        let inner = self.inner.open(id)?;
+        let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
+        self.ledger.lock().unwrap().push(opened);
+        Ok(Box::new(LedgerLog { inner, ledger: self.ledger.clone() }))
     }
 }
 
@@ -53,7 +60,9 @@ impl SessionLog for LedgerLog {
     }
 
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
-        self.inner.set_next_incoming(seq)
+        self.inner.set_next_incoming(seq)?;
+        self.ledger.lock().unwrap().push(Stored::Incoming { seq });
+        Ok(())
     }
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {

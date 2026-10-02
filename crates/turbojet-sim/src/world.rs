@@ -95,6 +95,10 @@ struct Faults {
     /// Resend this many sequence numbers per step, if set: small, so a resend after a lost
     /// connection takes several steps, with the driver's input paused between them.
     resend_batch: Option<u64>,
+    /// Mean time between process crashes (of either node) while the workload runs, if any.
+    crash_every: Option<Duration>,
+    /// Longest a crashed node takes to restart.
+    restart_max: Duration,
 }
 
 impl Faults {
@@ -115,23 +119,32 @@ impl Faults {
             connect_max: rng.pick(&[Duration::ZERO, secs(2), secs(15)]),
             give_up: secs(rng.between(60, 300)),
             resend_batch: if rng.chance(330_000) { Some(rng.between(1, 8)) } else { None },
+            crash_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
+            restart_max: rng.pick(&[ms(100), secs(5), secs(30)]),
         }
     }
 
     /// Longest the sessions can take to settle once faults stop: TCP giving up on a black hole,
     /// then the slowest reconnect and logon, with time over for resends.
     fn settle_limit(&self, reconnect: Duration, heartbeat: Duration) -> Duration {
-        self.give_up + self.stall_max + self.connect_max + reconnect + heartbeat * 10 + Duration::from_secs(60)
+        self.give_up
+            + self.stall_max
+            + self.connect_max
+            + self.restart_max
+            + reconnect
+            + heartbeat * 10
+            + Duration::from_secs(60)
     }
 }
 
 #[derive(Debug)]
 enum Event {
-    /// The initiator tries to connect.
-    Connect,
+    /// The initiator tries to connect. Each attempt carries the initiator's process generation,
+    /// so one begun before a crash is dropped after it.
+    Connect(u64),
     /// Its connect succeeds, or fails (refused or timed out).
-    Established,
-    ConnectFailed,
+    Established(u64),
+    ConnectFailed(u64),
     Arrive {
         to: Side,
         conn: ConnId,
@@ -160,6 +173,9 @@ enum Event {
     Stall,
     /// TCP gives up on a black-holed connection.
     GiveUp(ConnId),
+    /// A node's process crashes, and later restarts.
+    Crash,
+    Restart(Side),
 }
 
 /// What's scheduled for one connection's driver, so each kind of wake-up is queued once.
@@ -200,6 +216,10 @@ struct World {
     black_holed: BTreeSet<ConnId>,
     /// A connect is scheduled or under way.
     connecting: bool,
+    /// Each node is down after a crash, until it restarts.
+    down: [bool; 2],
+    /// The initiator's process generation: one more after each crash.
+    generation: u64,
     /// Arrivals, closes and failures on their way.
     in_flight: usize,
     next_id: u64,
@@ -288,6 +308,8 @@ impl World {
             reset: BTreeSet::new(),
             black_holed: BTreeSet::new(),
             connecting: true,
+            down: [false; 2],
+            generation: 0,
             in_flight: 0,
             next_id: 0,
             digest: 0xcbf2_9ce4_8422_2325,
@@ -309,13 +331,14 @@ impl World {
             self.faults
         );
         self.record(&header);
-        self.queue.push(SimTime(0), Event::Connect);
+        self.queue.push(SimTime(0), Event::Connect(0));
         self.queue.push(SimTime(0), Event::SendOrder);
         self.queue.push(SimTime(0), Event::SendReport);
         for (every, event) in [
             (self.faults.reset_every, Event::Reset),
             (self.faults.black_hole_every, Event::BlackHole),
             (self.faults.stall_every, Event::Stall),
+            (self.faults.crash_every, Event::Crash),
         ] {
             if let Some(every) = every {
                 let at = self.after_about(SimTime(0), every);
@@ -405,22 +428,28 @@ impl World {
     fn dispatch(&mut self, event: Event, now: SimTime, busy_end: SimTime) -> Result<(), Violation> {
         let busy = now < busy_end;
         match event {
-            Event::Connect => {
+            // A crashed initiator's attempt went with it; its restart starts again.
+            Event::Connect(g) | Event::ConnectFailed(g) | Event::Established(g) if g != self.generation => {}
+            // A crashed acceptor's port refuses connections.
+            Event::Connect(g) | Event::Established(g) if self.down[Side::Acceptor.index()] => {
+                self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed(g));
+            }
+            Event::Connect(g) => {
                 let timeout = self.nodes[0].initiator_config().expect("the initiator").connect_timeout;
                 if self.rng.chance(self.faults.refuse) {
-                    self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed);
+                    self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed(g));
                 } else {
                     let takes =
                         Duration::from_nanos(self.rng.between(0, SimTime::from_duration(self.faults.connect_max).0));
                     if takes >= timeout {
-                        self.queue.push(now.after(timeout), Event::ConnectFailed);
+                        self.queue.push(now.after(timeout), Event::ConnectFailed(g));
                     } else {
-                        self.queue.push(now.after(takes), Event::Established);
+                        self.queue.push(now.after(takes), Event::Established(g));
                     }
                 }
             }
-            Event::ConnectFailed => self.queue.push(now.after(self.reconnect_interval()), Event::Connect),
-            Event::Established => {
+            Event::ConnectFailed(g) => self.queue.push(now.after(self.reconnect_interval()), Event::Connect(g)),
+            Event::Established(_) => {
                 self.connecting = false;
                 self.connections += 1;
                 let conn = self.net.connect();
@@ -524,6 +553,23 @@ impl World {
                 }
                 self.again(busy, now, self.faults.stall_every, Event::Stall);
             }
+            Event::Crash => {
+                let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
+                if !self.down[side.index()] {
+                    self.crash(side, now);
+                }
+                self.again(busy, now, self.faults.crash_every, Event::Crash);
+            }
+            Event::Restart(side) => {
+                self.down[side.index()] = false;
+                let storage: Arc<dyn SessionStorage> = self.storage[side.index()].clone();
+                let registry = Arc::new(SessionRegistry::new(storage).with_clock(self.clocks.wall_clock()));
+                self.nodes[side.index()].restart(registry);
+                if side == Side::Initiator {
+                    self.connecting = true;
+                    self.queue.push(now, Event::Connect(self.generation));
+                }
+            }
             Event::GiveUp(conn) => {
                 self.net.reset(conn);
                 for side in [Side::Initiator, Side::Acceptor] {
@@ -534,6 +580,27 @@ impl World {
             }
         }
         Ok(())
+    }
+
+    /// `side`'s process dies: its sessions go without another write, the OS resets its
+    /// connections (so the other end's fail), and it restarts after a while.
+    fn crash(&mut self, side: Side, now: SimTime) {
+        self.down[side.index()] = true;
+        if side == Side::Initiator {
+            self.connecting = false;
+            self.generation += 1;
+        }
+        for conn in self.nodes[side.index()].crash() {
+            self.pending.remove(&(side, conn));
+            if self.net.reset(conn) {
+                self.reset.insert(conn);
+                let at = now.after(Duration::from_micros(self.rng.between(0, 1_000)));
+                self.in_flight += 1;
+                self.queue.push(at, Event::Fail { side: side.other(), conn });
+            }
+        }
+        let after = Duration::from_nanos(self.rng.between(0, SimTime::from_duration(self.faults.restart_max).0));
+        self.queue.push(now.after(after), Event::Restart(side));
     }
 
     /// Schedules the next fault of a kind, while the workload runs.
@@ -639,9 +706,9 @@ impl World {
             self.in_flight += 1;
             self.queue.push(now.after(Duration::from_micros(100)), Event::Fail { side: side.other(), conn });
         }
-        if side == Side::Initiator && !self.connecting {
+        if side == Side::Initiator && !self.connecting && !self.down[side.index()] {
             self.connecting = true;
-            self.queue.push(now.after(self.reconnect_interval()), Event::Connect);
+            self.queue.push(now.after(self.reconnect_interval()), Event::Connect(self.generation));
         }
     }
 
@@ -699,6 +766,7 @@ impl World {
     fn idle(&self) -> bool {
         self.in_flight == 0
             && !self.connecting
+            && !self.down.iter().any(|d| *d)
             && self.pending.values().all(|p| !p.read && !p.commands && !p.resume && !p.writable)
     }
 

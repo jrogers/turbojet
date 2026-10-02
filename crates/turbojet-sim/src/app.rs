@@ -21,6 +21,9 @@ pub struct RecordingApp {
     pub acks: bool,
     pub deliveries: Mutex<Vec<Delivery>>,
     pub handle: Mutex<Option<SessionHandle>>,
+    /// Acknowledgements sent so far: each gets its own ExecID, since an order redelivered after a
+    /// crash is acknowledged again.
+    acked: Mutex<u64>,
 }
 
 impl RecordingApp {
@@ -30,6 +33,11 @@ impl RecordingApp {
 
     pub fn initiator() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// The process crashed: the handle went with it. What it recorded survives.
+    pub fn crash(&self) {
+        *self.handle.lock().unwrap() = None;
     }
 
     /// Sends `msg` through the session's handle; false if it isn't connected.
@@ -75,7 +83,9 @@ impl Application for RecordingApp {
         let id = id_of(msg).ok_or_else(MessageReject::unsupported_message_type)?.to_string();
         let seq = msg.get(tags::MSG_SEQ_NUM).and_then(|s| s.parse().ok()).expect("the session checked it");
         if self.acks && msg.msg_type() == MsgType::NewOrderSingle {
-            ctx.send(report(&format!("ack-{id}"), Some(&id)));
+            let mut acked = self.acked.lock().unwrap();
+            *acked += 1;
+            ctx.send(report(&format!("ack-{id}-{acked}"), Some(&id)));
         }
         self.deliveries.lock().unwrap().push(Delivery { id, seq, redelivered: ctx.maybe_redelivered() });
         Ok(())

@@ -47,6 +47,8 @@ const RESEND_MAY_CHANGE: &[u32] = &[
 struct Sent {
     /// The MsgSeqNum the store must record next.
     next_recorded: u64,
+    /// The next incoming MsgSeqNum the store last recorded.
+    incoming: u64,
     /// Every MsgSeqNum recorded: an application message with the message, a session one `None`.
     recorded: BTreeMap<u64, Option<Message>>,
     /// The last new (not PossDup) MsgSeqNum written.
@@ -57,7 +59,7 @@ struct Sent {
 
 impl Default for Sent {
     fn default() -> Self {
-        Self { next_recorded: 1, recorded: BTreeMap::new(), last_new: 0, ledger_seen: 0 }
+        Self { next_recorded: 1, incoming: 1, recorded: BTreeMap::new(), last_new: 0, ledger_seen: 0 }
     }
 }
 
@@ -102,7 +104,8 @@ impl Checker {
         self.sent[side.index()].recorded.values().flatten().filter_map(id_of)
     }
 
-    /// Rule 2 on what `side`'s store recorded since the last call: each MsgSeqNum once, in order.
+    /// Rules 2 and 6 on what `side`'s store recorded since the last call: each MsgSeqNum once, in
+    /// order, and a store that opens with the numbers it last recorded.
     pub fn stored(&mut self, side: Side, ledger: &[Stored]) -> Result<(), Violation> {
         let sent = &mut self.sent[side.index()];
         for entry in &ledger[sent.ledger_seen..] {
@@ -110,6 +113,19 @@ impl Checker {
                 Stored::Reset => {
                     let seen = sent.ledger_seen;
                     *sent = Sent { ledger_seen: seen, ..Sent::default() };
+                }
+                Stored::Incoming { seq } => sent.incoming = *seq,
+                Stored::Opened { next_outgoing, next_incoming } => {
+                    // Rule 6: what a store recorded is what it reopens with, crash or not.
+                    if (*next_outgoing, *next_incoming) != (sent.next_recorded, sent.incoming) {
+                        return Err(violation(
+                            "6 store",
+                            format!(
+                                "{side:?}'s store opened at {next_outgoing} out, {next_incoming} in; it recorded {} out, {} in",
+                                sent.next_recorded, sent.incoming
+                            ),
+                        ));
+                    }
                 }
                 Stored::Sent { seq, bytes } => {
                     if *seq != sent.next_recorded {
@@ -227,6 +243,19 @@ impl Checker {
                 }
                 None => {}
             }
+            // Rule 5: nothing the sender stored is skipped. Deliveries come in order, so one that
+            // passes a stored message means it's lost.
+            if !delivery.redelivered
+                && let Some((lost, _)) = sender
+                    .recorded
+                    .range(received.last_seq + 1..delivery.seq)
+                    .find(|(_, m)| m.as_ref().and_then(id_of).is_some_and(|id| !received.ids.contains_key(id)))
+            {
+                return Err(violation(
+                    "5 lost",
+                    format!("{side:?} got {} as {}, but never {lost}, stored before it", delivery.id, delivery.seq),
+                ));
+            }
             received.ids.insert(delivery.id.clone(), delivery.seq);
             received.last_seq = received.last_seq.max(delivery.seq);
         }
@@ -341,11 +370,27 @@ mod tests {
     }
 
     #[test]
+    fn a_delivery_that_skips_a_stored_message_breaks_rule_5() {
+        assert_eq!(deliver(&[("b", 2, false)]), Err("5 lost"));
+    }
+
+    #[test]
+    fn a_store_that_reopens_with_other_numbers_breaks_rule_6() {
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        h.ledger.push(Stored::Opened { next_outgoing: 2, next_incoming: 1 });
+        assert_eq!(h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule), Ok(()));
+        h.ledger.push(Stored::Opened { next_outgoing: 1, next_incoming: 1 });
+        assert_eq!(h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule), Err("6 store"));
+    }
+
+    #[test]
     fn deliveries_must_match_what_was_sent_in_order_once() {
         assert_eq!(deliver(&[("a", 1, false), ("b", 2, false)]), Ok(()));
         assert_eq!(deliver(&[("a", 1, false), ("a", 1, true)]), Ok(()), "a marked redelivery");
         assert_eq!(deliver(&[("x", 1, false)]), Err("4 delivery"), "not what was sent as 1");
         assert_eq!(deliver(&[("a", 1, false), ("a", 1, false)]), Err("4 delivery"), "repeated unmarked");
-        assert_eq!(deliver(&[("b", 2, false), ("a", 1, false)]), Err("4 delivery"), "out of order");
+        // Out of order: "b" first already passes "a", so rule 5 catches it before rule 4 would.
+        assert_eq!(deliver(&[("b", 2, false), ("a", 1, false)]), Err("5 lost"), "out of order");
     }
 }

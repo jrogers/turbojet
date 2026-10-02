@@ -245,6 +245,21 @@ impl Node {
         self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty())
     }
 
+    /// The process crashes: every session goes, without writing anything more, with the
+    /// process's registry; the connections it had are returned for the OS to reset. A restart
+    /// comes with a new registry.
+    pub fn crash(&mut self) -> Vec<ConnId> {
+        self.app.crash();
+        let conns = self.running.keys().copied().collect();
+        self.running.clear();
+        conns
+    }
+
+    pub fn restart(&mut self, registry: Arc<SessionRegistry>) {
+        assert!(self.running.is_empty(), "a crashed node has no sessions");
+        self.registry = registry;
+    }
+
     pub fn remove(&mut self, conn: ConnId) {
         self.running.remove(&conn);
     }
