@@ -13,8 +13,8 @@ use turbojet::message::tags;
 use turbojet::store::SessionStorage;
 
 use turbojet::{
-    DiskStorage, InitiatorConfig, MemoryStorage, ReconnectPolicy, SequenceError, SequenceNumbers, SessionConfig,
-    SessionHandle, SessionId, SessionRegistry, SessionSchedule,
+    DiskStorage, HolidayCalendar, InitiatorConfig, MemoryStorage, ReconnectPolicy, SequenceError, SequenceNumbers,
+    SessionConfig, SessionHandle, SessionId, SessionRegistry, SessionSchedule,
 };
 
 use crate::Side;
@@ -479,15 +479,21 @@ fn session_id(sender: &str, target: &str) -> SessionId {
 }
 
 /// For a scheduled seed, a daily schedule whose first period ends 20 s in and whose next starts
-/// the next morning, and the busy phase running 20 s into that; otherwise none, and the busy
-/// phase as the options say.
+/// the next morning, or on half the seeds the morning after, the next day being a holiday; and
+/// the busy phase running 20 s into that next period. Otherwise none, and the busy phase as the
+/// options say. The holiday is drawn apart from the world's random stream so that seeds keep the
+/// faults they had before.
 fn schedule(faults: &Faults, options: &Options) -> (Option<SessionSchedule>, SimTime) {
     if !faults.scheduled {
         return (None, SimTime::from_duration(options.busy));
     }
     let time = |h, m, s| chrono::NaiveTime::from_hms_opt(h, m, s).expect("a time");
-    let schedule = SessionSchedule::daily(time(8, 0, 0), time(9, 0, 20));
-    let next = schedule.next_start(wall_start() + chrono::TimeDelta::seconds(21)).expect("tomorrow");
+    let mut schedule = SessionSchedule::daily(time(8, 0, 0), time(9, 0, 20));
+    if Rng::new(options.seed ^ 0x0401_1da7).chance(500_000) {
+        let tomorrow = wall_start().date_naive() + chrono::Days::new(1);
+        schedule = schedule.with_holidays(HolidayCalendar::new([tomorrow]));
+    }
+    let next = schedule.next_start(wall_start() + chrono::TimeDelta::seconds(21)).expect("a later period");
     let busy_end = SimTime::from_duration((next - wall_start()).to_std().expect("later")).after(options.busy);
     (Some(schedule), busy_end)
 }
@@ -577,12 +583,16 @@ impl World {
                 self.queue.push(at, Event::PowerLoss);
             }
         }
-        let header = format!(
+        let mut header = format!(
             "seed {}: {:?}, {:?}",
             self.options.seed,
             self.nodes[0].initiator_config().map(|c| (c.heartbeat_interval, c.reconnect)),
             self.faults
         );
+        // Only when there is one, so the headers (and digests) of other seeds stay as they were.
+        if let Some(holiday) = self.schedule.as_ref().and_then(|s| s.holidays().last()) {
+            header.push_str(&format!(", holiday {holiday}"));
+        }
         self.record(&header);
         self.queue.push(SimTime(0), Event::Connect(0));
         self.queue.push(SimTime(0), Event::SendOrder);
