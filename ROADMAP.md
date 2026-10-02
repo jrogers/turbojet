@@ -160,9 +160,12 @@ debug assertions on framing, sequence numbers and the gap queue are in place.
   replays from its seed. This goes beyond the fuzz targets (one session, no crashes) and the
   QuickFIX/J tests (one well-behaved peer), and could share its fault model with the
   fault-injecting proxy under "More interop tests". Begun in `crates/turbojet-sim`: the two
-  sessions, the simulated driver, time and workload, the safety checks on what each side writes
-  and delivers, the settle check and seed replay (`scripts/sim.sh`), over a perfect network with
-  memory stores. Network faults, crashes, torn writes, operators and schedules are still to do.
+  sessions, the simulated driver, time and workload, the safety checks on what each side stores,
+  writes and delivers, the settle check and seed replay (`scripts/sim.sh`), over a TCP-like
+  network that splits, delays and stalls writes, fills send buffers, resets connections and
+  black-holes them, with memory stores and resends in small steps. It has found the write
+  deadlock under "Full-duplex connection I/O". Crashes, torn writes, operators and schedules are
+  still to do.
 - **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
   channel, so an application that sends faster than the connection writes grows it without limit;
   so do the commands a session holds while logon is in progress. Give it a configured capacity,
@@ -244,10 +247,13 @@ From the benchmarks.
   CompID an acceptor admits, and never drops them.
 - **Disk store rotation** (M). The `.body` file grows until a sequence reset; add rotation or
   compaction for long-running sessions.
-- **Full-duplex connection I/O** (M). The driver writes a batch before reading again. If both
-  ends write very large bursts at once, each can fill the other's socket buffer and wait for it
-  to be read. Reading and writing concurrently removes that risk; add a test that reproduces it
-  first.
+- **Full-duplex connection I/O** (M). The driver writes a batch before reading again. Once both
+  ends' send buffers are full, each waits in its write for the other to read, and neither does;
+  its timers, in the same task, can't break the wait, so the connection hangs until TCP gives
+  up, if it ever does. The simulator (`crates/turbojet-sim`) reproduces it in about 2% of seeds,
+  with small send buffers and stalls, a third of them while both sides resend (a resend pauses
+  reading). Read and write concurrently, with the simulator's driver changed to match; its seeds
+  listed in `known_failures.txt` then pass and come off the list.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
   processing is only a few µs; the rest is task scheduling and system calls. Worth exploring:
   a current-thread runtime per session, avoiding channel hops, busy-polling, and CPU pinning.

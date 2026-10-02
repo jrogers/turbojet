@@ -3,23 +3,41 @@
 Deterministic simulation testing for Turbojet (not published). An initiator and an acceptor, each a
 `turbojet::Session` fed by a driver that mirrors `connection::run`, run against each other in one
 thread on simulated time. Every choice (timings, heartbeat interval, reconnect interval, the
-workload) comes from a seed, so a run replays exactly from its seed.
+workload, the network's faults) comes from a seed, so a run replays exactly from its seed.
 
-After every event a checker holds the two sides to these rules:
+The network behaves as TCP does under trouble: writes arrive in pieces after varying delays (never
+reordered), a direction can stall, send buffers fill (4 KiB to 1 MiB) and block the writer's driver
+as `write_all` does, connections reset or fall into black holes (no one told, until TCP gives up),
+and connects are refused or slow. The acceptor keeps a session per connection, so a half-open one
+can linger while the initiator reconnects. On some seeds resends go out a few sequence numbers at a
+time.
+
+A wrapper on each store tells the checker every MsgSeqNum it records and the message stored with
+it, whether or not it reached the wire. After every event the checker holds the two sides to these
+rules:
 
 1. Everything a side writes is whole, valid FIX messages.
-2. New messages take consecutive MsgSeqNums; a resend (PossDupFlag) only numbers already sent.
-3. A resent application message is the original, with OrigSendingTime its first SendingTime, and
-   a gap fill never covers an application message.
+2. Each store records consecutive MsgSeqNums; new messages go on the wire in order, each once and
+   as stored; a resend (PossDupFlag) only numbers already stored.
+3. A resent application message is the stored original, with OrigSendingTime its first
+   SendingTime, and a gap fill never covers an application message.
 4. Each application receives what the other side sent, in order, and once (a repeat only when
    marked `maybe_redelivered`).
 
-When the workload stops and the network is idle, both sides must be logged on, every application
-message sent with a MsgSeqNum delivered, and each side's next outgoing number the other's next
-expected.
+When the workload and faults stop, the sessions have until the slowest recovery could take to
+settle: one connection, both sides logged on over it, every application message stored delivered,
+and each side's next outgoing number the other's next expected.
 
-So far the network is perfect and stores are in memory; faults, crashes and torn disk writes come
-next (see ROADMAP.md, "Deterministic simulation testing").
+Stores are in memory so far; crashes, torn disk writes, operators and schedules come next (see
+ROADMAP.md, "Deterministic simulation testing").
+
+## Known failures
+
+`known_failures.txt` lists per-push seeds expected to fail, with the rule they break and why. A
+listed seed that passes, or fails some other way, fails the test, so a fix shows up as seeds to
+take off the list. Random runs count known failures and carry on. The one known so far is the
+**write deadlock**: both drivers blocked writing to each other, neither reading (ROADMAP,
+"Full-duplex connection I/O").
 
 ## Running
 
