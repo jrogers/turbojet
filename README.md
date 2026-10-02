@@ -475,11 +475,14 @@ aren't.
   (`with_max_sessions`) and never forgets one: a new session's Logon past that is refused.
 - `DiskStorage`: per session, `<id>.seqnums` (both sequence numbers and the message in flight,
   as a fixed-width record rewritten in place and locked while the session is connected),
-  `<id>.body` (sent messages appended in wire format, indexed on open and read back for resends)
-  and, once recorded, `<id>.created` (when the state was created or last reset, for session
-  schedules). A commit appends the batch's messages in one write, then rewrites the record once.
-  On open it truncates a torn trailing write and advances the outgoing sequence number past the
-  last stored message. Without `fsync`, commits are written in the call and survive a process
+  `<id>.body`, `<id>.body.1` and so on (sent messages appended in wire format, in segments of
+  64 MiB, indexed on open and read back for resends) and, once recorded, `<id>.created` (when the
+  state was created or last reset, for session schedules). A commit appends the batch's messages
+  to the newest segment in one write, then rewrites the record once. Each session keeps its
+  newest 1 GiB of messages (`with_max_session_bytes`, `with_segment_bytes`): past it the oldest
+  segments are deleted, and a resend gap-fills their messages, as with `MemoryStorage`. On open it
+  truncates a torn trailing write and advances the outgoing sequence number past the last stored
+  message. Without `fsync`, commits are written in the call and survive a process
   crash but not an OS crash; with it, a batch costs one `fsync` of each file.
 
 ## The gateway
@@ -613,7 +616,7 @@ See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for t
 - Gateway orders live in memory; a restart keeps session state but forgets orders, and orders
   are acknowledged but not routed or matched.
 - Resends read the disk store on the connection task, and opening a session's store scans its
-  body file there; the body file grows until a sequence reset, with no rotation.
+  segments (up to 1 GiB by default) there.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
 

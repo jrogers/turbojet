@@ -47,9 +47,9 @@ later, with:
   at a configured one;
 - memory and disk session storage, session schedules, and operator control of sequence numbers;
   the disk store keeps its sequence numbers in two checksummed slots, so a write torn by a power
-  loss falls back to the record before it, and the memory store keeps each session's newest
-  messages up to a byte budget (gap-filling older ones on a resend) and a capped number of
-  sessions;
+  loss falls back to the record before it; both stores keep each session's newest messages up
+  to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
+  oldest, and the memory store a capped number of sessions;
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 0.9 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
@@ -245,8 +245,6 @@ From the benchmarks.
 - **One fsync per commit** (M). With fsync, a commit syncs the body file, then the sequence
   numbers file: about 8.1 ms a round trip one at a time. Keeping both in one journal file would
   make it one fsync (about 4 ms), at the cost of a new disk format and recovery path.
-- **Disk store rotation** (M). The `.body` file grows until a sequence reset; add rotation or
-  compaction for long-running sessions.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
   processing is only a few µs; the rest is task scheduling and system calls. Worth exploring:
   a current-thread runtime per session, avoiding channel hops, busy-polling, and CPU pinning.
@@ -288,7 +286,7 @@ From the benchmarks.
     numbers and message bodies update in one transaction, so there's no torn-write recovery, and
     space is reclaimed without the rotation `DiskStorage` needs. Benchmark it against
     `DiskStorage` with and without fsync. If it matches or beats it, make it the recommended
-    durable store and drop "Disk store rotation".
+    durable store.
   - **SQL databases** (M). PostgreSQL (and SQLite) through `sqlx` or similar, for deployments
     that can't rely on local disk or want session state next to their other data.
   - **Async store interface** (M, prerequisite for networked stores). Commits can already run

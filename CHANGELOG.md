@@ -6,6 +6,12 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `DiskStorage` keeps each session's messages in segments (`<id>.body`, `<id>.body.1`, ...) of
+  64 MiB, and at most 1 GiB of them (`with_segment_bytes`, `with_max_session_bytes`): past it the
+  oldest segments are deleted, and a resend gap-fills their messages, logs a warning and counts it
+  in `turbojet_resend_requests_evicted_total`. A store from before opens as it was, its `.body`
+  file the first segment. Opening a session's store scans what's kept rather than everything
+  since the last sequence reset.
 - Breaking: `InitiatorConfig::reconnect_interval` is replaced by `reconnect`, a
   `ReconnectPolicy`. By default an initiator waits 1 s before reconnecting, doubling while
   attempts keep failing up to 60 s, each wait a random half to all of that, and 1 s again once a
