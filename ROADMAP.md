@@ -357,6 +357,9 @@ Behaviour that's deliberate or documented, but worth revisiting.
 - Custom stores that don't record creation times never reset on a session schedule.
 - A weekly schedule honours only a holiday on its start day: a mid-week holiday doesn't close it.
   Holidays don't shorten a day either (no early closes).
+- A schedule time skipped by a clock change of three hours or more (Samoa skipping 2011-12-30) is
+  resolved with the wrong offset, giving that day a zero-length or inverted period. Changes of an
+  hour or so, as in daylight saving, are handled.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
