@@ -442,16 +442,21 @@ presents a certificate may only log on as the SenderCompID named by its CN or a 
 ## Session storage
 
 Sequence numbers and sent application messages are persisted before each message is written to
-the socket; if the store fails, the session disconnects.
+the socket; if the store fails, the session disconnects. The store commits them once per batch of
+work (everything that arrived in one read, one batch of application sends, one step of a resend),
+and nothing the batch sends is written until that commit is done. A store that waits for its
+device (`DiskStorage` with `fsync`) hands the commit to the connection driver, which runs it on a
+blocking thread, so the async runtime never waits for a disk; meanwhile the connection reads but
+processes nothing. A `Receipt` resolves, and an operator hears of a sequence number change, once
+the change is committed.
 
 Delivery to the application is at least once. An inbound message counts as received only after
 `on_message` has returned and anything it sent in reply is stored, so if the process stops before
-then, the counterparty resends it. The store marks each application message in flight just before
-handing it over, so the one message that may have been handled before a crash comes back with
-`Context::maybe_redelivered()` set; look it up (by ClOrdID, say) before acting on it again. Other
-resends aren't marked, since the application never saw them. The marker costs one more write per
-inbound application message: about 1 µs with `DiskStorage` without `fsync`, and one more `fsync`
-with it.
+then, the counterparty resends it. Before handing over the first message of a batch, the session
+commits a marker saying the messages from it on (up to 256) are in flight, so those that may have
+been handled before a crash come back with `Context::maybe_redelivered()` set; look them up (by
+ClOrdID, say) before acting on them again. Messages in that window that the application never saw
+may be marked too; later resends aren't. The marker costs one more commit per batch with input.
 
 - `MemoryStorage`: survives reconnects, not restarts. Each session keeps its newest sent messages
   up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts
@@ -461,9 +466,10 @@ with it.
   as a fixed-width record rewritten in place and locked while the session is connected),
   `<id>.body` (sent messages appended in wire format, indexed on open and read back for resends)
   and, once recorded, `<id>.created` (when the state was created or last reset, for session
-  schedules). On open it truncates a torn trailing write and advances the
-  outgoing sequence number past the last stored message. Without `fsync`, writes survive a
-  process crash but not an OS crash.
+  schedules). A commit appends the batch's messages in one write, then rewrites the record once.
+  On open it truncates a torn trailing write and advances the outgoing sequence number past the
+  last stored message. Without `fsync`, commits are written in the call and survive a process
+  crash but not an OS crash; with it, a batch costs one `fsync` of each file.
 
 ## The gateway
 
@@ -533,20 +539,26 @@ to partition the crate.
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store)² | 883 ns | 1.13M msg/s |
 | Session: order → ack, wire to wire (decode + session, which encodes)² | 1.09 µs | 921k msg/s |
-| Store a sent message: memory / disk / disk + fsync¹ | 49 ns / 3.1 µs / 8.0 ms | |
+| Store a sent message and commit it: memory / disk / disk + fsync³ | 49 ns / 3.3 µs / 8.2 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync³ | 88 ns / 82 µs | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
 | Round trip over localhost TLS, 1,000 in flight | | 508k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 35.9 µs | 675k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 12.6 ms | 7.1k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
-discards messages (storage is measured separately). Session benchmarks restart the session every
+discards messages (storage is measured separately), except the disk rows, where the acceptor
+stores to `DiskStorage`. Session benchmarks restart the session every
 10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
 ¹ Re-measured 2026-09-30 on the same machine, after the session started encoding what it sends
 straight into its output, decimals and integers were written without `core::fmt`, and each inbound
 message was decoded into one reused for the connection. ² Re-measured 2026-10-01, after typed
 messages gained borrowed forms (`NewOrderSingleRef`); the owned form is now parsed as the borrowed
-one and then made owned, so it costs more than it did. The other rows are the 2026-09-27 snapshot.
+one and then made owned, so it costs more than it did. ³ Measured 2026-10-02, with group commit:
+before it, storing 100 messages with fsync took 837 ms, and the disk + fsync round trip managed 62
+messages a second with 100 in flight. The other rows are the 2026-09-27 snapshot.
 The FIX 4.4 order has three parties with two sub-IDs each.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
@@ -587,8 +599,8 @@ See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for t
 
 - Gateway orders live in memory; a restart keeps session state but forgets orders, and orders
   are acknowledged but not routed or matched.
-- Disk writes happen synchronously on the connection task (cheap without `fsync`); the body file
-  grows until a sequence reset, with no rotation.
+- Resends read the disk store on the connection task, and opening a session's store scans its
+  body file there; the body file grows until a sequence reset, with no rotation.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
 

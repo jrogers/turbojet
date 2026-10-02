@@ -6,6 +6,26 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: stores commit once per batch of work (everything from one read, one batch of sends,
+  one step of a resend), and nothing the batch sends is written before its commit is done.
+  `SessionLog::commit` (by default, nothing to do) lets a store buffer its changes and make them
+  durable together, at once or through a returned `Commit` that the connection driver runs on a
+  blocking thread, so a store waiting for its device never blocks the async runtime.
+  `DiskStorage` buffers: a batch's messages go in one write and its sequence numbers in one
+  record, and with fsync both fsyncs run off the runtime. With fsync, 100 orders in flight take
+  14 ms rather than 1.6 s, and one at a time 12.6 ms rather than 16.1 ms. Drivers of a `Session`
+  other than the connection driver must call `take_commit` after each call into it (running any
+  `Commit`, then `on_committed`), ask `ready_for_input` before feeding it a message, and find in
+  `output` only what's committed; `commit_blocking` does it all on the calling thread. Code that
+  changes a `SessionLog` outside a session must commit too.
+- Breaking: the in-flight marker covers a window. Before the first message of a batch the
+  session records the next incoming number in flight and commits it, then hands over up to 256
+  messages; after a crash every redelivered message in the window is marked
+  `maybe_redelivered`, so some the application never saw may be marked too.
+  `SessionLog::set_in_flight` now means "from this message on".
+- A `Receipt` resolves once its message is committed, and reads `Dropped::Storage` if the commit
+  fails or the connection ends before it finishes. An operator hears of a sequence number change
+  once it's committed.
 - Breaking: `SessionHandle` commands go on bounded queues. Application sends wait in a queue of
   `SessionConfig::send_queue` messages (10,000 by default): `send` hands the message back in
   `SendError::Full` when it's full, and the new `send_when_ready` waits for room. Logout and

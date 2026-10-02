@@ -112,10 +112,11 @@ impl<'a> Context<'a> {
         self
     }
 
-    /// Whether this message may have been handled already: the process stopped while it was being
-    /// handled, before it was recorded as received, and the counterparty has resent it. Only
-    /// that message is marked; an ordinary resend (PossDupFlag) of one never delivered isn't.
-    /// Stores that don't record the message in flight never mark one.
+    /// Whether this message may have been handled already: the process stopped while the batch
+    /// it arrived in was being handled, before the batch was recorded as received, and the
+    /// counterparty has resent it. The messages from the first of that batch on, up to 256, are
+    /// marked, so some never handled may be too; later resends (PossDupFlag) of messages never
+    /// delivered aren't. Stores that don't record messages in flight never mark one.
     pub fn maybe_redelivered(&self) -> bool {
         self.redelivered
     }

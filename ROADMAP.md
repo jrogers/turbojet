@@ -96,9 +96,16 @@ later, with:
   operator commands in a small one of their own that a full send queue never holds up, and each
   send returns a `Receipt` saying whether the message was stored, with its MsgSeqNum, or dropped
   and why;
+- group commit: the store commits what each batch of work did (one read, one batch of sends,
+  one step of a resend) once, before any of it is written, and a store that waits for its device
+  hands the commit to the driver, which runs it on a blocking thread. `DiskStorage` buffers until
+  then, so a batch costs one write and, with fsync, one fsync of each file: 100 orders in flight
+  over a disk store with fsync take 14 ms rather than 1.6 s. Receipts and operator replies wait
+  for the commit;
 - at-least-once delivery: an inbound message counts as received only once the application has
-  handled it, and the one message in flight at a crash is marked as possibly handled when it's
-  resent (`Context::maybe_redelivered`).
+  handled it, and the messages that may have been in flight at a crash (a window of up to 256,
+  committed before the first is handed over) are marked as possibly handled when they're resent
+  (`Context::maybe_redelivered`).
 
 It has been tested against one other FIX engine (QuickFIX/J) and QuickFIX's scripted session
 scenarios, but not yet with any venue or real counterparty. Version 0.1.0 of all seven crates was
@@ -207,7 +214,7 @@ message:
   of a second message type through `Fields`, the typed-message macros and the generated crates;
   worth it only if a benchmark shows the copy matters.
 
-This interacts with "Batched disk writes" and "Latency" below.
+This interacts with "Latency" below.
 
 ### Measured bottlenecks
 
@@ -234,14 +241,10 @@ From the benchmarks.
   parser it replaced, a FIX 4.2 NewOrderSingle is about 17% slower (34% with three allocations)
   and a FIX 4.4 one with nested groups about 63%. Reading with the borrowed form avoids the cost;
   converting fields straight into the owned form, without the borrowed step, would recover it.
-- **Batched disk writes and group commit** (M). The disk store is now the slowest part of
-  processing a message: about 3.5 µs per message, against about 1.1 µs for the whole session
-  path; with fsync after every message it manages about 120 messages per second. Batch writes
-  per connection wake-up and fsync once per batch, while keeping the guarantee that a message
-  is durable before it is sent.
-- **Disk I/O off the connection task** (M). Store writes run synchronously on the async task;
-  with fsync they block the runtime. Move them to a dedicated writer (or `spawn_blocking`),
-  ideally together with batching.
+- **Pipelined commits** (M). A connection processes nothing while its commit runs, so with
+  fsync one at a time an order waits for three (the in-flight window, the body, the sequence
+  numbers): about 12.6 ms a round trip. Folding the window into the previous batch's commit, or
+  processing the next batch while the last one commits, would cut that.
 - **Disk store rotation** (M). The `.body` file grows until a sequence reset; add rotation or
   compaction for long-running sessions.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
@@ -293,11 +296,11 @@ From the benchmarks.
     durable store and drop "Disk store rotation".
   - **SQL databases** (M). PostgreSQL (and SQLite) through `sqlx` or similar, for deployments
     that can't rely on local disk or want session state next to their other data.
-  - **Async store interface** (M, prerequisite for networked stores). `SessionLog` is
-    synchronous and is called on the connection task before each message is sent, which is
-    fine locally but would block the runtime for a network round trip. Networked stores need
-    an async trait or a dedicated writer task; do this together with "Disk I/O off the
-    connection task".
+  - **Async store interface** (M, prerequisite for networked stores). Commits can already run
+    off the connection's task (`SessionLog::commit` hands back a `Commit`), but only as a
+    blocking job, and reads still run on it: resends read stored messages, and opening a store
+    scans it. Networked stores need a `Commit` that's a future, and resend reads and opening
+    that don't block the runtime.
   - **Exclusive sessions across processes** (S, with networked stores). `DiskStorage` locks a
     session's files while it's connected; a shared database needs the equivalent (an advisory
     lock or an expiring lease) so two gateways can't run the same session at once. This is also
