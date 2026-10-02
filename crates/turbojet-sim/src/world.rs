@@ -682,6 +682,8 @@ impl World {
             }
             Event::ConnectFailed(g) => self.queue.push(now.after(self.reconnect_interval()), Event::Connect(g)),
             Event::Established(_) => {
+                // As Initiator::run, one connection at a time.
+                assert!(self.nodes[Side::Initiator.index()].conns().next().is_none(), "the initiator connects once");
                 self.connecting = false;
                 self.connections += 1;
                 let conn = self.net.connect();
@@ -988,7 +990,10 @@ impl World {
             return Ok(());
         }
         self.resetting = None;
-        if !self.connecting && !self.down[Side::Initiator.index()] {
+        // An initiator still connected (a connect under way when the reset began, which it then
+        // waited for in vain) reconnects when that connection ends, as Initiator::run does.
+        let initiator = Side::Initiator.index();
+        if !self.connecting && !self.down[initiator] && self.nodes[initiator].conns().next().is_none() {
             self.connecting = true;
             self.queue.push(now, Event::Connect(self.generation));
         }
