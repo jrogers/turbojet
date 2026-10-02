@@ -10,7 +10,7 @@
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime};
 
-use turbojet_sim::{Options, WRITE_DEADLOCK, run};
+use turbojet_sim::{Options, run};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -53,20 +53,15 @@ fn main() -> ExitCode {
     println!("seeds from {start}, for {seconds} s");
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let mut seed = start;
-    let (mut ran, mut known) = (0u64, 0u64);
+    let mut ran = 0u64;
     while Instant::now() < deadline {
-        match run(&Options::per_push(seed)) {
-            Ok(_) => {}
-            // A known bug: counted, so the run carries on looking for others.
-            Err(failure) if failure.violation.rule == WRITE_DEADLOCK => known += 1,
-            Err(failure) => {
-                println!("{failure}");
-                return ExitCode::FAILURE;
-            }
+        if let Err(failure) = run(&Options::per_push(seed)) {
+            println!("{failure}");
+            return ExitCode::FAILURE;
         }
         seed = seed.wrapping_add(1);
         ran += 1;
     }
-    println!("{ran} seeds: {} passed, {known} hit the known {WRITE_DEADLOCK}", ran - known);
+    println!("{ran} seeds passed");
     ExitCode::SUCCESS
 }

@@ -1,4 +1,2 @@
 # Per-push seeds expected to fail, and how: a seed, the rule it breaks, then why. A listed seed that
 # passes, or fails another way, fails the test: remove it once fixed.
-5 write deadlock: both drivers block writing, neither reads (ROADMAP "Full-duplex connection I/O")
-17 write deadlock: both drivers block writing, neither reads (ROADMAP "Full-duplex connection I/O")

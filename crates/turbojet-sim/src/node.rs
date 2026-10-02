@@ -20,6 +20,11 @@ use crate::time::{Clocks, SimTime};
 const MAX_COMMANDS_PER_BATCH: usize = 256;
 /// As `MAX_TIMER_SLEEP` in the connection driver.
 const MAX_TIMER_SLEEP: Duration = Duration::from_secs(1);
+/// As `COMMANDS_PAUSE_AT` in the connection driver.
+const COMMANDS_PAUSE_AT: usize = 256 * 1024;
+/// As `MAX_UNWRITTEN` and `MAX_UNPROCESSED` in the connection driver.
+const MAX_UNWRITTEN: usize = 16 * 1024 * 1024;
+const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 
 pub enum Role {
     Initiator(InitiatorConfig),
@@ -48,31 +53,28 @@ struct Running {
     unread: Vec<u8>,
     /// The other end's close has arrived, behind `unread`.
     fin: bool,
-    /// Read but not yet decoded: a partial frame, as the driver's read buffer keeps.
+    /// Read but not yet decoded: a partial frame, or input waiting for a resend to end.
     buf: Vec<u8>,
+    /// `buf` holds input read during a resend.
+    deferred: bool,
     scratch: Message,
     /// When the driver's timer fires next.
     timer: SimTime,
     /// A deadline `on_timer` left in the past, which waits for the ceiling rather than spin.
     stuck: Option<SimTime>,
-    /// Output the send buffer couldn't take yet: the driver is blocked in `write_all`, doing
-    /// nothing else until it has gone.
-    blocked: Vec<u8>,
-    /// The session closed: once its output has gone, the connection closes.
-    closing: bool,
+    /// Output the send buffer hasn't taken yet.
+    outbox: Vec<u8>,
 }
 
-/// What a driver step leaves for the world: bytes to write to the connection, how many it read,
-/// and whether the connection closes once they've gone.
+/// What a driver step leaves for the world: new output from the session (to check; the node
+/// keeps it until written), how many bytes it read, and whether the connection ended under it.
 #[derive(Default)]
 pub struct Effects {
-    pub written: Vec<u8>,
+    pub output: Vec<u8>,
     pub read: usize,
-    pub close: bool,
-    /// The connection ended from this side's view (the other end closed it): no close to send.
+    /// The driver returned: the other end closed, or the counterparty stopped reading (a limit).
+    /// The connection closes from this side unless the other end already did.
     pub ended: bool,
-    /// `written` is what's left of an earlier write, not new output from the session.
-    pub resumed: bool,
 }
 
 /// What a connection's driver is waiting for, for the world to schedule.
@@ -104,10 +106,6 @@ impl Node {
         self.running.get(&conn).map(|r| &r.session)
     }
 
-    pub fn has(&self, conn: ConnId) -> bool {
-        self.running.contains_key(&conn)
-    }
-
     pub fn initiator_config(&self) -> Option<&InitiatorConfig> {
         match &self.role {
             Role::Initiator(config) => Some(config),
@@ -133,11 +131,11 @@ impl Node {
             unread: Vec::new(),
             fin: false,
             buf: Vec::new(),
+            deferred: false,
             scratch: Message::default(),
             timer: now.after(MAX_TIMER_SLEEP),
             stuck: None,
-            blocked: Vec::new(),
-            closing: false,
+            outbox: Vec::new(),
         };
         assert!(self.running.insert(conn, running).is_none(), "a connection starts once");
         self.step(conn, now, |session, instant| session.on_connect(instant))
@@ -164,107 +162,90 @@ impl Node {
         self.running.remove(&conn).is_some()
     }
 
-    /// The read branch: everything in the receive buffer, decoded and fed in, one message at a
-    /// time into the one reused message, then the close if it came. Not while resending.
+    /// The read branch, enabled whatever else is going on: everything in the receive buffer.
+    /// While resending it waits, read, for the resend to end; once the session has closed it's
+    /// dropped; otherwise it's fed in, one message at a time into the one reused message, up to
+    /// a message that starts a resend. Then the close, if it came.
     pub fn read(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let data_fields = &self.data_fields;
         let instant = self.clocks.instant(now);
-        let Some(running) = self.running.get_mut(&conn).filter(|r| r.ready() && (!r.unread.is_empty() || r.fin)) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.unread.is_empty() || r.fin) else {
             return Effects::default();
         };
         let read = running.unread.len();
         running.buf.append(&mut running.unread);
-        let mut consumed = 0;
-        loop {
-            match decode_into(&running.buf[consumed..], data_fields, &mut running.scratch) {
-                DecodedInto::Message(len) => {
-                    consumed += len;
-                    running.session.on_message(&running.scratch, instant);
-                }
-                DecodedInto::Incomplete => break,
-                DecodedInto::Garbled { skip, .. } => consumed += skip,
-            }
+        if running.session.is_closed() {
+            running.buf.clear();
+        } else if running.session.is_resending() || running.deferred {
+            running.deferred = true;
+        } else {
+            running.deferred = feed(running, data_fields, instant);
         }
-        running.buf.drain(..consumed);
-        let mut effects = self.settle(conn);
+        let mut effects = self.settle(conn, now);
         effects.read = read;
-        // A read of 0 after the data: the driver returns, dropping the session. What it just
-        // wrote goes first, as the loop writes before reading again.
-        if let Some(running) = self.running.get(&conn)
-            && running.fin
-            && running.unread.is_empty()
-            && running.blocked.is_empty()
-            && !running.closing
-        {
+        // A read of 0 after the data: the driver returns, dropping the session.
+        if self.running.get(&conn).is_some_and(|r| r.fin && r.unread.is_empty()) {
             self.running.remove(&conn);
             effects.ended = true;
         }
         effects
     }
 
-    /// The command branch: what's queued, up to a batch. Not while resending.
+    /// The command branch: what's queued, up to a batch. Not while resending, closed, or with
+    /// much output unwritten.
     pub fn commands(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
-        let Some(running) = self.running.get_mut(&conn).filter(|r| r.ready()) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| r.takes_commands()) else {
             return Effects::default();
         };
         for _ in 0..MAX_COMMANDS_PER_BATCH {
             let Ok(command) = running.commands.try_recv() else { break };
             running.session.on_command(command, instant);
         }
-        self.settle(conn)
+        self.settle(conn, now)
     }
 
-    /// The resume branch, while resending.
+    /// The resume branch, while resending, once the last step has been written.
     pub fn resume(&mut self, conn: ConnId, now: SimTime) -> Effects {
-        if !self.running.get(&conn).is_some_and(|r| r.blocked.is_empty() && r.session.is_resending()) {
+        if !self.running.get(&conn).is_some_and(Running::resumes) {
             return Effects::default();
         }
         self.step(conn, now, Session::on_resume)
     }
 
-    /// The timer branch, if the timer is due: at `now`, or earlier while the driver was blocked
-    /// (a sleep whose deadline has passed fires at once).
+    /// The timer branch, if the timer is due: at `now`, or earlier (a sleep whose deadline has
+    /// passed fires at once).
     pub fn timer(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
         let clocks = self.clocks.clone();
-        let Some(running) = self.running.get_mut(&conn).filter(|r| r.blocked.is_empty() && r.timer <= now) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.timer <= now) else {
             return Effects::default();
         };
         running.timer = now.after(MAX_TIMER_SLEEP);
         running.session.on_timer(instant);
         running.stuck = running.session.next_deadline().map(|d| clocks.sim_time(d)).filter(|d| *d <= now);
-        self.settle(conn)
+        self.settle(conn, now)
     }
 
-    /// The send buffer took only `accepted` of the bytes last written: the driver blocks on the
-    /// rest.
-    pub fn block(&mut self, conn: ConnId, rest: &[u8]) {
+    /// Output the send buffer hasn't taken yet.
+    pub fn unwritten(&self, conn: ConnId) -> &[u8] {
+        self.running.get(&conn).map_or(&[], |r| &r.outbox)
+    }
+
+    /// The send buffer took `n` bytes of the output.
+    pub fn wrote(&mut self, conn: ConnId, n: usize) {
         if let Some(running) = self.running.get_mut(&conn) {
-            debug_assert!(running.blocked.is_empty(), "a blocked driver writes nothing more");
-            running.blocked.extend_from_slice(rest);
+            running.outbox.drain(..n);
         }
     }
 
-    pub fn is_blocked(&self, conn: ConnId) -> bool {
-        self.running.get(&conn).is_some_and(|r| !r.blocked.is_empty())
+    /// The session has closed and its output has all gone: the driver closes the connection and
+    /// returns.
+    pub fn finished(&self, conn: ConnId) -> bool {
+        self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty())
     }
 
-    /// Room in the send buffer: the blocked write carries on.
-    pub fn unblock(&mut self, conn: ConnId) -> Effects {
-        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.blocked.is_empty()) else {
-            return Effects::default();
-        };
-        Effects {
-            written: std::mem::take(&mut running.blocked),
-            close: running.closing,
-            resumed: true,
-            ..Effects::default()
-        }
-    }
-
-    /// The connection closed from this end once its output went: the driver has returned.
-    pub fn closed(&mut self, conn: ConnId) {
+    pub fn remove(&mut self, conn: ConnId) {
         self.running.remove(&conn);
     }
 
@@ -273,19 +254,26 @@ impl Node {
         if let Some(running) = self.running.get_mut(&conn) {
             f(&mut running.session, instant);
         }
-        self.settle(conn)
+        self.settle(conn, now)
     }
 
-    /// The top of the driver's loop: write what the session sent, close if it closed, and bring
-    /// the timer forward to its next deadline.
-    fn settle(&mut self, conn: ConnId) -> Effects {
+    /// The top of the driver's loop: input that waited for a resend once it has ended, then the
+    /// session's output into the outbox, the limits, and the timer brought forward to its next
+    /// deadline.
+    fn settle(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let clocks = &self.clocks;
+        let data_fields = &self.data_fields;
         let Some(running) = self.running.get_mut(&conn) else { return Effects::default() };
-        let written = running.session.output().to_vec();
+        if running.deferred && !running.session.is_resending() && !running.session.is_closed() {
+            running.deferred = feed(running, data_fields, clocks.instant(now));
+        }
+        let output = running.session.output().to_vec();
         running.session.clear_output();
-        if running.session.is_closed() {
-            running.closing = true;
-            return Effects { written, close: true, ..Effects::default() };
+        running.outbox.extend_from_slice(&output);
+        if running.outbox.len() > MAX_UNWRITTEN || running.buf.len() > MAX_UNPROCESSED {
+            // The counterparty has stopped reading: the driver returns an error.
+            self.running.remove(&conn);
+            return Effects { output, ended: true, ..Effects::default() };
         }
         if let Some(deadline) = running.session.next_deadline().map(|d| clocks.sim_time(d))
             && deadline < running.timer
@@ -293,29 +281,51 @@ impl Node {
         {
             running.timer = deadline;
         }
-        Effects { written, ..Effects::default() }
+        Effects { output, ..Effects::default() }
     }
 
     /// What `conn`'s driver would do next, for the world to schedule.
     pub fn wants(&self, conn: ConnId) -> Option<Wants> {
         let running = self.running.get(&conn)?;
-        if !running.blocked.is_empty() || running.closing {
-            return Some(Wants { resume: false, read: false, commands: false, timer: None });
-        }
-        let resending = running.session.is_resending();
+        let closed = running.session.is_closed();
         Some(Wants {
-            resume: resending,
-            read: !resending && (!running.unread.is_empty() || running.fin),
-            commands: !resending && !running.commands.is_empty(),
-            timer: Some(running.timer),
+            resume: running.resumes(),
+            read: !running.unread.is_empty() || running.fin,
+            commands: running.takes_commands() && !running.commands.is_empty(),
+            timer: (!closed).then_some(running.timer),
         })
     }
 }
 
 impl Running {
-    /// The driver's read and command branches are enabled: it isn't blocked writing, closing or
-    /// resending.
-    fn ready(&self) -> bool {
-        self.blocked.is_empty() && !self.closing && !self.session.is_resending()
+    /// The command branch is enabled.
+    fn takes_commands(&self) -> bool {
+        !self.session.is_resending() && !self.session.is_closed() && self.outbox.len() < COMMANDS_PAUSE_AT
     }
+
+    /// The resume branch is enabled.
+    fn resumes(&self) -> bool {
+        self.session.is_resending() && self.outbox.is_empty() && !self.session.is_closed()
+    }
+}
+
+/// As `feed` in the connection driver: the complete messages in `buf` fed in, up to one that
+/// starts a resend. Returns true if input is left waiting for it to end.
+fn feed(running: &mut Running, data_fields: &DataFields, instant: std::time::Instant) -> bool {
+    let mut consumed = 0;
+    let deferred = loop {
+        if running.session.is_resending() || running.session.is_closed() {
+            break running.session.is_resending();
+        }
+        match decode_into(&running.buf[consumed..], data_fields, &mut running.scratch) {
+            DecodedInto::Message(len) => {
+                consumed += len;
+                running.session.on_message(&running.scratch, instant);
+            }
+            DecodedInto::Incomplete => break false,
+            DecodedInto::Garbled { skip, .. } => consumed += skip,
+        }
+    };
+    running.buf.drain(..consumed);
+    deferred
 }

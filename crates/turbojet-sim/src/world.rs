@@ -150,7 +150,8 @@ enum Event {
     Read(Side, ConnId),
     Commands(Side, ConnId),
     Resume(Side, ConnId),
-    Unblock(Side, ConnId),
+    /// Room in the send buffer: the driver writes more of its output.
+    Writable(Side, ConnId),
     Timer(Side, ConnId, SimTime),
     SendOrder,
     SendReport,
@@ -167,13 +168,13 @@ struct Pending {
     read: bool,
     commands: bool,
     resume: bool,
-    unblock: bool,
+    writable: bool,
     timer: Option<SimTime>,
 }
 
-/// Both ends blocked writing to each other, each waiting for the other to read: the connection
-/// driver writes all its output before reading again, so once both send buffers fill, neither
-/// reads, and its timers can't fire. A known Turbojet bug (ROADMAP "Full-duplex connection I/O").
+/// Both ends stuck with output to write, each waiting for the other to read. The connection
+/// driver used to write all its output before reading again, so once both send buffers filled,
+/// neither read again; it now reads while output waits, and this would be a regression.
 pub const WRITE_DEADLOCK: &str = "write deadlock";
 
 /// Most events at one instant before the run counts as spinning: the drivers and network do
@@ -367,7 +368,7 @@ impl World {
         // stuck: blocked writing, with nothing to unblock it.
         self.check_settled().map_err(|v| {
             let all_blocked =
-                self.nodes.iter().all(|n| n.conns().next().is_some() && n.conns().all(|c| n.is_blocked(c)));
+                self.nodes.iter().all(|n| n.conns().next().is_some() && n.conns().all(|c| !n.unwritten(c).is_empty()));
             let rule = if all_blocked { WRITE_DEADLOCK } else { "stuck" };
             Violation {
                 rule,
@@ -390,8 +391,8 @@ impl World {
                         "not logged on"
                     }
                 });
-                let blocked = if node.is_blocked(conn) { ", blocked writing" } else { "" };
-                out.push(format!("{:?} conn {conn} {state}{blocked}", node.side));
+                let unwritten = node.unwritten(conn).len();
+                out.push(format!("{:?} conn {conn} {state}, {unwritten} bytes unwritten", node.side));
             }
         }
         if self.connecting {
@@ -464,10 +465,10 @@ impl World {
                 let effects = self.nodes[side.index()].resume(conn, now);
                 self.apply(side, conn, effects, now)?;
             }
-            Event::Unblock(side, conn) => {
-                self.pending_for(side, conn).unblock = false;
-                let effects = self.nodes[side.index()].unblock(conn);
-                self.apply(side, conn, effects, now)?;
+            Event::Writable(side, conn) => {
+                self.pending_for(side, conn).writable = false;
+                self.write_out(side, conn, now);
+                self.after(side, conn, now)?;
             }
             Event::Timer(side, conn, at) => {
                 if self.pending.get(&(side, conn)).is_some_and(|p| p.timer == Some(at)) {
@@ -557,42 +558,55 @@ impl World {
         self.pending.entry((side, conn)).or_default()
     }
 
-    /// Sends what a driver step wrote, blocking the driver on what the send buffer can't take,
-    /// closes the connection once the output has gone if the session closed, and schedules what
-    /// the driver waits for next.
+    /// Checks what a driver step had the session send, writes what the send buffer takes,
+    /// closes the connection if the driver returned or the session closed and its output has
+    /// gone, and schedules what the driver waits for next.
     fn apply(&mut self, side: Side, conn: ConnId, effects: Effects, now: SimTime) -> Result<(), Violation> {
         if effects.read > 0 {
             self.net.read(conn, side, effects.read);
-            if self.nodes[side.other().index()].is_blocked(conn) && !self.pending_for(side.other(), conn).unblock {
-                self.pending_for(side.other(), conn).unblock = true;
-                self.queue.push(now, Event::Unblock(side.other(), conn));
+            let writer = side.other();
+            if !self.nodes[writer.index()].unwritten(conn).is_empty() && !self.pending_for(writer, conn).writable {
+                self.pending_for(writer, conn).writable = true;
+                self.queue.push(now, Event::Writable(writer, conn));
             }
         }
-        if !effects.written.is_empty() {
-            if !effects.resumed {
-                self.observe(side, &effects.written, now)?;
-            }
-            let written = self.net.write(conn, side, &effects.written, now);
+        if !effects.output.is_empty() {
+            self.observe(side, &effects.output, now)?;
+        }
+        if effects.ended {
+            // The driver returned, dropping the stream: the connection closes from here.
+            self.close(side, conn, now);
+        } else {
+            self.write_out(side, conn, now);
+        }
+        self.after(side, conn, now)
+    }
+
+    /// Writes as much of `side`'s output on `conn` as the send buffer takes, and closes the
+    /// connection once a closed session's output has all gone.
+    fn write_out(&mut self, side: Side, conn: ConnId, now: SimTime) {
+        let unwritten = self.nodes[side.index()].unwritten(conn).to_vec();
+        if !unwritten.is_empty() {
+            let written = self.net.write(conn, side, &unwritten, now);
             for (at, bytes) in written.segments {
                 self.in_flight += 1;
                 self.queue.push(at, Event::Arrive { to: side.other(), conn, bytes });
             }
-            if written.accepted < effects.written.len() {
-                self.nodes[side.index()].block(conn, &effects.written[written.accepted..]);
-                return self.after(side, conn, now);
-            }
+            self.nodes[side.index()].wrote(conn, written.accepted);
         }
-        if effects.close {
-            self.nodes[side.index()].closed(conn);
-            if let Some(at) = self.net.close(conn, side, now) {
-                self.in_flight += 1;
-                self.queue.push(at, Event::Fin { to: side.other(), conn });
-            }
-            self.ended(side, conn, now);
-        } else if effects.ended {
-            self.ended(side, conn, now);
+        if self.nodes[side.index()].finished(conn) {
+            self.nodes[side.index()].remove(conn);
+            self.close(side, conn, now);
         }
-        self.after(side, conn, now)
+    }
+
+    /// `side`'s driver for `conn` has returned: its end of the connection closes.
+    fn close(&mut self, side: Side, conn: ConnId, now: SimTime) {
+        if let Some(at) = self.net.close(conn, side, now) {
+            self.in_flight += 1;
+            self.queue.push(at, Event::Fin { to: side.other(), conn });
+        }
+        self.ended(side, conn, now);
     }
 
     /// Checks what `side`'s store has recorded since the last call.
@@ -616,12 +630,12 @@ impl World {
         Ok(())
     }
 
-    /// `side`'s connection `conn` ended. A writer blocked on its other end fails, as a write into
-    /// a closed socket does (unless it's a black hole, which tells no one); the initiator
+    /// `side`'s connection `conn` ended. A writer with output still to go on its other end fails,
+    /// as a write into a closed socket does (unless it's a black hole, which tells no one); the initiator
     /// reconnects after its interval.
     fn ended(&mut self, side: Side, conn: ConnId, now: SimTime) {
         self.pending.remove(&(side, conn));
-        if !self.black_holed.contains(&conn) && self.nodes[side.other().index()].is_blocked(conn) {
+        if !self.black_holed.contains(&conn) && !self.nodes[side.other().index()].unwritten(conn).is_empty() {
             self.in_flight += 1;
             self.queue.push(now.after(Duration::from_micros(100)), Event::Fail { side: side.other(), conn });
         }
@@ -685,7 +699,7 @@ impl World {
     fn idle(&self) -> bool {
         self.in_flight == 0
             && !self.connecting
-            && self.pending.values().all(|p| !p.read && !p.commands && !p.resume && !p.unblock)
+            && self.pending.values().all(|p| !p.read && !p.commands && !p.resume && !p.writable)
     }
 
     /// Liveness: one connection, both sides logged on over it, every application message sent
