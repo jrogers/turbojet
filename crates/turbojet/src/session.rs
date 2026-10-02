@@ -38,6 +38,7 @@ use crate::registry::{
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, SessionId, SessionLog};
 use crate::telemetry::SessionMetrics;
+use crate::throttle::{InboundLimit, RateLimit, Window};
 
 /// An application version a FIXT.1.1 session supports, with the dictionary its messages are
 /// checked against, if any. Build it with [`SessionConfig::with_appl_ver_id`].
@@ -92,6 +93,18 @@ pub struct SessionConfig {
     /// ([`SendError::Full`](crate::SendError::Full)) rather than queue it without limit. 10,000
     /// by default.
     pub send_queue: usize,
+    /// At most this many application messages sent per window, counted on each connection.
+    /// [`SessionHandle::send`](crate::SessionHandle::send)s beyond it wait in the send queue
+    /// until the window allows them, so a full queue hands them back as usual. Replies the
+    /// application makes in [`Application::on_message`] can't wait: they go out at once but
+    /// count, so they can take a window past the limit, and queued sends then wait longer. Admin
+    /// messages and resends neither count nor wait. `None` (the default) means no limit.
+    pub outbound_limit: Option<RateLimit>,
+    /// At most this many application messages received per window, counted on each connection,
+    /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
+    /// allows more, and [`InboundLimit::Reject`] answers them with a BusinessMessageReject. Admin
+    /// messages and resends don't count. `None` (the default) means no limit.
+    pub inbound_limit: Option<InboundLimit>,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
     pub appl_versions: Vec<ApplVersion>,
@@ -105,7 +118,7 @@ pub struct SessionConfig {
 impl SessionConfig {
     /// A configuration for BeginString `begin_string` with our CompID `sender_comp_id`: 10 seconds
     /// to log on and 5 to log out, no schedule, the system clock, SendingTime within 120 seconds,
-    /// and OrigSendingTime and header order checked.
+    /// OrigSendingTime and header order checked, a send queue of 10,000 and no rate limits.
     pub fn new(begin_string: impl Into<String>, sender_comp_id: impl Into<String>) -> Self {
         Self {
             begin_string: begin_string.into(),
@@ -120,6 +133,8 @@ impl SessionConfig {
             timestamp_precision: Precision::Millis,
             data_fields: DataFields::standard(),
             send_queue: 10_000,
+            outbound_limit: None,
+            inbound_limit: None,
             appl_versions: Vec::new(),
             #[cfg(feature = "validation")]
             validator: None,
@@ -174,9 +189,16 @@ impl SessionConfig {
         self.begin_string.starts_with("FIXT.")
     }
 
-    /// Why this configuration can't run a session, if it can't: a FIXT session needs an
-    /// application version, each configured once, and a FIX 4.x session none.
+    /// Why this configuration can't run a session, if it can't: a rate limit out of bounds (see
+    /// [`RateLimit`]), or a FIXT session without an application version, or with one twice, or
+    /// a FIX 4.x session with one.
     pub fn check(&self) -> Result<(), String> {
+        if let Some(limit) = &self.outbound_limit {
+            limit.check().map_err(|e| format!("outbound_limit: {e}"))?;
+        }
+        if let Some(InboundLimit::Delay(limit) | InboundLimit::Reject(limit)) = &self.inbound_limit {
+            limit.check().map_err(|e| format!("inbound_limit: {e}"))?;
+        }
         let versions = self.appl_versions.len();
         if !self.is_fixt() {
             return match versions {
@@ -398,6 +420,9 @@ pub struct Session {
     /// The logon timeout bounds how long it fills, but not how much: it's as unbounded as the
     /// handle's channel (ROADMAP "Bound the session command queue").
     pending: Vec<Command>,
+    /// The times of the last application messages sent, under `config.outbound_limit`; see
+    /// [`can_send`](Self::can_send). A new connection starts with an empty window.
+    outbound: Option<Window>,
     /// Scratch space for [`frame_into`](Self::frame_into)'s header, kept to reuse its allocation.
     header: String,
     /// Scratch space for the stored copy of a message, when it differs from the one sent.
@@ -457,6 +482,7 @@ impl Session {
         config.assert_valid();
         let appl_version = if initiator { config.appl_versions.first().cloned() } else { None };
         let (commands, receiver) = command_queues(config.send_queue);
+        let outbound = config.outbound_limit.map(Window::new);
         let session = Self {
             config,
             role,
@@ -491,6 +517,7 @@ impl Session {
             held: Vec::new(),
             resend_batch: MAX_RESEND_BATCH,
             pending: Vec::new(),
+            outbound,
             header: String::new(),
             wall_clock: Cell::new(None),
             stored: Vec::new(),
@@ -601,6 +628,14 @@ impl Session {
         }
         // Otherwise the next commit records a window that covers it.
         !self.receiving() || self.covers(self.peer().log.next_incoming())
+    }
+
+    /// Whether an application message may be sent at `now` under
+    /// [`outbound_limit`](SessionConfig::outbound_limit): true unless the window is full. Check it
+    /// before taking each application send from the queue, and leave the send there if not;
+    /// [`next_deadline`](Self::next_deadline) includes when the window frees up.
+    pub fn can_send(&self, now: Instant) -> bool {
+        self.outbound.as_ref().is_none_or(|window| window.free_at(now).is_none())
     }
 
     /// Commits on this thread until nothing is left to commit, running any commit the store
@@ -805,6 +840,11 @@ impl Session {
     /// harmless: it acts only on what is due.
     pub fn on_timer(&mut self, now: Instant) {
         self.wall_clock.set(None);
+        // Once the outbound window has freed up, its free-up time leaves the deadline: see
+        // `next_deadline`.
+        if let Some(window) = &mut self.outbound {
+            window.expire(now);
+        }
         if self.period_ended() {
             match self.status {
                 Status::Active => {
@@ -846,7 +886,8 @@ impl Session {
 
     /// When [`on_timer`](Self::on_timer) next has something to do: a logon or logout timeout, a
     /// Heartbeat or TestRequest falling due, or an unanswered ResendRequest. `None` once closed,
-    /// and while [`is_resending`](Self::is_resending).
+    /// and while [`is_resending`](Self::is_resending). While the outbound window is full, also
+    /// when it frees up, so that sends waiting for [`can_send`](Self::can_send) are taken then.
     ///
     /// Schedule boundaries aren't included, since they are wall-clock times; call `on_timer` at
     /// least once a second as well. A timeout too long to represent as an `Instant` (such as
@@ -869,7 +910,14 @@ impl Session {
                     None => self.last_received.checked_add(probe_after(interval)),
                 };
                 let resend = self.resend.as_ref().and_then(|r| r.progress_at.checked_add(resend_timeout(interval)));
-                [heartbeat, test_request, resend].into_iter().flatten().min()
+                // The session can't tell whether sends are waiting in the driver's queue, so a
+                // full window always counts. `on_timer` at its free-up time expires it, which
+                // takes it out of the deadline. Left in the past, it would hide the deadlines
+                // after it: a driver that finds the deadline still past after `on_timer` waits
+                // for its once-a-second ceiling rather than spin, so a Heartbeat would go late.
+                // With no sends waiting, this costs one wake-up each time the window fills.
+                let free = self.outbound.as_ref().and_then(Window::free_at_or_none);
+                [heartbeat, test_request, resend, free].into_iter().flatten().min()
             }
             Status::Closed => None,
         }
@@ -1901,6 +1949,9 @@ impl Session {
 
     /// Sends an application message; session-level message types are refused. Returns its
     /// MsgSeqNum once stored, or why it was dropped.
+    ///
+    /// Sends from the queue and replies alike count against the outbound limit: only messages
+    /// stored count, as only they go out. Resends don't come this way, and don't count.
     fn send_app(&mut self, msg: Message, now: Instant) -> Result<u64, Dropped> {
         if msg.msg_type().is_admin() {
             warn!(msg_type = %msg.msg_type(), "applications cannot send session-level messages; dropping");
@@ -1913,7 +1964,13 @@ impl Session {
             error!(msg_type = %msg.msg_type(), stated, "dropping message: its ApplVerID(1128) isn't one this session supports");
             return Err(Dropped::Rejected(format!("ApplVerID(1128) {stated} isn't one this session supports")));
         }
-        self.send_outcome(msg, now)
+        let outcome = self.send_outcome(msg, now);
+        if outcome.is_ok()
+            && let Some(window) = &mut self.outbound
+        {
+            window.record(now);
+        }
+        outcome
     }
 
     /// Assigns the next outgoing MsgSeqNum, adds the standard header, persists it and queues the

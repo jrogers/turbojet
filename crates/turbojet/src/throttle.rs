@@ -39,8 +39,9 @@ impl RateLimit {
     }
 
     /// Whether the limit is within its bounds, and if not, which one it breaks. The fields are
-    /// public, so a session checks again when it builds a [`Window`].
-    fn check(&self) -> Result<(), String> {
+    /// public, so a session's configuration checks them when an `Acceptor` or `Initiator` is
+    /// built, and again when a session builds a [`Window`].
+    pub(crate) fn check(&self) -> Result<(), String> {
         if self.messages == 0 {
             return Err("a rate limit must allow at least 1 message per window, not 0".into());
         }
@@ -139,13 +140,11 @@ pub enum InboundLimit {
 /// The times of the last messages under a limit, oldest first: a ring of at most
 /// `limit.messages`, allocated when the window is made, so recording never allocates.
 #[derive(Debug)]
-#[cfg_attr(not(test), expect(dead_code, reason = "the session uses windows from the next commit"))]
 pub(crate) struct Window {
     limit: RateLimit,
     times: VecDeque<Instant>,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "the session uses windows from the next commit"))]
 impl Window {
     /// An empty window. Panics if the limit is out of bounds; it's built once per connection.
     pub(crate) fn new(limit: RateLimit) -> Self {
@@ -162,7 +161,8 @@ impl Window {
     }
 
     /// When the window frees up if it's full, whether or not that has passed. It needs no `now`,
-    /// for deadlines computed without one.
+    /// for deadlines computed without one; just after [`expire`](Self::expire), it's later than the
+    /// time given to that.
     pub(crate) fn free_at_or_none(&self) -> Option<Instant> {
         if self.times.len() < self.limit.messages_len() {
             return None;
@@ -179,6 +179,14 @@ impl Window {
         }
         self.times.push_back(now);
         debug_assert!(self.times.len() <= self.limit.messages_len());
+    }
+
+    /// Forgets the messages a whole window old at `now`, which no longer count: so a full window
+    /// stops reporting a free-up time once it has passed. At most `limit.messages` steps.
+    pub(crate) fn expire(&mut self, now: Instant) {
+        while self.times.front().is_some_and(|at| *at + self.limit.per <= now) {
+            self.times.pop_front();
+        }
     }
 }
 
@@ -297,6 +305,22 @@ mod tests {
         assert_eq!(window.times.len(), 3);
         assert_eq!(window.free_at(t0 + per - Duration::from_nanos(1)), Some(t0 + per));
         assert_eq!(window.free_at(t0 + per), None);
+    }
+
+    #[test]
+    fn expiring_forgets_only_messages_a_whole_window_old() {
+        let t0 = Instant::now();
+        let ms = Duration::from_millis;
+        let mut window = Window::new(RateLimit::new(2, Duration::from_secs(1)));
+        window.record(t0);
+        window.record(t0 + ms(300));
+        window.expire(t0 + ms(999));
+        assert_eq!(window.free_at_or_none(), Some(t0 + ms(1000)), "nothing is a whole window old yet");
+        window.expire(t0 + ms(1000));
+        assert_eq!(window.free_at_or_none(), None, "the first message no longer counts");
+        assert_eq!(window.times.len(), 1);
+        window.expire(t0 + ms(5000));
+        assert!(window.times.is_empty());
     }
 
     #[test]

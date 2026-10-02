@@ -3660,6 +3660,137 @@ fn frame_into_can_state_the_default_version() {
     assert_eq!(bytes, expected.unwrap());
 }
 
+// ---- Throttling ----
+
+impl Harness {
+    /// A harness whose sessions send at most `messages` application messages per `per`.
+    fn with_outbound_limit(messages: u32, per: Duration) -> Self {
+        let mut h = Self::new();
+        h.config.outbound_limit = Some(RateLimit::new(messages, per));
+        h
+    }
+
+    fn at_millis(&self, millis: u64) -> Instant {
+        self.t0 + Duration::from_millis(millis)
+    }
+}
+
+/// When the outbound window frees up if it's full, whatever the time.
+fn outbound_free_at(s: &Session) -> Option<Instant> {
+    s.outbound.as_ref().expect("an outbound limit").free_at_or_none()
+}
+
+#[test]
+fn queued_sends_stop_at_the_limit_and_resume_a_window_after_the_first() {
+    let h = Harness::with_outbound_limit(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    assert!(s.can_send(h.t0), "the Logon doesn't count");
+    assert_eq!(types(&s.command(send_command("A"), h.at(1))), ["NewOrderSingle"]);
+    assert!(s.can_send(h.at(1)), "one of two");
+    assert_eq!(types(&s.command(send_command("B"), h.at_millis(1_100))), ["NewOrderSingle"]);
+    assert!(!s.can_send(h.at_millis(1_100)));
+    assert!(!s.can_send(h.at(2) - Duration::from_nanos(1)));
+    assert_eq!(s.next_deadline(), Some(h.at(2)), "the window frees a second after the first send");
+    assert!(s.can_send(h.at(2)));
+    // The timer at that deadline has nothing to send, and the deadline moves on to the next
+    // Heartbeat rather than stay in the past.
+    assert!(s.timer(h.at(2)).is_empty());
+    assert_eq!(s.next_deadline(), Some(h.at_millis(31_100)));
+    assert!(s.can_send(h.at(2)));
+    assert_eq!(types(&s.command(send_command("C"), h.at(2))), ["NewOrderSingle"]);
+    assert!(!s.can_send(h.at(2)), "B and C fill the window");
+    assert_eq!(s.next_deadline(), Some(h.at_millis(2_100)));
+}
+
+#[test]
+fn admin_messages_and_resends_neither_count_nor_wait() {
+    let h = Harness::with_outbound_limit(1, Duration::from_secs(60));
+    let mut s = h.logged_on();
+    let first = s.command(send_command("A"), h.t0); // our 2
+    let original = sent(&first)[0].clone();
+    assert!(!s.can_send(h.t0));
+    // A TestRequest is answered, and a Heartbeat falls due, with the window full.
+    let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.at(1)); // our 3
+    assert_eq!(types(&out), ["Heartbeat"]);
+    assert_eq!(types(&s.timer(h.at(31))), ["Heartbeat"]); // our 4
+    // So does a resend of everything, the queued send included.
+    let out = s.recv(resend_request(3, 1), h.at(32));
+    assert_eq!(covered(&out), [1, 2, 3, 4]);
+    let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::NewOrderSingle).expect("resent");
+    assert_eq!(resent.get(tags::POSS_DUP_FLAG), Some("Y"));
+    assert_eq!(resent.get(tags::ORIG_SENDING_TIME), original.get(tags::SENDING_TIME));
+    // None of them counted: the window still holds the one send, and frees when it expires.
+    assert_eq!(outbound_free_at(&s), Some(h.at(60)));
+    assert!(!s.can_send(h.at(59)));
+    assert!(s.can_send(h.at(60)));
+}
+
+#[test]
+fn replies_from_on_message_go_out_at_once_but_count() {
+    let h = Harness::with_outbound_limit(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.recv(order(2, "A"), h.at(1))), ["ExecutionReport"]);
+    assert_eq!(types(&s.recv(order(3, "B"), h.at_millis(1_100))), ["ExecutionReport"]);
+    assert!(!s.can_send(h.at_millis(1_100)), "two replies fill the window");
+    // A reply can't wait, so it takes the window past the limit, and a queued send then waits
+    // a window after the second reply rather than the first.
+    assert_eq!(types(&s.recv(order(4, "C"), h.at_millis(1_200))), ["ExecutionReport"]);
+    assert!(!s.can_send(h.at(2)));
+    assert!(s.can_send(h.at_millis(2_100)));
+    assert_eq!(outbound_free_at(&s), Some(h.at_millis(2_100)));
+}
+
+#[test]
+fn without_a_limit_sends_never_wait() {
+    let h = Harness::new();
+    let mut s = h.session();
+    assert!(s.can_send(h.t0));
+    s.recv(logon(1), h.t0);
+    for i in 0..100 {
+        s.command(send_command(&format!("O{i}")), h.t0);
+    }
+    assert!(s.can_send(h.t0));
+    assert!(s.outbound.is_none());
+}
+
+#[test]
+fn rate_limits_out_of_bounds_are_refused() {
+    let config = |outbound, inbound| {
+        let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
+        config.outbound_limit = outbound;
+        config.inbound_limit = inbound;
+        config
+    };
+    let good = RateLimit::new(100, Duration::from_secs(1));
+    let zero = RateLimit { messages: 0, per: Duration::from_secs(1) };
+    let empty = RateLimit { messages: 1, per: Duration::ZERO };
+    assert_eq!(config(Some(good), Some(InboundLimit::Delay(good))).check(), Ok(()));
+    assert_eq!(config(Some(good), Some(InboundLimit::Reject(good))).check(), Ok(()));
+    let err = |c: SessionConfig| c.check().unwrap_err();
+    assert!(err(config(Some(zero), None)).starts_with("outbound_limit: "), "{}", err(config(Some(zero), None)));
+    let inbound = config(None, Some(InboundLimit::Delay(empty)));
+    assert!(err(inbound.clone()).starts_with("inbound_limit: "), "{}", err(inbound));
+    let inbound = config(None, Some(InboundLimit::Reject(zero)));
+    assert!(err(inbound.clone()).starts_with("inbound_limit: "), "{}", err(inbound));
+}
+
+#[test]
+#[should_panic(expected = "invalid session configuration: outbound_limit")]
+fn an_acceptor_with_an_invalid_outbound_limit_panics_when_built() {
+    let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
+    config.outbound_limit = Some(RateLimit { messages: 0, per: Duration::from_secs(1) });
+    let _ = crate::Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+}
+
+#[test]
+#[should_panic(expected = "invalid initiator configuration: inbound_limit")]
+fn an_initiator_with_an_invalid_inbound_limit_panics_when_built() {
+    let mut session = SessionConfig::new("FIX.4.4", "CLIENT");
+    session.inbound_limit = Some(InboundLimit::Reject(RateLimit { messages: 1, per: Duration::ZERO }));
+    let config = InitiatorConfig::new(session, "GATEWAY");
+    let _ = crate::Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+}
+
 // ---- Dictionary validation ----
 
 #[cfg(feature = "validation")]
