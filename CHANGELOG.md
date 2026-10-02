@@ -20,6 +20,13 @@ Notable changes to the published crates.
   (`Command::send` builds one without), and `CommandSender` and `CommandReceiver` are structs over
   the two queues.
 
+- `MemoryStorage` is bounded. Each session keeps its newest sent messages up to a byte budget
+  (`with_max_session_bytes`, 64 MiB by default), evicting the oldest; a resend gap-fills what was
+  evicted, logs a warning, and counts it in the new `turbojet_resend_requests_evicted_total`. The
+  store keeps at most `with_max_sessions` sessions (1,024 by default): opening a new one past that
+  fails with `io::ErrorKind::QuotaExceeded`, so its Logon is refused, and known sessions are never
+  forgotten. `SessionLog::evicted_through` (default `None`) tells the session what a store has
+  evicted.
 - A long resend goes out in steps of 256 sequence numbers, each written before the next is read
   from the store, rather than all at once: a ResendRequest for everything a session has sent no
   longer holds all of it in memory. Until the resend ends, the connection sends nothing new,

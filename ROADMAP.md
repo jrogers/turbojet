@@ -46,7 +46,9 @@ later, with:
   at a configured one;
 - memory and disk session storage, session schedules, and operator control of sequence numbers;
   the disk store keeps its sequence numbers in two checksummed slots, so a write torn by a power
-  loss falls back to the record before it;
+  loss falls back to the record before it, and the memory store keeps each session's newest
+  messages up to a byte budget (gap-filling older ones on a resend) and a capped number of
+  sessions;
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 0.9 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
@@ -205,8 +207,7 @@ message:
   of a second message type through `Fields`, the typed-message macros and the generated crates;
   worth it only if a benchmark shows the copy matters.
 
-This interacts with "Batched disk writes", "Bounded memory store" (a store of encoded bytes can
-be a fixed ring or arena) and "Latency" below.
+This interacts with "Batched disk writes" and "Latency" below.
 
 ### Measured bottlenecks
 
@@ -241,9 +242,6 @@ From the benchmarks.
 - **Disk I/O off the connection task** (M). Store writes run synchronously on the async task;
   with fsync they block the runtime. Move them to a dedicated writer (or `spawn_blocking`),
   ideally together with batching.
-- **Bounded memory store** (S). `MemoryStorage` keeps every sent message forever. Cap it (by
-  count or age), gap-filling anything evicted. It also keeps every session it has opened, one per
-  CompID an acceptor admits, and never drops them.
 - **Disk store rotation** (M). The `.body` file grows until a sequence reset; add rotation or
   compaction for long-running sessions.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own

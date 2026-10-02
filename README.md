@@ -453,7 +453,10 @@ resends aren't marked, since the application never saw them. The marker costs on
 inbound application message: about 1 µs with `DiskStorage` without `fsync`, and one more `fsync`
 with it.
 
-- `MemoryStorage`: survives reconnects, not restarts.
+- `MemoryStorage`: survives reconnects, not restarts. Each session keeps its newest sent messages
+  up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts
+  it in `turbojet_resend_requests_evicted_total`. It keeps at most 1,024 sessions
+  (`with_max_sessions`) and never forgets one: a new session's Logon past that is refused.
 - `DiskStorage`: per session, `<id>.seqnums` (both sequence numbers and the message in flight,
   as a fixed-width record rewritten in place and locked while the session is connected),
   `<id>.body` (sent messages appended in wire format, indexed on open and read back for resends)
@@ -497,6 +500,7 @@ metric is labelled with `session`:
 | `turbojet_logons_total`, `turbojet_disconnects_total` | counter |
 | `turbojet_rejects_sent_total` (`type` = `session`/`business`) | counter |
 | `turbojet_sequence_gaps_total`, `turbojet_resend_requests_received_total` | counter |
+| `turbojet_resend_requests_evicted_total` (reaching messages the store evicted) | counter |
 | `turbojet_session_logged_on`, `turbojet_next_incoming_seq`, `turbojet_next_outgoing_seq` | gauge |
 
 plus an unlabelled `turbojet_garbled_messages_total`, and `turbojet_application_panics_total` by
