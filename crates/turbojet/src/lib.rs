@@ -184,6 +184,7 @@
 //!   streams too.
 //! - [`store`] persists sequence numbers and sent messages behind the [`SessionStorage`] trait.
 //! - [`schedule`] confines sessions to trading hours, with scheduled sequence resets.
+//! - [`throttle`] defines message-rate limits: at most N messages in any window of length W.
 //! - [`telemetry`] documents the log targets and, with feature `metrics`, the metrics recorded.
 //!
 //! # Features
@@ -222,6 +223,7 @@ pub mod session;
 mod shutdown;
 pub mod store;
 pub mod telemetry;
+pub mod throttle;
 #[cfg(feature = "tls")]
 pub mod tls;
 #[cfg(feature = "validation")]
@@ -242,3 +244,4 @@ pub use session::{ApplVersion, Session, SessionConfig};
 pub use store::{DiskStorage, MemoryStorage, SessionId, SessionStorage};
 #[cfg(feature = "metrics")]
 pub use telemetry::describe_metrics;
+pub use throttle::{InboundLimit, RateLimit};
