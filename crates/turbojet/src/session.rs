@@ -721,7 +721,9 @@ impl Session {
     /// Carries out a command from a [`SessionHandle`](crate::SessionHandle).
     ///
     /// Commands that arrive while logon is in progress are queued and applied, in order, as soon
-    /// as it completes. Once logout has started, sends are dropped and logged.
+    /// as it completes. Once logout has started, sends are dropped and logged. With an
+    /// [`outbound_limit`](SessionConfig::outbound_limit), give it sends only once
+    /// [`has_logged_on`](Self::has_logged_on), and while [`can_send`](Self::can_send).
     pub fn on_command(&mut self, command: Command, now: Instant) {
         self.wall_clock.set(None);
         // Operator requests are answered straight away, even mid-logon: they must not wait in the
@@ -740,6 +742,13 @@ impl Session {
             other => other,
         };
         if self.status == Status::AwaitingLogon {
+            // Pending commands are applied all at once at logon, past the outbound window. The
+            // drivers take sends only once logged on, and a session never returns to awaiting
+            // logon, so none lands here while a limit is set.
+            debug_assert!(
+                self.outbound.is_none() || !matches!(command, Command::Send(..)),
+                "with an outbound limit, sends are taken only once logged on"
+            );
             debug!(queued = self.pending.len() + 1, "logon in progress; queueing handle command");
             self.pending.push(command);
         } else {

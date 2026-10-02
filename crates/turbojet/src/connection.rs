@@ -256,6 +256,19 @@ where
         // While committing, everything but reading and writing waits.
         let resending = session.is_resending();
         let pending = &outbox[written..];
+        // Application sends are taken once logged on (until then they wait in their bounded
+        // queue), and not while resending or with output backed up, or while the outbound window
+        // is full.
+        let now = Instant::now().into_std();
+        let takes_sends = session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT;
+        let can_send = session.can_send(now);
+        // Sends the window holds wake the driver when it frees. The driver, not the session's
+        // deadline, owns this wake-up: only it knows whether sends are waiting, and waking for the
+        // window with none would cost a wake-up per message at a steady rate near the limit.
+        let sends_free_at = (takes_sends && !can_send && commands.has_sends() && !closed && !committing)
+            .then(|| session.send_free_at())
+            .flatten();
+        debug_assert!(sends_free_at.is_none_or(|free_at| free_at > now), "a full window frees up later");
         tokio::select! {
             // Write what the stream takes, then flush: buffering transports (TLS in particular)
             // may hold written data until flushed. Each is cancel-safe, so another branch
@@ -289,18 +302,25 @@ where
                 }
             }
             // Logout and operator commands, whatever else is going on (a Logout once the sends
-            // queued before it have been taken); application sends once logged on (until then
-            // they wait in their bounded queue), and not while resending or with output backed up.
-            Some(command) = commands.next(session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT), if !closed && !committing => {
+            // queued before it have been taken, which the outbound limit may slow); application
+            // sends when `takes_sends` and the outbound window allows.
+            Some(command) = commands.next(takes_sends && can_send), if !closed && !committing => {
                 let now = Instant::now().into_std();
                 let sending = matches!(command, Command::Send(..));
                 session.on_command(command, now);
-                // Take whatever else is already queued, so a burst of sends becomes one write.
+                // Take whatever else is already queued, so a burst of sends becomes one write, up
+                // to what the outbound window allows.
                 for _ in (1..MAX_COMMANDS_PER_BATCH).take_while(|_| sending) {
+                    if !session.can_send(now) {
+                        break;
+                    }
                     let Some(command) = commands.try_send() else { break };
                     session.on_command(command, now);
                 }
             }
+            // The outbound window has freed up for the sends it held: they're taken next time
+            // round. Not the timer, which a stuck deadline can hold at the ceiling.
+            () = async { tokio::time::sleep_until(Instant::from_std(sends_free_at.expect("guarded by is_some"))).await }, if sends_free_at.is_some() => {}
             // One step of the resend each time round, once the last step has been written.
             () = std::future::ready(()), if resending && pending.is_empty() && !closed && !committing => {
                 session.on_resume(Instant::now().into_std());
@@ -475,18 +495,157 @@ mod tests {
     /// Runs an acceptor and logs the peer on with HeartBtInt=1. Returns the peer's end and read
     /// buffer once the Logon reply has arrived.
     async fn logged_on_with_one_second_heartbeats() -> (DuplexStream, Vec<u8>) {
+        let (peer, buf, _) = logged_on_with(SessionConfig::new("FIX.4.2", "US"), 1).await;
+        (peer, buf)
+    }
+
+    /// Runs an acceptor with `config` and logs the peer on with `heartbeat` as HeartBtInt.
+    /// Returns the peer's end and read buffer once the Logon reply has arrived, and a handle.
+    async fn logged_on_with(config: SessionConfig, heartbeat: u64) -> (DuplexStream, Vec<u8>, crate::SessionHandle) {
         let (ours, mut peer) = duplex(1 << 20);
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) =
-            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+        let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now);
         tokio::spawn(run(ours, session, commands));
 
-        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 1u64);
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
-        (peer, buf)
+        let handle = registry.handle(SessionId {
+            begin_string: "FIX.4.2".into(),
+            sender_comp_id: "US".into(),
+            target_comp_id: "PEER".into(),
+        });
+        (peer, buf, handle)
+    }
+
+    /// An acceptor config sending at most `messages` application messages per `per`.
+    fn with_outbound_limit(messages: u32, per: Duration) -> SessionConfig {
+        let mut config = SessionConfig::new("FIX.4.2", "US");
+        config.outbound_limit = Some(crate::RateLimit::new(messages, per));
+        config
+    }
+
+    /// Reads `count` messages from `peer`, each with how long after `start` it was read. Time is
+    /// paused in the tests that use it, so that is when it was written.
+    async fn receive_timed(
+        peer: &mut DuplexStream,
+        buf: &mut Vec<u8>,
+        count: usize,
+        start: Instant,
+    ) -> Vec<(Message, Duration)> {
+        let mut timed = Vec::new();
+        for _ in 0..count {
+            let msg = receive(peer, buf, 1).await.remove(0);
+            timed.push((msg, start.elapsed()));
+        }
+        timed
+    }
+
+    fn order(id: &str) -> Message {
+        Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id)
+    }
+
+    /// Queued sends past the outbound limit wait for the window, and go out, in order, as soon as
+    /// it frees: no 200 ms holds more than 5, and the queue drains in (20/5 - 1) windows, not a
+    /// second each (the timer's ceiling).
+    #[tokio::test(start_paused = true)]
+    async fn queued_sends_go_out_no_faster_than_the_outbound_limit() {
+        const LIMIT: usize = 5;
+        const WINDOW: Duration = Duration::from_millis(200);
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(5, WINDOW), 30).await;
+        let start = Instant::now();
+        for i in 0..20 {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+
+        let sent = receive_timed(&mut peer, &mut buf, 20, start).await;
+        let ids: Vec<_> = sent.iter().map(|(m, _)| m.get(tags::CL_ORD_ID).unwrap().to_string()).collect();
+        let expected: Vec<_> = (0..20).map(|i| format!("O{i}")).collect();
+        assert_eq!(ids, expected, "all sent, in order");
+        for (earlier, later) in sent.iter().zip(&sent[LIMIT..]) {
+            assert!(later.1 - earlier.1 >= WINDOW, "more than {LIMIT} in a window: {:?} and {:?}", earlier.1, later.1);
+        }
+        let times: Vec<_> = sent.iter().map(|(_, at)| *at).collect();
+        let windows: Vec<_> = (0..20u32).map(|i| WINDOW * (i / 5)).collect();
+        assert_eq!(times, windows, "each 5 as soon as the window frees");
+        assert_eq!(sent.last().unwrap().1, Duration::from_millis(600));
+    }
+
+    /// A Logout asked for after sends the outbound limit holds goes out after them, once they've
+    /// drained, while the control queue goes on being read.
+    #[tokio::test(start_paused = true)]
+    async fn a_logout_waits_for_the_sends_the_limit_holds() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(5, Duration::from_millis(200)), 30).await;
+        let start = Instant::now();
+        let receipts: Vec<_> = (0..12).map(|i| handle.send(order(&format!("O{i}"))).unwrap()).collect();
+        handle.logout(Some("done")).unwrap();
+        // An operator command is answered at once, while the sends are held.
+        let numbers = tokio::time::timeout(Duration::from_millis(1), handle.sequence_numbers()).await;
+        assert!(numbers.expect("answered while sends wait").is_ok());
+
+        let sent = receive_timed(&mut peer, &mut buf, 13, start).await;
+        let seen: Vec<_> = sent.iter().map(|(m, _)| (m.msg_type(), m.get(tags::CL_ORD_ID).map(String::from))).collect();
+        let mut expected: Vec<_> = (0..12).map(|i| (MsgType::NewOrderSingle, Some(format!("O{i}")))).collect();
+        expected.push((MsgType::Logout, None));
+        assert_eq!(seen, expected);
+        assert_eq!(sent[12].1, Duration::from_millis(400), "with the last of the sends");
+        let mut stored = Vec::new();
+        for receipt in receipts {
+            stored.push(receipt.await.unwrap());
+        }
+        assert_eq!(stored, (2..14).collect::<Vec<_>>());
+
+        peer.write_all(&from_peer(2, Message::new(MsgType::Logout))).await.unwrap();
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+    }
+
+    /// Heartbeats go out when due while the outbound window, much longer than HeartBtInt, holds
+    /// sends: holding sends doesn't hold the timer.
+    #[tokio::test(start_paused = true)]
+    async fn heartbeats_go_out_on_time_while_the_limit_holds_sends() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(2, Duration::from_millis(4_500)), 1).await;
+        let start = Instant::now();
+        for i in 0..6 {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+
+        let mut seen = Vec::new();
+        let mut seq = 2;
+        while seen.iter().filter(|(kind, _)| *kind == "order").count() < 6 {
+            let (msg, at) = receive_timed(&mut peer, &mut buf, 1, start).await.remove(0);
+            let kind = match msg.msg_type() {
+                MsgType::NewOrderSingle => "order",
+                MsgType::Heartbeat => "heartbeat",
+                other => panic!("unexpected {other} at {at:?} after {seen:?}"),
+            };
+            // The peer answers everything with a Heartbeat, so it is never probed.
+            peer.write_all(&from_peer(seq, Message::new(MsgType::Heartbeat))).await.unwrap();
+            seq += 1;
+            seen.push((kind, at.as_millis()));
+        }
+        assert_eq!(
+            seen,
+            [
+                ("order", 0),
+                ("order", 0),
+                ("heartbeat", 1_000),
+                ("heartbeat", 2_000),
+                ("heartbeat", 3_000),
+                ("heartbeat", 4_000),
+                ("order", 4_500),
+                ("order", 4_500),
+                ("heartbeat", 5_500),
+                ("heartbeat", 6_500),
+                ("heartbeat", 7_500),
+                ("heartbeat", 8_500),
+                ("order", 9_000),
+                ("order", 9_000),
+            ]
+        );
     }
 
     /// Nothing goes out before the store's commit of it, which runs off the connection's task:
