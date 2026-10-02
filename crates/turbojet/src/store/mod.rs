@@ -148,6 +148,100 @@ pub(crate) fn commit_now(log: &mut dyn SessionLog) -> io::Result<()> {
     log.commit()?.map_or(Ok(()), Commit::run)
 }
 
+/// A store over [`MemoryStorage`] whose commits run a job the test chooses, recording the
+/// mutations and commits made of it: the session must wait for each commit before writing what it
+/// covers.
+#[cfg(test)]
+pub(crate) mod deferring {
+    use std::sync::{Arc, Mutex};
+
+    use super::*;
+
+    /// What each commit runs.
+    pub type Job = Arc<dyn Fn() -> io::Result<()> + Send + Sync>;
+
+    pub struct DeferringStorage {
+        inner: MemoryStorage,
+        pub calls: Arc<Mutex<Vec<String>>>,
+        pub job: Arc<Mutex<Job>>,
+    }
+
+    impl Default for DeferringStorage {
+        fn default() -> Self {
+            let job: Job = Arc::new(|| Ok(()));
+            Self { inner: MemoryStorage::new(), calls: Arc::default(), job: Arc::new(Mutex::new(job)) }
+        }
+    }
+
+    struct DeferringLog {
+        inner: Box<dyn SessionLog>,
+        calls: Arc<Mutex<Vec<String>>>,
+        job: Arc<Mutex<Job>>,
+        /// Mutations since the last commit.
+        dirty: bool,
+    }
+
+    impl SessionStorage for DeferringStorage {
+        fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+            let (calls, job) = (self.calls.clone(), self.job.clone());
+            Ok(Box::new(DeferringLog { inner: self.inner.open(id)?, calls, job, dirty: false }))
+        }
+    }
+
+    impl DeferringLog {
+        fn mutated(&mut self, call: String) {
+            self.calls.lock().unwrap().push(call);
+            self.dirty = true;
+        }
+    }
+
+    impl SessionLog for DeferringLog {
+        fn next_outgoing(&self) -> u64 {
+            self.inner.next_outgoing()
+        }
+        fn next_incoming(&self) -> u64 {
+            self.inner.next_incoming()
+        }
+        fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+            self.mutated(format!("incoming {seq}"));
+            self.inner.set_next_incoming(seq)
+        }
+        fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
+            self.mutated(format!("outgoing {seq}"));
+            self.inner.record_outgoing(seq, msg)
+        }
+        fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
+            self.inner.sent_messages(begin, end)
+        }
+        fn reset(&mut self) -> io::Result<()> {
+            self.mutated("reset".into());
+            self.inner.reset()
+        }
+        fn in_flight(&self) -> Option<u64> {
+            self.inner.in_flight()
+        }
+        fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
+            self.mutated(format!("in flight {seq}"));
+            self.inner.set_in_flight(seq)
+        }
+        fn created_at(&self) -> Option<UtcTimestamp> {
+            self.inner.created_at()
+        }
+        fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
+            self.mutated("created".into());
+            self.inner.set_created_at(at)
+        }
+        fn commit(&mut self) -> io::Result<Option<Commit>> {
+            if !std::mem::take(&mut self.dirty) {
+                return Ok(None);
+            }
+            self.calls.lock().unwrap().push("commit".into());
+            let job = self.job.lock().unwrap().clone();
+            Ok(Some(Commit::blocking(move || job())))
+        }
+    }
+}
+
 /// Behaviour every [`SessionStorage`] implementation must satisfy.
 #[cfg(test)]
 pub(crate) mod conformance {

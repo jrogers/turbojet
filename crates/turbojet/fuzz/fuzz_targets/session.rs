@@ -162,11 +162,12 @@ impl Application for App {
     }
 }
 
-/// Checks what the session sent, and takes it from its output. Returns false once it has
+/// Commits what the session did, checks what it sent, and takes it from its output. Returns false once it has
 /// disconnected. With `may_skip`, new messages may skip sequence numbers: a ResendRequest fed in
 /// during a resend replaces it, dropping the new messages held behind it, and the counterparty
 /// finds the gap.
-fn check(session: &mut Session, next_out: &mut u64, may_skip: bool) -> bool {
+fn check(session: &mut Session, now: Instant, next_out: &mut u64, may_skip: bool) -> bool {
+    session.commit_blocking(now);
     let mut rest = session.output();
     while !rest.is_empty() {
         // The engine must never send garbage.
@@ -237,7 +238,7 @@ fuzz_target!(|input: Input| {
         let (mut session, commands) = Session::initiator(&config, registry, Arc::new(App), now);
         session.set_resend_batch(resend_batch);
         session.on_connect(now);
-        assert!(check(&mut session, &mut next_out, false));
+        assert!(check(&mut session, now, &mut next_out, false));
         (session, commands)
     } else {
         let (mut session, commands) = Session::acceptor(config, registry, Arc::new(App), now);
@@ -253,7 +254,7 @@ fuzz_target!(|input: Input| {
     push_fields(&mut fields, &input.logon, 1, next_out);
     let Some(logon) = inbound(&begin_string, "A", 1, false, 0, &fields) else { return };
     session.on_message(&logon, now);
-    if !check(&mut session, &mut next_out, false) {
+    if !check(&mut session, now, &mut next_out, false) {
         return;
     }
 
@@ -271,7 +272,7 @@ fuzz_target!(|input: Input| {
                 next_in = next_in.max(seq + 1);
                 let may_skip = session.is_resending();
                 session.on_message(&msg, now);
-                if !check(&mut session, &mut next_out, may_skip) {
+                if !check(&mut session, now, &mut next_out, may_skip) {
                     break;
                 }
             }
@@ -294,7 +295,7 @@ fuzz_target!(|input: Input| {
                 };
                 let (reply, mut numbers) = oneshot::channel();
                 session.on_command(Command::Sequence(request, reply), now);
-                if !check(&mut session, &mut next_out, false) {
+                if !check(&mut session, now, &mut next_out, false) {
                     break;
                 }
                 // The operator may move either number anywhere, backwards included.
@@ -304,14 +305,14 @@ fuzz_target!(|input: Input| {
                 }
             }
         }
-        if !check(&mut session, &mut next_out, false) {
+        if !check(&mut session, now, &mut next_out, false) {
             break;
         }
         // Each step covers at least one sequence number, and a range is at most the u16 an
         // operator can set next_out to, so this ends.
         while input.resume_at_once && session.is_resending() {
             session.on_resume(now);
-            if !check(&mut session, &mut next_out, false) {
+            if !check(&mut session, now, &mut next_out, false) {
                 return;
             }
         }

@@ -52,6 +52,7 @@ fn session(c: &mut Criterion) {
                     let now = Instant::now();
                     for order in orders {
                         session.on_message(&order, now);
+                        session.commit_blocking(now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -75,6 +76,7 @@ fn session(c: &mut Criterion) {
                     let now = Instant::now();
                     for order in orders {
                         session.on_message(&order, now);
+                        session.commit_blocking(now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -104,6 +106,7 @@ fn session(c: &mut Criterion) {
                     let now = Instant::now();
                     for order in orders {
                         session.on_message(&order, now);
+                        session.commit_blocking(now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -129,6 +132,7 @@ fn session(c: &mut Criterion) {
                     for bytes in wire {
                         let DecodedInto::Message(_) = decode_into(&bytes, &data, &mut msg) else { panic!("bad order") };
                         session.on_message(&msg, now);
+                        session.commit_blocking(now);
                         black_box(session.output());
                         session.clear_output();
                     }
@@ -158,6 +162,7 @@ fn resend(c: &mut Criterion) {
         let now = Instant::now();
         for order in common::orders(RESENT) {
             session.on_message(&order, now);
+            session.commit_blocking(now);
             session.clear_output();
         }
         let mut seq = RESENT + 2;
@@ -170,10 +175,12 @@ fn resend(c: &mut Criterion) {
                     seq += 1;
                     let start = Instant::now();
                     session.on_message(&request, now);
+                    session.commit_blocking(now);
                     black_box(session.output());
                     session.clear_output();
                     while session.is_resending() {
                         session.on_resume(now);
+                        session.commit_blocking(now);
                         black_box(session.output());
                         session.clear_output();
                     }

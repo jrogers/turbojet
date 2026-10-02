@@ -5,7 +5,8 @@
 //! timer when its next deadline falls due, writes the encoded messages it leaves in
 //! [`Session::output`], and closes the connection once [`Session::is_closed`], so the protocol
 //! logic is deterministic and testable without sockets. Sequence numbers and sent messages are
-//! persisted through a [`SessionLog`] before the corresponding message is handed to the driver.
+//! persisted through a [`SessionLog`], and committed (see [`Session::take_commit`]) before the
+//! corresponding message is handed to the driver.
 //! Application messages are delivered to an [`Application`].
 
 use std::cell::Cell;
@@ -35,7 +36,7 @@ use crate::registry::{
     apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
-use crate::store::{SessionId, SessionLog};
+use crate::store::{Commit, SessionId, SessionLog};
 use crate::telemetry::SessionMetrics;
 
 /// An application version a FIXT.1.1 session supports, with the dictionary its messages are
@@ -288,6 +289,17 @@ const MAX_QUEUED: usize = 10_000;
 /// work doesn't depend on the step: 51 ms from memory, 112 ms from disk, at every size.
 const MAX_RESEND_BATCH: u64 = 256;
 
+/// Incoming application messages handed over in one in-flight window. Opening a window costs a
+/// commit before its first message is handed over, and after a crash every redelivered message in
+/// it is marked as possibly handled: so the window bounds both how often a busy session waits for
+/// the store and how many messages a crash marks needlessly. Matches the most commands a driver
+/// takes in one batch.
+pub(crate) const DELIVERIES_PER_COMMIT: u64 = 256;
+
+/// An operator's reply, held until the change it reports is committed.
+type HeldReply =
+    (tokio::sync::oneshot::Sender<Result<SequenceNumbers, SequenceError>>, Result<SequenceNumbers, SequenceError>);
+
 /// A resend in progress: what's left of the range asked for.
 struct Replay {
     /// The first sequence number not yet resent or gap-filled: an open gap fill starts here.
@@ -353,6 +365,25 @@ pub struct Session {
     /// empties it after each wake-up, so it holds the replies to one read, one batch of commands,
     /// or one step of a resend.
     output: Vec<u8>,
+    /// How much of `output` the store has committed: only that may be written.
+    committed: usize,
+    /// A commit the store returned is under way: nothing more is fed in until it ends.
+    committing: bool,
+    /// Incoming messages before this may be handed to the application: the end of the in-flight
+    /// window the store last committed, if that commit opened one.
+    window_end: Option<u64>,
+    /// Input, or messages that waited for a gap, wait for a window: the next commit opens one.
+    window_wanted: bool,
+    /// The start of the window the commit under way opens.
+    opening: Option<u64>,
+    /// The window the store had in flight when the session was bound: the messages in it may have
+    /// been handled before a restart.
+    recovered: Option<u64>,
+    /// Messages that waited for a gap are in sequence, but wait for a window to be handled in.
+    drain_waiting: bool,
+    /// Operator replies, sent once the changes they report are committed. At most one per
+    /// command, and commands are taken in batches between commits.
+    replies: Vec<HeldReply>,
     /// The resend in progress, if any; see [`on_resume`](Self::on_resume).
     replay: Option<Replay>,
     /// New messages sent while a resend is in progress, framed and stored, to follow it. Drivers
@@ -447,6 +478,14 @@ impl Session {
             period: None,
             test_req_counter: 0,
             output: Vec::new(),
+            committed: 0,
+            committing: false,
+            window_end: None,
+            window_wanted: false,
+            opening: None,
+            recovered: None,
+            drain_waiting: false,
+            replies: Vec::new(),
             replay: None,
             held: Vec::new(),
             resend_batch: MAX_RESEND_BATCH,
@@ -486,15 +525,92 @@ impl Session {
     }
 
     /// Encoded messages to write to the counterparty, in order, since the last
-    /// [`clear_output`](Self::clear_output): it grows until cleared. Once
-    /// [`is_closed`](Self::is_closed), write them, then close the connection.
+    /// [`clear_output`](Self::clear_output): it grows until cleared. It holds only what the store
+    /// has committed, so call [`take_commit`](Self::take_commit) after each call into the session.
+    /// Once [`is_closed`](Self::is_closed), write them, then close the connection.
     pub fn output(&self) -> &[u8] {
-        &self.output
+        &self.output[..self.committed]
     }
 
     /// Empties [`output`](Self::output), keeping its capacity, once it's been written.
     pub fn clear_output(&mut self) {
-        self.output.clear()
+        self.output.drain(..self.committed);
+        self.committed = 0;
+    }
+
+    /// The store's commit of what the session has done since the last one, which must be durable
+    /// before any of it goes on the wire: call it after every call into the session. `None` when
+    /// there's nothing to wait for (the store committed at once, as `MemoryStorage` and
+    /// `DiskStorage` without fsync do), and [`output`](Self::output) then holds everything sent.
+    /// Otherwise run the commit where blocking is harmless, feed the session nothing meanwhile,
+    /// and hand its result to [`on_committed`](Self::on_committed).
+    pub fn take_commit(&mut self, now: Instant) -> Option<Commit> {
+        self.wall_clock.set(None);
+        while !self.committing {
+            match self.begin_commit() {
+                Ok(Some(commit)) => {
+                    self.committing = true;
+                    return Some(commit);
+                }
+                // Committed: go round again only if that let messages waiting for it be handled.
+                Ok(None) if self.finish_commit(now) => {}
+                Ok(None) => break,
+                Err(e) => {
+                    self.opening = None;
+                    self.storage_failed(e);
+                    break;
+                }
+            }
+        }
+        None
+    }
+
+    /// A commit from [`take_commit`](Self::take_commit) has ended: if it succeeded, what it covers
+    /// joins [`output`](Self::output), and the session can take input again; if not, the store
+    /// has failed, so the session drops what wasn't committed and closes. Call
+    /// [`take_commit`](Self::take_commit) again after it.
+    pub fn on_committed(&mut self, result: io::Result<()>, now: Instant) {
+        self.wall_clock.set(None);
+        debug_assert!(self.committing, "a commit was taken");
+        self.committing = false;
+        match result {
+            Ok(()) => {
+                self.finish_commit(now);
+            }
+            Err(e) => {
+                self.opening = None;
+                self.storage_failed(e);
+            }
+        }
+    }
+
+    /// Whether a commit from [`take_commit`](Self::take_commit) is under way.
+    pub fn is_committing(&self) -> bool {
+        self.committing
+    }
+
+    /// Whether the session can take the next message from the counterparty now. If not, input
+    /// waits for a commit, under way or due from [`take_commit`](Self::take_commit): one that
+    /// records the messages about to be handed to the application as in flight, so that a crash
+    /// while they're handled is noticed when they're resent. A message fed in anyway is handled
+    /// once the session has committed that itself, on the calling thread.
+    pub fn ready_for_input(&mut self) -> bool {
+        if self.committing {
+            return false;
+        }
+        if !self.receiving() || self.covers(self.peer().log.next_incoming()) {
+            return true;
+        }
+        self.window_wanted = true;
+        false
+    }
+
+    /// Commits on this thread until nothing is left to commit, running any commit the store
+    /// returns: for drivers that may block (tests, tools).
+    pub fn commit_blocking(&mut self, now: Instant) {
+        while let Some(commit) = self.take_commit(now) {
+            self.on_committed(commit.run(), now);
+        }
     }
 
     /// Whether a resend is in progress: more of it is due once [`output`](Self::output) has been
@@ -541,6 +657,9 @@ impl Session {
         self.wall_clock.set(None);
         self.last_received = now;
         self.test_request_sent = None;
+        if self.receiving() && !self.committing && !self.covers(self.peer().log.next_incoming()) {
+            self.open_window_now(now);
+        }
         match self.status {
             Status::AwaitingLogon => self.on_logon(msg, now),
             Status::Active | Status::LoggingOut { .. } => {
@@ -564,7 +683,13 @@ impl Session {
         // queue for a logon that may never complete.
         let command = match command {
             Command::Sequence(request, reply) => {
-                let _ = reply.send(self.apply_sequence(request, now));
+                // A change is reported once it's committed; a failure or a query at once.
+                match self.apply_sequence(request, now) {
+                    result @ Ok(_) if request != SequenceCommand::Get => self.replies.push((reply, result)),
+                    result => {
+                        let _ = reply.send(result);
+                    }
+                }
                 return;
             }
             other => other,
@@ -1072,6 +1197,10 @@ impl Session {
                     self.storage_failed(e);
                     return false;
                 }
+                self.recovered = self.peer().log.in_flight();
+                if let Some(start) = self.recovered {
+                    info!(start, "messages from this one on may have been handled before a restart");
+                }
                 self.update_sequence_gauges();
                 true
             }
@@ -1136,6 +1265,9 @@ impl Session {
         let log = &mut self.peer_mut().log;
         log.reset()?;
         log.set_created_at(now.into())?;
+        // Windows count in the old numbers.
+        self.recovered = None;
+        self.window_end = None;
         self.update_sequence_gauges();
         Ok(())
     }
@@ -1406,8 +1538,15 @@ impl Session {
     fn after_incoming(&mut self, now: Instant) {
         while matches!(self.status, Status::Active | Status::LoggingOut { .. }) {
             let next = self.peer().log.next_incoming();
+            let covered = self.covers(next);
             let Some(entry) = self.queued.first_entry() else { break };
             if *entry.key() > next {
+                break;
+            }
+            // One in sequence waits for a window to be handled in, as input does.
+            if *entry.key() == next && !entry.get().answered && !covered {
+                self.drain_waiting = true;
+                self.window_wanted = true;
                 break;
             }
             let (seq_num, queued) = entry.remove_entry();
@@ -1423,7 +1562,7 @@ impl Session {
         }
         let Some(peer) = &self.peer else { return };
         let next = peer.log.next_incoming();
-        if matches!(self.status, Status::Active | Status::LoggingOut { .. }) {
+        if matches!(self.status, Status::Active | Status::LoggingOut { .. }) && !self.drain_waiting {
             // Whatever is still queued is ahead of the gap.
             debug_assert!(self.queued.first_key_value().is_none_or(|(&seq_num, _)| seq_num > next));
         }
@@ -1438,6 +1577,7 @@ impl Session {
             }
         }
         if self.resend.is_none()
+            && !self.drain_waiting
             && matches!(self.status, Status::Active | Status::LoggingOut { .. })
             && let Some(&ahead) = self.queued.keys().next()
         {
@@ -1447,13 +1587,12 @@ impl Session {
 
     /// Hands an application message to the application and sends its replies or reject.
     fn deliver(&mut self, msg: &Message, seq_num: u64, now: Instant) {
-        // Marked in flight first: still marked after a crash, it tells the next connection that
-        // the resend of this message may have been handled already.
-        let redelivered = self.peer().log.in_flight() == Some(seq_num);
+        // The committed window marks it in flight: still marked after a crash, it tells the next
+        // connection that the resend of this message may have been handled already.
+        debug_assert!(self.covers(seq_num), "{seq_num} is handed over in a committed window");
+        let redelivered = self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
         if redelivered {
             info!(seq_num, "delivering a message that may have been handled before a restart");
-        } else if let Err(e) = self.peer_mut().log.set_in_flight(seq_num) {
-            return self.storage_failed(e);
         }
         // Borrows the peer field alone (not `self.peer()`), so the application can be called
         // without cloning the SessionId for every message.
@@ -1880,6 +2019,11 @@ impl Session {
     fn storage_failed(&mut self, e: io::Error) {
         error!("session store failed: {e}; disconnecting");
         self.store_failed = true;
+        // What wasn't committed may not have been stored, so it isn't sent.
+        self.output.truncate(self.committed);
+        for (reply, _) in self.replies.drain(..) {
+            let _ = reply.send(Err(SequenceError::Storage(io::Error::new(e.kind(), e.to_string()))));
+        }
         self.close();
     }
 
@@ -2014,6 +2158,82 @@ impl Session {
 
     fn peer(&self) -> &Peer {
         self.peer.as_ref().expect("session is not bound before logon")
+    }
+
+    /// Whether messages from the counterparty are being processed: logged on, or logging out.
+    fn receiving(&self) -> bool {
+        matches!(self.status, Status::Active | Status::LoggingOut { .. })
+    }
+
+    /// Whether incoming `seq` may be handed to the application: it's in the committed window.
+    fn covers(&self, seq: u64) -> bool {
+        self.window_end.is_some_and(|end| seq < end)
+    }
+
+    /// Asks the store to commit, recording a window of incoming messages in flight first if
+    /// input waits for one.
+    fn begin_commit(&mut self) -> io::Result<Option<Commit>> {
+        debug_assert!(!self.committing && self.opening.is_none());
+        let receiving = self.receiving();
+        let Some(peer) = self.peer.as_mut().filter(|_| !self.store_failed) else {
+            // Nothing is stored: the reply to a Logon that was refused, or a store that failed.
+            return Ok(None);
+        };
+        if self.window_wanted && receiving {
+            let next = peer.log.next_incoming();
+            peer.log.set_in_flight(next)?;
+            self.opening = Some(next);
+        }
+        peer.log.commit()
+    }
+
+    /// The commit is durable: what it covers may be written, and the window it opened (if any)
+    /// replaces the last, which it closed. Messages that waited for a gap and then for the window
+    /// are handled, and returns true: what they did is to be committed next. Otherwise operators
+    /// hear of their changes.
+    fn finish_commit(&mut self, now: Instant) -> bool {
+        self.committed = self.output.len();
+        self.window_end = self.opening.take().map(|start| start + DELIVERIES_PER_COMMIT);
+        self.window_wanted = false;
+        if self.window_end.is_some() && std::mem::take(&mut self.drain_waiting) {
+            self.after_incoming(now);
+            return true;
+        }
+        self.send_replies();
+        false
+    }
+
+    /// Operators hear of their changes, committed now, with the numbers as they stand (a new
+    /// incoming number may have let queued messages be handled since).
+    fn send_replies(&mut self) {
+        if self.replies.is_empty() {
+            return;
+        }
+        let peer = self.peer.as_ref().expect("operator changes need a bound session");
+        let now = SequenceNumbers { next_incoming: peer.log.next_incoming(), next_outgoing: peer.log.next_outgoing() };
+        for (reply, result) in self.replies.drain(..) {
+            let _ = reply.send(result.map(|_| now));
+        }
+    }
+
+    /// For a driver that feeds a message without asking [`ready_for_input`](Self::ready_for_input):
+    /// opens the window now, running the store's commit on this thread if it returns one.
+    fn open_window_now(&mut self, now: Instant) {
+        debug!("committing the in-flight window on the calling thread");
+        self.window_wanted = true;
+        match self.begin_commit() {
+            Ok(None) => {
+                self.finish_commit(now);
+            }
+            Ok(Some(commit)) => {
+                self.committing = true;
+                self.on_committed(commit.run(), now);
+            }
+            Err(e) => {
+                self.opening = None;
+                self.storage_failed(e);
+            }
+        }
     }
 
     fn peer_mut(&mut self) -> &mut Peer {

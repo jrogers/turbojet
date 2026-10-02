@@ -428,8 +428,10 @@ impl Runner {
     /// Carries out what a session asked for, as the driver does: queues each message in its
     /// output, then closes the connection if the session has closed.
     fn apply(&mut self, id: u32) {
+        let now = self.time.now();
         let conn = self.connection(id).unwrap();
         let Some(session) = conn.session.as_mut() else { return };
+        session.commit_blocking(now);
         let output = session.output().to_vec();
         session.clear_output();
         let closed = session.is_closed();
@@ -499,6 +501,7 @@ impl Runner {
         for id in ids {
             let Some(session) = self.connection(id).unwrap().session.as_mut() else { continue };
             session.on_timer(next);
+            session.commit_blocking(next);
             if !session.output().is_empty() || session.is_closed() {
                 let elapsed = next - self.time.start;
                 self.log(id, format!("   (timer at +{:.1}s)", elapsed.as_secs_f64()));

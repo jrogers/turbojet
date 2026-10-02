@@ -4,6 +4,7 @@ use std::io;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
 
@@ -50,7 +51,9 @@ const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 ///
 /// Each wake-up (a read from the peer, a batch of handle commands, or a timer deadline) can produce
 /// several outgoing messages; the session encodes them into one buffer, written as the stream
-/// takes it, usually in one write and flush. Reading goes on while output waits to be written, so
+/// takes it, usually in one write and flush. The store commits what each wake-up did once, before
+/// any of it is written; a commit that blocks (an fsync) runs on a blocking thread, and while it
+/// does the connection reads but processes nothing. Reading goes on while output waits to be written, so
 /// two ends writing to each other at once never each wait for the other to read; a counterparty
 /// that stops reading altogether is disconnected once 16 MiB of output is waiting for it.
 ///
@@ -126,6 +129,8 @@ where
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
     tokio::pin!(timer);
     let mut stuck = None;
+    // The store's commit under way, on a blocking thread: the session waits for it.
+    let mut commit: Option<JoinHandle<io::Result<()>>> = None;
 
     // A connection made once shutdown has started closes without logging on.
     match shutdown.as_ref().and_then(Signal::started_now) {
@@ -137,15 +142,29 @@ where
     }
     loop {
         *logged_on |= session.has_logged_on();
-        // Input that waited for a resend is processed once it has ended.
-        if deferred && !session.is_resending() && !session.is_closed() {
-            deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
-        }
-        // A Logout that was waiting for the sends queued before it, now they've been taken.
-        while !session.is_closed()
-            && let Some(command) = commands.try_control()
-        {
-            session.on_command(command, Instant::now().into_std());
+        loop {
+            // Input that waited for a resend or a commit is processed once it has ended.
+            if deferred && !session.is_resending() && !session.is_closed() && !session.is_committing() {
+                deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
+            }
+            // A Logout that was waiting for the sends queued before it, now they've been taken.
+            while !session.is_closed()
+                && !session.is_committing()
+                && let Some(command) = commands.try_control()
+            {
+                session.on_command(command, Instant::now().into_std());
+            }
+            // Whatever the session did since the last commit is committed before it's written.
+            if commit.is_none()
+                && let Some(job) = session.take_commit(Instant::now().into_std())
+            {
+                commit = Some(tokio::task::spawn_blocking(move || job.run()));
+            }
+            // Input that stopped for a commit made at once goes on: each time round, the commit
+            // opens the window it stopped for, or is left under way.
+            if !(deferred && commit.is_none() && !session.is_resending() && !session.is_closed()) {
+                break;
+            }
         }
         if let Some(metrics) = session.metrics() {
             metrics.bytes_received(std::mem::take(&mut unattributed_bytes));
@@ -182,7 +201,8 @@ where
             return Err(io::Error::new(io::ErrorKind::TimedOut, "the counterparty has stopped reading"));
         }
         let closed = session.is_closed();
-        if closed && unwritten == 0 && !unflushed {
+        let committing = commit.is_some();
+        if closed && unwritten == 0 && !unflushed && !committing {
             // Everything the session sent, a Logout before a close included, has gone. Release
             // the session (and its store) before the peer sees the close, so an immediate
             // reconnect can log on again.
@@ -201,6 +221,7 @@ where
 
         // While resending, input waits in the buffer and commands in their queue, so nothing new
         // goes out in the middle of the range; each step waits until the last has been written.
+        // While committing, everything but reading and writing waits.
         let resending = session.is_resending();
         let pending = &outbox[written..];
         tokio::select! {
@@ -229,7 +250,7 @@ where
                     // Only the session's last output is still to go; what arrives is read so the
                     // counterparty's writes don't block, and dropped.
                     buf.clear();
-                } else if resending || deferred {
+                } else if resending || deferred || committing {
                     deferred = true;
                 } else {
                     deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
@@ -238,7 +259,7 @@ where
             // Logout and operator commands, whatever else is going on (a Logout once the sends
             // queued before it have been taken); application sends once logged on (until then
             // they wait in their bounded queue), and not while resending or with output backed up.
-            Some(command) = commands.next(session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT), if !closed => {
+            Some(command) = commands.next(session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT), if !closed && !committing => {
                 let now = Instant::now().into_std();
                 let sending = matches!(command, Command::Send(..));
                 session.on_command(command, now);
@@ -249,15 +270,21 @@ where
                 }
             }
             // One step of the resend each time round, once the last step has been written.
-            () = std::future::ready(()), if resending && pending.is_empty() && !closed => {
+            () = std::future::ready(()), if resending && pending.is_empty() && !closed && !committing => {
                 session.on_resume(Instant::now().into_std());
             }
             // Once only: after that the session's logout (or its timeout) ends the connection.
-            text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() && !closed => {
+            text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() && !closed && !committing => {
                 shutdown = None;
                 session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
-            () = &mut timer, if !closed => {
+            // The store's commit has ended: what it covers can be written.
+            result = async { commit.as_mut().expect("guarded by is_some").await }, if committing => {
+                commit = None;
+                let result = result.unwrap_or_else(|e| Err(io::Error::other(format!("the store's commit failed: {e}"))));
+                session.on_committed(result, Instant::now().into_std());
+            }
+            () = &mut timer, if !closed && !committing => {
                 let now = Instant::now();
                 timer.as_mut().reset(now + MAX_TIMER_SLEEP);
                 session.on_timer(now.into_std());
@@ -281,14 +308,18 @@ fn poll_once<F: Future>(future: F) -> Option<F::Output> {
 
 /// Feeds `session` the complete messages in `buf`, each decoded into `scratch`, then drops the
 /// consumed bytes once; a partial message at the end stays for the next read. The messages
-/// arrived together, so they share one timestamp. Stops at a message that starts a resend:
-/// returns true if input is left waiting for it to end.
+/// arrived together, so they share one timestamp. Stops at a message that starts a resend, and
+/// before one that must wait for a commit: returns true if input is left waiting.
 fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
     let mut consumed = 0;
-    // Ends: a message consumes its frame, garbled bytes skip at least one, and a resend stops it.
+    // Ends: a message consumes its frame, garbled bytes skip at least one, and a resend or a
+    // commit stops it.
     let deferred = loop {
         if session.is_resending() || session.is_closed() {
             break session.is_resending();
+        }
+        if consumed < buf.len() && !session.ready_for_input() {
+            break true;
         }
         match decode_into(&buf[consumed..], session.data_fields(), scratch) {
             DecodedInto::Message(len) => {
@@ -424,6 +455,51 @@ mod tests {
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
         (peer, buf)
+    }
+
+    /// Nothing goes out before the store's commit of it, which runs off the connection's task:
+    /// input that arrives while a commit is under way waits for it, then is answered.
+    #[tokio::test]
+    async fn output_waits_for_the_stores_commit() {
+        let storage = crate::store::deferring::DeferringStorage::default();
+        // Each commit waits for the test to let it through.
+        let (permits, gate) = std::sync::mpsc::channel::<()>();
+        let gate = Arc::new(std::sync::Mutex::new(gate));
+        *storage.job.lock().unwrap() =
+            Arc::new(move || gate.lock().unwrap().recv().map_err(|_| io::Error::other("the test ended")));
+        let calls = storage.calls.clone();
+        let (ours, mut peer) = duplex(1 << 20);
+        let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+        let mut buf = Vec::new();
+        let nothing_yet = async |peer: &mut DuplexStream, buf: &mut Vec<u8>| {
+            let read = tokio::time::timeout(Duration::from_millis(100), peer.read_buf(buf)).await;
+            assert!(read.is_err(), "nothing is written before its commit");
+        };
+
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        nothing_yet(&mut peer, &mut buf).await;
+        permits.send(()).unwrap();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
+
+        // An order: its window's commit is held, and a second order arrives meanwhile.
+        let order = |id: &str| Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id);
+        peer.write_all(&from_peer(2, order("A"))).await.unwrap();
+        nothing_yet(&mut peer, &mut buf).await;
+        peer.write_all(&from_peer(3, order("B"))).await.unwrap();
+        nothing_yet(&mut peer, &mut buf).await;
+        permits.send(()).unwrap(); // the window
+        nothing_yet(&mut peer, &mut buf).await;
+        permits.send(()).unwrap(); // the orders' replies
+        let acks = receive(&mut peer, &mut buf, 2).await;
+        assert_eq!(acks.iter().map(|m| m.get(tags::CL_ORD_ID).unwrap()).collect::<Vec<_>>(), ["A", "B"]);
+        let calls = calls.lock().unwrap().clone();
+        let commits = calls.iter().filter(|c| *c == "commit").count();
+        assert_eq!(commits, 3, "the Logon, the window, and both orders together: {calls:?}");
     }
 
     /// A resend longer than one step goes out in order over a connection whose buffer holds only

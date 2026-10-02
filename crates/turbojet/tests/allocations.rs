@@ -78,6 +78,12 @@ impl SessionLog for StagedLog {
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
         counting::in_stage(Stage::Store, || self.0.set_created_at(at))
     }
+    fn commit(&mut self) -> io::Result<Option<turbojet::store::Commit>> {
+        counting::in_stage(Stage::Store, || self.0.commit())
+    }
+    fn evicted_through(&self) -> Option<u64> {
+        counting::in_stage(Stage::Store, || self.0.evicted_through())
+    }
 }
 
 mod counting {
@@ -246,7 +252,10 @@ fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.l
             DecodedInto::Message(_) => {}
             _ => panic!("order {i} didn't decode"),
         });
-        counting::in_stage(Stage::Session, || session.on_message(&msg, now));
+        counting::in_stage(Stage::Session, || {
+            session.on_message(&msg, now);
+            session.commit_blocking(now);
+        });
         let out = session.output();
         assert!(out.starts_with(b"8=FIX.4.2\x01") && out.windows(5).any(|w| w == b"\x0135=8"), "order {i}: no ack");
         session.clear_output();

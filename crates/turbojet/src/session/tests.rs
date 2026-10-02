@@ -6,6 +6,7 @@ use crate::fields::{ApplVerId, FromFix};
 use crate::message::utc_timestamp;
 use crate::peer::{ConnectionInfo, PeerCertificate};
 use crate::registry::{SendError, SessionHandle};
+use crate::store::deferring::DeferringStorage;
 use crate::store::{MemoryStorage, SessionStorage};
 
 /// Records callbacks. Accepts `D` messages that carry Symbol(55), replying with an
@@ -186,36 +187,42 @@ impl Drive for Session {
     fn connect(&mut self, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_connect(now);
+        self.commit_blocking(now);
         taken(self, was)
     }
 
     fn recv(&mut self, msg: Message, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_message(&msg, now);
+        self.commit_blocking(now);
         taken(self, was)
     }
 
     fn command(&mut self, command: Command, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_command(command, now);
+        self.commit_blocking(now);
         taken(self, was)
     }
 
     fn shutdown(&mut self, text: Option<&str>, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_shutdown(text, now);
+        self.commit_blocking(now);
         taken(self, was)
     }
 
     fn timer(&mut self, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_timer(now);
+        self.commit_blocking(now);
         taken(self, was)
     }
 
     fn resume(&mut self, now: Instant) -> Vec<Action> {
         let was = self.is_closed();
         self.on_resume(now);
+        self.commit_blocking(now);
         taken(self, was)
     }
 }
@@ -965,8 +972,8 @@ impl SessionLog for RecordingLog {
 }
 
 /// The incoming number is saved once the application has handled the message and its replies
-/// are stored, so a crash before then gets the message resent. An application message is marked
-/// in flight first.
+/// are stored, so a crash before then gets the message resent. Input is marked in flight first,
+/// once per batch.
 #[test]
 fn the_incoming_number_is_saved_after_the_application() {
     let writes = Arc::new(Mutex::new(Vec::new()));
@@ -975,14 +982,14 @@ fn the_incoming_number_is_saved_after_the_application() {
     writes.lock().unwrap().clear();
     s.recv(order(2, "A"), h.t0);
     assert_eq!(*writes.lock().unwrap(), ["in flight 2", "outgoing 2", "incoming 3"]);
-    // A session-level message isn't the application's: no marker.
+    // Each batch opens a window of its own, whatever it holds.
     writes.lock().unwrap().clear();
     s.recv(client(3, MsgType::Heartbeat), h.t0);
-    assert_eq!(*writes.lock().unwrap(), ["incoming 4"]);
+    assert_eq!(*writes.lock().unwrap(), ["in flight 3", "incoming 4"]);
 }
 
-/// After a crash while message 2 was with the application, its resend is marked as possibly
-/// handled already; later messages aren't.
+/// After a crash while messages from 2 on were with the application, their resends are marked as
+/// possibly handled already, up to a window's worth; later messages aren't.
 #[test]
 fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
     let storage = Arc::new(MemoryStorage::new());
@@ -1004,7 +1011,98 @@ fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
     assert_eq!(types(&s.recv(resend_of(order(2, "B")), h.t0)), ["ExecutionReport"]);
     s.recv(gap_fill(3, 4), h.t0);
     s.recv(order(4, "D"), h.t0);
-    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, false]);
+    let past = 2 + DELIVERIES_PER_COMMIT;
+    s.recv(gap_fill(5, past), h.t0);
+    s.recv(order(past, "E"), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, false], "4 might have been handled, {past} not");
+}
+
+// ---- Group commit ----
+
+/// Runs the commit a session asks for, if any, as a driver would.
+fn run_commit(s: &mut Session, now: Instant) -> bool {
+    let Some(commit) = s.take_commit(now) else { return false };
+    assert!(s.is_committing() && !s.ready_for_input(), "nothing is fed in meanwhile");
+    s.on_committed(commit.run(), now);
+    true
+}
+
+#[test]
+fn output_waits_for_its_commit() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    let commit = s.take_commit(h.t0).expect("the Logon's numbers are to be committed");
+    assert!(s.output().is_empty(), "nothing goes out before its commit");
+    s.on_committed(commit.run(), h.t0);
+    assert_eq!(types(&taken(&mut s, false)), ["Logon"]);
+    assert!(s.take_commit(h.t0).is_none(), "nothing more to commit");
+}
+
+#[test]
+fn input_waits_for_a_window_to_be_committed() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    assert!(run_commit(&mut s, h.t0));
+    assert_eq!(types(&taken(&mut s, false)), ["Logon"]);
+    storage.calls.lock().unwrap().clear();
+
+    assert!(!s.ready_for_input(), "the first message of a batch needs a window");
+    assert!(run_commit(&mut s, h.t0));
+    assert_eq!(s.peer().log.in_flight(), Some(2));
+    assert!(s.ready_for_input());
+    s.on_message(&order(2, "A"), h.t0);
+    s.on_message(&order(3, "B"), h.t0);
+    assert!(s.output().is_empty());
+    assert!(run_commit(&mut s, h.t0), "the batch's end");
+    assert_eq!(types(&taken(&mut s, false)), ["ExecutionReport", "ExecutionReport"]);
+    let calls = storage.calls.lock().unwrap().clone();
+    assert_eq!(calls, ["in flight 2", "commit", "outgoing 2", "incoming 3", "outgoing 3", "incoming 4", "commit"]);
+    assert!(!s.ready_for_input(), "the batch's commit closed the window");
+}
+
+#[test]
+fn a_failed_commit_sends_nothing_it_covered_and_disconnects() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("disk full")));
+    assert!(run_commit(&mut s, h.t0));
+    assert!(s.output().is_empty() && s.is_closed());
+}
+
+#[test]
+fn messages_queued_behind_a_gap_are_handled_a_window_at_a_time() {
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let h = Harness::with_storage(Arc::new(RecordingStorage { inner: MemoryStorage::new(), writes: writes.clone() }));
+    let mut s = h.logged_on();
+    let last = 2 + DELIVERIES_PER_COMMIT + 10;
+    for seq in 3..=last {
+        s.recv(order(seq, &format!("O{seq}")), h.t0);
+    }
+    writes.lock().unwrap().clear();
+    s.recv(order(2, "first"), h.t0);
+    assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "all of them, in sequence");
+    let windows: Vec<String> = writes.lock().unwrap().iter().filter(|w| w.starts_with("in flight")).cloned().collect();
+    assert_eq!(windows, ["in flight 2".to_string(), format!("in flight {}", 2 + DELIVERIES_PER_COMMIT)]);
+}
+
+#[test]
+fn an_operator_hears_of_a_change_once_it_is_committed() {
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    assert!(run_commit(&mut s, h.t0));
+    let (reply, mut answer) = tokio::sync::oneshot::channel();
+    s.on_command(Command::Sequence(SequenceCommand::SetNextIncoming(7), reply), h.t0);
+    assert!(answer.try_recv().is_err(), "not committed yet");
+    assert!(run_commit(&mut s, h.t0));
+    assert_eq!(answer.try_recv().unwrap().unwrap().next_incoming, 7);
 }
 
 // ---- Messages ahead of a gap ----

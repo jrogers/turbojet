@@ -283,14 +283,23 @@ impl Node {
         let clocks = &self.clocks;
         let data_fields = &self.data_fields;
         let Some(running) = self.running.get_mut(&conn) else { return Effects::default() };
-        if running.deferred && !running.session.is_resending() && !running.session.is_closed() {
-            running.deferred = feed(running, data_fields, clocks.instant(now));
-        }
-        // A Logout that was waiting for the sends queued before it, now they've been taken.
-        while !running.session.is_closed()
-            && let Some(command) = running.commands.try_control()
-        {
-            running.session.on_command(command, clocks.instant(now));
+        let instant = clocks.instant(now);
+        loop {
+            if running.deferred && !running.session.is_resending() && !running.session.is_closed() {
+                running.deferred = feed(running, data_fields, instant);
+            }
+            // A Logout that was waiting for the sends queued before it, now they've been taken.
+            while !running.session.is_closed()
+                && let Some(command) = running.commands.try_control()
+            {
+                running.session.on_command(command, instant);
+            }
+            // Whatever the session did is committed before it's written.
+            running.session.commit_blocking(instant);
+            // Input that stopped for the commit goes on.
+            if !(running.deferred && !running.session.is_resending() && !running.session.is_closed()) {
+                break;
+            }
         }
         let output = running.session.output().to_vec();
         running.session.clear_output();
@@ -339,12 +348,15 @@ impl Running {
 }
 
 /// As `feed` in the connection driver: the complete messages in `buf` fed in, up to one that
-/// starts a resend. Returns true if input is left waiting for it to end.
+/// starts a resend or one that waits for a commit. Returns true if input is left waiting.
 fn feed(running: &mut Running, data_fields: &DataFields, instant: std::time::Instant) -> bool {
     let mut consumed = 0;
     let deferred = loop {
         if running.session.is_resending() || running.session.is_closed() {
             break running.session.is_resending();
+        }
+        if consumed < running.buf.len() && !running.session.ready_for_input() {
+            break true;
         }
         match decode_into(&running.buf[consumed..], data_fields, &mut running.scratch) {
             DecodedInto::Message(len) => {
