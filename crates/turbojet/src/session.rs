@@ -106,7 +106,7 @@ pub struct SessionConfig {
     /// At most this many application messages received per window, counted on each connection,
     /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
     /// allows more, and [`InboundLimit::Reject`] answers them with a BusinessMessageReject. Admin
-    /// messages and resends don't count. `None` (the default) means no limit.
+    /// messages and resends we asked for don't count. `None` (the default) means no limit.
     ///
     /// With `Reject`, an application message that arrives while the window is full isn't handed
     /// to the application: it's answered with a BusinessMessageReject(j) whose RefSeqNum(45) is
@@ -115,10 +115,11 @@ pub struct SessionConfig {
     /// so the counterparty doesn't resend it. Rejected messages don't count, so a counterparty
     /// sending too fast can't keep the window full.
     ///
-    /// Recovery traffic neither counts nor is rejected: a message flagged PossDupFlag(43)=Y, or
-    /// any that arrives while a ResendRequest of ours is outstanding. It replaces messages we
-    /// missed, mostly at our own request, so it can't be too fast, and rejecting it would lose
-    /// them.
+    /// Recovery we asked for neither counts nor is rejected: any message that arrives while a
+    /// ResendRequest of ours is outstanding, and those that arrived ahead of the gap it fills,
+    /// handled once it's filled. It answers our own request, so it can't be too fast, and
+    /// rejecting it would lose messages we asked for. PossDupFlag(43)=Y alone doesn't exempt a
+    /// message: it's only the sender's claim, and would let a counterparty past the limit.
     pub inbound_limit: Option<InboundLimit>,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
@@ -1458,7 +1459,7 @@ impl Session {
         if mtype == MsgType::SequenceReset && msg.defect().is_none() {
             return self.on_gap_fill(msg, seq_num, now);
         }
-        self.handle_in_sequence(msg, seq_num, now);
+        self.handle_in_sequence(msg, seq_num, now, arrived);
         // Saved only now that the message is handled and anything sent in reply is stored: if
         // the process stops first, the counterparty resends it (at-least-once delivery). Not once
         // the store has failed, when an application message may not have been delivered.
@@ -1468,7 +1469,8 @@ impl Session {
     }
 
     /// Checks and acts on a message that arrived in sequence, before its number is saved.
-    fn handle_in_sequence(&mut self, msg: &Message, seq_num: u64, now: Instant) {
+    /// `arrived` is false for one taken from the queue.
+    fn handle_in_sequence(&mut self, msg: &Message, seq_num: u64, now: Instant, arrived: bool) {
         let mtype = msg.msg_type();
         if self.reject_defect(msg, now) {
             return;
@@ -1506,10 +1508,10 @@ impl Session {
         {
             return self.reject(msg, invalid.tag, invalid.reason, &invalid.text, now);
         }
-        self.dispatch(msg, seq_num, now);
+        self.dispatch(msg, seq_num, now, arrived);
     }
 
-    fn dispatch(&mut self, msg: &Message, seq_num: u64, now: Instant) {
+    fn dispatch(&mut self, msg: &Message, seq_num: u64, now: Instant, arrived: bool) {
         match msg.msg_type() {
             MsgType::Heartbeat => {}
             MsgType::TestRequest => match msg.parse::<TestRequest>() {
@@ -1524,7 +1526,7 @@ impl Session {
             ),
             MsgType::Logout => self.on_logout_message(msg, now),
             MsgType::Logon => self.reject(msg, None, None, "Session is already logged on", now),
-            _ => self.deliver(msg, seq_num, now),
+            _ => self.deliver(msg, seq_num, now, arrived),
         }
     }
 
@@ -1658,7 +1660,8 @@ impl Session {
     }
 
     /// Hands an application message to the application and sends its replies or reject.
-    fn deliver(&mut self, msg: &Message, seq_num: u64, now: Instant) {
+    /// `arrived` is false for one taken from the queue, where it waited behind a gap.
+    fn deliver(&mut self, msg: &Message, seq_num: u64, now: Instant, arrived: bool) {
         // The committed window marks it in flight: still marked after a crash, it tells the next
         // connection that the resend of this message may have been handled already.
         debug_assert!(self.covers(seq_num), "{seq_num} is handed over in a committed window");
@@ -1667,9 +1670,12 @@ impl Session {
         // counterparty doesn't flag its resends). New messages can't have been.
         let resent = msg.flag(tags::POSS_DUP_FLAG) || self.resend.is_some();
         debug_assert!(!msg.msg_type().is_admin(), "admin messages are the session's, never delivered");
-        // Recovery traffic replaces messages we missed, often at our own request, so it's never
-        // too fast: rejecting it would lose them.
-        if !resent && self.over_inbound_limit(now) {
+        // Recovery we asked for isn't throttled: what arrives while our ResendRequest is
+        // outstanding, and what waited behind the gap it fills, which may be released after the
+        // request is done. It's never too fast, and rejecting it would lose messages we asked
+        // for. PossDupFlag alone is the sender's claim, so it would let any message past.
+        let requested = self.resend.is_some() || !arrived;
+        if !requested && self.over_inbound_limit(now) {
             let text = "throttle limit exceeded".into();
             return self.business_reject(msg, seq_num, BusinessRejectReason::Other, text, now);
         }

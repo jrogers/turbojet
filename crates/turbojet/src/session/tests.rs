@@ -3840,12 +3840,34 @@ fn inbound_reject_delivers_what_the_counterparty_resends_at_our_request() {
     assert_eq!(types(&out), ["ExecutionReport", "ExecutionReport"]);
     assert!(s.resend.is_none());
     assert_eq!(delivered(&h), ["A", "B", "C", "D", "E"]);
-    // A message flagged PossDup with no request outstanding is a resend as well.
-    assert_eq!(types(&s.recv(resend_of(order(7, "F")), h.at_millis(1_500))), ["ExecutionReport"]);
-    // None counted: new messages are still over the limit until A expires.
-    assert_throttled(&s.recv(order(8, "G"), h.at_millis(1_600)), 8);
-    assert_eq!(types(&s.recv(order(9, "H"), h.at(2))), ["ExecutionReport"]);
-    assert_eq!(delivered(&h), ["A", "B", "C", "D", "E", "F", "H"]);
+    // None counted: with the request done, new messages are over the limit until A expires.
+    assert_throttled(&s.recv(order(7, "F"), h.at_millis(1_500)), 7);
+    // PossDupFlag alone is only the sender's claim: with no request of ours open, it's throttled
+    // when the window is full, and counts when it isn't.
+    assert_throttled(&s.recv(resend_of(order(8, "G")), h.at_millis(1_600)), 8);
+    assert_eq!(types(&s.recv(resend_of(order(9, "H")), h.at(2))), ["ExecutionReport"]);
+    assert_throttled(&s.recv(order(10, "I"), h.at_millis(2_050)), 10);
+    assert_eq!(types(&s.recv(order(11, "J"), h.at_millis(2_100))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "B", "C", "D", "E", "H", "J"]);
+}
+
+#[test]
+fn inbound_reject_delivers_messages_released_after_our_resend_request_is_done() {
+    // More messages wait behind the gap than one window of deliveries holds, so the rest are
+    // handled after a commit, by when the resend is complete: they were still asked for.
+    let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    s.recv(order(3, "B"), h.at(1));
+    let last = 4 + DELIVERIES_PER_COMMIT + 10;
+    for seq in 5..=last {
+        s.recv(order(seq, &format!("O{seq}")), h.at(1));
+    }
+    s.recv(resend_of(order(4, "C")), h.at(1));
+    assert!(s.resend.is_none());
+    assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "all of them, in sequence");
+    assert_eq!(s.peer().log.next_incoming(), last + 1);
+    assert_throttled(&s.recv(order(last + 1, "N"), h.at(1)), last + 1);
 }
 
 #[test]
