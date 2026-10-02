@@ -19,8 +19,8 @@ use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use turbojet::{
-    Acceptor, DiskStorage, HolidayCalendar, MemoryStorage, SequenceError, SessionConfig, SessionId, SessionRegistry,
-    SessionSchedule, SessionStorage, tls,
+    Acceptor, DiskStorage, HolidayCalendar, InboundLimit, MemoryStorage, RateLimit, SequenceError, SessionConfig,
+    SessionId, SessionRegistry, SessionSchedule, SessionStorage, tls,
 };
 
 use app::GatewayApp;
@@ -52,6 +52,11 @@ Options:
                        \"weekly sun 17:00-fri 17:00 America/New_York\" (default: always open)
   --holidays FILE      With --schedule: start no session on these dates (one YYYY-MM-DD per
                        line in the schedule's time zone, # comments); read at startup
+  --inbound-limit N/W  Accept at most N application messages per window W from each
+                       counterparty, e.g. 100/1s
+  --over-limit A       With --inbound-limit: `delay` (default) reads more slowly, so TCP
+                       slows the sender; `reject` answers each message over it with a
+                       BusinessMessageReject
   --metrics-listen A   Serve Prometheus metrics at http://A/metrics
   --log-format F       `text` (default) or `json`
   -h, --help           Show this help
@@ -112,6 +117,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut metrics_listen = None;
     let mut json_logs = false;
     let mut holidays = None;
+    let (mut inbound_limit, mut over_limit) = (None, None);
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or(format!("{arg} requires a value"));
@@ -135,6 +141,18 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 config.schedule = Some(text.parse().map_err(|e| format!("invalid --schedule '{text}': {e}"))?);
             }
             "--holidays" => holidays = Some(PathBuf::from(value()?)),
+            "--inbound-limit" => {
+                let text = value()?;
+                inbound_limit =
+                    Some(text.parse::<RateLimit>().map_err(|e| format!("invalid --inbound-limit '{text}': {e}"))?);
+            }
+            "--over-limit" => {
+                over_limit = Some(match value()?.as_str() {
+                    "delay" => InboundLimit::Delay as fn(RateLimit) -> InboundLimit,
+                    "reject" => InboundLimit::Reject,
+                    other => return Err(format!("--over-limit must be 'delay' or 'reject', not '{other}'")),
+                })
+            }
             "--metrics-listen" => {
                 let addr = value()?;
                 metrics_listen = Some(addr.parse().map_err(|e| format!("invalid --metrics-listen '{addr}': {e}"))?);
@@ -173,6 +191,11 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         let schedule = config.schedule.take().ok_or("--holidays requires --schedule")?;
         config.schedule = Some(schedule.with_holidays(read_holidays(&path)?));
     }
+    config.inbound_limit = match (inbound_limit, over_limit) {
+        (Some(limit), over_limit) => Some(over_limit.unwrap_or(InboundLimit::Delay)(limit)),
+        (None, Some(_)) => return Err("--over-limit requires --inbound-limit".into()),
+        (None, None) => None,
+    };
     if fsync && store_dir.is_none() {
         return Err("--fsync requires --store-dir".into());
     }
@@ -205,6 +228,15 @@ fn read_holidays(path: &Path) -> Result<HolidayCalendar, String> {
 fn describe_holidays(schedule: Option<&SessionSchedule>) -> String {
     match schedule.map(SessionSchedule::holidays).and_then(|h| Some((h.len(), h.last()?))) {
         Some((count, last)) => format!("{count} (last {last})"),
+        None => "none".to_string(),
+    }
+}
+
+/// The inbound limit for the startup log, e.g. `100/1s delay`.
+fn describe_inbound_limit(limit: Option<&InboundLimit>) -> String {
+    match limit {
+        Some(InboundLimit::Delay(limit)) => format!("{limit} delay"),
+        Some(InboundLimit::Reject(limit)) => format!("{limit} reject"),
         None => "none".to_string(),
     }
 }
@@ -399,6 +431,7 @@ async fn main() -> ExitCode {
         tls = tls_mode,
         schedule = %config.schedule.as_ref().map_or("always open".to_string(), |s| s.to_string()),
         holidays = %describe_holidays(config.schedule.as_ref()),
+        inbound_limit = %describe_inbound_limit(config.inbound_limit.as_ref()),
         tls_match_comp_id,
         "FIX gateway listening"
     );

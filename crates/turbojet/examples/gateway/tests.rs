@@ -546,3 +546,42 @@ fn gateway_reads_holidays_for_its_schedule() {
         .expect("bad date");
     assert!(err.contains("line 1"), "{err}");
 }
+
+#[test]
+fn gateway_limits_the_inbound_rate_and_delays_by_default() {
+    use turbojet::{InboundLimit, RateLimit};
+    let limit = RateLimit::new(100, Duration::from_secs(1));
+    let parse = |list: &[&str]| crate::parse_args(args(list)).map(|a| a.config.inbound_limit);
+
+    assert_eq!(parse(&["--allow-any"]).unwrap(), None);
+    assert_eq!(parse(&["--allow-any", "--inbound-limit", "100/1s"]).unwrap(), Some(InboundLimit::Delay(limit)));
+    assert_eq!(
+        parse(&["--allow-any", "--inbound-limit", "100/1s", "--over-limit", "delay"]).unwrap(),
+        Some(InboundLimit::Delay(limit))
+    );
+    assert_eq!(
+        parse(&["--allow-any", "--inbound-limit", "100/1s", "--over-limit", "reject"]).unwrap(),
+        Some(InboundLimit::Reject(limit))
+    );
+    // The order of the options doesn't matter.
+    assert_eq!(
+        parse(&["--allow-any", "--over-limit", "reject", "--inbound-limit", "100/1s"]).unwrap(),
+        Some(InboundLimit::Reject(limit))
+    );
+    assert_eq!(crate::describe_inbound_limit(Some(&InboundLimit::Reject(limit))), "100/1s reject");
+    assert_eq!(crate::describe_inbound_limit(None), "none");
+}
+
+#[test]
+fn gateway_refuses_a_bad_inbound_limit() {
+    let err = crate::parse_args(args(&["--allow-any", "--inbound-limit", "0/1s"])).err().expect("zero messages");
+    assert!(err.contains("invalid --inbound-limit '0/1s': "), "{err}");
+
+    let err = crate::parse_args(args(&["--allow-any", "--over-limit", "reject"])).err().expect("needs the limit");
+    assert!(err.contains("--over-limit requires --inbound-limit"), "{err}");
+
+    let err = crate::parse_args(args(&["--allow-any", "--inbound-limit", "100/1s", "--over-limit", "drop"]))
+        .err()
+        .expect("unknown action");
+    assert!(err.contains("--over-limit must be 'delay' or 'reject', not 'drop'"), "{err}");
+}
