@@ -9,7 +9,7 @@ use std::time::Duration;
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::tags;
 use turbojet::store::SessionStorage;
-use turbojet::{InitiatorConfig, MemoryStorage, SessionConfig, SessionId, SessionRegistry};
+use turbojet::{DiskStorage, InitiatorConfig, MemoryStorage, SessionConfig, SessionRegistry};
 
 use crate::Side;
 use crate::app::{RecordingApp, order, report};
@@ -101,6 +101,8 @@ struct Faults {
     crash_every: Option<Duration>,
     /// Longest a crashed node takes to restart.
     restart_max: Duration,
+    /// Where the sessions keep their state.
+    store: StoreKind,
     /// Mean time between traps set in a store call (of either node), if any, and the chance in a
     /// million that one crashes the process rather than just failing the call.
     trap_every: Option<Duration>,
@@ -127,6 +129,12 @@ impl Faults {
             resend_batch: if rng.chance(330_000) { Some(rng.between(1, 8)) } else { None },
             crash_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
             restart_max: rng.pick(&[ms(100), secs(5), secs(30)]),
+            store: rng.pick(&[
+                StoreKind::Memory,
+                StoreKind::Memory,
+                StoreKind::Disk { sync: false },
+                StoreKind::Disk { sync: true },
+            ]),
             trap_every: rng.pick(&[None, Some(secs(30)), Some(secs(5))]),
             trap_crashes: rng.pick(&[0, 500_000, 1_000_000]),
         }
@@ -143,6 +151,16 @@ impl Faults {
             + heartbeat * 10
             + Duration::from_secs(60)
     }
+}
+
+/// Where a seed's sessions keep their state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoreKind {
+    /// `MemoryStorage`, standing for files that survive a process crash.
+    Memory,
+    /// `DiskStorage` in a directory of the seed's own. `sync` is what a power loss keeps: the
+    /// store itself runs without fsync, since the simulator decides what a power loss loses.
+    Disk { sync: bool },
 }
 
 #[derive(Debug)]
@@ -217,7 +235,8 @@ struct World {
     queue: Queue<Event>,
     nodes: [Node; 2],
     storage: [Arc<LedgerStorage>; 2],
-    ids: [SessionId; 2],
+    /// The disk stores' directory, removed when the run ends.
+    _dir: Option<tempfile::TempDir>,
     net: Net,
     checker: Checker,
     pending: BTreeMap<(Side, ConnId), Pending>,
@@ -265,8 +284,17 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
     }
 }
 
-fn session_id(sender: &str, target: &str) -> SessionId {
-    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: sender.into(), target_comp_id: target.into() }
+/// Each side's store, of `kind`, wrapped to keep a ledger; and for disk stores, their directory.
+fn stores(kind: StoreKind) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
+    let dir = matches!(kind, StoreKind::Disk { .. }).then(|| tempfile::tempdir().expect("a temp dir"));
+    let store = |name: &str| -> Arc<dyn SessionStorage> {
+        match &dir {
+            None => Arc::new(MemoryStorage::new()),
+            Some(dir) => Arc::new(DiskStorage::new(dir.path().join(name), false).expect("a store directory")),
+        }
+    };
+    let storage = [Arc::new(LedgerStorage::new(store("initiator"))), Arc::new(LedgerStorage::new(store("acceptor")))];
+    (dir, storage)
 }
 
 impl World {
@@ -282,8 +310,7 @@ impl World {
         initiator.heartbeat_interval = Duration::from_secs(rng.pick(&[1, 2, 5, 10, 30]));
         initiator.reconnect_interval = Duration::from_millis(rng.between(100, 5_000));
         let faults = Faults::draw(&mut rng.fork(), initiator.heartbeat_interval);
-        let ledger = || Arc::new(LedgerStorage::new(Arc::new(MemoryStorage::new())));
-        let storage = [ledger(), ledger()];
+        let (dir, storage) = stores(faults.store);
         let registry = |side: Side| {
             let storage: Arc<dyn SessionStorage> = storage[side.index()].clone();
             Arc::new(SessionRegistry::new(storage).with_clock(clocks.wall_clock()))
@@ -316,7 +343,7 @@ impl World {
             queue: Queue::new(),
             nodes,
             storage,
-            ids: [session_id("CLIENT", "GATEWAY"), session_id("GATEWAY", "CLIENT")],
+            _dir: dir,
             net,
             checker: Checker::new(),
             pending: BTreeMap::new(),
@@ -821,14 +848,10 @@ impl World {
             if let Some(missing) = self.checker.committed(side).find(|id| !received.contains(id)) {
                 return fail(format!("{side:?} sent {missing}, never delivered"));
             }
-            let ours = self.storage[side.index()].open(&self.ids[side.index()]).expect("a memory store opens");
-            let theirs = self.storage[side.other().index()].open(&self.ids[side.other().index()]).expect("opens");
-            if ours.next_outgoing() != theirs.next_incoming() {
-                return fail(format!(
-                    "{side:?} sends {} next, but the other side expects {}",
-                    ours.next_outgoing(),
-                    theirs.next_incoming()
-                ));
+            // As each store last recorded them (a disk store can't be opened while its session is).
+            let (ours, theirs) = (self.checker.numbers(side).0, self.checker.numbers(side.other()).1);
+            if ours != theirs {
+                return fail(format!("{side:?} sends {ours} next, but the other side expects {theirs}"));
             }
         }
         Ok(())

@@ -263,6 +263,12 @@ impl Checker {
         Ok(())
     }
 
+    /// The next outgoing and incoming MsgSeqNums `side`'s store last recorded.
+    pub fn numbers(&self, side: Side) -> (u64, u64) {
+        let sent = &self.sent[side.index()];
+        (sent.next_recorded, sent.incoming)
+    }
+
     /// Ids `side`'s application has received.
     pub fn received_ids(&self, side: Side) -> impl Iterator<Item = &str> {
         self.received[side.index()].ids.keys().map(String::as_str)
