@@ -302,7 +302,9 @@ impl SessionHandle {
 
     /// Moves the next outgoing MsgSeqNum forward (it can't go back; see
     /// [`reset_sequence_numbers`](Self::reset_sequence_numbers)). If the session is logged on,
-    /// the counterparty is told with a SequenceReset (reset mode) to expect `seq` next.
+    /// the counterparty is told to expect `seq` next with a SequenceReset in gap-fill mode, which a
+    /// counterparty still filling a gap applies only once it's filled, so nothing sent before is
+    /// lost; otherwise it finds out from the next message, and asks for the skipped numbers.
     pub async fn set_next_outgoing(&self, seq: u64) -> Result<SequenceNumbers, SequenceError> {
         self.sequence(SequenceCommand::SetNextOutgoing(seq)).await
     }

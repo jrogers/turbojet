@@ -607,9 +607,11 @@ impl Session {
             SequenceCommand::SetNextOutgoing(seq)
                 if self.status == Status::Active && seq > self.peer().log.next_outgoing() =>
             {
-                // Tell the counterparty to expect `seq` next, then skip to it.
-                info!(new_seq_no = seq, "sending SequenceReset (reset mode)");
-                self.send(SequenceReset { gap_fill_flag: None, new_seq_no: seq }.into(), now);
+                // Tell the counterparty to expect `seq` next, then skip to it. In gap-fill mode, under
+                // its own MsgSeqNum: a counterparty still filling a gap applies it in turn, after
+                // what we sent before it, where reset mode would make it abandon the gap.
+                info!(new_seq_no = seq, "sending SequenceReset (gap fill)");
+                self.send(SequenceReset { gap_fill_flag: Some(true), new_seq_no: seq }.into(), now);
             }
             _ => {}
         }

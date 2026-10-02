@@ -2377,10 +2377,28 @@ mod operator_tests {
         let reset = sent(&out)[0];
         assert_eq!(reset.msg_type(), MsgType::SequenceReset);
         assert_eq!(reset.get(tags::NEW_SEQ_NO), Some("100"));
-        assert_eq!(reset.get(tags::GAP_FILL_FLAG), None, "reset mode, not gap fill");
+        // Gap-fill mode, with its own MsgSeqNum: a counterparty still filling a gap applies it only
+        // once the gap is filled, rather than abandoning the gap as reset mode would make it.
+        assert_eq!(reset.get(tags::GAP_FILL_FLAG), Some("Y"));
+        assert_eq!(reset.get(tags::MSG_SEQ_NUM), Some("2"));
         // Our next message carries 100.
         let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
         assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("100"));
+    }
+
+    /// The other end of a skip: a gap-fill SequenceReset that arrives while a gap is open waits its
+    /// turn, so what was sent before it is still delivered.
+    #[test]
+    fn a_skip_ahead_during_a_gap_is_applied_after_the_gap_fills() {
+        let h = Harness::new();
+        let mut s = h.logged_on(); // their next is 2
+        assert_eq!(types(&s.recv(order(3, "B"), h.t0)), ["ResendRequest"]);
+        let skip = client(4, MsgType::SequenceReset).with(tags::GAP_FILL_FLAG, "Y").with(tags::NEW_SEQ_NO, "100");
+        assert!(s.recv(skip, h.t0).is_empty(), "queued behind the gap");
+        let resent = resend_of(order(2, "A"));
+        assert_eq!(types(&s.recv(resent, h.t0)), ["ExecutionReport", "ExecutionReport"]);
+        assert_eq!(h.app.received(), 2, "A and B both delivered");
+        assert_eq!(s.peer().log.next_incoming(), 100);
     }
 
     #[test]

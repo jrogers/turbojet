@@ -38,15 +38,15 @@ async fn sequence_reset_from_peer(setup: Setup) {
     pair.finish().await;
 }
 
-/// Turbojet's operator moves its outgoing sequence to 20: QuickFIX/J is told with a
-/// SequenceReset-Reset and accepts the next message at 20.
+/// Turbojet's operator moves its outgoing sequence to 20: QuickFIX/J is told with a SequenceReset
+/// in gap-fill mode, in sequence, and accepts the next message at 20.
 async fn sequence_reset_from_tj(setup: Setup) {
     let mut pair = setup.start().await;
     pair.logged_on().await;
     pair.handle.set_next_outgoing(20).await.unwrap();
     let reset = pair.peer.received("4").await;
     assert_eq!(reset.get(36), Some("20"), "{}", reset.raw());
-    assert_ne!(reset.get(123), Some("Y"), "{}", reset.raw());
+    assert_eq!(reset.get(123), Some("Y"), "{}", reset.raw());
     pair.handle.send(tj_order("ORD1")).unwrap();
 
     let order = pair.peer.received("D").await;
