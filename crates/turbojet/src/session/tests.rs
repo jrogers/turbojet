@@ -3902,6 +3902,115 @@ fn inbound_rejections_do_not_count() {
     assert_eq!(s.peer().log.next_incoming(), 12);
 }
 
+impl Harness {
+    /// A harness whose sessions hold input once `messages` application messages have been
+    /// received within `per`.
+    fn with_inbound_delay(messages: u32, per: Duration) -> Self {
+        let mut h = Self::new();
+        h.config.inbound_limit = Some(InboundLimit::Delay(RateLimit::new(messages, per)));
+        h
+    }
+
+    /// A logged-on acceptor session with `heartbeat` seconds' HeartBtInt.
+    fn logged_on_with_heartbeat(&self, heartbeat: u64) -> Session {
+        let mut s = self.session();
+        let out = s.recv(logon(1).with(tags::HEART_BT_INT, heartbeat), self.t0);
+        assert_eq!(sent(&out)[0].msg_type(), MsgType::Logon);
+        s
+    }
+}
+
+#[test]
+fn inbound_delay_holds_input_after_the_message_that_fills_the_window() {
+    let h = Harness::with_inbound_delay(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    assert_eq!(s.input_free_at(), None, "the Logon doesn't count");
+    assert_eq!(types(&s.recv(order(2, "A"), h.at(1))), ["ExecutionReport"]);
+    assert_eq!(s.input_free_at(), None, "one of two");
+    // B fills the window and is still handled; only the next message waits.
+    assert_eq!(types(&s.recv(order(3, "B"), h.at(1))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "B"]);
+    assert_eq!(s.input_free_at(), Some(h.at(2)), "a whole window after A");
+    assert!(s.ready_for_input(), "holding needs the time, so it's input_free_at's");
+    // Waking for the window is the driver's: the timer's deadline is still the next Heartbeat.
+    assert_eq!(s.next_deadline(), Some(h.at(31)));
+    // Once the window frees up, the input it held goes on.
+    assert_eq!(types(&s.recv(order(4, "C"), h.at(2))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "B", "C"]);
+    assert_eq!(s.input_free_at(), None, "A and B no longer count: C alone is in the window");
+    assert_eq!(s.peer().log.next_incoming(), 5);
+    // Nothing went to the counterparty about it.
+    assert_eq!(s.peer().log.next_outgoing(), 5, "the Logon and three ExecutionReports");
+}
+
+#[test]
+fn inbound_delay_holds_nothing_once_logging_out() {
+    let h = Harness::with_inbound_delay(1, Duration::from_secs(60));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    assert_eq!(s.input_free_at(), Some(h.at(61)));
+    assert_eq!(types(&s.shutdown(Some("bye"), h.at(2))), ["Logout"]);
+    // Held now, the counterparty's Logout reply would wait a minute.
+    assert_eq!(s.input_free_at(), None);
+    assert_eq!(types(&s.recv(client(3, MsgType::Logout), h.at(3))), ["DISCONNECT"]);
+}
+
+#[test]
+fn inbound_delay_does_not_count_recovery_we_asked_for() {
+    let h = Harness::with_inbound_delay(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    // A gap: 5 waits behind our ResendRequest for 3 and 4, which answer it.
+    assert_eq!(types(&s.recv(order(5, "D"), h.at(1))), ["ResendRequest"]);
+    s.recv(resend_of(order(3, "B")), h.at(1));
+    s.recv(order(4, "C"), h.at(1));
+    assert!(s.resend.is_none());
+    assert_eq!(delivered(&h), ["A", "B", "C", "D"]);
+    assert_eq!(s.input_free_at(), None, "only A counted");
+    s.recv(order(6, "E"), h.at(1));
+    assert_eq!(s.input_free_at(), Some(h.at(2)), "A and E fill the window");
+}
+
+#[test]
+fn time_spent_holding_input_is_not_silence() {
+    // A window longer than the heartbeat interval: the counterparty's Heartbeats wait unread
+    // behind the hold, so it would otherwise be probed after 1.2s and dropped after 2.2s.
+    let h = Harness::with_inbound_delay(1, Duration::from_secs(5));
+    let mut s = h.logged_on_with_heartbeat(1);
+    assert_eq!(types(&s.recv(order(2, "A"), h.t0)), ["ExecutionReport"]);
+    assert_eq!(s.input_free_at(), Some(h.at(5)));
+    for secs in 1..=5 {
+        assert_eq!(types(&s.timer(h.at(secs))), ["Heartbeat"], "{secs}s: our own Heartbeats go on");
+        assert_ne!(s.next_deadline(), None);
+    }
+    assert_eq!(s.next_deadline(), Some(h.at(6)), "the next Heartbeat; the probe waits for 6.2s");
+    // Silence counts from the end of the hold: a TestRequest at 1.2 intervals after it, and a
+    // disconnect an interval after that.
+    assert_eq!(types(&s.timer(h.at(6))), ["Heartbeat"]);
+    assert!(s.timer(h.at_millis(6_199)).is_empty());
+    assert_eq!(types(&s.timer(h.at_millis(6_200))), ["TestRequest"]);
+    assert_eq!(types(&s.timer(h.at_millis(7_200))), ["DISCONNECT"]);
+}
+
+#[test]
+fn a_test_request_outstanding_when_input_is_held_does_not_drop_the_counterparty() {
+    // The message that fills the window answers any TestRequest, as any message does; the hold
+    // then keeps the counterparty from being probed again, or dropped, until it ends.
+    let h = Harness::with_inbound_delay(1, Duration::from_secs(5));
+    let mut s = h.logged_on_with_heartbeat(1);
+    assert_eq!(types(&s.timer(h.at(1))), ["Heartbeat"]);
+    assert_eq!(types(&s.timer(h.at_millis(1_200))), ["TestRequest"]);
+    assert_eq!(types(&s.recv(order(2, "A"), h.at_millis(1_500))), ["ExecutionReport"]);
+    assert_eq!(s.input_free_at(), Some(h.at_millis(6_500)));
+    // Unanswered, the TestRequest would have dropped the counterparty at 2.2s.
+    assert!(s.timer(h.at_millis(2_200)).is_empty());
+    for millis in [2_500, 3_500, 4_500, 5_500, 6_500, 7_500] {
+        assert_eq!(types(&s.timer(h.at_millis(millis))), ["Heartbeat"], "{millis}ms");
+    }
+    // Silence counts from the end of the hold, at 6.5s.
+    assert_eq!(types(&s.timer(h.at_millis(7_700))), ["TestRequest"]);
+}
+
 #[test]
 fn rate_limits_out_of_bounds_are_refused() {
     let config = |outbound, inbound| {

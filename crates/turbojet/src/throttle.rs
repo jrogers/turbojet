@@ -138,7 +138,8 @@ impl fmt::Display for Per {
 /// What happens to an inbound application message over the limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InboundLimit {
-    /// Stop reading until the window allows more: TCP slows the sender.
+    /// Stop reading until the window allows more: TCP slows the sender. Admin messages wait too,
+    /// since input stays in order; see [`SessionConfig::inbound_limit`](crate::SessionConfig::inbound_limit).
     Delay(RateLimit),
     /// Answer it with a BusinessMessageReject instead of delivering it; rejected messages don't
     /// count.

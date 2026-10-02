@@ -109,6 +109,14 @@ pub struct SessionConfig {
     /// allows more, and [`InboundLimit::Reject`] answers them with a BusinessMessageReject. Admin
     /// messages and resends we asked for don't count. `None` (the default) means no limit.
     ///
+    /// With `Delay`, the application message that fills the window is handled, then nothing more
+    /// is processed, and the transport isn't read, until the window frees up a whole window after
+    /// the oldest message in it. The counterparty's input waits, in order, unread, and TCP slows
+    /// it down; nothing is sent to say so. Admin messages wait too, behind the input before them:
+    /// a Heartbeat or an answer to our TestRequest is handled only once the hold ends, so the time
+    /// held doesn't count as the counterparty's silence. A counterparty that closes the
+    /// connection meanwhile is noticed once the hold ends.
+    ///
     /// With `Reject`, an application message that arrives while the window is full isn't handed
     /// to the application: it's answered with a BusinessMessageReject(j) whose RefSeqNum(45) is
     /// its MsgSeqNum, BusinessRejectReason(380) 0 (Other) and Text(58) "throttle limit
@@ -116,7 +124,7 @@ pub struct SessionConfig {
     /// so the counterparty doesn't resend it. Rejected messages don't count, so a counterparty
     /// sending too fast can't keep the window full.
     ///
-    /// Recovery we asked for neither counts nor is rejected: any message that arrives while a
+    /// Recovery we asked for neither counts, so it never starts a hold, nor is rejected: any message that arrives while a
     /// ResendRequest of ours is outstanding, and those that arrived ahead of the gap it fills,
     /// handled once it's filled. It answers our own request, so it can't be too fast, and
     /// rejecting it would lose messages we asked for. PossDupFlag(43)=Y alone doesn't exempt a
@@ -644,7 +652,8 @@ impl Session {
     /// waits for a commit, under way or due from [`take_commit`](Self::take_commit): one that
     /// records the messages about to be handed to the application as in flight, so that a crash
     /// while they're handled is noticed when they're resent. A message fed in anyway is handled
-    /// once the session has committed that itself, on the calling thread.
+    /// once the session has committed that itself, on the calling thread. Input also waits while
+    /// [`input_free_at`](Self::input_free_at) holds it, which needs the time.
     pub fn ready_for_input(&mut self) -> bool {
         if self.committing {
             return false;
@@ -674,6 +683,40 @@ impl Session {
             return None;
         }
         self.outbound.as_ref().and_then(Window::free_at_or_none)
+    }
+
+    /// When the inbound window frees up, if it's full under an [`InboundLimit::Delay`]; `None` if
+    /// it isn't, if there's no such limit, or if the session isn't logged on (one logging out
+    /// just takes its input). Until then, feed the session no more input and don't read the
+    /// transport, so the counterparty's input waits, in order, and TCP slows it down. It may have
+    /// passed: input goes on once it has. The message that fills the window is handled; only the
+    /// next one waits. A message fed in anyway is handled, and counts.
+    ///
+    /// Like [`send_free_at`](Self::send_free_at), it isn't part of
+    /// [`next_deadline`](Self::next_deadline): the driver holding input wakes for it itself.
+    pub fn input_free_at(&self) -> Option<Instant> {
+        if self.status != Status::Active {
+            return None;
+        }
+        self.input_held_until()
+    }
+
+    /// When input held by a Delay limit goes on, if the window has filled since it last had room,
+    /// whether or not that has passed. Whatever the counterparty sends meanwhile, its Heartbeats
+    /// and answers to our TestRequests included, waits unread, so [`silent_from`](Self::silent_from)
+    /// doesn't count the hold as silence.
+    fn input_held_until(&self) -> Option<Instant> {
+        let inbound = self.inbound.as_ref().filter(|inbound| inbound.over == Over::Delay)?;
+        inbound.window.free_at_or_none()
+    }
+
+    /// When silence since `since` (the last message received, or our TestRequest) counts from:
+    /// the end of a hold on input, if that's later, since what the counterparty sent meanwhile
+    /// waits unread. While the hold lasts that's in the future, so no TestRequest goes out and
+    /// none goes unanswered; after it, silence counts from its end. The window keeps that end
+    /// until a message is next recorded, which also moves `last_received` past it.
+    fn silent_from(&self, since: Instant) -> Instant {
+        self.input_held_until().map_or(since, |held_until| since.max(held_until))
     }
 
     /// Commits on this thread until nothing is left to commit, running any commit the store
@@ -929,7 +972,8 @@ impl Session {
 
     /// When [`on_timer`](Self::on_timer) next has something to do: a logon or logout timeout, a
     /// Heartbeat or TestRequest falling due, or an unanswered ResendRequest. `None` once closed,
-    /// and while [`is_resending`](Self::is_resending).
+    /// and while [`is_resending`](Self::is_resending). While [`input_free_at`](Self::input_free_at)
+    /// holds input, the counterparty's silence counts from when it frees up.
     ///
     /// Schedule boundaries aren't included, since they are wall-clock times; call `on_timer` at
     /// least once a second as well. A timeout too long to represent as an `Instant` (such as
@@ -948,8 +992,8 @@ impl Session {
                 let interval = self.peer().heartbeat;
                 let heartbeat = self.last_sent.checked_add(interval);
                 let test_request = match self.test_request_sent {
-                    Some(sent) => sent.checked_add(interval),
-                    None => self.last_received.checked_add(probe_after(interval)),
+                    Some(sent) => self.silent_from(sent).checked_add(interval),
+                    None => self.silent_from(self.last_received).checked_add(probe_after(interval)),
                 };
                 let resend = self.resend.as_ref().and_then(|r| r.progress_at.checked_add(resend_timeout(interval)));
                 [heartbeat, test_request, resend].into_iter().flatten().min()
@@ -961,14 +1005,15 @@ impl Session {
     /// Keep in step with [`next_deadline`](Self::next_deadline).
     fn check_heartbeats(&mut self, now: Instant) {
         let interval = self.peer().heartbeat;
+        // Input held by a Delay limit isn't silence: see `silent_from`.
         match self.test_request_sent {
-            Some(sent) if now.duration_since(sent) >= interval => {
+            Some(sent) if now.duration_since(self.silent_from(sent)) >= interval => {
                 warn!("counterparty did not answer TestRequest; disconnecting");
                 self.close();
                 return;
             }
             Some(_) => {}
-            None if now.duration_since(self.last_received) >= probe_after(interval) => {
+            None if now.duration_since(self.silent_from(self.last_received)) >= probe_after(interval) => {
                 self.test_req_counter += 1;
                 let id = format!("TEST{}", self.test_req_counter);
                 self.send(TestRequest { test_req_id: id }.into(), now);
@@ -1719,11 +1764,17 @@ impl Session {
     }
 
     /// Whether a new application message received at `now` is over an inbound Reject limit. One
-    /// that isn't is recorded; one that is isn't, so rejections don't keep the window full.
+    /// that isn't is recorded; one that is isn't, so rejections don't keep the window full. With
+    /// Delay every one is recorded and none is over: the driver holds input while the window is
+    /// full (see [`input_free_at`](Self::input_free_at)), so the message that fills it is the last
+    /// until it frees up.
     fn over_inbound_limit(&mut self, now: Instant) -> bool {
         let Some(inbound) = &mut self.inbound else { return false };
         match inbound.over {
-            Over::Delay => false,
+            Over::Delay => {
+                inbound.window.record(now);
+                false
+            }
             Over::Reject => {
                 if inbound.window.free_at(now).is_some() {
                     return true;

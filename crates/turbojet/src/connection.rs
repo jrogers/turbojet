@@ -49,7 +49,8 @@ const MAX_READS_PER_BATCH: usize = 16;
 
 /// Most input read but not yet processed, during a resend, before the connection is dropped.
 /// Input waits for the end of a resend, so nothing new goes out in the middle of it, but it's
-/// read meanwhile, so the counterparty's writes (its own resend, say) don't block.
+/// read meanwhile, so the counterparty's writes (its own resend, say) don't block. Input an inbound
+/// Delay limit holds isn't read, so it can't build up here.
 const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 
 /// Runs `session` over `stream` until either side disconnects.
@@ -120,7 +121,8 @@ where
     // plus header and trailer, so it grows to no more than that and one read, except during a
     // resend, when input waits here (up to MAX_UNPROCESSED).
     let mut buf = Vec::with_capacity(READ_BUFFER_SIZE);
-    // Input read during a resend, waiting in `buf` until it ends.
+    // Input read during a resend or a commit, or held by an inbound Delay limit, waiting in `buf`
+    // until it ends.
     let mut deferred = false;
     // Every inbound frame is decoded into this one message, which keeps its allocations.
     let mut scratch = Message::default();
@@ -152,8 +154,14 @@ where
     loop {
         *logged_on |= session.has_logged_on();
         loop {
-            // Input that waited for a resend or a commit is processed once it has ended.
-            if deferred && !session.is_resending() && !session.is_closed() && !session.is_committing() {
+            // Input that waited for a resend, a commit or the inbound window is processed once it
+            // has ended.
+            if deferred
+                && !session.is_resending()
+                && !session.is_closed()
+                && !session.is_committing()
+                && input_held_until(&session).is_none()
+            {
                 deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
             }
             // A Logout that was waiting for the sends queued before it, now they've been taken.
@@ -173,6 +181,7 @@ where
                 && !session.is_closed()
                 && !session.is_resending()
                 && buf.len() < MAX_UNPROCESSED
+                && input_held_until(&session).is_none()
                 && let Some(read) = poll_once(reader.read_buf(&mut buf))
             {
                 reads += 1;
@@ -193,8 +202,14 @@ where
                 commits_wait = true;
             }
             // Input that stopped for a commit made at once goes on: each time round, the commit
-            // opens the window it stopped for, or is left under way.
-            if !(deferred && commit.is_none() && !session.is_resending() && !session.is_closed()) {
+            // opens the window it stopped for, or is left under way. Input the inbound window
+            // holds waits for the select's wake-up.
+            if !(deferred
+                && commit.is_none()
+                && !session.is_resending()
+                && !session.is_closed()
+                && input_held_until(&session).is_none())
+            {
                 break;
             }
         }
@@ -262,6 +277,9 @@ where
         let takes_sends =
             !closed && !committing && session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT;
         let (sends, sends_free_at) = sends_this_time(&session, &commands, takes_sends);
+        // While the inbound window holds input, the socket isn't read: input waits there, in
+        // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
+        let input_held = input_held_until(&session);
         tokio::select! {
             // Write what the stream takes, then flush: buffering transports (TLS in particular)
             // may hold written data until flushed. Each is cancel-safe, so another branch
@@ -278,7 +296,8 @@ where
                     }
                 }
             }
-            read = reader.read_buf(&mut buf) => {
+            // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
+            read = reader.read_buf(&mut buf), if input_held.is_none() => {
                 let read = read?;
                 if read == 0 {
                     return Ok(());
@@ -318,6 +337,11 @@ where
             () = async {
                 tokio::time::sleep_until(Instant::from_std(sends_free_at.expect("guarded by is_some"))).await;
             }, if sends_free_at.is_some() => {}
+            // The inbound window has freed up: next time round, the input it held is fed and the
+            // socket read again. Not the timer, as for sends.
+            () = async {
+                tokio::time::sleep_until(Instant::from_std(input_held.expect("guarded by is_some"))).await;
+            }, if input_held.is_some() => {}
             // One step of the resend each time round, once the last step has been written.
             () = std::future::ready(()), if resending && pending.is_empty() && !closed && !committing => {
                 session.on_resume(Instant::now().into_std());
@@ -368,6 +392,16 @@ fn sends_this_time(
     (Sends::Notice, commands.has_sends().then_some(free_at))
 }
 
+/// When input held by the inbound window (see [`Session::input_free_at`]) may go on, if it's held
+/// now. The clock is read only while the window is full. As for sends, the driver owns the
+/// wake-up, not the session's deadline: with no input held, waking for the window would cost a
+/// wake-up per message at a steady rate near the limit, and a deadline the timer finds stuck in the
+/// past waits for the once-a-second ceiling.
+fn input_held_until(session: &Session) -> Option<std::time::Instant> {
+    let free_at = session.input_free_at()?;
+    (free_at > Instant::now().into_std()).then_some(free_at)
+}
+
 /// Polls `future` once, without waiting: its output if it's ready. Write and flush are
 /// cancel-safe, so one that isn't ready has done nothing, and is tried again in the select.
 fn poll_once<F: Future>(future: F) -> Option<F::Output> {
@@ -382,7 +416,8 @@ fn poll_once<F: Future>(future: F) -> Option<F::Output> {
 /// Feeds `session` the complete messages in `buf`, each decoded into `scratch`, then drops the
 /// consumed bytes once; a partial message at the end stays for the next read. The messages
 /// arrived together, so they share one timestamp. Stops at a message that starts a resend, and
-/// before one that must wait for a commit: returns true if input is left waiting.
+/// before one that must wait for a commit or for the inbound window: returns true if input is left
+/// waiting.
 fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
     let mut consumed = 0;
     // Ends: a message consumes its frame, garbled bytes skip at least one, and a resend or a
@@ -391,7 +426,8 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
         if session.is_resending() || session.is_closed() {
             break session.is_resending();
         }
-        if consumed < buf.len() && !session.ready_for_input() {
+        // The message that fills the inbound window has been handled; the next one waits.
+        if consumed < buf.len() && (!session.ready_for_input() || session.input_free_at().is_some_and(|at| at > now)) {
             break true;
         }
         match decode_into(&buf[consumed..], session.data_fields(), scratch) {
@@ -762,6 +798,93 @@ mod tests {
                 ("order", 9_000),
             ]
         );
+    }
+
+    /// An acceptor config holding input once `messages` application messages arrive within `per`.
+    fn with_inbound_delay(messages: u32, per: Duration) -> SessionConfig {
+        let mut config = SessionConfig::new("FIX.4.2", "US");
+        config.inbound_limit = Some(crate::InboundLimit::Delay(crate::RateLimit::new(messages, per)));
+        config
+    }
+
+    /// A burst of 100 orders, written at once, is handed to the application in order, 10 as soon
+    /// as each window frees, over 9 windows, without the connection dropping. Each order's
+    /// ExecutionReport is written as it's handled, so when the peer reads it says when.
+    #[tokio::test(start_paused = true)]
+    async fn inbound_messages_over_the_delay_limit_wait_for_the_window() {
+        const WINDOW: Duration = Duration::from_millis(200);
+        let (mut peer, mut buf, _handle) = logged_on_with(with_inbound_delay(10, WINDOW), 30).await;
+        let start = Instant::now();
+        let burst: Vec<u8> = (0..100u64).flat_map(|i| from_peer(i + 2, order(&format!("O{i}")))).collect();
+        peer.write_all(&burst).await.unwrap();
+
+        let acked = receive_timed(&mut peer, &mut buf, 100, start).await;
+        assert!(acked.iter().all(|(m, _)| m.msg_type() == MsgType::ExecutionReport));
+        let ids: Vec<_> = acked.iter().map(|(m, _)| m.get(tags::CL_ORD_ID).unwrap().to_string()).collect();
+        let expected: Vec<_> = (0..100).map(|i| format!("O{i}")).collect();
+        assert_eq!(ids, expected, "all handled, in order");
+        let times: Vec<_> = acked.iter().map(|(_, at)| *at).collect();
+        let windows: Vec<_> = (0..100u32).map(|i| WINDOW * (i / 10)).collect();
+        assert_eq!(times, windows, "each 10 as soon as the window frees, not when the timer fires");
+        assert_eq!(acked.last().unwrap().1, Duration::from_millis(1_800));
+
+        // Still connected: a TestRequest is answered.
+        peer.write_all(&from_peer(102, Message::new(MsgType::TestRequest).with(tags::TEST_REQ_ID, "up")))
+            .await
+            .unwrap();
+        let answer = receive(&mut peer, &mut buf, 1).await.remove(0);
+        assert_eq!(answer.msg_type(), MsgType::Heartbeat);
+        assert_eq!(answer.get(tags::TEST_REQ_ID), Some("up"));
+    }
+
+    /// A Heartbeat the peer sends behind orders the window holds waits behind them: it's handled
+    /// only once the last of them is. With the window (2.5s) longer than HeartBtInt (1s), the peer
+    /// says nothing else, yet it's neither probed nor dropped: its silence counts from when input
+    /// goes on, not from the last message handled. (The window isn't a whole number of seconds,
+    /// so it never frees up just as one of our Heartbeats falls due, which would make the order
+    /// of the two depend on the select.)
+    #[tokio::test(start_paused = true)]
+    async fn a_heartbeat_behind_held_orders_waits_for_them_and_the_peer_is_not_probed() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_inbound_delay(2, Duration::from_millis(2_500)), 1).await;
+        let start = Instant::now();
+        let mut burst: Vec<u8> = (0..5u64).flat_map(|i| from_peer(i + 2, order(&format!("O{i}")))).collect();
+        burst.extend(from_peer(7, Message::new(MsgType::Heartbeat)));
+        peer.write_all(&burst).await.unwrap();
+
+        let mut seen = Vec::new();
+        while let Ok(mut received) =
+            tokio::time::timeout_at(start + Duration::from_millis(5_900), receive_timed(&mut peer, &mut buf, 1, start))
+                .await
+        {
+            let (msg, at) = received.remove(0);
+            let kind = match msg.msg_type() {
+                MsgType::ExecutionReport => msg.get(tags::CL_ORD_ID).unwrap().to_string(),
+                MsgType::Heartbeat => "heartbeat".into(),
+                other => panic!("unexpected {other} at {at:?} after {seen:?}"),
+            };
+            if at == Duration::from_millis(4_500) {
+                // The Heartbeat arrived at once, but waits behind O4.
+                let numbers = handle.sequence_numbers().await.unwrap();
+                assert_eq!(numbers.next_incoming, 6, "O0 to O3 handled");
+            }
+            seen.push((kind, at.as_millis()));
+        }
+        let seen: Vec<_> = seen.iter().map(|(kind, at)| (kind.as_str(), *at)).collect();
+        assert_eq!(
+            seen,
+            [
+                ("O0", 0),
+                ("O1", 0),
+                ("heartbeat", 1_000),
+                ("heartbeat", 2_000),
+                ("O2", 2_500),
+                ("O3", 2_500),
+                ("heartbeat", 3_500),
+                ("heartbeat", 4_500),
+                ("O4", 5_000),
+            ]
+        );
+        assert_eq!(handle.sequence_numbers().await.unwrap().next_incoming, 8, "the Heartbeat was handled after O4");
     }
 
     /// Nothing goes out before the store's commit of it, which runs off the connection's task:
