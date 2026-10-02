@@ -29,9 +29,12 @@ use chrono::{
 const WEEK: [Weekday; 7] =
     [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
 
-/// Most candidate periods a search looks through: over a year of daily periods, enough to cross
-/// any run of holidays, while a calendar that closes every day still ends the search.
+/// Most candidate periods a search looks through: over a year of daily periods (weekly schedules:
+/// over seven years of weeks), enough to cross any run of holidays, while a calendar that closes
+/// every day still ends the search.
 const MAX_CANDIDATES: usize = 400;
+// Over a year: 366 days, plus the 8-day look-back of a weekly search.
+const _: () = assert!(MAX_CANDIDATES > 366 + 8);
 
 /// A source of wall-clock time. [`Clock::system`] in production; tests can supply their own with
 /// [`Clock::from_fn`] to exercise schedules without waiting.
@@ -302,7 +305,8 @@ impl SessionSchedule {
         self.period_at(time).is_some()
     }
 
-    /// The start of the first period beginning after `time`, if one begins within about a year.
+    /// The start of the first period beginning after `time`, if one begins within `MAX_CANDIDATES`
+    /// (400) days (weekly schedules: weeks).
     pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
         self.periods_around(time).map(|p| p.start).find(|start| *start > time)
     }
@@ -311,6 +315,7 @@ impl SessionSchedule {
     /// period lasts at most a day, a weekly one at most a week).
     fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = Period> + '_ {
         let today = self.time_zone.to_local(time).date();
+        // A period's own length back (a day, or a week), plus a day's margin.
         let back = match self.kind {
             Kind::Daily { .. } => 2,
             Kind::Weekly { .. } => 8,
