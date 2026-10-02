@@ -4122,6 +4122,10 @@ fn logged(f: impl FnOnce()) -> Vec<String> {
         .with_ansi(false)
         .with_writer(move || sink.clone())
         .finish();
+    // While only one dispatcher exists, tracing caches a new callsite's interest from the default
+    // of whichever thread reaches it first: another test's thread, with none, would turn it off
+    // here too. A second keeps it asking every dispatcher, this one included.
+    let _second = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
     tracing::subscriber::with_default(subscriber, f);
     let bytes = captured.0.lock().unwrap().clone();
     String::from_utf8(bytes).unwrap().lines().map(String::from).collect()

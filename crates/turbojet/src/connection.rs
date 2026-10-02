@@ -770,6 +770,10 @@ mod tests {
         let sink = captured.clone();
         let subscriber = tracing_subscriber::fmt().with_ansi(false).with_writer(move || sink.clone()).finish();
         // Thread-local: the test runtime is single-threaded, so the connection task logs here.
+        // While only one dispatcher exists, tracing caches a new callsite's interest from the
+        // default of whichever thread reaches it first: another test's thread, with none, would
+        // turn it off here too. A second keeps it asking every dispatcher, this one included.
+        let _second = tracing::Dispatch::new(tracing::subscriber::NoSubscriber::default());
         let _guard = tracing::subscriber::set_default(subscriber);
         sends_waiting_in_two_holds().await;
         let logged = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
