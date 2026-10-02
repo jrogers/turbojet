@@ -42,6 +42,11 @@ const COMMANDS_PAUSE_AT: usize = 256 * 1024;
 /// for each other), so this grows only with replies to what it reads.
 const MAX_UNWRITTEN: usize = 16 * 1024 * 1024;
 
+/// Most reads that add input already arrived to a batch before it's committed, when commits wait
+/// for the store: enough to take a burst into one commit, while a counterparty sending without
+/// pause can't hold a commit off.
+const MAX_READS_PER_BATCH: usize = 16;
+
 /// Most input read but not yet processed, during a resend, before the connection is dropped.
 /// Input waits for the end of a resend, so nothing new goes out in the middle of it, but it's
 /// read meanwhile, so the counterparty's writes (its own resend, say) don't block.
@@ -131,6 +136,10 @@ where
     let mut stuck = None;
     // The store's commit under way, on a blocking thread: the session waits for it.
     let mut commit: Option<JoinHandle<io::Result<()>>> = None;
+    // The store's commits wait (an fsync), so input that has already arrived is worth taking into
+    // a batch before committing it. Commits made at once aren't: smaller batches let the
+    // counterparty start on the replies sooner (see READ_BUFFER_SIZE).
+    let mut commits_wait = false;
 
     // A connection made once shutdown has started closes without logging on.
     match shutdown.as_ref().and_then(Signal::started_now) {
@@ -154,11 +163,34 @@ where
             {
                 session.on_command(command, Instant::now().into_std());
             }
+            // Input that has already arrived joins this batch rather than waiting out its commit to
+            // make one of its own, so a burst is committed together.
+            let mut reads = 0;
+            while commits_wait
+                && reads < MAX_READS_PER_BATCH
+                && commit.is_none()
+                && !deferred
+                && !session.is_closed()
+                && !session.is_resending()
+                && buf.len() < MAX_UNPROCESSED
+                && let Some(read) = poll_once(reader.read_buf(&mut buf))
+            {
+                reads += 1;
+                match read? {
+                    // The select's read sees the end of the input again, after this batch's commit.
+                    0 => break,
+                    read => {
+                        unattributed_bytes += read;
+                        deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
+                    }
+                }
+            }
             // Whatever the session did since the last commit is committed before it's written.
             if commit.is_none()
                 && let Some(job) = session.take_commit(Instant::now().into_std())
             {
                 commit = Some(tokio::task::spawn_blocking(move || job.run()));
+                commits_wait = true;
             }
             // Input that stopped for a commit made at once goes on: each time round, the commit
             // opens the window it stopped for, or is left under way.
