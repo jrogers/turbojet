@@ -235,6 +235,7 @@ pub struct CommandReceiver {
     held: Option<(Option<String>, u64)>,
     /// A send taken off its queue only to notice it (see [`Sends::Notice`]), first in line. It
     /// isn't counted in `taken` until it's handed out, so a Logout queued after it still waits.
+    /// It has left the bounded queue, so while it's here one more send than `send_queue` waits.
     noticed: Option<(Message, ReceiptSender)>,
 }
 
@@ -675,3 +676,108 @@ impl fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::fields::MsgType;
+    use crate::message::tags;
+
+    /// Queues `id` as [`SessionHandle::send`] does.
+    fn send(sender: &CommandSender, id: &str) -> Receipt {
+        let (reply, receipt) = oneshot::channel();
+        let msg = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id);
+        sender.sends.try_send((msg, reply)).unwrap();
+        sender.queued.fetch_add(1, Ordering::AcqRel);
+        Receipt(receipt)
+    }
+
+    /// Queues a Logout as [`SessionHandle::logout`] does.
+    fn logout(sender: &CommandSender) {
+        let after = sender.queued.load(Ordering::Acquire);
+        sender.control.try_send(Control::Logout { text: None, after }).unwrap();
+    }
+
+    fn sent_id(command: Option<Command>) -> String {
+        match command {
+            Some(Command::Send(msg, _)) => msg.get(tags::CL_ORD_ID).unwrap().to_string(),
+            other => panic!("not a send: {other:?}"),
+        }
+    }
+
+    fn taken(next: Option<Next>) -> Option<Command> {
+        match next {
+            Some(Next::Command(command)) => Some(command),
+            other => panic!("not a command: {other:?}"),
+        }
+    }
+
+    /// A noticed send leaves the queue but isn't taken, and still counts as waiting.
+    #[tokio::test]
+    async fn notice_keeps_a_send_without_taking_it() {
+        let (sender, mut receiver) = command_queues(4);
+        let _receipt = send(&sender, "A");
+        assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
+        assert_eq!(receiver.taken, 0);
+        assert!(receiver.sends.is_empty());
+        assert!(receiver.has_sends(), "the noticed send is waiting");
+    }
+
+    /// With a send noticed, Notice waits for control commands only, leaving the queue alone.
+    #[tokio::test(start_paused = true)]
+    async fn notice_with_a_send_noticed_waits_only_for_control() {
+        let (sender, mut receiver) = command_queues(4);
+        let _receipts = [send(&sender, "A"), send(&sender, "B")];
+        assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
+        let waited = tokio::time::timeout(Duration::from_secs(1), receiver.next_with(Sends::Notice)).await;
+        assert!(waited.is_err(), "returned {waited:?}");
+        assert_eq!(receiver.sends.len(), 1, "B is still queued");
+
+        let (reply, _answer) = oneshot::channel();
+        sender.control.try_send(Control::Sequence(SequenceCommand::Get, reply)).unwrap();
+        let next = receiver.next_with(Sends::Notice).await;
+        assert!(matches!(next, Some(Next::Command(Command::Sequence(SequenceCommand::Get, _)))), "{next:?}");
+        assert_eq!(receiver.taken, 0);
+    }
+
+    /// The noticed send is handed out first, by Take or try_send, then the queue, in order.
+    #[tokio::test]
+    async fn the_noticed_send_comes_out_first() {
+        let (sender, mut receiver) = command_queues(4);
+        let _receipts = [send(&sender, "A"), send(&sender, "B"), send(&sender, "C"), send(&sender, "D")];
+        assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
+        assert_eq!(sent_id(receiver.try_send()), "A");
+        assert_eq!(sent_id(taken(receiver.next_with(Sends::Take).await)), "B");
+        assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
+        assert_eq!(sent_id(taken(receiver.next_with(Sends::Take).await)), "C");
+        assert_eq!(sent_id(receiver.try_send()), "D");
+        assert_eq!(receiver.taken, 4);
+        assert!(!receiver.has_sends());
+    }
+
+    /// A Logout queued after a noticed send waits until it has been taken.
+    #[tokio::test]
+    async fn a_logout_waits_for_the_noticed_send() {
+        let (sender, mut receiver) = command_queues(4);
+        let _receipt = send(&sender, "A");
+        assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
+        logout(&sender);
+        assert!(receiver.try_control().is_none());
+        assert!(!receiver.has_control());
+        assert_eq!(sent_id(receiver.try_send()), "A");
+        assert!(receiver.has_control());
+        assert!(matches!(receiver.try_control(), Some(Command::Logout(None))));
+    }
+
+    /// A noticed send dropped with the receiver, as when the connection ends, says so.
+    #[tokio::test]
+    async fn a_noticed_send_dropped_with_the_receiver_is_disconnected() {
+        let (sender, mut receiver) = command_queues(4);
+        let receipt = send(&sender, "A");
+        assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
+        drop(receiver);
+        assert_eq!(receipt.await, Err(Dropped::Disconnected));
+    }
+}

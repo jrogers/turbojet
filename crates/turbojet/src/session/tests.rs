@@ -3759,6 +3759,19 @@ fn a_refused_send_does_not_count() {
 }
 
 #[test]
+fn sends_are_not_held_once_logging_out() {
+    let h = Harness::with_outbound_limit(1, Duration::from_secs(60));
+    let mut s = h.logged_on();
+    s.command(send_command("A"), h.t0);
+    assert!(!s.can_send(h.at(1)));
+    assert_eq!(types(&s.shutdown(Some("bye"), h.at(1))), ["Logout"]);
+    // Held now, they would only be dropped a window later.
+    assert!(s.can_send(h.at(1)));
+    assert_eq!(s.send_free_at(), None);
+    assert!(s.command(send_command("B"), h.at(1)).is_empty(), "dropped");
+}
+
+#[test]
 fn without_a_limit_sends_never_wait() {
     let h = Harness::new();
     let mut s = h.session();

@@ -259,23 +259,9 @@ where
         // Application sends are taken once logged on (until then they wait in their bounded
         // queue), and not while resending or with output backed up, or while the outbound window
         // is full.
-        let now = Instant::now().into_std();
-        let takes_sends = session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT;
-        let can_send = session.can_send(now);
-        // With the window full, a send that arrives is noticed, not taken, so the driver goes
-        // round and waits for the window below rather than for the timer.
-        let sends = match (takes_sends, can_send) {
-            (true, true) => Sends::Take,
-            (true, false) => Sends::Notice,
-            (false, _) => Sends::Ignore,
-        };
-        // Sends the window holds wake the driver when it frees. The driver, not the session's
-        // deadline, owns this wake-up: only it knows whether sends are waiting, and waking for the
-        // window with none would cost a wake-up per message at a steady rate near the limit.
-        let sends_free_at = (takes_sends && !can_send && commands.has_sends() && !closed && !committing)
-            .then(|| session.send_free_at())
-            .flatten();
-        debug_assert!(sends_free_at.is_none_or(|free_at| free_at > now), "a full window frees up later");
+        let takes_sends =
+            !closed && !committing && session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT;
+        let (sends, sends_free_at) = sends_this_time(&session, &commands, takes_sends);
         tokio::select! {
             // Write what the stream takes, then flush: buffering transports (TLS in particular)
             // may hold written data until flushed. Each is cancel-safe, so another branch
@@ -329,7 +315,9 @@ where
             }
             // The outbound window has freed up for the sends it held: they're taken next time
             // round. Not the timer, which a stuck deadline can hold at the ceiling.
-            () = async { tokio::time::sleep_until(Instant::from_std(sends_free_at.expect("guarded by is_some"))).await }, if sends_free_at.is_some() => {}
+            () = async {
+                tokio::time::sleep_until(Instant::from_std(sends_free_at.expect("guarded by is_some"))).await;
+            }, if sends_free_at.is_some() => {}
             // One step of the resend each time round, once the last step has been written.
             () = std::future::ready(()), if resending && pending.is_empty() && !closed && !committing => {
                 session.on_resume(Instant::now().into_std());
@@ -354,6 +342,30 @@ where
             }
         }
     }
+}
+
+/// What the command branch does with application sends this time round, and when to wake for
+/// sends the outbound window holds, if any. The clock is read only while the window is full.
+///
+/// With the window full, a send that arrives is noticed, not taken, so the driver goes round and
+/// waits for the window rather than for the timer. The driver, not the session's deadline, owns
+/// that wake-up: only it knows whether sends are waiting, and waking for the window with none
+/// would cost a wake-up per message at a steady rate near the limit.
+fn sends_this_time(
+    session: &Session,
+    commands: &CommandReceiver,
+    takes_sends: bool,
+) -> (Sends, Option<std::time::Instant>) {
+    if !takes_sends {
+        return (Sends::Ignore, None);
+    }
+    let Some(free_at) = session.send_free_at() else { return (Sends::Take, None) };
+    let now = Instant::now().into_std();
+    if free_at <= now {
+        return (Sends::Take, None);
+    }
+    debug_assert!(!session.can_send(now), "a window that frees up later is full now");
+    (Sends::Notice, commands.has_sends().then_some(free_at))
 }
 
 /// Polls `future` once, without waiting: its output if it's ready. Write and flush are
@@ -511,11 +523,20 @@ mod tests {
     /// Runs an acceptor with `config` and logs the peer on with `heartbeat` as HeartBtInt.
     /// Returns the peer's end and read buffer once the Logon reply has arrived, and a handle.
     async fn logged_on_with(config: SessionConfig, heartbeat: u64) -> (DuplexStream, Vec<u8>, crate::SessionHandle) {
+        logged_on_following(config, heartbeat, None).await
+    }
+
+    /// [`logged_on_with`], the connection following `shutdown`.
+    async fn logged_on_following(
+        config: SessionConfig,
+        heartbeat: u64,
+        shutdown: Option<Signal>,
+    ) -> (DuplexStream, Vec<u8>, crate::SessionHandle) {
         let (ours, mut peer) = duplex(1 << 20);
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now);
-        tokio::spawn(run(ours, session, commands));
+        tokio::spawn(async move { run_tracked(ours, session, commands, &mut false, shutdown).await });
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -654,6 +675,48 @@ mod tests {
         let at = Duration::from_millis(200);
         assert_eq!(seen, [(MsgType::NewOrderSingle, Some("late".into()), at), (MsgType::Logout, None, at)]);
         assert_eq!(receipt.await, Ok(7));
+    }
+
+    /// Sends the window holds when shutdown starts are dropped at once, not a window later: the
+    /// session is logging out, so they would never go.
+    #[tokio::test(start_paused = true)]
+    async fn sends_held_by_the_window_are_dropped_at_once_on_shutdown() {
+        let shutdown = crate::shutdown::Shutdown::new();
+        let config = with_outbound_limit(1, Duration::from_secs(60));
+        let (mut peer, mut buf, handle) = logged_on_following(config, 30, Some(shutdown.signal())).await;
+        let start = Instant::now();
+        let receipts: Vec<_> = (0..3).map(|i| handle.send(order(&format!("O{i}"))).unwrap()).collect();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].get(tags::CL_ORD_ID), Some("O0"));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Nothing is tracked, so this only starts the shutdown.
+        shutdown.run(Some("bye"), Duration::from_secs(10)).await;
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logout);
+        let mut outcomes = Vec::new();
+        for receipt in receipts {
+            outcomes.push(receipt.await);
+        }
+        assert_eq!(outcomes, [Ok(2), Err(crate::Dropped::LoggingOut), Err(crate::Dropped::LoggingOut)]);
+        assert_eq!(start.elapsed(), Duration::from_millis(10), "at once, not a window later");
+    }
+
+    /// A send noticed with the window full, and one queued behind it, both learn that the
+    /// connection ended.
+    #[tokio::test(start_paused = true)]
+    async fn sends_held_when_the_peer_disconnects_are_dropped_as_disconnected() {
+        let (mut peer, mut buf, handle) = logged_on_with(with_outbound_limit(1, Duration::from_secs(60)), 30).await;
+        let first = handle.send(order("A")).unwrap();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].get(tags::CL_ORD_ID), Some("A"));
+        assert_eq!(first.await, Ok(2));
+        // B is noticed, and C waits in the queue behind it.
+        let receipts = [handle.send(order("B")).unwrap(), handle.send(order("C")).unwrap()];
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        drop(peer);
+        for receipt in receipts {
+            let outcome = tokio::time::timeout(Duration::from_secs(5), receipt).await;
+            assert_eq!(outcome.expect("answered"), Err(crate::Dropped::Disconnected));
+        }
     }
 
     /// Heartbeats go out when due while the outbound window, much longer than HeartBtInt, holds

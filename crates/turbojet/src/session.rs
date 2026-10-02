@@ -90,8 +90,9 @@ pub struct SessionConfig {
     pub data_fields: DataFields,
     /// Most application messages queued through [`SessionHandle::send`](crate::SessionHandle::send)
     /// and not yet taken by the connection: past it, `send` hands the message back
-    /// ([`SendError::Full`](crate::SendError::Full)) rather than queue it without limit. 10,000
-    /// by default.
+    /// ([`SendError::Full`](crate::SendError::Full)) rather than queue it without limit. One more
+    /// may wait while the [`outbound_limit`](Self::outbound_limit)'s window is full: the
+    /// connection holds the first to arrive, to know that one waits. 10,000 by default.
     pub send_queue: usize,
     /// At most this many application messages sent per window (see [`RateLimit`]).
     /// [`SessionHandle::send`](crate::SessionHandle::send)s beyond it wait in the send queue
@@ -654,18 +655,24 @@ impl Session {
 
     /// Whether an application message may be sent at `now` under
     /// [`outbound_limit`](SessionConfig::outbound_limit): true unless the window is full. Check it
-    /// before taking each application send from the queue, and leave the send there if not.
+    /// before taking each application send from the queue, and leave the send there if not. Once
+    /// the session is logging out or closed it's always true: sends are dropped then, so holding
+    /// them would only tell the application a window later.
     pub fn can_send(&self, now: Instant) -> bool {
-        self.outbound.as_ref().is_none_or(|window| window.free_at(now).is_none())
+        self.send_free_at().is_none_or(|at| at <= now)
     }
 
-    /// When the outbound window frees up, if it's full; `None` if it isn't, or there's no
-    /// [`outbound_limit`](SessionConfig::outbound_limit). It may have passed: a driver holding
+    /// When the outbound window frees up, if it's full; `None` if it isn't, if there's no
+    /// [`outbound_limit`](SessionConfig::outbound_limit), or if the session isn't logged on (it
+    /// may be logging out or closed; see [`can_send`](Self::can_send)). It may have passed: a driver holding
     /// sends because [`can_send`](Self::can_send) said no waits until then. It isn't part of
     /// [`next_deadline`](Self::next_deadline): only the driver knows whether sends are waiting,
     /// and with none, waking for the window would cost a wake-up per message at a steady rate
     /// near the limit.
     pub fn send_free_at(&self) -> Option<Instant> {
+        if self.status != Status::Active {
+            return None;
+        }
         self.outbound.as_ref().and_then(Window::free_at_or_none)
     }
 
@@ -742,7 +749,8 @@ impl Session {
     /// Commands that arrive while logon is in progress are queued and applied, in order, as soon
     /// as it completes. Once logout has started, sends are dropped and logged. With an
     /// [`outbound_limit`](SessionConfig::outbound_limit), give it sends only once
-    /// [`has_logged_on`](Self::has_logged_on), and while [`can_send`](Self::can_send).
+    /// [`has_logged_on`](Self::has_logged_on), and while [`can_send`](Self::can_send): a send
+    /// before logon would go out past the window, and panics in debug builds.
     pub fn on_command(&mut self, command: Command, now: Instant) {
         self.wall_clock.set(None);
         // Operator requests are answered straight away, even mid-logon: they must not wait in the
