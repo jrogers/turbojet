@@ -425,10 +425,10 @@ impl SessionRegistry {
 ///
 /// Messages are sequenced, persisted and written by the session's connection task in the order
 /// they were sent. The handle counts as connected from the moment a connection claims the
-/// session (for an initiator, when it sends Logon). Commands sent while logon is still in
-/// progress are queued and go out, in order, as soon as it completes. A command is dropped (and
-/// logged) only if the connection ends before logon completes, or if it arrives after logout has
-/// started.
+/// session (for an initiator, when it sends Logon). Messages sent while logon is still in progress
+/// wait in their bounded queue and go out, in order, as soon as it completes. A message is dropped
+/// (and logged) if the connection ends while it's queued, or if logout has started; its
+/// [`Receipt`] says so.
 #[derive(Clone)]
 pub struct SessionHandle {
     id: SessionId,

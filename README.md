@@ -138,14 +138,21 @@ impl Application for MyApp {
 // Acceptor: many counterparties log on to us.
 let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), storage.clone(), Arc::new(MyApp));
 tokio::spawn(acceptor.clone().serve(listener));
-acceptor.session("CLIENT").send(msg)?;          // push to a connected counterparty
+acceptor.session("CLIENT").send(msg)?;          // queue for a connected counterparty
 
 // Initiator: we log on to one counterparty and reconnect as needed.
 let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
 let initiator = Initiator::new("host:9876", config, storage, Arc::new(MyApp));
 tokio::spawn(initiator.clone().run());
-initiator.handle().send(msg)?;                  // succeeds while logged on
+let seq = initiator.handle().send(msg)?.await?; // its MsgSeqNum, once stored
 ```
+
+`send` queues the message and returns a `Receipt`, a future that resolves to the message's
+MsgSeqNum once the session has stored it (from then on it's resent if the counterparty misses it),
+or to why it was dropped, such as the connection ending first. Ignore it for fire-and-forget. The
+queue holds `SessionConfig::send_queue` messages (10,000 by default): past that, `send` hands the
+message back (`SendError::Full`) and `send_when_ready` waits for room. Logout and operator
+commands have a queue of their own, so a full send queue doesn't hold them up.
 
 Layers, from the bottom up — each is public, so you can stop at any level:
 

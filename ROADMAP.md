@@ -89,6 +89,11 @@ later, with:
   and any failure replays from its seed (`scripts/sim.sh`). It found a write deadlock in the
   connection driver, torn sequence-number records in `DiskStorage`, and an operator's skip ahead
   making a counterparty abandon a gap, all since fixed;
+- bounded command queues: application sends wait in a queue of `SessionConfig::send_queue`
+  messages (a full one hands the message back, or `send_when_ready` waits for room), logout and
+  operator commands in a small one of their own that a full send queue never holds up, and each
+  send returns a `Receipt` saying whether the message was stored, with its MsgSeqNum, or dropped
+  and why;
 - at-least-once delivery: an inbound message counts as received only once the application has
   handled it, and the one message in flight at a crash is marked as possibly handled when it's
   resent (`Context::maybe_redelivered`).
@@ -164,10 +169,6 @@ invariants, and tests that look for bugs rather than confirm what already works.
 lints (no `unsafe`, no lossy casts, no `unwrap` in library code, functions of about 70 lines) and
 debug assertions on framing, sequence numbers and the gap queue are in place.
 
-- **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
-  channel, so an application that sends faster than the connection writes grows it without limit;
-  so do the commands a session holds while logon is in progress. Give it a configured capacity,
-  and report a full queue to the caller (a new error) rather than queueing. It changes the public API, and is the back-pressure half of "Throttling" below.
 - **Assertion density** (M). Aim for about two assertions per function in `session`, `codec`,
   `message` and the stores: preconditions, postconditions, and pairs across code paths. For
   example, `MemoryStorage` checks a message's framing when it's stored but not when it's read
@@ -270,9 +271,8 @@ From the benchmarks.
   searches the message log live. A web console on top is what commercial engines sell on. The
   gateway should use it.
 - **Holiday calendars** (S). Schedules have no notion of exchange holidays.
-- **Throttling** (M). Optional per-session inbound and outbound message-rate limits, and a way
-  for applications to apply back-pressure (see "Bound the session command queue" under Safety
-  and assurance).
+- **Throttling** (M). Optional per-session inbound and outbound message-rate limits. (The
+  back-pressure half is done: a full send queue refuses sends, or `send_when_ready` waits.)
 - **Connection limits** (S). An acceptor starts a task for every connection, and each may wait
   the whole logon timeout before sending anything; there's no cap on concurrent connections,
   overall or per IP address. Add optional limits, refusing connections beyond them.
@@ -357,8 +357,9 @@ Listed so the decisions are explicit; any of these could be built on Turbojet se
 
 Behaviour that's deliberate or documented, but worth revisiting.
 
-- `SessionHandle::send` after a session has started logging out drops the message (with a
-  warning); `send` returning `Ok` means queued, not sent.
+- `SessionHandle::send` returning `Ok` means queued, not sent: its `Receipt` says whether the
+  message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
+  logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building

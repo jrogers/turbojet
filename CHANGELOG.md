@@ -6,6 +6,20 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: `SessionHandle` commands go on bounded queues. Application sends wait in a queue of
+  `SessionConfig::send_queue` messages (10,000 by default): `send` hands the message back in
+  `SendError::Full` when it's full, and the new `send_when_ready` waits for room. Logout and
+  operator commands have a queue of their own (`CONTROL_QUEUE`, 64), so a full send queue never
+  holds them up; a Logout still follows the sends queued before it. Sends now wait in their queue
+  until logon completes, and while the connection's output is backed up.
+- Breaking: `send` and `send_when_ready` return a `Receipt`, a future resolving to the message's
+  MsgSeqNum once the session has stored it, or to `Dropped` saying why it wasn't: the connection
+  ended first, the session was logging out, the message was rejected, or the store failed (when
+  it may have been stored all the same). `send` returns `Result<Receipt, SendError>`, `logout`
+  `Result<(), CommandError>`; `NotConnected` is gone. `Command::Send` carries an optional receipt
+  (`Command::send` builds one without), and `CommandSender` and `CommandReceiver` are structs over
+  the two queues.
+
 - A long resend goes out in steps of 256 sequence numbers, each written before the next is read
   from the store, rather than all at once: a ResendRequest for everything a session has sent no
   longer holds all of it in memory. Until the resend ends, the connection sends nothing new,
