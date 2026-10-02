@@ -4,10 +4,11 @@ use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use tracing::warn;
 
-use super::{SessionId, SessionLog, SessionStorage};
+use super::{Commit, SessionId, SessionLog, SessionStorage};
 use crate::codec::{Decoded, frame_stored};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
 
@@ -28,9 +29,16 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 ///   [`SessionLog::record_outgoing`]), whatever their size. Opening the log scans
 ///   it to index sequence numbers by file offset; resends then read messages back from disk.
 ///
+/// Changes are kept in memory until the session commits them, once per batch of work: then the
+/// messages stored since are appended to the body file in one write, and the sequence numbers
+/// written once. Without `sync` that's done at once; with it the commit is handed to the
+/// connection driver, which runs the writes and their `fsync`s on a blocking thread, so a batch
+/// of messages costs one `fsync` of each file rather than two per message.
+///
 /// Recovery on open: a partially written message at the end of the body file (from a crash
 /// mid-append) is truncated, and the next outgoing sequence number is advanced past the last
-/// stored message in case the crash landed between the body append and the seqnums update.
+/// stored message in case the crash landed between the body append and the seqnums update. A
+/// crash before a commit loses what it would have written, none of which has been sent.
 pub struct DiskStorage {
     dir: PathBuf,
     sync: bool,
@@ -63,9 +71,18 @@ impl SessionStorage for DiskStorage {
 type Extent = (u64, usize);
 
 struct DiskLog {
-    seqnums: File,
-    body: File,
+    /// Shared with a commit under way on another thread.
+    seqnums: Arc<File>,
+    body: Arc<File>,
+    /// The body's length with the messages not yet written: offsets in `index` count them.
     body_len: u64,
+    /// The body file's length: messages from here on are in `pending`.
+    written_len: u64,
+    /// Messages stored since the last commit, to be appended to the body file. Bounded by what
+    /// a session sends in one batch of work.
+    pending: Vec<u8>,
+    /// The sequence numbers have changed since the last commit.
+    dirty: bool,
     /// One entry per message stored until a sequence reset: unbounded, like the body file (ROADMAP
     /// "Disk store rotation").
     index: BTreeMap<u64, Extent>,
@@ -115,9 +132,12 @@ impl DiskLog {
 
         let created_at = read_created(&created_path)?;
         Ok(Self {
-            seqnums,
-            body,
+            seqnums: Arc::new(seqnums),
+            body: Arc::new(body),
             body_len: valid_len,
+            written_len: valid_len,
+            pending: Vec::new(),
+            dirty: false,
             index,
             next_outgoing,
             next_incoming,
@@ -130,21 +150,29 @@ impl DiskLog {
         })
     }
 
-    fn write_seqnums(&mut self) -> io::Result<()> {
+    /// The next seqnums record and where it goes: the slot not holding the current one, so a torn
+    /// write leaves that one whole. Counted as written: a failed write ends the session, and the
+    /// next connection reads the file afresh.
+    fn next_record(&mut self) -> ([u8; SLOT], u64) {
         let generation = self.generation + 1;
-        // The slot not holding the current record, so a torn write leaves that one whole.
         let slot = self.slot.map_or(0, |current| 1 - current);
         let record = slot_record(generation, self.next_outgoing, self.next_incoming, self.in_flight.unwrap_or(0));
-        let offset = (slot * SLOT) as u64;
-        // In place, in one system call where the platform allows it.
-        #[cfg(unix)]
-        std::os::unix::fs::FileExt::write_all_at(&self.seqnums, &record, offset)?;
-        #[cfg(not(unix))]
-        {
-            self.seqnums.seek(SeekFrom::Start(offset))?;
-            self.seqnums.write_all(&record)?;
-        }
         (self.generation, self.slot) = (generation, Some(slot));
+        self.dirty = false;
+        (record, (slot * SLOT) as u64)
+    }
+
+    /// Takes the messages not yet written, counting them as written, for the same reason.
+    fn take_pending(&mut self) -> Vec<u8> {
+        debug_assert_eq!(self.written_len + self.pending.len() as u64, self.body_len);
+        self.written_len = self.body_len;
+        std::mem::take(&mut self.pending)
+    }
+
+    /// Writes the seqnums record now (a reset), syncing it if the store syncs.
+    fn write_seqnums(&mut self) -> io::Result<()> {
+        let (record, offset) = self.next_record();
+        write_record(&self.seqnums, &record, offset)?;
         if self.sync {
             self.seqnums.sync_data()?;
         }
@@ -164,31 +192,62 @@ impl SessionLog for DiskLog {
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
         self.next_incoming = seq;
         self.in_flight = None;
-        self.write_seqnums()
+        self.dirty = true;
+        Ok(())
     }
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         if let Some(bytes) = msg {
             // One whole message, as sent_messages checks when reading it back.
             debug_assert_eq!(frame_stored(bytes), Ok(bytes.len()));
-            self.body.write_all(bytes)?;
-            if self.sync {
-                self.body.sync_data()?;
-            }
+            self.pending.extend_from_slice(bytes);
             self.index.insert(seq, (self.body_len, bytes.len()));
             self.body_len += bytes.len() as u64;
         }
         self.next_outgoing = seq + 1;
-        self.write_seqnums()
+        self.dirty = true;
+        Ok(())
+    }
+
+    fn commit(&mut self) -> io::Result<Option<Commit>> {
+        if !self.dirty && self.pending.is_empty() {
+            return Ok(None);
+        }
+        let (record, offset) = self.next_record();
+        if !self.sync {
+            // Two cheap system calls: no reason to leave the connection's task. Body first, so
+            // a crash between them leaves messages the next open finds (see `open`).
+            (&*self.body).write_all(&self.pending)?;
+            self.written_len = self.body_len;
+            self.pending.clear();
+            write_record(&self.seqnums, &record, offset)?;
+            return Ok(None);
+        }
+        let (body, seqnums, pending) = (self.body.clone(), self.seqnums.clone(), self.take_pending());
+        Ok(Some(Commit::blocking(move || {
+            if !pending.is_empty() {
+                (&*body).write_all(&pending)?;
+                body.sync_data()?;
+            }
+            write_record(&seqnums, &record, offset)?;
+            seqnums.sync_data()
+        })))
     }
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         let extents: Vec<(u64, Extent)> = self.index.range(begin..=end).map(|(s, e)| (*s, *e)).collect();
         let mut messages = Vec::with_capacity(extents.len());
         for (seq, (offset, len)) in extents {
-            self.body.seek(SeekFrom::Start(offset))?;
-            let mut bytes = vec![0; len];
-            self.body.read_exact(&mut bytes)?;
+            let bytes = if offset >= self.written_len {
+                // Not written yet.
+                let start = usize::try_from(offset - self.written_len).expect("pending fits in memory");
+                self.pending[start..start + len].to_vec()
+            } else {
+                (&*self.body).seek(SeekFrom::Start(offset))?;
+                let mut bytes = vec![0; len];
+                (&*self.body).read_exact(&mut bytes)?;
+                bytes
+            };
             match frame_stored(&bytes) {
                 Ok(n) if n == len => messages.push((seq, bytes)),
                 _ => return Err(invalid_data(format!("stored message {seq} at offset {offset} is corrupt"))),
@@ -198,12 +257,15 @@ impl SessionLog for DiskLog {
     }
 
     fn reset(&mut self) -> io::Result<()> {
+        // Rare (a logon or schedule reset, an operator), so written at once.
+        self.pending.clear();
         self.body.set_len(0)?;
         if self.sync {
             self.body.sync_data()?;
         }
         self.index.clear();
         self.body_len = 0;
+        self.written_len = 0;
         self.next_outgoing = 1;
         self.next_incoming = 1;
         self.in_flight = None;
@@ -227,7 +289,8 @@ impl SessionLog for DiskLog {
 
     fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
         self.in_flight = Some(seq);
-        self.write_seqnums()
+        self.dirty = true;
+        Ok(())
     }
 
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
@@ -242,6 +305,19 @@ impl SessionLog for DiskLog {
         self.created_at = Some(at);
         Ok(())
     }
+}
+
+/// Writes a seqnums record into its slot, in place, in one system call where the platform allows.
+fn write_record(file: &File, record: &[u8; SLOT], offset: u64) -> io::Result<()> {
+    #[cfg(unix)]
+    std::os::unix::fs::FileExt::write_all_at(file, record, offset)?;
+    #[cfg(not(unix))]
+    {
+        let mut file = file;
+        file.seek(SeekFrom::Start(offset))?;
+        file.write_all(record)?;
+    }
+    Ok(())
 }
 
 fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
@@ -427,6 +503,7 @@ fn invalid_data(msg: String) -> io::Error {
 
 #[cfg(test)]
 mod tests {
+    use super::super::commit_now;
     use super::super::conformance::{app_message, check, id};
     use super::*;
 
@@ -452,6 +529,7 @@ mod tests {
             let mut log = storage(&dir).open(&id("A")).unwrap();
             log.record_outgoing(1, Some(&app_message(1))).unwrap();
             log.set_next_incoming(3).unwrap();
+            commit_now(log.as_mut()).unwrap();
         }
         let mut log = storage(&dir).open(&id("A")).unwrap();
         assert_eq!((log.next_outgoing(), log.next_incoming()), (2, 3));
@@ -468,6 +546,7 @@ mod tests {
         let mut log = storage(&dir).open(&id("A")).unwrap();
         assert_eq!((log.next_outgoing(), log.next_incoming(), log.in_flight()), (5, 9, None));
         log.set_in_flight(9).unwrap();
+        commit_now(log.as_mut()).unwrap();
         drop(log);
         let log = storage(&dir).open(&id("A")).unwrap();
         assert_eq!((log.next_outgoing(), log.next_incoming(), log.in_flight()), (5, 9, Some(9)));
@@ -492,6 +571,7 @@ mod tests {
         {
             let mut log = storage(dir).open(&id("A")).unwrap();
             change(log.as_mut());
+            commit_now(log.as_mut()).unwrap();
         }
         let after = std::fs::read(&path).unwrap();
         // The bytes the write changed, which a tear leaves partly new.
@@ -527,6 +607,7 @@ mod tests {
             let mut log = storage(&dir).open(&id("A")).unwrap();
             for seq in 2..=19 {
                 log.set_next_incoming(seq).unwrap();
+                commit_now(log.as_mut()).unwrap();
             }
         }
         for (change, new) in [(20, (1, 20, None)), (99, (1, 99, None))] {
@@ -546,6 +627,44 @@ mod tests {
         assert!(opened.iter().all(|n| [(5, 9, None), (5, 10, None)].contains(n)), "{opened:?}");
     }
 
+    /// Nothing reaches the files until a commit, and a crash before one loses what it would have
+    /// written (none of which has been sent).
+    #[test]
+    fn changes_wait_for_a_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            log.record_outgoing(1, Some(&app_message(1))).unwrap();
+            log.set_next_incoming(5).unwrap();
+            assert_eq!(fs::metadata(body_path(&dir, "A")).unwrap().len(), 0);
+        }
+        assert_eq!(numbers(&dir), (1, 1, None));
+        assert!(storage(&dir).open(&id("A")).unwrap().sent_messages(1, 1).unwrap().is_empty());
+    }
+
+    /// With fsync, the commit is handed back to run on another thread, and writes nothing until
+    /// it runs.
+    #[test]
+    fn a_synced_store_hands_back_its_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let synced = DiskStorage::new(dir.path(), true).unwrap();
+        let mut log = synced.open(&id("A")).unwrap();
+        for seq in 1..=3 {
+            log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
+        }
+        assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3, "reads see what isn't committed");
+        let commit = log.commit().unwrap().expect("a commit to run");
+        assert_eq!(fs::metadata(body_path(&dir, "A")).unwrap().len(), 0);
+        // No call is made of the log until the commit has run.
+        commit.run().unwrap();
+        assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3);
+        assert!(log.commit().unwrap().is_none(), "nothing more to commit");
+        drop(log);
+        let mut log = synced.open(&id("A")).unwrap();
+        assert_eq!(log.next_outgoing(), 4);
+        assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3);
+    }
+
     #[test]
     fn session_is_locked_while_open() {
         let dir = tempfile::tempdir().unwrap();
@@ -563,6 +682,7 @@ mod tests {
         {
             let mut log = storage(&dir).open(&id("A")).unwrap();
             log.record_outgoing(1, Some(&app_message(1))).unwrap();
+            commit_now(log.as_mut()).unwrap();
         }
         let path = body_path(&dir, "A");
         let good_len = fs::metadata(&path).unwrap().len();
@@ -582,6 +702,7 @@ mod tests {
         {
             let mut log = storage(&dir).open(&id("A")).unwrap();
             log.record_outgoing(1, Some(&app_message(1))).unwrap();
+            commit_now(log.as_mut()).unwrap();
         }
         // Simulate a crash between the body append and the seqnums update.
         let bytes = app_message(2);
@@ -614,7 +735,11 @@ mod tests {
                 .with(tags::TEXT, "x".repeat(70 * 1024)),
         )
         .unwrap();
-        storage(&dir).open(&id("A")).unwrap().record_outgoing(1, Some(&big)).unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            log.record_outgoing(1, Some(&big)).unwrap();
+            commit_now(log.as_mut()).unwrap();
+        }
         let mut log = storage(&dir).open(&id("A")).unwrap();
         assert_eq!(log.next_outgoing(), 2);
         assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, big)]);
@@ -627,6 +752,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut log = storage(&dir).open(&id("A")).unwrap();
         log.record_outgoing(1, Some(&app_message(1))).unwrap();
+        commit_now(log.as_mut()).unwrap();
         // Make ExecID(17) non-UTF-8, with a valid CheckSum so only the field is at fault.
         let path = body_path(&dir, "A");
         let mut bytes = fs::read(&path).unwrap();

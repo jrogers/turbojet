@@ -456,6 +456,8 @@ async fn operator_tool_views_and_changes_stored_sequence_numbers() {
         let mut log = DiskStorage::new(dir.path(), false).unwrap().open(&client1()).unwrap();
         log.record_outgoing(4, None).unwrap();
         log.set_next_incoming(3).unwrap();
+        // Without fsync the store commits at once.
+        assert!(log.commit().unwrap().is_none());
     }
 
     let (ok, out) = seqnums(dir.path(), &["--session", "CLIENT1"]).await;
