@@ -9,7 +9,7 @@ use tracing::{Instrument, debug, warn};
 
 use crate::codec::{DecodedInto, decode_into};
 use crate::message::Message;
-use crate::registry::CommandReceiver;
+use crate::registry::{Command, CommandReceiver};
 use crate::session::Session;
 use crate::shutdown::Signal;
 use crate::telemetry;
@@ -17,8 +17,8 @@ use crate::telemetry;
 // The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
 // for branch: keep the two in step.
 
-/// Commands taken from a [`SessionHandle`](crate::SessionHandle) queue in one batch, so a flood of
-/// sends can't starve reading from the peer.
+/// Application sends taken from a [`SessionHandle`](crate::SessionHandle) queue in one batch, so a
+/// flood of sends can't starve reading from the peer.
 const MAX_COMMANDS_PER_BATCH: usize = 256;
 
 /// Initial capacity of the read buffer; a larger message still arrives, as the buffer grows.
@@ -141,6 +141,12 @@ where
         if deferred && !session.is_resending() && !session.is_closed() {
             deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
         }
+        // A Logout that was waiting for the sends queued before it, now they've been taken.
+        while !session.is_closed()
+            && let Some(command) = commands.try_control()
+        {
+            session.on_command(command, Instant::now().into_std());
+        }
         if let Some(metrics) = session.metrics() {
             metrics.bytes_received(std::mem::take(&mut unattributed_bytes));
             metrics.bytes_sent(session.output().len());
@@ -229,12 +235,16 @@ where
                     deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
                 }
             }
-            Some(command) = commands.recv(), if !resending && !closed && unwritten < COMMANDS_PAUSE_AT => {
+            // Logout and operator commands, whatever else is going on (a Logout once the sends
+            // queued before it have been taken); application sends once logged on (until then
+            // they wait in their bounded queue), and not while resending or with output backed up.
+            Some(command) = commands.next(session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT), if !closed => {
                 let now = Instant::now().into_std();
+                let sending = matches!(command, Command::Send(..));
                 session.on_command(command, now);
                 // Take whatever else is already queued, so a burst of sends becomes one write.
-                for _ in 1..MAX_COMMANDS_PER_BATCH {
-                    let Ok(command) = commands.try_recv() else { break };
+                for _ in (1..MAX_COMMANDS_PER_BATCH).take_while(|_| sending) {
+                    let Some(command) = commands.try_send() else { break };
                     session.on_command(command, now);
                 }
             }
@@ -312,6 +322,7 @@ mod tests {
     use crate::codec::{Decoded, encode, frame_with_raw_field};
     use crate::fields::MsgType;
     use crate::message::{tags, utc_timestamp};
+    use crate::registry::SendError;
     use crate::registry::SessionRegistry;
     use crate::session::SessionConfig;
     use crate::store::SessionId;
@@ -512,6 +523,105 @@ mod tests {
         };
         let acked = tokio::time::timeout(Duration::from_secs(10), all_acked).await;
         assert!(acked.is_ok(), "deadlocked after {} of {ORDERS} acknowledgements", app.reports.load(Ordering::SeqCst));
+    }
+
+    /// Sends made before logon completes wait in their bounded queue, then go out after it, in
+    /// order; a logout asked for after them follows them.
+    #[tokio::test]
+    async fn sends_before_logon_go_out_after_it_then_the_logout() {
+        let (ours, mut peer) = duplex(1 << 20);
+        let registry = Arc::new(SessionRegistry::default());
+        let config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "US"), "PEER");
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) = Session::initiator(&config, registry.clone(), Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+        let mut buf = Vec::new();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
+
+        let handle = registry.handle(SessionId {
+            begin_string: "FIX.4.2".into(),
+            sender_comp_id: "US".into(),
+            target_comp_id: "PEER".into(),
+        });
+        let receipts: Vec<_> = ["A", "B"]
+            .map(|id| handle.send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id)).unwrap())
+            .into();
+        handle.logout(Some("done")).unwrap();
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let sent = receive(&mut peer, &mut buf, 3).await;
+        let seen: Vec<_> = sent.iter().map(|m| (m.msg_type(), m.get(tags::CL_ORD_ID).map(String::from))).collect();
+        assert_eq!(
+            seen,
+            [
+                (MsgType::NewOrderSingle, Some("A".into())),
+                (MsgType::NewOrderSingle, Some("B".into())),
+                (MsgType::Logout, None)
+            ]
+        );
+        // Each receipt gives the MsgSeqNum the message was stored as.
+        let mut stored = Vec::new();
+        for receipt in receipts {
+            stored.push(receipt.await.unwrap());
+        }
+        assert_eq!(stored, [2, 3]);
+    }
+
+    /// A counterparty that stops reading backs output up, the connection stops taking sends, and
+    /// the send queue fills: the application is told, rather than memory growing without limit.
+    #[tokio::test]
+    async fn sends_to_a_counterparty_that_stops_reading_fill_the_queue() {
+        let (ours, mut peer) = duplex(4 * 1024);
+        let registry = Arc::new(SessionRegistry::default());
+        let mut config = SessionConfig::new("FIX.4.2", "US");
+        config.send_queue = 100;
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        receive(&mut peer, &mut buf, 1).await;
+
+        // The peer reads nothing more.
+        let handle = registry.handle(SessionId {
+            begin_string: "FIX.4.2".into(),
+            sender_comp_id: "US".into(),
+            target_comp_id: "PEER".into(),
+        });
+        let mut sent = 0;
+        let full = loop {
+            let order = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, format!("E{sent}"));
+            match handle.send(order) {
+                Ok(_) => sent += 1,
+                Err(SendError::Full(_)) => break true,
+                Err(e) => panic!("{e}"),
+            }
+            assert!(sent < 100_000, "never full");
+            // Let the connection take what it will.
+            tokio::task::yield_now().await;
+        };
+        assert!(full);
+        // Unwritten output stops the connection taking sends at 256 KiB, and the queue holds 100.
+        assert!(sent < 5_000, "{sent} queued before the queue filled");
+
+        // What's still queued when the connection ends is dropped, and its receipt says so.
+        let order = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "late");
+        let receipt = loop {
+            match handle.send(order.clone()) {
+                Ok(receipt) => break receipt,
+                Err(SendError::Full(_)) => tokio::task::yield_now().await,
+                Err(e) => panic!("{e}"),
+            }
+            // Make room by reading what's waiting.
+            let mut sink = vec![0; 64 * 1024];
+            let _ = tokio::time::timeout(Duration::from_millis(1), peer.read(&mut sink)).await;
+        };
+        drop(peer);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), receipt).await.unwrap(),
+            Err(crate::Dropped::Disconnected)
+        );
     }
 
     /// A Heartbeat falls due HeartBtInt after the last send, not at the next whole-second tick.

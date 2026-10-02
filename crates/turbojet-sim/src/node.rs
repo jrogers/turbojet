@@ -191,16 +191,20 @@ impl Node {
         effects
     }
 
-    /// The command branch: what's queued, up to a batch. Not while resending, closed, or with
-    /// much output unwritten.
+    /// The command branch: a logout or operator command that's due, whatever else is going on;
+    /// otherwise, once logged on and not resending or backed up, sends, up to a batch.
     pub fn commands(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
-        let Some(running) = self.running.get_mut(&conn).filter(|r| r.takes_commands()) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed()) else {
             return Effects::default();
         };
-        for _ in 0..MAX_COMMANDS_PER_BATCH {
-            let Ok(command) = running.commands.try_recv() else { break };
+        if let Some(command) = running.commands.try_control() {
             running.session.on_command(command, instant);
+        } else if running.takes_sends() {
+            for _ in 0..MAX_COMMANDS_PER_BATCH {
+                let Some(command) = running.commands.try_send() else { break };
+                running.session.on_command(command, instant);
+            }
         }
         self.settle(conn, now)
     }
@@ -282,6 +286,12 @@ impl Node {
         if running.deferred && !running.session.is_resending() && !running.session.is_closed() {
             running.deferred = feed(running, data_fields, clocks.instant(now));
         }
+        // A Logout that was waiting for the sends queued before it, now they've been taken.
+        while !running.session.is_closed()
+            && let Some(command) = running.commands.try_control()
+        {
+            running.session.on_command(command, clocks.instant(now));
+        }
         let output = running.session.output().to_vec();
         running.session.clear_output();
         running.outbox.extend_from_slice(&output);
@@ -306,16 +316,20 @@ impl Node {
         Some(Wants {
             resume: running.resumes(),
             read: !running.unread.is_empty() || running.fin,
-            commands: running.takes_commands() && !running.commands.is_empty(),
+            commands: !closed
+                && (running.commands.has_control() || running.takes_sends() && running.commands.has_sends()),
             timer: (!closed).then_some(running.timer),
         })
     }
 }
 
 impl Running {
-    /// The command branch is enabled.
-    fn takes_commands(&self) -> bool {
-        !self.session.is_resending() && !self.session.is_closed() && self.outbox.len() < COMMANDS_PAUSE_AT
+    /// The command branch takes sends.
+    fn takes_sends(&self) -> bool {
+        self.session.has_logged_on()
+            && !self.session.is_resending()
+            && !self.session.is_closed()
+            && self.outbox.len() < COMMANDS_PAUSE_AT
     }
 
     /// The resume branch is enabled.

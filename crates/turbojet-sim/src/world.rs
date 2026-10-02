@@ -18,7 +18,7 @@ use turbojet::{
 };
 
 use crate::Side;
-use crate::app::{RecordingApp, order, report};
+use crate::app::{RecordingApp, Sent, order, report};
 use crate::check::{Checker, Violation};
 use crate::files::{DiskFiles, Tear};
 use crate::hostile::Proxy;
@@ -78,6 +78,8 @@ pub struct Report {
     pub resent: u64,
     /// Deliveries marked as possibly handled already (after a crash or store failure).
     pub redelivered: usize,
+    /// Sends the applications had refused, their queue full.
+    pub refused: u64,
     pub trace: Vec<String>,
 }
 
@@ -146,6 +148,10 @@ struct Faults {
     scheduled: bool,
     /// A hostile middlebox tampers with this many messages in a million during the busy phase.
     hostile: Option<u32>,
+    /// Each side's send queue, small on some seeds so bursts fill it; and the mean time between
+    /// bursts of orders, if any.
+    send_queue: usize,
+    burst_every: Option<Duration>,
 }
 
 impl Faults {
@@ -184,6 +190,8 @@ impl Faults {
             reset_both_every: rng.pick(&[None, None, Some(secs(60))]),
             scheduled: rng.chance(250_000),
             hostile: rng.chance(200_000).then(|| rng.pick(&[10_000, 50_000])),
+            send_queue: rng.pick(&[10_000, 10_000, 50, 5]),
+            burst_every: rng.pick(&[None, Some(secs(10)), Some(secs(3))]),
         }
     }
 
@@ -255,6 +263,8 @@ enum Event {
     WriteBack,
     /// A node loses power (a disk store without sync).
     PowerLoss,
+    /// The initiator's application sends a burst of orders at once.
+    Burst,
     /// One side's application asks to log out.
     Logout,
     /// An operator moves one side's next outgoing number ahead.
@@ -335,6 +345,7 @@ struct World {
     events: u64,
     connections: u64,
     resent: u64,
+    refused: u64,
     trace: Vec<String>,
 }
 
@@ -347,6 +358,7 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s).count()),
             connections: world.connections,
             resent: world.resent,
+            refused: world.refused,
             redelivered: world
                 .nodes
                 .iter()
@@ -450,6 +462,7 @@ impl World {
             let mut config = SessionConfig::new("FIX.4.4", sender);
             config.clock = clocks.wall_clock();
             config.schedule.clone_from(&schedule);
+            config.send_queue = faults.send_queue;
             config
         };
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
@@ -492,6 +505,7 @@ impl World {
             events: 0,
             connections: 0,
             resent: 0,
+            refused: 0,
             trace: Vec::new(),
         };
         world.schedule_start();
@@ -526,6 +540,7 @@ impl World {
             (self.faults.logout_every, Event::Logout),
             (self.faults.skip_every, Event::Skip),
             (self.faults.reset_both_every, Event::ResetBoth),
+            (self.faults.burst_every, Event::Burst),
         ] {
             if let Some(every) = every {
                 let at = self.after_about(SimTime(0), every);
@@ -814,6 +829,16 @@ impl World {
                 }
                 self.again(busy, now, self.faults.power_loss_every, Event::PowerLoss);
             }
+            Event::Burst => {
+                for _ in 0..self.rng.between(1, 500) {
+                    let id = self.fresh_id("o");
+                    if self.nodes[Side::Initiator.index()].app.send(order(&id)) == Sent::Full {
+                        self.refused += 1;
+                    }
+                }
+                self.after_all(Side::Initiator, now)?;
+                self.again(busy, now, self.faults.burst_every, Event::Burst);
+            }
             Event::Logout => {
                 let side = self.pick_side();
                 // Not connected: nothing to log out of.
@@ -1044,7 +1069,8 @@ impl World {
         self.ended(side, conn, now);
     }
 
-    /// Checks what both stores have recorded and both applications received since the last call.
+    /// Checks what both stores have recorded, both applications received, and the receipts
+    /// they've been answered, since the last call.
     fn check_all(&mut self) -> Result<(), Violation> {
         for s in [Side::Initiator, Side::Acceptor] {
             self.sync_ledger(s)?;
@@ -1052,6 +1078,19 @@ impl World {
         for s in [Side::Initiator, Side::Acceptor] {
             let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap();
             self.checker.delivered(s, &deliveries)?;
+        }
+        for s in [Side::Initiator, Side::Acceptor] {
+            let mut receipts = self.nodes[s.index()].app.receipts.lock().unwrap();
+            let mut i = 0;
+            while i < receipts.len() {
+                match receipts[i].1.try_outcome() {
+                    Some(outcome) => {
+                        self.checker.receipt(s, &receipts[i].0, &outcome)?;
+                        receipts.swap_remove(i);
+                    }
+                    None => i += 1,
+                }
+            }
         }
         Ok(())
     }
@@ -1156,6 +1195,12 @@ impl World {
         // A power loss lost what the sessions needed to agree: settling isn't promised.
         if self.checker.is_lossy() {
             return Ok(());
+        }
+        // Every send has been answered: stored or dropped.
+        for node in &self.nodes {
+            if let Some((id, _)) = node.app.receipts.lock().unwrap().first() {
+                return fail(format!("{:?}'s receipt for {id} never resolved", node.side));
+            }
         }
         for node in &self.nodes {
             let sessions: Vec<_> = node.sessions().collect();

@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use turbojet::message::tags;
-use turbojet::{Application, Context, Message, MessageReject, MsgType, SessionHandle};
+use turbojet::{Application, Context, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle};
 
 use crate::world::{PLANTED_AT, Plant};
 
@@ -26,6 +26,8 @@ pub struct RecordingApp {
     /// Acknowledgements sent so far: each gets its own ExecID, since an order redelivered after a
     /// crash is acknowledged again.
     acked: Mutex<u64>,
+    /// Receipts for what this application queued, by message id, until they resolve.
+    pub receipts: Mutex<Vec<(String, Receipt)>>,
     /// A planted bug for the checker's self-tests, and the deliveries counted towards it.
     plant: Option<Plant>,
     delivered: Mutex<u64>,
@@ -45,10 +47,29 @@ impl RecordingApp {
         *self.handle.lock().unwrap() = None;
     }
 
-    /// Sends `msg` through the session's handle; false if it isn't connected.
-    pub fn send(&self, msg: Message) -> bool {
-        self.handle.lock().unwrap().as_ref().is_some_and(|handle| handle.send(msg).is_ok())
+    /// Sends `msg` through the session's handle: whether it was queued, refused as the queue is
+    /// full, or not (no connection).
+    pub fn send(&self, msg: Message) -> Sent {
+        let id = id_of(&msg).map(String::from);
+        match self.handle.lock().unwrap().as_ref().map(|handle| handle.send(msg)) {
+            Some(Ok(receipt)) => {
+                if let Some(id) = id {
+                    self.receipts.lock().unwrap().push((id, receipt));
+                }
+                Sent::Queued
+            }
+            Some(Err(SendError::Full(_))) => Sent::Full,
+            Some(Err(SendError::NotConnected(_))) | None => Sent::NotConnected,
+        }
     }
+}
+
+/// What became of an application's send.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sent {
+    Queued,
+    Full,
+    NotConnected,
 }
 
 /// An order the initiator's application sends.

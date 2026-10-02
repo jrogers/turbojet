@@ -232,7 +232,9 @@ pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
 pub use peer::{ConnectionInfo, PeerCertificate};
-pub use registry::{NotConnected, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry};
+pub use registry::{
+    CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry,
+};
 pub use schedule::{Clock, SessionSchedule};
 pub use session::{ApplVersion, Session, SessionConfig};
 pub use store::{DiskStorage, MemoryStorage, SessionId, SessionStorage};

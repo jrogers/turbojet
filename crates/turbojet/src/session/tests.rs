@@ -5,7 +5,7 @@ use crate::codec::{decode, decode_stored, encode};
 use crate::fields::{ApplVerId, FromFix};
 use crate::message::utc_timestamp;
 use crate::peer::{ConnectionInfo, PeerCertificate};
-use crate::registry::SessionHandle;
+use crate::registry::{SendError, SessionHandle};
 use crate::store::{MemoryStorage, SessionStorage};
 
 /// Records callbacks. Accepts `D` messages that carry Symbol(55), replying with an
@@ -858,7 +858,7 @@ fn routing_fields_the_application_sets_go_in_the_header() {
     let h = Harness::new();
     let mut s = h.logged_on();
     let report = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E1").with(tags::DELIVER_TO_COMP_ID, "JCD");
-    let out = s.command(Command::Send(report), h.t0);
+    let out = s.command(Command::send(report), h.t0);
     let sent = sent(&out)[0];
     assert_eq!(sent.get(tags::DELIVER_TO_COMP_ID), Some("JCD"));
     assert_eq!(misplaced_header_field(sent), None, "{sent}");
@@ -1506,6 +1506,70 @@ fn counterparty_logout_is_acknowledged() {
 
 // ---- Handle commands ----
 
+/// A logged-on acceptor whose send queue holds `capacity` messages, its command queues, and a
+/// handle on it.
+fn with_send_queue(h: &mut Harness, capacity: usize) -> (Session, CommandReceiver, SessionHandle) {
+    h.config.send_queue = capacity;
+    let (mut s, commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0);
+    s.recv(logon(1), h.t0);
+    let handle = h.app.handles.lock().unwrap()[0].clone();
+    (s, commands, handle)
+}
+
+fn report(id: &str) -> Message {
+    Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, id)
+}
+
+#[test]
+fn a_full_send_queue_hands_the_message_back() {
+    let mut h = Harness::new();
+    let (_s, mut commands, handle) = with_send_queue(&mut h, 2);
+    handle.send(report("A")).unwrap();
+    handle.send(report("B")).unwrap();
+    let Err(SendError::Full(msg)) = handle.send(report("C")) else { panic!("queued past the limit") };
+    assert_eq!(msg.get(tags::EXEC_ID), Some("C"));
+    // Taking one makes room for one.
+    assert!(commands.try_send().is_some());
+    handle.send(msg).unwrap();
+    assert!(matches!(handle.send(report("D")), Err(SendError::Full(_))));
+}
+
+/// A logout has its own queue: a full send queue doesn't hold it up, but it waits for the sends
+/// queued before it, so they still go out first.
+#[test]
+fn a_logout_waits_for_the_sends_before_it_not_for_room() {
+    let mut h = Harness::new();
+    let (mut s, mut commands, handle) = with_send_queue(&mut h, 2);
+    handle.send(report("A")).unwrap();
+    handle.send(report("B")).unwrap();
+    handle.logout(Some("done")).unwrap();
+    assert!(commands.try_control().is_none(), "A and B first");
+    let mut out = Vec::new();
+    while let Some(command) = commands.try_send() {
+        out.extend(s.command(command, h.t0));
+    }
+    out.extend(s.command(commands.try_control().expect("now due"), h.t0));
+    assert_eq!(types(&out), ["ExecutionReport", "ExecutionReport", "Logout"]);
+}
+
+/// Operator commands aren't held up by a logout waiting for sends.
+#[test]
+fn operator_commands_pass_a_waiting_logout() {
+    let mut h = Harness::new();
+    let (mut s, mut commands, handle) = with_send_queue(&mut h, 2);
+    handle.send(report("A")).unwrap();
+    handle.logout(None).unwrap();
+    let mut numbers = std::pin::pin!(handle.sequence_numbers());
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    assert!(numbers.as_mut().poll(&mut cx).is_pending());
+    let command = commands.try_control().expect("the operator's command, ahead of the logout");
+    assert!(matches!(command, Command::Sequence(SequenceCommand::Get, _)));
+    s.command(command, h.t0);
+    let std::task::Poll::Ready(Ok(answer)) = numbers.as_mut().poll(&mut cx) else { panic!("unanswered") };
+    assert_eq!(answer.next_outgoing, 2);
+    assert!(commands.try_control().is_none(), "the logout still waits for A");
+}
+
 #[test]
 fn handle_commands_reach_the_session() {
     let h = Harness::new();
@@ -1515,13 +1579,13 @@ fn handle_commands_reach_the_session() {
     let handle = h.app.handles.lock().unwrap()[0].clone();
     assert!(handle.is_connected());
     handle.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "X")).unwrap();
-    let out = s.command(commands.try_recv().unwrap(), h.t0);
+    let out = s.command(commands.try_send().unwrap(), h.t0);
     let msg = sent(&out)[0];
     assert_eq!(msg.get(tags::MSG_SEQ_NUM), Some("2"));
     assert_eq!(msg.get(tags::TARGET_COMP_ID), Some("CLIENT"));
 
     handle.logout(Some("bye")).unwrap();
-    let out = s.command(commands.try_recv().unwrap(), h.t0);
+    let out = s.command(commands.try_control().unwrap(), h.t0);
     assert_eq!(types(&out), ["Logout"]);
     assert_eq!(types(&s.recv(client(2, MsgType::Logout), h.t0)), ["DISCONNECT"]);
 
@@ -1534,7 +1598,7 @@ fn handle_commands_reach_the_session() {
 fn handle_cannot_send_session_level_messages() {
     let h = Harness::new();
     let mut s = h.logged_on();
-    let out = s.command(Command::Send(Message::new(MsgType::SequenceReset)), h.t0);
+    let out = s.command(Command::send(Message::new(MsgType::SequenceReset)), h.t0);
     assert!(out.is_empty());
 }
 
@@ -1543,7 +1607,7 @@ fn application_poss_resend_is_sent_and_kept_on_resend() {
     let h = Harness::new();
     let mut s = h.logged_on(); // our Logon reply is seq 1
     let report = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E1").with(tags::POSS_RESEND, "Y");
-    let out = s.command(Command::Send(report), h.t0);
+    let out = s.command(Command::send(report), h.t0);
     let first = sent(&out)[0];
     assert_eq!(first.get(tags::POSS_RESEND), Some("Y"), "application's PossResend(97) is sent");
     assert_eq!(first.get(tags::POSS_DUP_FLAG), None);
@@ -1560,7 +1624,7 @@ fn message_with_soh_inside_a_value_is_not_sent() {
     let h = Harness::new();
     let mut s = h.logged_on(); // our Logon reply is seq 1
     let injected = Message::new(MsgType::ExecutionReport).with(tags::TEXT, "fine\x0139=8");
-    assert!(s.command(Command::Send(injected), h.t0).is_empty(), "would add a field on the wire");
+    assert!(s.command(Command::send(injected), h.t0).is_empty(), "would add a field on the wire");
 
     let out = s.command(send_command("A"), h.t0);
     assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"), "no sequence number used");
@@ -1574,7 +1638,7 @@ fn data_fields_may_contain_soh_and_bytes_that_are_not_utf8() {
     let report = Message::new(MsgType::ExecutionReport)
         .with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, bytes)
         .with(tags::TEXT, "after");
-    let out = s.command(Command::Send(report), h.t0);
+    let out = s.command(Command::send(report), h.t0);
     let msg = sent(&out)[0];
     assert_eq!(msg.get_bytes(tags::RAW_DATA), Some(&bytes[..]));
 
@@ -1598,7 +1662,7 @@ fn a_data_field_without_its_length_is_not_sent() {
             .with(tags::TEXT, "x")
             .with(tags::RAW_DATA, "a\x01b"),
     ] {
-        assert!(s.command(Command::Send(report.clone()), h.t0).is_empty(), "{report}");
+        assert!(s.command(Command::send(report.clone()), h.t0).is_empty(), "{report}");
     }
     let out = s.command(send_command("A"), h.t0);
     assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("2"), "no sequence number used");
@@ -1609,12 +1673,12 @@ fn venue_data_fields_are_sent_when_configured() {
     let venue = Message::new(MsgType::ExecutionReport).with_data(5000, 5001, b"a\x01b");
     let h = Harness::new();
     let mut s = h.logged_on();
-    assert!(s.command(Command::Send(venue.clone()), h.t0).is_empty(), "5001 isn't a data field");
+    assert!(s.command(Command::send(venue.clone()), h.t0).is_empty(), "5001 isn't a data field");
 
     let mut h = Harness::new();
     h.config = h.config.with_data_field(5000, 5001);
     let mut s = h.logged_on();
-    let out = s.command(Command::Send(venue), h.t0);
+    let out = s.command(Command::send(venue), h.t0);
     assert_eq!(sent(&out)[0].get(5001), Some("a\x01b"));
 }
 
@@ -1625,7 +1689,7 @@ fn venue_data_fields_are_resent_intact_from_disk() {
     h.config = h.config.with_data_field(5000, 5001);
     let report = Message::new(MsgType::ExecutionReport).with_data(5000, 5001, b"\xfe\x0110=000\x01");
     let mut first = h.logged_on(); // our 1: Logon
-    assert_eq!(sent(&first.command(Command::Send(report), h.t0)).len(), 1, "our 2");
+    assert_eq!(sent(&first.command(Command::send(report), h.t0)).len(), 1, "our 2");
     drop(first);
 
     let mut s = h.session();
@@ -1652,7 +1716,7 @@ fn sending_time_is_written_at_the_configured_precision() {
 }
 
 fn send_command(cl_ord_id: &str) -> Command {
-    Command::Send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, cl_ord_id))
+    Command::send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, cl_ord_id))
 }
 
 #[test]
@@ -3086,19 +3150,19 @@ fn the_application_may_send_in_another_supported_version() {
     let mut s = fixt_session(&h);
     let report =
         |version| Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E").with(tags::APPL_VER_ID, version);
-    let out = s.command(Command::Send(report("8")), h.t0);
+    let out = s.command(Command::send(report("8")), h.t0);
     assert_eq!(sent(&out)[0].get(tags::APPL_VER_ID), Some("8"));
     assert_eq!(misplaced_header_field(sent(&out)[0]), None);
-    let out = s.command(Command::Send(report("9")), h.t0);
+    let out = s.command(Command::send(report("9")), h.t0);
     assert_eq!(sent(&out)[0].get(tags::APPL_VER_ID), None, "the default goes unstated");
     let next = s.peer().log.next_outgoing();
-    assert!(s.command(Command::Send(report("7")), h.t0).is_empty(), "not a supported version");
+    assert!(s.command(Command::send(report("7")), h.t0).is_empty(), "not a supported version");
     assert_eq!(s.peer().log.next_outgoing(), next, "and no number used");
     let custom = Message::new(MsgType::ExecutionReport)
         .with(tags::EXEC_ID, "E")
         .with(tags::CSTM_APPL_VER_ID, "VENUE1")
         .with(tags::APPL_EXT_ID, "99");
-    let out = s.command(Command::Send(custom), h.t0);
+    let out = s.command(Command::send(custom), h.t0);
     assert_eq!(sent(&out)[0].get(tags::CSTM_APPL_VER_ID), Some("VENUE1"));
     assert_eq!(sent(&out)[0].get(tags::APPL_EXT_ID), Some("99"));
     assert_eq!(misplaced_header_field(sent(&out)[0]), None);
@@ -3172,7 +3236,7 @@ fn fix4_sessions_ignore_appl_ver_id() {
 fn outbound_messages_in_an_unsupported_version_are_dropped() {
     let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
     let mut s = fixt_session(&h);
-    let out = s.command(Command::Send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "8")), h.t0);
+    let out = s.command(Command::send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "8")), h.t0);
     assert!(out.is_empty());
 }
 

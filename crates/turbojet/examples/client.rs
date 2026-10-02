@@ -83,7 +83,9 @@ async fn reply(events: &mut mpsc::UnboundedReceiver<Event>) -> Result<(), Box<dy
 fn send(session: &SessionHandle, msg: impl Into<Message>) -> Result<(), Box<dyn Error>> {
     let msg = msg.into();
     println!("-> {msg}");
-    Ok(session.send(msg)?)
+    // The receipt (the MsgSeqNum once stored, or why it was dropped) isn't needed here.
+    session.send(msg)?;
+    Ok(())
 }
 
 #[derive(Default)]

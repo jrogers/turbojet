@@ -16,7 +16,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::admin::{
@@ -32,8 +31,8 @@ use crate::initiator::InitiatorConfig;
 use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags};
 use crate::peer::ConnectionInfo;
 use crate::registry::{
-    Command, CommandReceiver, CommandSender, SequenceCommand, SequenceError, SequenceNumbers, SessionRegistry,
-    apply_sequence_command,
+    Command, CommandReceiver, CommandSender, Dropped, SequenceCommand, SequenceError, SequenceNumbers, SessionRegistry,
+    apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{SessionId, SessionLog};
@@ -87,6 +86,11 @@ pub struct SessionConfig {
     /// and bytes that aren't UTF-8. The standard ones by default; add a venue's own with
     /// [`with_data_field`](Self::with_data_field).
     pub data_fields: DataFields,
+    /// Most application messages queued through [`SessionHandle::send`](crate::SessionHandle::send)
+    /// and not yet taken by the connection: past it, `send` hands the message back
+    /// ([`SendError::Full`](crate::SendError::Full)) rather than queue it without limit. 10,000
+    /// by default.
+    pub send_queue: usize,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
     pub appl_versions: Vec<ApplVersion>,
@@ -114,6 +118,7 @@ impl SessionConfig {
             check_header_order: true,
             timestamp_precision: Precision::Millis,
             data_fields: DataFields::standard(),
+            send_queue: 10_000,
             appl_versions: Vec::new(),
             #[cfg(feature = "validation")]
             validator: None,
@@ -419,7 +424,7 @@ impl Session {
         let initiator = matches!(role, Role::Initiator { .. });
         config.assert_valid();
         let appl_version = if initiator { config.appl_versions.first().cloned() } else { None };
-        let (commands, receiver) = mpsc::unbounded_channel();
+        let (commands, receiver) = command_queues(config.send_queue);
         let session = Self {
             config,
             role,
@@ -589,8 +594,18 @@ impl Session {
 
     fn apply_command(&mut self, command: Command, now: Instant) {
         match command {
-            Command::Send(msg) if self.status == Status::Active => self.send_app(msg, now),
-            Command::Send(msg) => warn!(msg_type = %msg.msg_type(), "dropping message: session is logging out"),
+            Command::Send(msg, receipt) => {
+                let outcome = if self.status == Status::Active {
+                    self.send_app(msg, now)
+                } else {
+                    warn!(msg_type = %msg.msg_type(), "dropping message: session is logging out");
+                    Err(Dropped::LoggingOut)
+                };
+                // The application may not be waiting to hear.
+                if let Some(receipt) = receipt {
+                    let _ = receipt.send(outcome);
+                }
+            }
             Command::Logout(text) if self.status == Status::Active => self.logout(text.as_deref(), now),
             Command::Logout(_) => debug!("ignoring logout request: session is already logging out"),
             Command::Sequence(..) => unreachable!("handled in on_command"),
@@ -1454,7 +1469,8 @@ impl Session {
             return self.business_reject(msg, seq_num, reason, "Application error".into(), now);
         };
         for reply in ctx.replies {
-            self.send_app(reply, now);
+            // Replies have no receipt: anything wrong with one is logged.
+            let _ = self.send_app(reply, now);
         }
         match result {
             Ok(()) => {}
@@ -1737,32 +1753,40 @@ impl Session {
 
     // ---- Sending ----
 
-    /// Sends an application message; session-level message types are refused.
-    fn send_app(&mut self, msg: Message, now: Instant) {
+    /// Sends an application message; session-level message types are refused. Returns its
+    /// MsgSeqNum once stored, or why it was dropped.
+    fn send_app(&mut self, msg: Message, now: Instant) -> Result<u64, Dropped> {
         if msg.msg_type().is_admin() {
             warn!(msg_type = %msg.msg_type(), "applications cannot send session-level messages; dropping");
-            return;
+            return Err(Dropped::Rejected(format!("{} is a session-level message type", msg.msg_type())));
         }
         if self.appl_version.is_some()
             && let Some(stated) = msg.get(tags::APPL_VER_ID)
             && self.supported_version(stated).is_none()
         {
             error!(msg_type = %msg.msg_type(), stated, "dropping message: its ApplVerID(1128) isn't one this session supports");
-            return;
+            return Err(Dropped::Rejected(format!("ApplVerID(1128) {stated} isn't one this session supports")));
         }
-        self.send(msg, now);
+        self.send_outcome(msg, now)
     }
 
     /// Assigns the next outgoing MsgSeqNum, adds the standard header, persists it and queues the
     /// message. Does nothing once the session is closed.
-    fn send(&mut self, mut body: Message, now: Instant) {
+    fn send(&mut self, body: Message, now: Instant) {
+        // Session messages and replies have no one waiting to hear; anything wrong is logged.
+        let _ = self.send_outcome(body, now);
+    }
+
+    /// [`send`](Self::send), returning the MsgSeqNum once stored, or why the message was dropped.
+    fn send_outcome(&mut self, mut body: Message, now: Instant) -> Result<u64, Dropped> {
         if self.status == Status::Closed {
-            return;
+            return Err(Dropped::Disconnected);
         }
         let admin = body.msg_type().is_admin();
         // A panic may have left the message half-modified: disconnect rather than send it.
         if admin && guarded("to_admin", || self.app.to_admin(&self.peer().id, &mut body)).is_none() {
-            return self.close();
+            self.close();
+            return Err(Dropped::Disconnected);
         }
         // SOH ends a field on the wire, so a value containing one would add fields of its own,
         // unless it's a data field whose length is given just before it.
@@ -1772,7 +1796,9 @@ impl Session {
                 tag,
                 "dropping message: a value contains SOH, or a data field doesn't follow its length"
             );
-            return;
+            return Err(Dropped::Rejected(format!(
+                "tag {tag} contains SOH, or is a data field that doesn't follow its length"
+            )));
         }
         let seq = self.peer().log.next_outgoing();
         let sending_time = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision);
@@ -1807,12 +1833,14 @@ impl Session {
         }
         *(if holding { &mut self.held } else { &mut self.output }) = output;
         if let Some(e) = failed {
-            return self.storage_failed(e);
+            self.storage_failed(e);
+            return Err(Dropped::Storage);
         }
         debug_assert_eq!(self.peer().log.next_outgoing(), seq + 1, "recording a message uses its number");
         self.peer().metrics.next_outgoing(seq + 1);
         self.last_sent = now;
         self.emit(if holding { &self.held } else { &self.output }, start);
+        Ok(seq)
     }
 
     /// Counts and logs the message `buf` (the output, or the messages held during a resend) holds

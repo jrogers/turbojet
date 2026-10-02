@@ -169,6 +169,32 @@ impl Checker {
             .map(|(seq, _)| *seq)
     }
 
+    /// Rule 7: a receipt tells the truth. Stored as `seq` means `side`'s store recorded message
+    /// `id` as `seq` (in this epoch or the one before); dropped means it never recorded it.
+    pub fn receipt(&self, side: Side, id: &str, outcome: &Result<u64, turbojet::Dropped>) -> Result<(), Violation> {
+        if self.lossy {
+            return Ok(());
+        }
+        let sent = &self.sent[side.index()];
+        let epochs = [&sent.recorded, &sent.previous];
+        let stored_as =
+            |seq: u64| epochs.iter().any(|r| r.get(&seq).and_then(Option::as_ref).and_then(id_of) == Some(id));
+        let ever_stored = epochs.iter().any(|r| r.values().flatten().any(|m| id_of(m) == Some(id)));
+        match outcome {
+            Ok(seq) if stored_as(*seq) => Ok(()),
+            Ok(seq) => {
+                Err(violation("7 receipt", format!("{side:?}'s receipt says {id} was stored as {seq}; it wasn't")))
+            }
+            // A failed store call may have taken effect: the receipt says so.
+            Err(turbojet::Dropped::Storage) => Ok(()),
+            Err(_) if !ever_stored => Ok(()),
+            Err(dropped) => Err(violation(
+                "7 receipt",
+                format!("{side:?}'s receipt says {id} was dropped ({dropped}), but it was stored"),
+            )),
+        }
+    }
+
     /// Application messages `side` has committed to sending, by id.
     pub fn committed(&self, side: Side) -> impl Iterator<Item = &str> {
         self.sent[side.index()].recorded.values().flatten().filter_map(id_of)
@@ -496,6 +522,19 @@ mod tests {
         assert_eq!(h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule), Ok(()));
         h.ledger.push(Stored::Opened { next_outgoing: 1, next_incoming: 1 });
         assert_eq!(h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule), Err("6 store"));
+    }
+
+    #[test]
+    fn a_receipt_that_misstates_what_was_stored_breaks_rule_7() {
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        let check = |outcome| h.checker.receipt(Side::Initiator, "a", &outcome).map_err(|e| e.rule);
+        assert_eq!(check(Ok(1)), Ok(()));
+        assert_eq!(check(Ok(2)), Err("7 receipt"), "stored as 1, not 2");
+        assert_eq!(check(Err(turbojet::Dropped::Disconnected)), Err("7 receipt"), "it was stored");
+        assert_eq!(check(Err(turbojet::Dropped::Storage)), Ok(()), "a failed store may have stored it");
+        let check_b = |outcome| h.checker.receipt(Side::Initiator, "b", &outcome).map_err(|e| e.rule);
+        assert_eq!(check_b(Err(turbojet::Dropped::LoggingOut)), Ok(()), "never stored");
     }
 
     #[test]

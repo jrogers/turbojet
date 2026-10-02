@@ -281,7 +281,7 @@ fuzz_target!(|input: Input| {
             }
             Step::Send => {
                 let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "X").with(tags::SYMBOL, "AAPL");
-                session.on_command(Command::Send(order), now);
+                session.on_command(Command::send(order), now);
             }
             Step::Logout => session.on_command(Command::Logout(None), now),
             Step::Resume => session.on_resume(now),

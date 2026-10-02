@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use tokio::sync::{mpsc, oneshot};
@@ -16,13 +17,81 @@ use crate::store::{MemoryStorage, SessionId, SessionLog, SessionStorage};
 /// A request to a session's connection task.
 #[derive(Debug)]
 pub enum Command {
-    /// Send an application message; see [`SessionHandle::send`].
-    Send(Message),
+    /// Send an application message, and say what became of it on the reply, if any; see
+    /// [`SessionHandle::send`].
+    Send(Message, Option<ReceiptSender>),
     /// Log out, with this Text(58) if any; see [`SessionHandle::logout`].
     Logout(Option<String>),
     /// An operator change to sequence numbers, answered on the channel.
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
 }
+
+impl Command {
+    /// Send `msg`, with no one waiting to hear what became of it.
+    pub fn send(msg: Message) -> Self {
+        Self::Send(msg, None)
+    }
+}
+
+/// The session's end of a [`Receipt`]: answered with the message's MsgSeqNum once it's stored,
+/// or why it was dropped. Dropped unanswered, the receipt reads [`Dropped::Disconnected`].
+pub type ReceiptSender = oneshot::Sender<Result<u64, Dropped>>;
+
+/// What became of a message queued with [`SessionHandle::send`]: a future that resolves to its
+/// MsgSeqNum once the session has stored it (from then on it's resent if the counterparty misses
+/// it, across reconnects and restarts), or to why it was dropped. Ignoring it is fine.
+#[derive(Debug)]
+pub struct Receipt(oneshot::Receiver<Result<u64, Dropped>>);
+
+impl Receipt {
+    /// The outcome, if there's one yet.
+    pub fn try_outcome(&mut self) -> Option<Result<u64, Dropped>> {
+        match self.0.try_recv() {
+            Ok(outcome) => Some(outcome),
+            Err(oneshot::error::TryRecvError::Empty) => None,
+            Err(oneshot::error::TryRecvError::Closed) => Some(Err(Dropped::Disconnected)),
+        }
+    }
+}
+
+impl std::future::Future for Receipt {
+    type Output = Result<u64, Dropped>;
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        std::pin::Pin::new(&mut self.0).poll(cx).map(|answer| answer.unwrap_or(Err(Dropped::Disconnected)))
+    }
+}
+
+/// Why a message queued with [`SessionHandle::send`] was never stored or sent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Dropped {
+    /// The connection ended first: while the message was queued, or held during a logon that
+    /// never completed.
+    Disconnected,
+    /// The session had started logging out.
+    LoggingOut,
+    /// The session wouldn't send it, for the reason given: a value containing SOH, an
+    /// ApplVerID(1128) the session doesn't support, or a session-level message type.
+    Rejected(String),
+    /// The session store failed while recording it, and the session disconnects. A store can
+    /// fail after the write took effect (a failed fsync, say), so the message may have been stored
+    /// after all: if so, it's resent when the counterparty asks for it, as any stored message is.
+    /// Sending it again risks a duplicate.
+    Storage,
+}
+
+impl fmt::Display for Dropped {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Disconnected => f.write_str("the connection ended before the message was sent"),
+            Self::LoggingOut => f.write_str("the session was logging out"),
+            Self::Rejected(reason) => write!(f, "the session wouldn't send it: {reason}"),
+            Self::Storage => f.write_str("the session store failed recording it (it may have been stored)"),
+        }
+    }
+}
+
+impl std::error::Error for Dropped {}
 
 /// An operator request to inspect or change a session's sequence numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,11 +193,129 @@ impl fmt::Display for AcquireError {
     }
 }
 
-/// Sends [`Command`]s to a session's connection task. Unbounded for now (ROADMAP "Bound the
-/// session command queue").
-pub type CommandSender = mpsc::UnboundedSender<Command>;
-/// A connection task's end of a [`CommandSender`].
-pub type CommandReceiver = mpsc::UnboundedReceiver<Command>;
+/// Most logout and operator commands queued for a session at once. They have a queue of their own,
+/// which the connection takes from first, so a queue full of sends never holds them up.
+pub const CONTROL_QUEUE: usize = 64;
+
+/// A logout or operator command, as queued.
+#[derive(Debug)]
+enum Control {
+    /// Log out once the first `after` sends have been taken: those queued before it.
+    Logout {
+        text: Option<String>,
+        after: u64,
+    },
+    Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
+}
+
+/// The queues that carry [`SessionHandle`] commands to a session's connection task: application
+/// sends, bounded by [`SessionConfig::send_queue`](crate::SessionConfig::send_queue), and
+/// logout and operator commands, bounded by [`CONTROL_QUEUE`].
+#[derive(Debug, Clone)]
+pub struct CommandSender {
+    sends: mpsc::Sender<(Message, ReceiptSender)>,
+    control: mpsc::Sender<Control>,
+    /// Sends queued so far, for a Logout to wait behind.
+    queued: Arc<AtomicU64>,
+}
+
+/// A connection task's end of a [`CommandSender`]. A driver takes [`control`](Self::try_control)
+/// commands whenever it can, and [`sends`](Self::try_send) when the session can take them; a
+/// Logout comes out of the control queue only once every send queued before it has been taken,
+/// so a message sent before logging out still goes out first.
+#[derive(Debug)]
+pub struct CommandReceiver {
+    sends: mpsc::Receiver<(Message, ReceiptSender)>,
+    control: mpsc::Receiver<Control>,
+    /// Sends taken so far.
+    taken: u64,
+    /// A Logout waiting for the sends queued before it.
+    held: Option<(Option<String>, u64)>,
+}
+
+/// A session's command queues, sends holding up to `send_queue` messages.
+pub fn command_queues(send_queue: usize) -> (CommandSender, CommandReceiver) {
+    assert!(send_queue > 0, "a send queue holds at least one message");
+    let (sends, sends_rx) = mpsc::channel(send_queue);
+    let (control, control_rx) = mpsc::channel(CONTROL_QUEUE);
+    let sender = CommandSender { sends, control, queued: Arc::default() };
+    (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None })
+}
+
+impl CommandReceiver {
+    /// The next logout or operator command that's due, if any: operator commands at once, a
+    /// Logout once the sends queued before it have been taken.
+    pub fn try_control(&mut self) -> Option<Command> {
+        loop {
+            if let Some((_, after)) = &self.held
+                && self.taken >= *after
+            {
+                let (text, _) = self.held.take().expect("checked");
+                return Some(Command::Logout(text));
+            }
+            let control = self.control.try_recv().ok()?;
+            if let Some(command) = self.take(control) {
+                return Some(command);
+            }
+        }
+    }
+
+    /// Waits for the next command: a logout or operator command that's due, before anything
+    /// else, or, if `sends`, an application message. Cancel-safe: a Logout that has arrived but
+    /// isn't due yet is kept for later.
+    pub async fn next(&mut self, sends: bool) -> Option<Command> {
+        loop {
+            if let Some(command) = self.try_control() {
+                return Some(command);
+            }
+            tokio::select! {
+                biased;
+                control = self.control.recv() => {
+                    if let Some(command) = self.take(control?) {
+                        return Some(command);
+                    }
+                }
+                send = self.sends.recv(), if sends => {
+                    self.taken += 1;
+                    return send.map(|(msg, receipt)| Command::Send(msg, Some(receipt)));
+                }
+            }
+        }
+    }
+
+    /// A control command as it comes off its queue: a Logout not yet due is held (a second one
+    /// while one is held adds nothing).
+    fn take(&mut self, control: Control) -> Option<Command> {
+        match control {
+            Control::Sequence(command, reply) => Some(Command::Sequence(command, reply)),
+            Control::Logout { text, after } if self.taken >= after && self.held.is_none() => {
+                Some(Command::Logout(text))
+            }
+            Control::Logout { text, after } => {
+                self.held.get_or_insert((text, after));
+                None
+            }
+        }
+    }
+
+    /// The next queued application message, if any.
+    pub fn try_send(&mut self) -> Option<Command> {
+        let (msg, receipt) = self.sends.try_recv().ok()?;
+        self.taken += 1;
+        Some(Command::Send(msg, Some(receipt)))
+    }
+
+    /// Whether application messages are waiting.
+    pub fn has_sends(&self) -> bool {
+        !self.sends.is_empty()
+    }
+
+    /// Whether a logout or operator command could be taken now: one queued, or a Logout whose
+    /// sends have been taken. A Logout still waiting for sends doesn't count.
+    pub fn has_control(&self) -> bool {
+        !self.control.is_empty() || self.held.as_ref().is_some_and(|(_, after)| self.taken >= *after)
+    }
+}
 
 /// A connected session's registration.
 struct Entry {
@@ -203,7 +390,7 @@ impl SessionRegistry {
     /// meanwhile so it can't log on half-way through.
     fn apply_offline(&self, id: &SessionId, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
         // No receiver: a send through a handle during the change fails as not connected.
-        let (placeholder, _) = mpsc::unbounded_channel();
+        let (placeholder, _) = command_queues(1);
         let mut log = self.acquire(id, placeholder, None).map_err(|e| match e {
             AcquireError::AlreadyConnected(_) => SequenceError::Connected,
             AcquireError::Storage(_, e) => SequenceError::Storage(e),
@@ -255,7 +442,7 @@ impl SessionHandle {
     }
 
     /// Whether a connection has claimed the session (see [`SessionHandle`]) and not yet ended.
-    /// Commands fail with [`NotConnected`] otherwise.
+    /// Commands fail as not connected otherwise.
     pub fn is_connected(&self) -> bool {
         self.registry.sender(&self.id).is_some()
     }
@@ -274,13 +461,55 @@ impl SessionHandle {
     /// sessions, ApplVerID(1128) may name any version the session supports (the default goes
     /// unstated), and a message naming another is dropped (and logged); CstmApplVerID(1129) and
     /// ApplExtID(1156) pass through. On FIX 4.x sessions, ApplVerID(1128) is dropped.
-    pub fn send(&self, msg: impl Into<Message>) -> Result<(), NotConnected> {
-        self.command(Command::Send(msg.into()))
+    ///
+    /// The queue holds up to [`SessionConfig::send_queue`](crate::SessionConfig::send_queue)
+    /// messages; when it's full, as when the counterparty reads more slowly than the application
+    /// sends, the message comes back in [`SendError::Full`] rather than waiting.
+    /// [`send_when_ready`](Self::send_when_ready) waits for room instead.
+    ///
+    /// Queued, the message comes with a [`Receipt`]: it resolves to the MsgSeqNum once the
+    /// session has stored the message, or to why it was dropped, such as the connection ending
+    /// first. Ignore it for fire-and-forget.
+    pub fn send(&self, msg: impl Into<Message>) -> Result<Receipt, SendError> {
+        let msg = msg.into();
+        let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
+        let (reply, receipt) = oneshot::channel();
+        match sender.sends.try_send((msg, reply)) {
+            Ok(()) => {
+                sender.queued.fetch_add(1, Ordering::AcqRel);
+                Ok(Receipt(receipt))
+            }
+            Err(mpsc::error::TrySendError::Full((msg, _))) => Err(SendError::Full(msg)),
+            Err(mpsc::error::TrySendError::Closed((msg, _))) => Err(SendError::NotConnected(msg)),
+        }
     }
 
-    /// Starts an orderly logout.
-    pub fn logout(&self, text: Option<&str>) -> Result<(), NotConnected> {
-        self.command(Command::Logout(text.map(String::from)))
+    /// Queues an application message as [`send`](Self::send) does, waiting for room in the queue
+    /// if it's full. Fails only if the session isn't connected, or the connection ends meanwhile.
+    pub async fn send_when_ready(&self, msg: impl Into<Message>) -> Result<Receipt, SendError> {
+        let msg = msg.into();
+        let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
+        let (reply, receipt) = oneshot::channel();
+        match sender.sends.send((msg, reply)).await {
+            Ok(()) => {
+                sender.queued.fetch_add(1, Ordering::AcqRel);
+                Ok(Receipt(receipt))
+            }
+            Err(mpsc::error::SendError((msg, _))) => Err(SendError::NotConnected(msg)),
+        }
+    }
+
+    /// Starts an orderly logout, once the messages already queued through
+    /// [`send`](Self::send) have gone. It has a queue of its own, so a full send queue doesn't
+    /// hold it up.
+    pub fn logout(&self, text: Option<&str>) -> Result<(), CommandError> {
+        let sender = self.registry.sender(&self.id).ok_or(CommandError::NotConnected)?;
+        let after = sender.queued.load(Ordering::Acquire);
+        let logout = Control::Logout { text: text.map(String::from), after };
+        sender.control.try_send(logout).map_err(|e| match e {
+            mpsc::error::TrySendError::Full(_) => CommandError::Full,
+            mpsc::error::TrySendError::Closed(_) => CommandError::NotConnected,
+        })
     }
 
     // ---- Operator control of sequence numbers ----
@@ -319,7 +548,7 @@ impl SessionHandle {
     async fn sequence(&self, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
         if let Some(sender) = self.registry.sender(&self.id) {
             let (reply, answer) = oneshot::channel();
-            if sender.send(Command::Sequence(command, reply)).is_ok()
+            if sender.control.send(Control::Sequence(command, reply)).await.is_ok()
                 && let Ok(result) = answer.await
             {
                 return result;
@@ -327,11 +556,6 @@ impl SessionHandle {
             // The connection ended in the meantime: fall back to the stored state.
         }
         self.registry.apply_offline(&self.id, command)
-    }
-
-    fn command(&self, command: Command) -> Result<(), NotConnected> {
-        let sender = self.registry.sender(&self.id).ok_or(NotConnected)?;
-        sender.send(command).map_err(|_| NotConnected)
     }
 }
 
@@ -341,14 +565,52 @@ impl fmt::Debug for SessionHandle {
     }
 }
 
-/// A command sent through a [`SessionHandle`] while its session isn't connected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NotConnected;
+/// Why [`SessionHandle::send`] didn't queue a message, with the message, to retry or keep.
+#[derive(Debug, Clone)]
+pub enum SendError {
+    /// No connection has the session (see [`SessionHandle`]).
+    NotConnected(Message),
+    /// The session's send queue is full: the counterparty is reading more slowly than the
+    /// application sends.
+    Full(Message),
+}
 
-impl fmt::Display for NotConnected {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("session is not connected")
+impl SendError {
+    /// The message that wasn't queued.
+    pub fn into_message(self) -> Message {
+        match self {
+            Self::NotConnected(msg) | Self::Full(msg) => msg,
+        }
     }
 }
 
-impl std::error::Error for NotConnected {}
+impl fmt::Display for SendError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotConnected(_) => f.write_str("session is not connected"),
+            Self::Full(_) => f.write_str("session's send queue is full"),
+        }
+    }
+}
+
+impl std::error::Error for SendError {}
+
+/// Why [`SessionHandle::logout`] didn't queue the logout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandError {
+    /// No connection has the session (see [`SessionHandle`]).
+    NotConnected,
+    /// [`CONTROL_QUEUE`] commands are already waiting.
+    Full,
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotConnected => f.write_str("session is not connected"),
+            Self::Full => f.write_str("session's control queue is full"),
+        }
+    }
+}
+
+impl std::error::Error for CommandError {}
