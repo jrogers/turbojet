@@ -16,7 +16,7 @@ pub mod store;
 pub mod time;
 pub mod world;
 
-pub use world::{Failure, Options, Report, WRITE_DEADLOCK, run};
+pub use world::{Failure, Options, Plant, Report, WRITE_DEADLOCK, run};
 
 /// One end of the simulated connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 use turbojet::message::tags;
 use turbojet::{Application, Context, Message, MessageReject, MsgType, SessionHandle};
 
+use crate::world::{PLANTED_AT, Plant};
+
 /// An application message as its receiver saw it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Delivery {
@@ -24,11 +26,14 @@ pub struct RecordingApp {
     /// Acknowledgements sent so far: each gets its own ExecID, since an order redelivered after a
     /// crash is acknowledged again.
     acked: Mutex<u64>,
+    /// A planted bug for the checker's self-tests, and the deliveries counted towards it.
+    plant: Option<Plant>,
+    delivered: Mutex<u64>,
 }
 
 impl RecordingApp {
-    pub fn acceptor() -> Arc<Self> {
-        Arc::new(Self { acks: true, ..Self::default() })
+    pub fn acceptor(plant: Option<Plant>) -> Arc<Self> {
+        Arc::new(Self { acks: true, plant, ..Self::default() })
     }
 
     pub fn initiator() -> Arc<Self> {
@@ -87,7 +92,17 @@ impl Application for RecordingApp {
             *acked += 1;
             ctx.send(report(&format!("ack-{id}-{acked}"), Some(&id)));
         }
-        self.deliveries.lock().unwrap().push(Delivery { id, seq, redelivered: ctx.maybe_redelivered() });
+        let delivery = Delivery { id, seq, redelivered: ctx.maybe_redelivered() };
+        let mut delivered = self.delivered.lock().unwrap();
+        *delivered += 1;
+        let mut deliveries = self.deliveries.lock().unwrap();
+        match self.plant {
+            Some(Plant::DropDelivery) if *delivered == PLANTED_AT => {}
+            Some(Plant::DuplicateDelivery) if *delivered == PLANTED_AT => {
+                deliveries.extend([delivery.clone(), delivery]);
+            }
+            _ => deliveries.push(delivery),
+        }
         Ok(())
     }
 }

@@ -40,12 +40,28 @@ pub struct Options {
     pub quiet: Duration,
     /// Keep a trace of every event.
     pub verbose: bool,
+    /// A bug planted in the simulator for the checker to find (its self-tests).
+    pub plant: Option<Plant>,
+}
+
+/// A bug planted in the simulator, standing for one in the engine, for the checker's self-tests:
+/// each must be caught.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Plant {
+    /// The acceptor's application never sees its 10th delivery.
+    DropDelivery,
+    /// The acceptor's application sees its 10th delivery twice, unmarked.
+    DuplicateDelivery,
+    /// From its 10th, the acceptor's store keeps each message's number but not the message.
+    ForgetMessages,
+    /// Resent application messages reach the checker with their ids changed.
+    AlterResends,
 }
 
 impl Options {
     /// The run each seed gets on every push.
     pub fn per_push(seed: u64) -> Self {
-        Self { seed, busy: Duration::from_secs(30), quiet: Duration::from_secs(10), verbose: false }
+        Self { seed, busy: Duration::from_secs(30), quiet: Duration::from_secs(10), verbose: false, plant: None }
     }
 }
 
@@ -365,7 +381,13 @@ fn stores(kind: StoreKind) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2
 }
 
 /// The two nodes, in `roles`, over `storage`.
-fn nodes(roles: [Role; 2], storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, faults: &Faults) -> [Node; 2] {
+fn nodes(
+    roles: [Role; 2],
+    storage: &[Arc<LedgerStorage>; 2],
+    clocks: &Clocks,
+    faults: &Faults,
+    plant: Option<Plant>,
+) -> [Node; 2] {
     let [initiator, acceptor] = roles;
     let node = |side: Side, role, app| {
         let store: Arc<dyn SessionStorage> = storage[side.index()].clone();
@@ -376,7 +398,7 @@ fn nodes(roles: [Role; 2], storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, f
     };
     [
         node(Side::Initiator, initiator, RecordingApp::initiator()),
-        node(Side::Acceptor, acceptor, RecordingApp::acceptor()),
+        node(Side::Acceptor, acceptor, RecordingApp::acceptor(plant)),
     ]
 }
 
@@ -432,7 +454,11 @@ impl World {
         initiator.heartbeat_interval = heartbeat;
         initiator.reconnect_interval = reconnect;
         let (dir, storage) = stores(faults.store);
-        let nodes = nodes([Role::Initiator(initiator), Role::Acceptor(config("GATEWAY"))], &storage, &clocks, &faults);
+        if options.plant == Some(Plant::ForgetMessages) {
+            storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
+        }
+        let roles = [Role::Initiator(initiator), Role::Acceptor(config("GATEWAY"))];
+        let nodes = nodes(roles, &storage, &clocks, &faults, options.plant);
         let net = Net::new(faults.net.clone(), rng.fork());
         let proxy = faults.hostile.map(|rate| Proxy::new(rate, rng.fork()));
         let mut world = Self {
@@ -964,7 +990,11 @@ impl World {
             self.wake_writer(side.other(), conn, now);
         }
         if !effects.output.is_empty() {
-            self.observe(side, &effects.output, now)?;
+            let output = match self.options.plant {
+                Some(Plant::AlterResends) => alter_resends(&effects.output),
+                _ => effects.output.clone(),
+            };
+            self.observe(side, &output, now)?;
         }
         if effects.ended {
             // The driver returned, dropping the stream: the connection closes from here.
@@ -1154,6 +1184,31 @@ impl World {
             self.trace.push(line);
         }
     }
+}
+
+/// Where a planted bug strikes: the 10th delivery or stored message.
+pub(crate) const PLANTED_AT: u64 = 10;
+
+/// `bytes` with each resent application message's id changed (a planted bug).
+fn alter_resends(mut bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    while let Decoded::Message(mut msg, len) = decode(bytes) {
+        let tag = match msg.msg_type() {
+            turbojet::MsgType::NewOrderSingle => Some(tags::CL_ORD_ID),
+            turbojet::MsgType::ExecutionReport => Some(tags::EXEC_ID),
+            _ => None,
+        };
+        match tag.filter(|_| msg.get(tags::POSS_DUP_FLAG) == Some("Y")) {
+            Some(tag) => {
+                msg.set(tag, "altered");
+                out.extend(turbojet::codec::encode(&msg).expect("a resend encodes"));
+            }
+            None => out.extend_from_slice(&bytes[..len]),
+        }
+        bytes = &bytes[len..];
+    }
+    out.extend_from_slice(bytes);
+    out
 }
 
 /// An event for the trace: messages as their type and MsgSeqNum (`D#4`, PossDup marked `D#4*`).

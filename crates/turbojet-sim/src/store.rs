@@ -65,12 +65,26 @@ pub struct LedgerStorage {
     files: Option<Arc<DiskFiles>>,
     /// The files as the OS last wrote them back (a store without fsync).
     written_back: Mutex<Snapshot>,
+    /// A planted bug: from this many messages stored on, keep each one's number but not the message.
+    forget: Arc<Mutex<Option<u64>>>,
 }
 
 impl LedgerStorage {
     pub fn new(inner: Arc<dyn SessionStorage>, files: Option<DiskFiles>) -> Self {
         let files = files.map(Arc::new);
-        Self { inner, ledger: Ledger::default(), traps: Arc::default(), files, written_back: Mutex::default() }
+        Self {
+            inner,
+            ledger: Ledger::default(),
+            traps: Arc::default(),
+            files,
+            written_back: Mutex::default(),
+            forget: Arc::default(),
+        }
+    }
+
+    /// Plants a bug: from the `n`th message stored, keep its number but not the message.
+    pub fn forget_messages_from(&self, n: u64) {
+        *self.forget.lock().unwrap() = Some(n);
     }
 
     /// The OS writes back what's been written so far.
@@ -113,6 +127,7 @@ impl SessionStorage for LedgerStorage {
             ledger: self.ledger.clone(),
             traps: self.traps.clone(),
             files: self.files.clone(),
+            forget: self.forget.clone(),
         }))
     }
 }
@@ -122,6 +137,7 @@ struct LedgerLog {
     ledger: Ledger,
     traps: Arc<Mutex<Traps>>,
     files: Option<Arc<DiskFiles>>,
+    forget: Arc<Mutex<Option<u64>>>,
 }
 
 impl LedgerLog {
@@ -184,7 +200,13 @@ impl SessionLog for LedgerLog {
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         self.call(Call::RecordOutgoing, |log| {
-            log.inner.record_outgoing(seq, msg)?;
+            // The planted bug: the number is used, the message isn't kept, the ledger is told it was.
+            let forget = msg.is_some()
+                && log.forget.lock().unwrap().as_mut().is_some_and(|n| {
+                    *n = n.saturating_sub(1);
+                    *n == 0
+                });
+            log.inner.record_outgoing(seq, if forget { None } else { msg })?;
             log.ledger.lock().unwrap().push(Stored::Sent { seq, bytes: msg.map(<[u8]>::to_vec) });
             Ok(())
         })

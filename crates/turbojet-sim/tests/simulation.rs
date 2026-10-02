@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use turbojet_sim::{Options, run};
+use turbojet_sim::{Options, Plant, run};
 
 /// Seeds run on every push: as many as fit in a few seconds of a debug build.
 const SEEDS: u64 = 100;
@@ -55,4 +55,40 @@ fn a_seed_replays_identically() {
     assert_eq!(first.digest, second.digest);
     assert_eq!(first.events, second.events);
     assert!(first.committed.iter().all(|&n| n > 0), "both sides sent something: {:?}", first.committed);
+}
+
+/// Runs seeds with `plant` until the checker catches it, by one of `rules`. A checker that can't
+/// see a bug it's meant to find fails here, rather than passing everything.
+fn caught(plant: Plant, rules: &[&str]) -> u64 {
+    for seed in 0..500 {
+        match run(&Options { plant: Some(plant), ..Options::per_push(seed) }) {
+            Ok(_) => {}
+            Err(failure) if rules.contains(&failure.violation.rule) => {
+                eprintln!("{plant:?} caught at seed {seed}: {}", failure.violation);
+                return seed;
+            }
+            Err(failure) => panic!("{plant:?} caught by the wrong rule: {failure}"),
+        }
+    }
+    panic!("{plant:?} never caught in 500 seeds");
+}
+
+#[test]
+fn a_dropped_delivery_is_caught() {
+    caught(Plant::DropDelivery, &["5 lost", "liveness"]);
+}
+
+#[test]
+fn a_duplicate_delivery_is_caught() {
+    caught(Plant::DuplicateDelivery, &["4 delivery"]);
+}
+
+#[test]
+fn a_store_that_forgets_messages_is_caught() {
+    caught(Plant::ForgetMessages, &["3 resend"]);
+}
+
+#[test]
+fn an_altered_resend_is_caught() {
+    caught(Plant::AlterResends, &["3 resend"]);
 }
