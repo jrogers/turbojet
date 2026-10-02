@@ -461,11 +461,13 @@ the change is committed.
 
 Delivery to the application is at least once. An inbound message counts as received only after
 `on_message` has returned and anything it sent in reply is stored, so if the process stops before
-then, the counterparty resends it. Before handing over the first message of a batch, the session
-commits a marker saying the messages from it on (up to 256) are in flight, so those that may have
-been handled before a crash come back with `Context::maybe_redelivered()` set; look them up (by
-ClOrdID, say) before acting on them again. Messages in that window that the application never saw
-may be marked too; later resends aren't. The marker costs one more commit per batch with input.
+then, the counterparty resends it. Each commit also records a marker saying the messages from the
+next incoming one on (up to 256) may be handed over, so a batch needs no commit of its own before
+its first message; a session that ends cleanly clears it. After a crash, a message in that window
+that comes again (flagged PossDupFlag=Y, or answering our ResendRequest) has
+`Context::maybe_redelivered()` set: it may have been handled before. Look it up (by ClOrdID, say)
+before acting on it again. Resends the application never saw may be marked too; new messages
+aren't.
 
 - `MemoryStorage`: survives reconnects, not restarts. Each session keeps its newest sent messages
   up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts
@@ -555,8 +557,8 @@ to partition the crate.
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
 | Round trip over localhost TLS, 1,000 in flight | | 508k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 35.9 µs | 675k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 12.6 ms | 7.1k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 32.9 µs | 695k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 8.1 ms | 9.1k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor
@@ -568,7 +570,8 @@ message was decoded into one reused for the connection. ² Re-measured 2026-10-0
 messages gained borrowed forms (`NewOrderSingleRef`); the owned form is now parsed as the borrowed
 one and then made owned, so it costs more than it did. ³ Measured 2026-10-02, with group commit:
 before it, storing 100 messages with fsync took 837 ms, and the disk + fsync round trip managed 62
-messages a second with 100 in flight. The other rows are the 2026-09-27 snapshot.
+messages a second with 100 in flight; and with each commit recording the next in-flight window
+(before that, 12.2 ms one at a time with fsync). The other rows are the 2026-09-27 snapshot.
 The FIX 4.4 order has three parties with two sub-IDs each.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's

@@ -101,7 +101,7 @@ later, with:
   one step of a resend) once, before any of it is written, and a store that waits for its device
   hands the commit to the driver, which runs it on a blocking thread. `DiskStorage` buffers until
   then, so a batch costs one write and, with fsync, one fsync of each file: 100 orders in flight
-  over a disk store with fsync take 14 ms rather than 1.6 s. Receipts and operator replies wait
+  over a disk store with fsync take 11 ms rather than 1.6 s. Receipts and operator replies wait
   for the commit;
 - at-least-once delivery: an inbound message counts as received only once the application has
   handled it, and the messages that may have been in flight at a crash (a window of up to 256,
@@ -242,10 +242,9 @@ From the benchmarks.
   parser it replaced, a FIX 4.2 NewOrderSingle is about 17% slower (34% with three allocations)
   and a FIX 4.4 one with nested groups about 63%. Reading with the borrowed form avoids the cost;
   converting fields straight into the owned form, without the borrowed step, would recover it.
-- **Pipelined commits** (M). A connection processes nothing while its commit runs, so with
-  fsync one at a time an order waits for three (the in-flight window, the body, the sequence
-  numbers): about 12.6 ms a round trip. Folding the window into the previous batch's commit, or
-  processing the next batch while the last one commits, would cut that.
+- **One fsync per commit** (M). With fsync, a commit syncs the body file, then the sequence
+  numbers file: about 8.1 ms a round trip one at a time. Keeping both in one journal file would
+  make it one fsync (about 4 ms), at the cost of a new disk format and recovery path.
 - **Disk store rotation** (M). The `.body` file grows until a sequence reset; add rotation or
   compaction for long-running sessions.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
