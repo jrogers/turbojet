@@ -44,8 +44,17 @@ Applications ask to log out now and then; operators move a side's next outgoing 
 to a daily schedule, whose next period starts the next morning with a sequence reset. A store
 reset starts a new epoch: messages left undelivered in the old one were dropped by the operator.
 
-A hostile mode and checker self-tests come next (see ROADMAP.md, "Deterministic simulation
-testing").
+On a fifth of the seeds a hostile middlebox sits between each connection and its receiver, and
+during the busy phase drops, duplicates, swaps or corrupts whole messages, as a buggy
+counterparty or proxy might. The sessions recover through resends, rejects and logouts, so every
+rule holds there too.
+
+## Checking the checker
+
+A checker that passes everything proves nothing. `Options::plant` plants a bug in the simulator
+standing for one in the engine: the application missing a delivery or seeing one twice, a store
+that keeps a message's number but not the message, a resend that arrives altered. A test per
+plant runs seeds until the checker catches it, by the rule expected.
 
 ## Known failures
 
@@ -56,6 +65,9 @@ write to each other, neither reading), was fixed by making the connection driver
 output waits.
 
 ## Running
+
+Every push runs 100 fixed seeds; a nightly workflow (`.github/workflows/simulate.yml`) runs random
+ones for half an hour and uploads the trace of any that fails.
 
 ```sh
 cargo test -p turbojet-sim          # the fixed seeds, as on every push

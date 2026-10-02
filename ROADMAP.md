@@ -77,6 +77,18 @@ later, with:
 - a counterparty's sequence reset while logged on (a Logon with ResetSeqNumFlag=Y at 1) accepted;
 - routing fields (OnBehalfOf and DeliverTo) kept in the header, and session-level rejects routed
   back to where the message came from;
+- deterministic simulation testing (`crates/turbojet-sim`): an initiator and an acceptor run
+  against each other in one thread from a seed, over a TCP-like network that splits, delays,
+  stalls, resets and black-holes connections (on some seeds behind a middlebox that drops,
+  duplicates, reorders and corrupts messages), with process crashes between events and inside
+  store calls, store errors, power loss on disk stores with and without sync, logout requests,
+  operators skipping numbers ahead and resetting both sides, and daily schedules. After every
+  event a checker holds both sides to what their stores recorded, what they wrote and what their
+  applications received, and once the faults stop they must settle; bugs planted in the simulator
+  show the checker catches what it should. 100 seeds run on every push and random ones nightly,
+  and any failure replays from its seed (`scripts/sim.sh`). It found a write deadlock in the
+  connection driver, torn sequence-number records in `DiskStorage`, and an operator's skip ahead
+  making a counterparty abandon a gap, all since fixed;
 - at-least-once delivery: an inbound message counts as received only once the application has
   handled it, and the one message in flight at a crash is marked as possibly handled when it's
   resent (`Context::maybe_redelivered`).
@@ -152,31 +164,6 @@ invariants, and tests that look for bugs rather than confirm what already works.
 lints (no `unsafe`, no lossy casts, no `unwrap` in library code, functions of about 70 lines) and
 debug assertions on framing, sequence numbers and the gap queue are in place.
 
-- **Deterministic simulation testing** (L). TigerBeetle's biggest safety tool is a simulator that
-  runs the whole system against a hostile, seeded environment; Turbojet's sans-IO `Session` and
-  injected clock make the same possible here. Run two sessions (initiator and acceptor) in one
-  thread over a simulated network that drops, delays, reorders, duplicates and disconnects;
-  crash and restart either side's store, including torn writes to a `DiskStorage` file; drive
-  applications and operators that send, reset and log out at random; and advance time only when
-  the simulator says so. Check invariants after every step: each application message is
-  delivered once, in order, with no gaps (or marked `maybe_redelivered` after a crash); sequence
-  numbers never go backwards except by an explicit reset; a resent message matches what was
-  first sent; and sessions that can reach each other eventually log on and settle. Any failure
-  replays from its seed. This goes beyond the fuzz targets (one session, no crashes) and the
-  QuickFIX/J tests (one well-behaved peer), and could share its fault model with the
-  fault-injecting proxy under "More interop tests". Begun in `crates/turbojet-sim`: the two
-  sessions, the simulated driver, time and workload, the safety checks on what each side stores,
-  writes and delivers, the settle check and seed replay (`scripts/sim.sh`), over a TCP-like
-  network that splits, delays and stalls writes, fills send buffers, resets connections and
-  black-holes them, with resends in small steps; process crashes, between events and inside store
-  calls; store errors; and memory and disk stores, the disk ones losing power with and without
-  sync. It found a write deadlock in the connection driver (both ends' send buffers full, each
-  waiting for the other to read) and torn sequence-number records that `DiskStorage` couldn't
-  reopen or misread, both since fixed; logout requests, operators skipping numbers ahead and
-  resetting both sides, and daily schedules with a sequence reset each morning, which found an
-  operator's skip ahead making a counterparty abandon a gap (since fixed). Still to do: a hostile
-  mode (messages dropped, duplicated, reordered or corrupted), self-tests that plant bugs for the
-  checker to find, and a nightly run.
 - **Bound the session command queue** (M). `SessionHandle::send` puts commands on an unbounded
   channel, so an application that sends faster than the connection writes grows it without limit;
   so do the commands a session holds while logon is in progress. Give it a configured capacity,
