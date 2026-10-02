@@ -50,8 +50,11 @@ struct Sent {
     next_recorded: u64,
     /// The next incoming MsgSeqNum the store last recorded.
     incoming: u64,
-    /// Every MsgSeqNum recorded: an application message with the message, a session one `None`.
+    /// Every MsgSeqNum recorded: an application message with the message, a session one `None`,
+    /// as is one the store has since evicted.
     recorded: BTreeMap<u64, Option<Message>>,
+    /// Application messages the store evicted, for checking deliveries of them made before.
+    evicted: BTreeMap<u64, Message>,
     /// The last new (not PossDup) MsgSeqNum written.
     last_new: u64,
     /// Ledger entries already checked.
@@ -80,6 +83,14 @@ impl Sent {
                 *self = Sent { ledger_seen: self.ledger_seen, skip_to, previous, ..Sent::default() };
             }
             Stored::Incoming { seq } => self.incoming = *seq,
+            // Its messages need no longer be resent or delivered.
+            Stored::Evicted { through } => {
+                for (seq, msg) in self.recorded.range_mut(..=*through) {
+                    if let Some(msg) = msg.take() {
+                        self.evicted.insert(*seq, msg);
+                    }
+                }
+            }
             Stored::Sent { seq, bytes } => {
                 // An operator's skip: the numbers before `to` are used, without messages.
                 if bytes.is_none() && self.skip_to.contains(&(seq + 1)) && *seq >= self.next_recorded {
@@ -148,6 +159,7 @@ impl Default for Sent {
             last_new: 0,
             ledger_seen: 0,
             uncertain: Vec::new(),
+            evicted: BTreeMap::new(),
             uncertain_skips: BTreeSet::new(),
             skip_to: BTreeSet::new(),
             previous: BTreeMap::new(),
@@ -209,9 +221,13 @@ impl Checker {
         }
         let sent = &self.sent[side.index()];
         let epochs = [&sent.recorded, &sent.previous];
-        let stored_as =
-            |seq: u64| epochs.iter().any(|r| r.get(&seq).and_then(Option::as_ref).and_then(id_of) == Some(id));
-        let ever_stored = epochs.iter().any(|r| r.values().flatten().any(|m| id_of(m) == Some(id)));
+        // Stored, then evicted by the time the receipt is checked, counts as stored.
+        let evicted_as = |seq: u64| sent.evicted.get(&seq).and_then(id_of) == Some(id);
+        let stored_as = |seq: u64| {
+            evicted_as(seq) || epochs.iter().any(|r| r.get(&seq).and_then(Option::as_ref).and_then(id_of) == Some(id))
+        };
+        let ever_stored = sent.evicted.values().any(|m| id_of(m) == Some(id))
+            || epochs.iter().any(|r| r.values().flatten().any(|m| id_of(m) == Some(id)));
         match outcome {
             Ok(seq) if stored_as(*seq) => Ok(()),
             Ok(seq) => {
@@ -350,7 +366,8 @@ impl Checker {
             }
             return Ok(());
         }
-        let Some(first) = recorded else {
+        // One the store has since evicted may have been read for this resend before it went.
+        let Some(first) = recorded.as_ref().or_else(|| sent.evicted.get(&seq)) else {
             return Err(violation("3 resend", format!("{side:?} resent {seq}, a session message: {msg}")));
         };
         if body(first) != body(msg) {
@@ -378,6 +395,10 @@ impl Checker {
                 recorded.get(&delivery.seq).and_then(Option::as_ref).and_then(id_of).map(str::to_string)
             };
             let mut expected = in_epoch(&sender.recorded);
+            if expected.is_none() {
+                // Delivered before the store evicted it.
+                expected = sender.evicted.get(&delivery.seq).and_then(id_of).map(str::to_string);
+            }
             if expected.as_deref() != Some(delivery.id.as_str())
                 && in_epoch(&sender.previous).as_deref() == Some(&delivery.id)
             {

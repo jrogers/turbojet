@@ -392,14 +392,37 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
     }
 }
 
+/// On half the seeds, disk stores in segments of a few messages, keeping a few segments, so that
+/// they rotate and evict all the time: the segment size and the budget. Drawn apart from the
+/// world's random stream so that seeds keep the faults they had before.
+fn segment_sizes(seed: u64) -> Option<(u64, u64)> {
+    let mut rng = Rng::new(seed ^ 0x5e6_3e47);
+    rng.chance(500_000).then(|| {
+        let segment = rng.between(512, 4_096);
+        (segment, segment * rng.between(2, 8))
+    })
+}
+
 /// Each side's store, of `kind`, wrapped to keep a ledger, slow to commit if `slow`, the acceptor's
-/// with the planted bug of committing early if `early`; and for disk stores, their directory.
-fn stores(kind: StoreKind, slow: bool, early: bool) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
+/// with the planted bug of committing early if `early`; disk stores in segments of `segments`
+/// bytes, keeping `segments.1`, if given; and for disk stores, their directory.
+fn stores(
+    kind: StoreKind,
+    slow: bool,
+    early: bool,
+    segments: Option<(u64, u64)>,
+) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
     let dir = matches!(kind, StoreKind::Disk { .. }).then(|| tempfile::tempdir().expect("a temp dir"));
     let store = |name: &str| -> Arc<dyn SessionStorage> {
         match &dir {
             None => Arc::new(MemoryStorage::new()),
-            Some(dir) => Arc::new(DiskStorage::new(dir.path().join(name), false).expect("a store directory")),
+            Some(dir) => {
+                let disk = DiskStorage::new(dir.path().join(name), false).expect("a store directory");
+                Arc::new(match segments {
+                    Some((segment, max)) => disk.with_max_session_bytes(max).with_segment_bytes(segment),
+                    None => disk,
+                })
+            }
         }
     };
     let ledger = |name: &str, early: bool| {
@@ -498,7 +521,7 @@ impl World {
         let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
         let early = options.plant == Some(Plant::EarlyCommit);
         let slow = commit_rng.chance(500_000) || early;
-        let (dir, storage) = stores(faults.store, slow, early);
+        let (dir, storage) = stores(faults.store, slow, early, segment_sizes(options.seed));
         if options.plant == Some(Plant::ForgetMessages) {
             storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
         }

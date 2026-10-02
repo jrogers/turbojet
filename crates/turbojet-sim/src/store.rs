@@ -29,6 +29,9 @@ pub enum Stored {
     /// These changes, in order, may have taken effect, wholly or in part, as the next open shows:
     /// a power loss tore their commit, or the session ended before committing them.
     Uncertain(Vec<Stored>),
+    /// The store deleted the messages up to `through` to stay within its budget: a resend
+    /// gap-fills them, and the counterparty never gets them if it hasn't already.
+    Evicted { through: u64 },
 }
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
@@ -145,6 +148,7 @@ impl SessionStorage for LedgerStorage {
         let inner =
             self.inner.open(id).inspect_err(|e| self.ledger.lock().unwrap().push(Stored::OpenFailed(e.to_string())))?;
         let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
+        let evicted = inner.evicted_through();
         self.ledger.lock().unwrap().push(opened);
         Ok(Box::new(LedgerLog {
             inner,
@@ -156,6 +160,7 @@ impl SessionStorage for LedgerStorage {
             late: Vec::new(),
             slow: self.slow,
             early: self.early,
+            evicted,
         }))
     }
 }
@@ -172,6 +177,8 @@ struct LedgerLog {
     late: Vec<Stored>,
     slow: bool,
     early: bool,
+    /// What the store had evicted, as last reported to the ledger.
+    evicted: Option<u64>,
 }
 
 /// A commit's changes, on their way to the ledger: there once the commit has run, or uncertain
@@ -209,6 +216,17 @@ impl Drop for LedgerLog {
 }
 
 impl LedgerLog {
+    /// Tells the ledger of messages the store deleted in its last commit: at once, since a
+    /// deletion takes effect as it's made.
+    fn note_evictions(&mut self) {
+        let evicted = self.inner.evicted_through();
+        if evicted > self.evicted {
+            self.evicted = evicted;
+            let through = evicted.expect("more than none");
+            self.ledger.lock().unwrap().push(Stored::Evicted { through });
+        }
+    }
+
     /// The trap armed for `call`, if any, which this call springs.
     fn spring(&self, call: Call) -> Option<Trap> {
         let mut traps = self.traps.lock().unwrap();
@@ -251,6 +269,7 @@ impl LedgerLog {
                 let before = files.snapshot();
                 // A disk store without fsync, as the simulator's are, writes in the call.
                 assert!(self.inner.commit()?.is_none(), "the simulator's disk stores commit at once");
+                self.note_evictions();
                 files.tear(&before, tear);
                 let changes = std::mem::take(&mut self.pending);
                 self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
@@ -259,6 +278,7 @@ impl LedgerLog {
             _ => {
                 if trap.applies {
                     assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
+                    self.note_evictions();
                     let changes = std::mem::take(&mut self.pending);
                     self.ledger.lock().unwrap().extend(changes);
                 } else {
@@ -310,6 +330,7 @@ impl SessionLog for LedgerLog {
     /// Written at once, superseding what came before it, committed or not.
     fn reset(&mut self) -> io::Result<()> {
         self.inner.reset()?;
+        self.evicted = None;
         let mut ledger = self.ledger.lock().unwrap();
         ledger.append(&mut self.late);
         ledger.append(&mut self.pending);
@@ -325,6 +346,7 @@ impl SessionLog for LedgerLog {
         // hands the commit back, finishing when the world says. With nothing to commit, there's
         // nothing to wait for.
         assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
+        self.note_evictions();
         if self.pending.is_empty() {
             return Ok(None);
         }

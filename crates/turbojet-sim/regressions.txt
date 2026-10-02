@@ -6,3 +6,5 @@
 1790950128329746529 an operator's skip that failed in the store but took effect, landing with a later commit (simulator bug)
 1790951031350342796 an operator's reset of both sides gave up with the initiator connected, then connected it again (simulator bug)
 1790955759652646357 an operator's skip reported as made after the session's store failed, in the skip's own SequenceReset
+1790968969936533048 a resend read a message its commit then evicted (simulator bug)
+1790969038891153520 a receipt for a message evicted before the receipt was checked (simulator bug)
