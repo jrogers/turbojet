@@ -6,8 +6,8 @@ thread on simulated time. Every choice (timings, heartbeat interval, reconnect i
 workload, the network's faults) comes from a seed, so a run replays exactly from its seed.
 
 The network behaves as TCP does under trouble: writes arrive in pieces after varying delays (never
-reordered), a direction can stall, send buffers fill (4 KiB to 1 MiB) and block the writer's driver
-as `write_all` does, connections reset or fall into black holes (no one told, until TCP gives up),
+reordered), a direction can stall, send buffers fill (4 KiB to 1 MiB), holding the writer's output
+until the reader reads, connections reset or fall into black holes (no one told, until TCP gives up),
 and connects are refused or slow. The acceptor keeps a session per connection, so a half-open one
 can linger while the initiator reconnects. On some seeds resends go out a few sequence numbers at a
 time.
@@ -35,9 +35,9 @@ ROADMAP.md, "Deterministic simulation testing").
 
 `known_failures.txt` lists per-push seeds expected to fail, with the rule they break and why. A
 listed seed that passes, or fails some other way, fails the test, so a fix shows up as seeds to
-take off the list. Random runs count known failures and carry on. The one known so far is the
-**write deadlock**: both drivers blocked writing to each other, neither reading (ROADMAP,
-"Full-duplex connection I/O").
+take off the list. None are listed now. The first, a **write deadlock** (both drivers waiting to
+write to each other, neither reading), was fixed by making the connection driver read while its
+output waits.
 
 ## Running
 

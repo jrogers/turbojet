@@ -8,9 +8,14 @@ Notable changes to the published crates.
 
 - A long resend goes out in steps of 256 sequence numbers, each written before the next is read
   from the store, rather than all at once: a ResendRequest for everything a session has sent no
-  longer holds all of it in memory. Until the resend ends, the connection reads nothing more from
-  the counterparty and sends nothing new, Heartbeats included, so the order on the wire is
-  unchanged. Logging out (or shutting down) during a resend stops it.
+  longer holds all of it in memory. Until the resend ends, the connection sends nothing new,
+  Heartbeats included, and what the counterparty sends is read but not processed, so the order on
+  the wire is unchanged. Logging out (or shutting down) during a resend stops it.
+- The connection driver reads while its output waits to be written. It used to write all of a
+  wake-up's output before reading again, so once both ends' send buffers were full, each waited
+  for the other to read and the connection hung, its timers unable to fire. Handle commands now
+  wait while 256 KiB of output is unwritten, and a counterparty that has stopped reading is
+  disconnected once 16 MiB of output, or of input waiting for a resend to end, has built up.
 - `Session::is_resending` and `Session::on_resume`, for drivers of a `Session` other than
   `connection::run`: while a session is resending, write its output and call `on_resume` for the
   next step. `Session::next_deadline` is `None` meanwhile.

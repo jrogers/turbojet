@@ -63,12 +63,14 @@ developer experience**, after TigerBeetle's
 practice, and where Turbojet differs.
 
 - **Safe.** What a counterparty sends is bounded (message size, header fields, messages held
-  ahead of a gap, how much of a resend is held at once), and what still grows without a limit
-  is listed in the roadmap. Invariants are
-  asserted, paired where they can be (a message is checked as it's stored and again as it's read
-  back), and the parsers and session state machine are fuzzed with those assertions on. The session is tested
-  against QuickFIX/J and QuickFIX's scripted acceptance scenarios (see the warning above for what
-  that does and doesn't cover).
+  ahead of a gap, how much of a resend is held at once, output it won't read), and what still
+  grows without a limit is listed in the roadmap. Invariants are asserted, paired where they can
+  be (a message is checked as it's stored and again as it's read back), and the parsers and
+  session state machine are fuzzed with those assertions on. Two sessions are also run against
+  each other in a deterministic simulator (`crates/turbojet-sim`), over a network that delays,
+  stalls, resets and black-holes connections, with every run replayable from its seed. The
+  session is tested against QuickFIX/J and QuickFIX's scripted acceptance scenarios (see the
+  warning above for what that does and doesn't cover).
 - **Pure Rust.** No bindings to a C++ or Java engine, and no `unsafe` code in the engine; lints
   deny it. The one exception is optional: the `tls` feature uses rustls with the `ring` crypto
   provider, which includes C and assembly.
