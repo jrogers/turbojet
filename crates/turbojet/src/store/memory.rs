@@ -49,7 +49,8 @@ impl State {
             self.bytes -= bytes.len();
             self.evicted_through = self.evicted_through.max(Some(evicted));
         }
-        debug_assert_eq!(self.bytes, self.sent.values().map(Vec::len).sum::<usize>());
+        // Not a sum over `sent`: that would make each store cost as much as everything stored.
+        debug_assert!(self.bytes <= max_bytes && self.sent.is_empty() == (self.bytes == 0));
         debug_assert!(self.sent.first_key_value().is_none_or(|(first, _)| Some(*first) > self.evicted_through));
     }
 }
