@@ -36,8 +36,12 @@ pub trait SessionStorage: Send + Sync {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>>;
 }
 
-/// Persistent state of one session. Each mutation is durable (to the implementation's
-/// guarantee) when it returns, so the session calls it before the message goes on the wire.
+/// Persistent state of one session.
+///
+/// A store may make each mutation durable as it's made, or buffer them until
+/// [`commit`](SessionLog::commit), which the session calls once per batch of work (one read
+/// from the counterparty, one batch of commands, one step of a resend), before anything that
+/// batch sends goes on the wire. Reads see every mutation made, committed or not.
 pub trait SessionLog: Send {
     /// The MsgSeqNum of the next message to send.
     fn next_outgoing(&self) -> u64;
@@ -59,6 +63,18 @@ pub trait SessionLog: Send {
     /// given to `record_outgoing`.
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>>;
 
+    /// Makes the mutations made since the last commit durable (to the implementation's
+    /// guarantee): at once, returning `Ok(None)`, or by running the returned [`Commit`], which
+    /// the session's driver does off the async runtime and waits for before writing what depends
+    /// on them. No other call is made while a returned commit runs. The default does nothing, for
+    /// stores whose mutations are durable as they're made.
+    ///
+    /// A store that waits for a device (`fsync`) or a network should buffer its mutations and
+    /// return a `Commit` here, so that a batch of messages costs one wait rather than one each.
+    fn commit(&mut self) -> io::Result<Option<Commit>> {
+        Ok(None)
+    }
+
     /// Resets both sequence numbers to 1, discards stored messages, and clears
     /// [`created_at`](SessionLog::created_at), [`in_flight`](SessionLog::in_flight) and
     /// [`evicted_through`](SessionLog::evicted_through).
@@ -72,17 +88,19 @@ pub trait SessionLog: Send {
         None
     }
 
-    /// The incoming message being handed to the application when this was last recorded, if it
-    /// hadn't been handled by then: set by [`set_in_flight`](SessionLog::set_in_flight), cleared
-    /// by [`set_next_incoming`](SessionLog::set_next_incoming). Still set after a crash, it tells
-    /// the session that message may have been handled already. Stores that don't record it return
-    /// `None` (the default), and redeliveries then go unmarked.
+    /// The first of the incoming messages being handed to the application when this was last
+    /// committed, if they hadn't all been handled by then: set by
+    /// [`set_in_flight`](SessionLog::set_in_flight), cleared by
+    /// [`set_next_incoming`](SessionLog::set_next_incoming). Still set after a crash, it tells
+    /// the session that the messages from it on (up to a batch of them) may have been handled
+    /// already. Stores that don't record it return `None` (the default), and redeliveries then go
+    /// unmarked.
     fn in_flight(&self) -> Option<u64> {
         None
     }
 
-    /// Records that incoming `seq` is about to be handed to the application. The default does
-    /// nothing.
+    /// Records that incoming messages from `seq` on are about to be handed to the application.
+    /// The default does nothing.
     fn set_in_flight(&mut self, _seq: u64) -> io::Result<()> {
         Ok(())
     }
@@ -100,6 +118,36 @@ pub trait SessionLog: Send {
     }
 }
 
+/// Work that makes a [`SessionLog`]'s buffered mutations durable, returned by
+/// [`SessionLog::commit`] for its caller to run where blocking is harmless: the connection
+/// driver runs it on a blocking thread.
+pub struct Commit(Box<dyn FnOnce() -> io::Result<()> + Send>);
+
+impl Commit {
+    /// A commit that blocks the thread it runs on (writing and syncing files, say) until the
+    /// mutations are durable.
+    pub fn blocking(job: impl FnOnce() -> io::Result<()> + Send + 'static) -> Self {
+        Self(Box::new(job))
+    }
+
+    /// Runs the commit on this thread, returning once the mutations are durable or it has failed.
+    pub fn run(self) -> io::Result<()> {
+        (self.0)()
+    }
+}
+
+impl fmt::Debug for Commit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Commit")
+    }
+}
+
+/// Commits `log`'s mutations, running any [`Commit`] on this thread: for changes made outside a
+/// connected session (operator commands on a disconnected one), which are rare.
+pub(crate) fn commit_now(log: &mut dyn SessionLog) -> io::Result<()> {
+    log.commit()?.map_or(Ok(()), Commit::run)
+}
+
 /// Behaviour every [`SessionStorage`] implementation must satisfy.
 #[cfg(test)]
 pub(crate) mod conformance {
@@ -107,6 +155,13 @@ pub(crate) mod conformance {
     use crate::codec::encode;
     use crate::fields::MsgType;
     use crate::message::{Message, tags};
+
+    #[test]
+    fn a_commit_runs_its_job() {
+        assert!(Commit::blocking(|| Ok(())).run().is_ok());
+        let failed = Commit::blocking(|| Err(io::Error::other("disk full"))).run();
+        assert_eq!(failed.unwrap_err().to_string(), "disk full");
+    }
 
     pub fn id(target: &str) -> SessionId {
         SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: target.into() }
@@ -133,6 +188,7 @@ pub(crate) mod conformance {
             log.record_outgoing(3, None).unwrap();
             log.record_outgoing(4, Some(&app_message(4))).unwrap();
             log.set_next_incoming(7).unwrap();
+            commit_now(log.as_mut()).unwrap();
         }
 
         let mut log = storage.open(&id("A")).unwrap();
@@ -152,6 +208,8 @@ pub(crate) mod conformance {
         assert_eq!((log.next_outgoing(), log.next_incoming()), (1, 1));
         assert!(log.sent_messages(1, u64::MAX).unwrap().is_empty());
         log.record_outgoing(1, Some(&app_message(1))).unwrap();
+        assert_eq!(log.sent_messages(1, 1).unwrap().len(), 1, "reads see what isn't committed yet");
+        commit_now(log.as_mut()).unwrap();
         drop(log);
 
         let mut log = storage.open(&id("A")).unwrap();
@@ -162,35 +220,47 @@ pub(crate) mod conformance {
         assert_eq!(log.created_at(), None);
         let created = UtcTimestamp::from_timestamp(1_790_000_000, 123_000_000).unwrap();
         log.set_created_at(created).unwrap();
+        commit_now(log.as_mut()).unwrap();
         drop(log);
         let mut log = storage.open(&id("A")).unwrap();
         assert_eq!(log.created_at(), Some(created));
         log.reset().unwrap();
         assert_eq!(log.created_at(), None);
+        commit_now(log.as_mut()).unwrap();
         drop(log);
         assert_eq!(storage.open(&id("A")).unwrap().created_at(), None, "reset persists");
 
-        // The message in flight: kept across reopening, cleared by moving on or resetting.
+        check_in_flight(storage);
+        check_data_fields(storage);
+    }
+
+    /// The messages in flight: kept across reopening, cleared by moving on or resetting.
+    fn check_in_flight(storage: &dyn SessionStorage) {
         let mut log = storage.open(&id("C")).unwrap();
         assert_eq!(log.in_flight(), None);
         log.set_next_incoming(4).unwrap();
         log.set_in_flight(4).unwrap();
         log.record_outgoing(1, Some(&app_message(1))).unwrap();
+        commit_now(log.as_mut()).unwrap();
         drop(log);
         let mut log = storage.open(&id("C")).unwrap();
         assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(4)), "survives reopen");
         log.set_next_incoming(5).unwrap();
         assert_eq!(log.in_flight(), None);
+        commit_now(log.as_mut()).unwrap();
         drop(log);
         let mut log = storage.open(&id("C")).unwrap();
         assert_eq!(log.in_flight(), None, "clearing persists");
         log.set_in_flight(5).unwrap();
         log.reset().unwrap();
         assert_eq!(log.in_flight(), None);
+        commit_now(log.as_mut()).unwrap();
         drop(log);
         assert_eq!(storage.open(&id("C")).unwrap().in_flight(), None, "reset persists");
+    }
 
-        // Data fields, a venue's own too, come back byte for byte.
+    /// Data fields, a venue's own too, come back byte for byte.
+    fn check_data_fields(storage: &dyn SessionStorage) {
         let msg = message(1).with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01").with_data(
             5000,
             5001,
@@ -199,6 +269,7 @@ pub(crate) mod conformance {
         {
             let mut log = storage.open(&id("D")).unwrap();
             log.record_outgoing(1, Some(&encode(&msg).unwrap())).unwrap();
+            commit_now(log.as_mut()).unwrap();
         }
         let mut log = storage.open(&id("D")).unwrap();
         let sent = log.sent_messages(1, 1).unwrap();

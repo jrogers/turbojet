@@ -1,0 +1,1 @@
+{"group_id":"roundtrip tcp, disk store + fsync","function_id":"latency","value_str":null,"throughput":{"Elements":1},"full_id":"roundtrip tcp, disk store + fsync/latency","directory_name":"roundtrip tcp, disk store + fsync/latency","title":"roundtrip tcp, disk store + fsync/latency"}

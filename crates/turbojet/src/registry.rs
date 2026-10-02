@@ -12,7 +12,7 @@ use tracing::info;
 use crate::fields::ApplVerId;
 use crate::message::Message;
 use crate::schedule::Clock;
-use crate::store::{MemoryStorage, SessionId, SessionLog, SessionStorage};
+use crate::store::{MemoryStorage, SessionId, SessionLog, SessionStorage, commit_now};
 
 /// A request to a session's connection task.
 #[derive(Debug)]
@@ -395,7 +395,8 @@ impl SessionRegistry {
             AcquireError::AlreadyConnected(_) => SequenceError::Connected,
             AcquireError::Storage(_, e) => SequenceError::Storage(e),
         })?;
-        let result = apply_sequence_command(log.as_mut(), command, &self.clock);
+        let result = apply_sequence_command(log.as_mut(), command, &self.clock)
+            .and_then(|numbers| commit_now(log.as_mut()).map(|()| numbers).map_err(SequenceError::Storage));
         drop(log);
         self.release(id);
         if let (Ok(numbers), false) = (&result, command == SequenceCommand::Get) {
