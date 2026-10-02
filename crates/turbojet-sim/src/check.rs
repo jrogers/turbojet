@@ -1,6 +1,6 @@
 //! The invariants, checked against what each side writes and what each application receives.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use turbojet::codec::{Decoded, decode};
@@ -58,21 +58,28 @@ struct Sent {
     ledger_seen: usize,
     /// A change a power loss tore, until the store's next open shows what became of it.
     uncertain: Option<Stored>,
-    /// An operator is moving the next outgoing number forward to this: the store may record the
-    /// number before it as used, skipping those between.
-    skip_to: Option<u64>,
+    /// What was recorded in the epoch before this one, for deliveries checked only after a reset
+    /// (a delivery and the reset that follows it can come in one step).
+    previous: BTreeMap<u64, Option<Message>>,
+    /// Operators are moving the next outgoing number forward to these: the store may record the
+    /// number before one as used, skipping those between. Several can be under way at once.
+    skip_to: BTreeSet<u64>,
 }
 
 impl Sent {
     /// Rule 2 on one change the store recorded: each MsgSeqNum once, in order.
     fn apply(&mut self, side: Side, change: &Stored) -> Result<(), Violation> {
         match change {
-            Stored::Reset => *self = Sent { ledger_seen: self.ledger_seen, ..Sent::default() },
+            // An operator's skip under way may still land after a reset.
+            Stored::Reset => {
+                let skip_to = std::mem::take(&mut self.skip_to);
+                let previous = std::mem::take(&mut self.recorded);
+                *self = Sent { ledger_seen: self.ledger_seen, skip_to, previous, ..Sent::default() };
+            }
             Stored::Incoming { seq } => self.incoming = *seq,
             Stored::Sent { seq, bytes } => {
                 // An operator's skip: the numbers before `to` are used, without messages.
-                if bytes.is_none() && self.skip_to == Some(seq + 1) && *seq >= self.next_recorded {
-                    self.skip_to = None;
+                if bytes.is_none() && self.skip_to.contains(&(seq + 1)) && *seq >= self.next_recorded {
                     for skipped in self.next_recorded..=*seq {
                         self.recorded.insert(skipped, None);
                     }
@@ -110,7 +117,8 @@ impl Default for Sent {
             last_new: 0,
             ledger_seen: 0,
             uncertain: None,
-            skip_to: None,
+            skip_to: BTreeSet::new(),
+            previous: BTreeMap::new(),
         }
     }
 }
@@ -217,12 +225,12 @@ impl Checker {
 
     /// An operator is about to move `side`'s next outgoing number forward to `to`.
     pub fn expect_skip(&mut self, side: Side, to: u64) {
-        self.sent[side.index()].skip_to = Some(to);
+        self.sent[side.index()].skip_to.insert(to);
     }
 
-    /// An operator's skip didn't happen.
-    pub fn no_skip(&mut self, side: Side) {
-        self.sent[side.index()].skip_to = None;
+    /// An operator's skip to `to` has been answered, made or not.
+    pub fn skip_done(&mut self, side: Side, to: u64) {
+        self.sent[side.index()].skip_to.remove(&to);
     }
 
     /// A power loss on a store without fsync has lost what the OS hadn't written back: from now
@@ -308,8 +316,17 @@ impl Checker {
         let sender = &self.sent[side.other().index()];
         let received = &mut self.received[side.index()];
         for delivery in &deliveries[received.seen..] {
-            let expected = sender.recorded.get(&delivery.seq).and_then(Option::as_ref).and_then(id_of);
-            if expected != Some(delivery.id.as_str()) {
+            let in_epoch = |recorded: &BTreeMap<u64, Option<Message>>| {
+                recorded.get(&delivery.seq).and_then(Option::as_ref).and_then(id_of).map(str::to_string)
+            };
+            let mut expected = in_epoch(&sender.recorded);
+            if expected.as_deref() != Some(delivery.id.as_str())
+                && in_epoch(&sender.previous).as_deref() == Some(&delivery.id)
+            {
+                // Sent before a reset the checker has already seen, and delivered just before it.
+                expected = in_epoch(&sender.previous);
+            }
+            if expected.as_deref() != Some(delivery.id.as_str()) {
                 return Err(violation(
                     "4 delivery",
                     format!(

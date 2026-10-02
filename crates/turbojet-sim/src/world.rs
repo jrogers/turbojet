@@ -405,6 +405,8 @@ fn nodes(
 /// An operator request under way.
 struct Operator {
     side: Side,
+    /// The next outgoing number it moves to.
+    to: u64,
     future: Pin<Box<dyn Future<Output = Result<SequenceNumbers, SequenceError>>>>,
 }
 
@@ -573,6 +575,8 @@ impl World {
             self.record(&describe(&event));
             self.dispatch(event, at, busy_end)?;
             self.poll_operators()?;
+            // Whatever path the event took, what it stored and delivered is checked before the next.
+            self.check_all()?;
         }
         // Timers keep a running session's driver waking, so an empty queue means every driver is
         // stuck: blocked writing, with nothing to unblock it.
@@ -904,7 +908,7 @@ impl World {
         self.record(&format!("operator: {side:?} next outgoing to {to}"));
         self.checker.expect_skip(side, to);
         let handle = self.handle(side);
-        self.operators.push(Operator { side, future: Box::pin(async move { handle.set_next_outgoing(to).await }) });
+        self.operators.push(Operator { side, to, future: Box::pin(async move { handle.set_next_outgoing(to).await }) });
         self.poll_operators()?;
         self.after_all(side, now)
     }
@@ -941,11 +945,11 @@ impl World {
                 i += 1;
                 continue;
             };
-            let Operator { side, .. } = self.operators.swap_remove(i);
+            let Operator { side, to, .. } = self.operators.swap_remove(i);
             self.record(&format!("operator: {side:?} answered {result:?}"));
             // What the skip recorded is checked before the checker stops expecting it.
             self.sync_ledger(side)?;
-            self.checker.no_skip(side);
+            self.checker.skip_done(side, to);
         }
         Ok(())
     }
@@ -1040,6 +1044,18 @@ impl World {
         self.ended(side, conn, now);
     }
 
+    /// Checks what both stores have recorded and both applications received since the last call.
+    fn check_all(&mut self) -> Result<(), Violation> {
+        for s in [Side::Initiator, Side::Acceptor] {
+            self.sync_ledger(s)?;
+        }
+        for s in [Side::Initiator, Side::Acceptor] {
+            let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap();
+            self.checker.delivered(s, &deliveries)?;
+        }
+        Ok(())
+    }
+
     /// Checks what `side`'s store has recorded since the last call.
     fn sync_ledger(&mut self, side: Side) -> Result<(), Violation> {
         let ledger = self.storage[side.index()].ledger.lock().unwrap();
@@ -1093,13 +1109,7 @@ impl World {
 
     /// Checks deliveries, and schedules what `conn`'s driver on `side` would do next.
     fn after(&mut self, side: Side, conn: ConnId, now: SimTime) -> Result<(), Violation> {
-        for s in [Side::Initiator, Side::Acceptor] {
-            self.sync_ledger(s)?;
-        }
-        for s in [Side::Initiator, Side::Acceptor] {
-            let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap();
-            self.checker.delivered(s, &deliveries)?;
-        }
+        self.check_all()?;
         let Some(wants) = self.nodes[side.index()].wants(conn) else {
             self.pending.remove(&(side, conn));
             return Ok(());
