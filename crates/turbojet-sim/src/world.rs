@@ -606,9 +606,17 @@ impl World {
             let (at, event) = self.queue.pop().expect("peeked");
             self.clocks.advance_to(at);
             self.events += 1;
-            self.record(&describe(&event));
+            let described = describe(&event);
+            self.record(&described);
             self.dispatch(event, at, busy_end)?;
             self.poll_operators()?;
+            self.operator_traps(at)?;
+            // A trap's crash kills the process when its call is made, not at some later step.
+            assert!(
+                self.storage.iter().all(|s| !s.crash_pending()),
+                "seed {} at {at}: a trap's crash outlived {described}",
+                self.options.seed
+            );
             // Whatever path the event took, what it stored and delivered is checked before the next.
             self.check_all()?;
         }
@@ -996,6 +1004,26 @@ impl World {
         if !self.connecting && !self.down[initiator] && self.nodes[initiator].conns().next().is_none() {
             self.connecting = true;
             self.queue.push(now, Event::Connect(self.generation));
+        }
+        Ok(())
+    }
+
+    /// Crashes a trap set off outside a driver step, which handles its own: in an operator's call
+    /// on a session that isn't connected, which runs in the process making it. That's the node, if
+    /// it's running (a `SessionHandle` is in-process); if it's down, the operator's offline tool
+    /// (as the gateway's `seqnums`), whose call has failed already.
+    fn operator_traps(&mut self, now: SimTime) -> Result<(), Violation> {
+        for side in [Side::Initiator, Side::Acceptor] {
+            if self.storage[side.index()].sprung() != Some(true) {
+                continue;
+            }
+            if self.down[side.index()] {
+                self.record(&format!("crash of an offline tool in {side:?}'s store"));
+            } else {
+                self.record(&format!("crash {side:?} in an operator's store call"));
+                self.sync_ledger(side)?;
+                self.crash(side, now);
+            }
         }
         Ok(())
     }

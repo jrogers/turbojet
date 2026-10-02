@@ -133,6 +133,11 @@ impl LedgerStorage {
     pub fn sprung(&self) -> Option<bool> {
         self.traps.lock().unwrap().sprung.take()
     }
+
+    /// Whether a crashing trap has gone off that nothing has handled yet.
+    pub fn crash_pending(&self) -> bool {
+        self.traps.lock().unwrap().sprung == Some(true)
+    }
 }
 
 impl SessionStorage for LedgerStorage {
