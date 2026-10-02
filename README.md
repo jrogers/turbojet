@@ -437,6 +437,25 @@ let tls = turbojet::tls::connector("ca.pem".as_ref(), Some(("client.pem".as_ref(
 let initiator = initiator.with_tls(tls, "gateway.example.com")?;
 ```
 
+Certificates can also come from memory (a secrets manager, say) and be replaced while running.
+`ServerTls` and `ClientTls` hold them: a change applies from the next handshake, and sessions
+already connected carry on. Every handshake is a full one, checked against the certificates
+current then (sessions aren't resumed).
+
+```rust
+use turbojet::tls::{ClientTrust, Identity, ServerTls, Trust};
+
+let server = ServerTls::new(Identity::from_pem(&cert_pem, &key_pem)?, ClientTrust::Required(Trust::from_pem(&ca_pem)?))?;
+tokio::spawn(acceptor.serve_tls(listener, server.acceptor()));
+// Later, when the certificate is renewed:
+server.set_identity(Identity::from_pem(&new_cert_pem, &new_key_pem)?);
+```
+
+`ClientTls` does the same for an initiator (`set_trust`, `set_identity`). An `Identity` is
+checked when it's built (the key must be the certificate's), so a bad renewal is refused and
+the old one kept. The gateway reloads its certificate, key and client CAs from their files on
+SIGHUP.
+
 For other setups (system roots, custom verifiers, different protocol versions), build a
 `rustls::ServerConfig`/`ClientConfig` yourself and wrap it with `TlsAcceptor::from` /
 `TlsConnector::from`. Handshakes run on each connection's own task and are bounded by the logon

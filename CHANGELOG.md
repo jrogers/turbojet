@@ -6,6 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- TLS certificates can be given from memory as well as files, and replaced while running:
+  `tls::ServerTls` (an acceptor's certificate and the CAs it trusts for client certificates) and
+  `tls::ClientTls` (an initiator's trusted CAs and client certificate), built from
+  `tls::Identity` and `tls::Trust`. A change applies from the next handshake; connected sessions
+  carry on. These handshakes are never resumed, so each is checked against the certificates
+  current then. `tls::acceptor` and `tls::connector` are built on them, so their handshakes
+  aren't resumed either. The example gateway reloads
+  its certificates on SIGHUP.
 - `DiskStorage` keeps each session's messages in segments (`<id>.body`, `<id>.body.1`, ...) of
   64 MiB, and at most 1 GiB of them (`with_segment_bytes`, `with_max_session_bytes`): past it the
   oldest segments are deleted, and a resend gap-fills their messages, logs a warning and counts it

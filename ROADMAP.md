@@ -27,7 +27,8 @@ later, with:
 - a loader for FIX Orchestra and QuickFIX-format dictionaries with venue merging
   (`turbojet-dictionary`), and a code generator that runs from an application's `build.rs` or as
   a command (`turbojet-codegen`);
-- acceptor and initiator transports, TLS with optional mutual authentication, initiator
+- acceptor and initiator transports, TLS with optional mutual authentication (certificates
+  given from memory or files, and replaced while running), initiator
   failover, and graceful shutdown (every session logged out, bounded by the logout timeout),
   which the gateway does on SIGINT and SIGTERM; initiators reconnect with a configurable backoff
   (by default 1 s to 60 s, jittered), and acceptors limit connections overall and per IP address;
@@ -302,7 +303,6 @@ From the benchmarks.
   number change and stored message as it happens, and takes over a session on failover with no
   gap and no resend storm. Replicate the session journal to the standby (over TCP, or something
   like Aeron), with the exclusive-session lease deciding which instance is active.
-- **TLS certificate reload** (S). Pick up renewed certificates without restarting.
 - **TLS certificate revocation** (S). Client and server certificates are checked against their
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
