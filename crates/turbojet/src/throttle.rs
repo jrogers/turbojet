@@ -138,11 +138,14 @@ impl fmt::Display for Per {
 /// What happens to an inbound application message over the limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InboundLimit {
-    /// Stop reading until the window allows more: TCP slows the sender. Admin messages wait too,
-    /// since input stays in order; see [`SessionConfig::inbound_limit`](crate::SessionConfig::inbound_limit).
+    /// Stop reading until the window allows more: TCP slows the sender. Every application
+    /// message read counts, resends included, and admin messages wait too, since input stays in
+    /// order. Holds against a hostile counterparty; see
+    /// [`SessionConfig::inbound_limit`](crate::SessionConfig::inbound_limit).
     Delay(RateLimit),
     /// Answer it with a BusinessMessageReject instead of delivering it; rejected messages don't
-    /// count.
+    /// count. Recovery we asked for counts but is never rejected, so a hostile counterparty can
+    /// push one gap's worth through: this protects against fast, well-behaved counterparties.
     Reject(RateLimit),
 }
 

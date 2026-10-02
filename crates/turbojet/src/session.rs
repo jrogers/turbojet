@@ -110,28 +110,42 @@ pub struct SessionConfig {
     /// At most this many application messages received per window, counted on each connection,
     /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
     /// allows more, and [`InboundLimit::Reject`] answers them with a BusinessMessageReject. Admin
-    /// messages and resends we asked for don't count. `None` (the default) means no limit.
+    /// messages don't count. `None` (the default) means no limit.
     ///
-    /// With `Delay`, the application message that fills the window is handled, then nothing more
-    /// is processed, and the transport isn't read, until the window frees up a whole window after
-    /// the oldest message in it. The counterparty's input waits, in order, unread, and TCP slows
-    /// it down; nothing is sent to say so. Admin messages wait too, behind the input before them:
-    /// a Heartbeat or an answer to our TestRequest is handled only once the hold ends, so the time
-    /// held doesn't count as the counterparty's silence. A counterparty that closes the
-    /// connection meanwhile is noticed once the hold ends.
+    /// With `Delay`, every application message read counts as it arrives, resends and messages
+    /// queued ahead of a gap included, as do messages the session itself refuses (a Reject(3),
+    /// say). The message that fills the window is handled, then nothing more is processed, and
+    /// the transport isn't read, until the window frees up a whole window after the oldest
+    /// message in it. The counterparty's input waits, in order, unread, and TCP slows it down;
+    /// nothing is sent to say so. So:
+    ///
+    /// - Admin messages wait too, behind the input before them. A Heartbeat or an answer to our
+    ///   TestRequest is handled only once the hold ends, so the time held doesn't count as the
+    ///   counterparty's silence, nor as a lack of progress in a resend we asked for. With a
+    ///   window much longer than HeartBtInt, a counterparty that has died is noticed up to a
+    ///   window late.
+    /// - A Logout or ResendRequest from the counterparty behind held input waits up to a window,
+    ///   so its own logout or resend timeout may fire first.
+    /// - A counterparty that closes the connection meanwhile is noticed once the hold ends.
     ///
     /// With `Reject`, an application message that arrives while the window is full isn't handed
     /// to the application: it's answered with a BusinessMessageReject(j) whose RefSeqNum(45) is
     /// its MsgSeqNum, BusinessRejectReason(380) 0 (Other) and Text(58) "throttle limit
     /// exceeded". It still takes its sequence number, as when the application rejects a message,
     /// so the counterparty doesn't resend it. Rejected messages don't count, so a counterparty
-    /// sending too fast can't keep the window full.
+    /// sending too fast can't keep the window full; nor do messages the session refuses before
+    /// handing them over (failing validation, say). Recovery we asked for counts but is never
+    /// rejected, so it isn't lost: any message that arrives while a ResendRequest of ours is
+    /// outstanding, and those that arrived ahead of the gap it fills, handled once it's filled.
+    /// New traffic after it waits for the window. PossDupFlag(43)=Y alone isn't recovery: it's
+    /// only the sender's claim.
     ///
-    /// Recovery we asked for neither counts, so it never starts a hold, nor is rejected: any message that arrives while a
-    /// ResendRequest of ours is outstanding, and those that arrived ahead of the gap it fills,
-    /// handled once it's filled. It answers our own request, so it can't be too fast, and
-    /// rejecting it would lose messages we asked for. PossDupFlag(43)=Y alone doesn't exempt a
-    /// message: it's only the sender's claim, and would let a counterparty past the limit.
+    /// Which to use: `Reject` protects against a fast but well-behaved counterparty. A hostile
+    /// one controls its own gaps, so it can push one gap's worth of messages through as the
+    /// "resend" (they count, so the window then turns new traffic away). `Delay` holds against
+    /// a hostile counterparty too, since everything it sends is paced as it's read. Under a real
+    /// flood `Delay` is also the cheaper: `Reject` stores and writes a BusinessMessageReject for
+    /// each message over the limit.
     ///
     /// The first time the limit is reached on a connection, it logs a warning; after that,
     /// `turbojet_throttled_total` counts holds and rejects (see [`telemetry`](crate::telemetry)),
@@ -688,11 +702,11 @@ impl Session {
 
     /// When the outbound window frees up, if it's full; `None` if it isn't, if there's no
     /// [`outbound_limit`](SessionConfig::outbound_limit), or if the session isn't logged on (it
-    /// may be logging out or closed; see [`can_send`](Self::can_send)). It may have passed: a driver holding
-    /// sends because [`can_send`](Self::can_send) said no waits until then. It isn't part of
-    /// [`next_deadline`](Self::next_deadline): only the driver knows whether sends are waiting,
-    /// and with none, waking for the window would cost a wake-up per message at a steady rate
-    /// near the limit.
+    /// may be logging out or closed; see [`can_send`](Self::can_send)). It may have passed: a
+    /// driver holding sends because [`can_send`](Self::can_send) said no waits until then. It
+    /// isn't part of [`next_deadline`](Self::next_deadline): only the driver knows whether sends
+    /// are waiting, and with none, waking for the window would cost a wake-up per message at a
+    /// steady rate near the limit.
     pub fn send_free_at(&self) -> Option<Instant> {
         if self.status != Status::Active {
             return None;
@@ -725,25 +739,26 @@ impl Session {
         if self.status != Status::Active {
             return None;
         }
-        self.input_held_until()
+        self.hold_end()
     }
 
     /// When input held by a Delay limit goes on, if the window has filled since it last had room,
     /// whether or not that has passed. Whatever the counterparty sends meanwhile, its Heartbeats
     /// and answers to our TestRequests included, waits unread, so [`silent_from`](Self::silent_from)
     /// doesn't count the hold as silence.
-    fn input_held_until(&self) -> Option<Instant> {
+    fn hold_end(&self) -> Option<Instant> {
         let inbound = self.inbound.as_ref().filter(|inbound| inbound.over == Over::Delay)?;
         inbound.window.free_at_or_none()
     }
 
-    /// When silence since `since` (the last message received, or our TestRequest) counts from:
+    /// When silence since `since` (the last message received, our TestRequest, or the last
+    /// progress of our ResendRequest) counts from:
     /// the end of a hold on input, if that's later, since what the counterparty sent meanwhile
     /// waits unread. While the hold lasts that's in the future, so no TestRequest goes out and
     /// none goes unanswered; after it, silence counts from its end. The window keeps that end
     /// until a message is next recorded, which also moves `last_received` past it.
     fn silent_from(&self, since: Instant) -> Instant {
-        self.input_held_until().map_or(since, |held_until| since.max(held_until))
+        self.hold_end().map_or(since, |hold_end| since.max(hold_end))
     }
 
     /// Commits on this thread until nothing is left to commit, running any commit the store
@@ -804,6 +819,9 @@ impl Session {
         match self.status {
             Status::AwaitingLogon => self.on_logon(msg, now),
             Status::Active | Status::LoggingOut { .. } => {
+                if self.inbound.is_some() && self.status == Status::Active && !msg.msg_type().is_admin() {
+                    self.count_arrival(now);
+                }
                 self.on_session_message(msg, now, true);
                 self.after_incoming(now);
             }
@@ -1022,7 +1040,10 @@ impl Session {
                     Some(sent) => self.silent_from(sent).checked_add(interval),
                     None => self.silent_from(self.last_received).checked_add(probe_after(interval)),
                 };
-                let resend = self.resend.as_ref().and_then(|r| r.progress_at.checked_add(resend_timeout(interval)));
+                let resend = self
+                    .resend
+                    .as_ref()
+                    .and_then(|r| self.silent_from(r.progress_at).checked_add(resend_timeout(interval)));
                 [heartbeat, test_request, resend].into_iter().flatten().min()
             }
             Status::Closed => None,
@@ -1059,10 +1080,12 @@ impl Session {
     fn check_resend(&mut self, now: Instant) {
         let timeout = resend_timeout(self.peer().heartbeat);
         let next = self.peer().log.next_incoming();
-        let Some(resend) = &mut self.resend else { return };
-        if now.duration_since(resend.progress_at) < timeout {
+        let Some(progress_at) = self.resend.as_ref().map(|resend| resend.progress_at) else { return };
+        // The resend we asked for may be waiting behind input a Delay limit holds.
+        if now.duration_since(self.silent_from(progress_at)) < timeout {
             return;
         }
+        let resend = self.resend.as_mut().expect("guarded by the let-else above");
         if resend.retried {
             let text = format!("ResendRequest from {next} unanswered");
             warn!("{text}; logging out");
@@ -1750,12 +1773,14 @@ impl Session {
         // counterparty doesn't flag its resends). New messages can't have been.
         let resent = msg.flag(tags::POSS_DUP_FLAG) || self.resend.is_some();
         debug_assert!(!msg.msg_type().is_admin(), "admin messages are the session's, never delivered");
-        // Recovery we asked for isn't throttled: what arrives while our ResendRequest is
-        // outstanding, and what waited behind the gap it fills, which may be released after the
-        // request is done. It's never too fast, and rejecting it would lose messages we asked
-        // for. PossDupFlag alone is the sender's claim, so it would let any message past.
+        // Recovery we asked for counts but is never rejected: what arrives while our
+        // ResendRequest is outstanding, and what waited behind the gap it fills, which may be
+        // released after the request is done. Rejecting it would lose messages we asked for. It
+        // still counts, since the counterparty controls its gaps: one that makes a gap can't
+        // then send new traffic past the limit as its "resend". PossDupFlag alone is only the
+        // sender's claim.
         let requested = self.resend.is_some() || !arrived;
-        if !requested && self.over_inbound_limit(now) {
+        if self.over_inbound_limit(now, requested) {
             // Logged at debug: a flood over the limit would otherwise log a warning per message.
             // The limit's first warning on the connection says it's being reached.
             debug!(msg_type = %msg.msg_type(), seq_num, "rejecting a message over the inbound rate limit");
@@ -1793,26 +1818,42 @@ impl Session {
         }
     }
 
-    /// Whether a new application message received at `now` is over an inbound Reject limit. One
-    /// that isn't is recorded; one that is isn't, so rejections don't keep the window full. With
-    /// Delay every one is recorded and none is over: the driver holds input while the window is
-    /// full (see [`input_free_at`](Self::input_free_at)), so the message that fills it is the last
-    /// until it frees up.
-    ///
-    /// Each message rejected, and each one that fills a Delay window, counts as throttled: the
-    /// input a hold keeps waiting is unread, so a hold is counted, not the messages it holds.
-    fn over_inbound_limit(&mut self, now: Instant) -> bool {
+    /// Whether an application message handed over at `now` is over an inbound Reject limit, and
+    /// so is to be rejected. One that isn't is recorded; one that is isn't, so rejections don't
+    /// keep the window full. Recovery we asked for (`requested`) is recorded, past full if need
+    /// be, but never rejected. Each message rejected counts as throttled. A Delay limit counts
+    /// messages as they arrive instead (see [`count_arrival`](Self::count_arrival)).
+    fn over_inbound_limit(&mut self, now: Instant, requested: bool) -> bool {
         let Some(inbound) = &mut self.inbound else { return false };
-        let rejected = inbound.over == Over::Reject && inbound.window.free_at(now).is_some();
-        if !rejected {
+        if inbound.over != Over::Reject {
+            return false;
+        }
+        if requested || inbound.window.free_at(now).is_none() {
             inbound.window.record(now);
+            return false;
         }
-        let holds = inbound.over == Over::Delay && inbound.window.free_at_or_none().is_some();
-        if rejected || holds {
-            let (limit, over) = (inbound.window.limit(), inbound.over);
-            self.inbound_throttled(limit, over);
+        let limit = inbound.window.limit();
+        self.inbound_throttled(limit, Over::Reject);
+        true
+    }
+
+    /// Records an application message arriving at `now` under a Delay limit, whatever becomes of
+    /// it: handed over, queued ahead of a gap, a resend, or refused by the session. Delay paces
+    /// what's read, so counting on arrival leaves a counterparty nothing to gain from a gap it
+    /// makes: what it queues ahead of the gap was paced as it was read, and isn't counted again
+    /// when it's handed over. When the message fills the window, the driver holds input (see
+    /// [`input_free_at`](Self::input_free_at)), and that hold counts as throttled: the input it
+    /// keeps waiting is unread, so a hold is counted, not the messages it holds.
+    fn count_arrival(&mut self, now: Instant) {
+        let Some(inbound) = &mut self.inbound else { return };
+        if inbound.over != Over::Delay {
+            return;
         }
-        rejected
+        inbound.window.record(now);
+        if inbound.window.free_at_or_none().is_some() {
+            let limit = inbound.window.limit();
+            self.inbound_throttled(limit, Over::Delay);
+        }
     }
 
     /// Counts a message rejected by the inbound limit, or a hold, and warns the first time on

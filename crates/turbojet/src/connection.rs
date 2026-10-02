@@ -548,7 +548,7 @@ mod tests {
     }
 
     /// Reads from `peer` until `count` complete messages have arrived.
-    async fn receive(peer: &mut DuplexStream, buf: &mut Vec<u8>, count: usize) -> Vec<Message> {
+    async fn receive<R: AsyncRead + Unpin>(peer: &mut R, buf: &mut Vec<u8>, count: usize) -> Vec<Message> {
         let mut messages = Vec::new();
         while messages.len() < count {
             match crate::codec::decode(buf) {
@@ -585,7 +585,17 @@ mod tests {
         heartbeat: u64,
         shutdown: Option<Signal>,
     ) -> (DuplexStream, Vec<u8>, crate::SessionHandle) {
-        let (ours, mut peer) = duplex(1 << 20);
+        logged_on_over(1 << 20, config, heartbeat, shutdown).await
+    }
+
+    /// [`logged_on_following`] over a stream that buffers `capacity` bytes each way.
+    async fn logged_on_over(
+        capacity: usize,
+        config: SessionConfig,
+        heartbeat: u64,
+        shutdown: Option<Signal>,
+    ) -> (DuplexStream, Vec<u8>, crate::SessionHandle) {
+        let (ours, mut peer) = duplex(capacity);
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now);
@@ -612,8 +622,8 @@ mod tests {
 
     /// Reads `count` messages from `peer`, each with how long after `start` it was read. Time is
     /// paused in the tests that use it, so that is when it was written.
-    async fn receive_timed(
-        peer: &mut DuplexStream,
+    async fn receive_timed<R: AsyncRead + Unpin>(
+        peer: &mut R,
         buf: &mut Vec<u8>,
         count: usize,
         start: Instant,
@@ -981,6 +991,105 @@ mod tests {
             ]
         );
         assert_eq!(handle.sequence_numbers().await.unwrap().next_incoming, 8, "the Heartbeat was handled after O4");
+    }
+
+    /// A counterparty that skips ahead and sends new orders as the "resend" we ask for is paced
+    /// like any other: every application message counts as it's read, the gap's far end and the
+    /// resend included. 99 messages at 10 per 200ms take 9 windows.
+    #[tokio::test(start_paused = true)]
+    async fn a_manufactured_gap_gets_no_more_through_the_delay_limit() {
+        const WINDOW: Duration = Duration::from_millis(200);
+        let (mut peer, mut buf, _handle) = logged_on_with(with_inbound_delay(10, WINDOW), 30).await;
+        let start = Instant::now();
+        peer.write_all(&from_peer(100, order("Z"))).await.unwrap();
+        let request = receive(&mut peer, &mut buf, 1).await.remove(0);
+        assert_eq!(request.msg_type(), MsgType::ResendRequest);
+        let resend: Vec<u8> = (2..100u64).flat_map(|seq| from_peer(seq, order(&format!("O{seq}")))).collect();
+        peer.write_all(&resend).await.unwrap();
+
+        let acked = receive_timed(&mut peer, &mut buf, 99, start).await;
+        let ids: Vec<_> = acked.iter().map(|(m, _)| m.get(tags::CL_ORD_ID).unwrap().to_string()).collect();
+        let mut expected: Vec<_> = (2..100).map(|seq| format!("O{seq}")).collect();
+        expected.push("Z".into());
+        assert_eq!(ids, expected, "in sequence, the queued one last");
+        // Z counted first, as it arrived, so the order with MsgSeqNum s was the (s - 1)th read.
+        let times: Vec<_> = acked.iter().map(|(_, at)| *at).collect();
+        let mut windows: Vec<_> = (2..100u32).map(|seq| WINDOW * ((seq - 1) / 10)).collect();
+        windows.push(WINDOW * 9);
+        assert_eq!(times, windows);
+    }
+
+    /// While input is held, the socket isn't read: the peer's writes back up into its own
+    /// buffer (here 1 KiB, a TCP window in miniature), so it's slowed, rather than ours filling.
+    #[tokio::test(start_paused = true)]
+    async fn the_socket_is_not_read_while_input_is_held() {
+        let config = with_inbound_delay(10, Duration::from_millis(200));
+        let (peer, mut buf, _handle) = logged_on_over(1024, config, 30, None).await;
+        let (mut reader, mut writer) = tokio::io::split(peer);
+        let written = Arc::new(AtomicUsize::new(0));
+        let counter = written.clone();
+        let writing = tokio::spawn(async move {
+            for i in 0..100u64 {
+                writer.write_all(&from_peer(i + 2, order(&format!("O{i}")))).await.unwrap();
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+            writer
+        });
+
+        receive(&mut reader, &mut buf, 10).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let so_far = written.load(Ordering::SeqCst);
+        assert!(so_far < 30, "{so_far} orders written while input was held");
+        // Once the windows free up, all of them get through.
+        receive(&mut reader, &mut buf, 90).await;
+        let _writer = writing.await.unwrap();
+        assert_eq!(written.load(Ordering::SeqCst), 100);
+    }
+
+    /// Shutting down while input is held logs out at once, and the peer's Logout reply is read
+    /// and answered at once: a session logging out holds no input.
+    #[tokio::test(start_paused = true)]
+    async fn a_shutdown_while_input_is_held_logs_out_promptly() {
+        let shutdown = crate::shutdown::Shutdown::new();
+        let config = with_inbound_delay(1, Duration::from_secs(60));
+        let (mut peer, mut buf, _handle) = logged_on_following(config, 30, Some(shutdown.signal())).await;
+        let start = Instant::now();
+        let burst: Vec<u8> = (0..3u64).flat_map(|i| from_peer(i + 2, order(&format!("O{i}")))).collect();
+        peer.write_all(&burst).await.unwrap();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].get(tags::CL_ORD_ID), Some("O0"));
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        // Nothing is tracked, so this only starts the shutdown.
+        shutdown.run(Some("bye"), Duration::from_secs(10)).await;
+        let mut seen = Vec::new();
+        while seen.last() != Some(&MsgType::Logout) {
+            seen.push(receive(&mut peer, &mut buf, 1).await[0].msg_type());
+        }
+        peer.write_all(&from_peer(5, Message::new(MsgType::Logout))).await.unwrap();
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+        assert_eq!(start.elapsed(), Duration::from_millis(10), "at once, not a window later");
+    }
+
+    /// A peer that closes while input is held is noticed once the hold ends, after everything it
+    /// sent before closing has been handled, in order; then the connection ends cleanly.
+    #[tokio::test(start_paused = true)]
+    async fn a_peer_that_closes_during_a_hold_is_noticed_after_its_input() {
+        let (mut peer, mut buf, _handle) = logged_on_with(with_inbound_delay(2, Duration::from_secs(1)), 30).await;
+        let start = Instant::now();
+        let burst: Vec<u8> = (0..5u64).flat_map(|i| from_peer(i + 2, order(&format!("O{i}")))).collect();
+        peer.write_all(&burst).await.unwrap();
+        peer.shutdown().await.unwrap();
+
+        let acked = receive_timed(&mut peer, &mut buf, 5, start).await;
+        let seen: Vec<_> = acked.iter().map(|(m, at)| (m.get(tags::CL_ORD_ID).unwrap(), at.as_millis())).collect();
+        assert_eq!(seen, [("O0", 0), ("O1", 0), ("O2", 1_000), ("O3", 1_000), ("O4", 2_000)]);
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+        assert!(rest.is_empty(), "nothing after the last ack");
+        assert_eq!(start.elapsed(), Duration::from_secs(2), "once the last hold ended");
     }
 
     /// Nothing goes out before the store's commit of it, which runs off the connection's task:

@@ -3875,7 +3875,7 @@ fn inbound_reject_leaves_admin_messages_alone() {
 }
 
 #[test]
-fn inbound_reject_delivers_what_the_counterparty_resends_at_our_request() {
+fn inbound_reject_delivers_what_the_counterparty_resends_at_our_request_but_counts_it() {
     let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
     let mut s = h.logged_on();
     s.recv(order(2, "A"), h.at(1));
@@ -3888,21 +3888,41 @@ fn inbound_reject_delivers_what_the_counterparty_resends_at_our_request() {
     assert_eq!(types(&out), ["ExecutionReport", "ExecutionReport"]);
     assert!(s.resend.is_none());
     assert_eq!(delivered(&h), ["A", "B", "C", "D", "E"]);
-    // None counted: with the request done, new messages are over the limit until A expires.
+    // Recovery counted, past full: with the request done, the window holds D and E, so new
+    // messages are over the limit until they expire, not just until A does.
     assert_throttled(&s.recv(order(7, "F"), h.at_millis(1_500)), 7);
     // PossDupFlag alone is only the sender's claim: with no request of ours open, it's throttled
     // when the window is full, and counts when it isn't.
-    assert_throttled(&s.recv(resend_of(order(8, "G")), h.at_millis(1_600)), 8);
-    assert_eq!(types(&s.recv(resend_of(order(9, "H")), h.at(2))), ["ExecutionReport"]);
-    assert_throttled(&s.recv(order(10, "I"), h.at_millis(2_050)), 10);
-    assert_eq!(types(&s.recv(order(11, "J"), h.at_millis(2_100))), ["ExecutionReport"]);
-    assert_eq!(delivered(&h), ["A", "B", "C", "D", "E", "H", "J"]);
+    assert_throttled(&s.recv(resend_of(order(8, "G")), h.at(2)), 8);
+    assert_eq!(types(&s.recv(resend_of(order(9, "H")), h.at_millis(2_400))), ["ExecutionReport"]);
+    assert_eq!(types(&s.recv(order(10, "I"), h.at_millis(2_450))), ["ExecutionReport"]);
+    assert_throttled(&s.recv(order(11, "J"), h.at_millis(2_500)), 11);
+    assert_eq!(delivered(&h), ["A", "B", "C", "D", "E", "H", "I"]);
+}
+
+#[test]
+fn inbound_reject_counts_a_manufactured_gap_after_delivering_it() {
+    // A hostile counterparty skips to 1000, and sends 997 new orders as the "resend" we ask for.
+    // They're recovery we asked for as far as we can tell, so none is rejected; but they count,
+    // so new traffic after them is.
+    let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    assert_eq!(types(&s.recv(order(1_000, "Z"), h.at(1))), ["ResendRequest"]);
+    for seq in 3..1_000 {
+        let out = s.recv(order(seq, &format!("O{seq}")), h.at(1));
+        assert!(!types(&out).contains(&"BusinessMessageReject".to_string()), "{seq}");
+    }
+    assert!(s.resend.is_none());
+    assert_eq!(h.app.received(), 999, "2 to 1000");
+    assert_throttled(&s.recv(order(1_001, "N"), h.at_millis(1_500)), 1_001);
 }
 
 #[test]
 fn inbound_reject_delivers_messages_released_after_our_resend_request_is_done() {
     // More messages wait behind the gap than one window of deliveries holds, so the rest are
-    // handled after a commit, by when the resend is complete: they were still asked for.
+    // handled after a commit, by when the resend is complete: they were still asked for, so
+    // they're delivered, and they count.
     let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
     let mut s = h.logged_on();
     s.recv(order(2, "A"), h.at(1));
@@ -3911,11 +3931,12 @@ fn inbound_reject_delivers_messages_released_after_our_resend_request_is_done() 
     for seq in 5..=last {
         s.recv(order(seq, &format!("O{seq}")), h.at(1));
     }
-    s.recv(resend_of(order(4, "C")), h.at(1));
+    s.recv(resend_of(order(4, "C")), h.at_millis(1_500));
     assert!(s.resend.is_none());
     assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "all of them, in sequence");
     assert_eq!(s.peer().log.next_incoming(), last + 1);
-    assert_throttled(&s.recv(order(last + 1, "N"), h.at(1)), last + 1);
+    // A and B have expired, but what was released at 1.5s still counts.
+    assert_throttled(&s.recv(order(last + 1, "N"), h.at(2)), last + 1);
 }
 
 #[test]
@@ -3991,19 +4012,51 @@ fn inbound_delay_holds_nothing_once_logging_out() {
 }
 
 #[test]
-fn inbound_delay_does_not_count_recovery_we_asked_for() {
+fn inbound_delay_counts_every_application_message_as_it_arrives() {
     let h = Harness::with_inbound_delay(2, Duration::from_secs(1));
     let mut s = h.logged_on();
     s.recv(order(2, "A"), h.at(1));
-    // A gap: 5 waits behind our ResendRequest for 3 and 4, which answer it.
+    // A gap: 5 is queued behind our ResendRequest for 3 and 4, and counts as it arrives.
     assert_eq!(types(&s.recv(order(5, "D"), h.at(1))), ["ResendRequest"]);
-    s.recv(resend_of(order(3, "B")), h.at(1));
-    s.recv(order(4, "C"), h.at(1));
+    assert_eq!(s.input_free_at(), Some(h.at(2)), "A and D fill the window");
+    // The resend we asked for waits for the window too, and counts.
+    s.recv(resend_of(order(3, "B")), h.at(2));
+    assert_eq!(s.input_free_at(), None, "B alone");
+    // D is handed over behind C without counting again.
+    assert_eq!(types(&s.recv(order(4, "C"), h.at(2))), ["ExecutionReport", "ExecutionReport"]);
     assert!(s.resend.is_none());
     assert_eq!(delivered(&h), ["A", "B", "C", "D"]);
-    assert_eq!(s.input_free_at(), None, "only A counted");
-    s.recv(order(6, "E"), h.at(1));
-    assert_eq!(s.input_free_at(), Some(h.at(2)), "A and E fill the window");
+    assert_eq!(s.input_free_at(), Some(h.at(3)), "B and C fill the window");
+}
+
+#[test]
+fn inbound_delay_counts_a_manufactured_gap_as_it_is_read() {
+    // A hostile counterparty skips to 1000, then sends new orders as the "resend" we ask for:
+    // each counts as it arrives, so the driver paces them as any input.
+    let h = Harness::with_inbound_delay(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    assert_eq!(types(&s.recv(order(1_000, "Z"), h.at(1))), ["ResendRequest"]);
+    assert_eq!(s.input_free_at(), Some(h.at(2)), "the gap's far end counts");
+    s.recv(order(3, "B"), h.at(2));
+    assert_eq!(s.input_free_at(), None);
+    s.recv(order(4, "C"), h.at(2));
+    assert_eq!(s.input_free_at(), Some(h.at(3)), "the \"resend\" fills the window like anything else");
+}
+
+#[test]
+fn time_spent_holding_input_is_not_a_stalled_resend() {
+    // Our ResendRequest's answer waits behind the hold: its two-interval timeout counts from the
+    // end of the hold, not from when the hold began.
+    let h = Harness::with_inbound_delay(2, Duration::from_secs(10));
+    let mut s = h.logged_on_with_heartbeat(1);
+    s.recv(order(2, "A"), h.t0);
+    assert_eq!(types(&s.recv(order(5, "D"), h.t0)), ["ResendRequest"]);
+    assert_eq!(s.input_free_at(), Some(h.at(10)));
+    for secs in 1..=10 {
+        assert_eq!(types(&s.timer(h.at(secs))), ["Heartbeat"], "{secs}s");
+    }
+    assert!(types(&s.timer(h.at(12))).contains(&"ResendRequest".to_string()), "retried from the end of the hold");
 }
 
 #[test]
