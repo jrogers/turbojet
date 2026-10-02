@@ -333,15 +333,9 @@ impl Initiator {
     fn schedule_wait(&self) -> Option<(Duration, String)> {
         let schedule = self.config.session.schedule.as_ref()?;
         let now = self.config.session.clock.now();
-        if schedule.is_active(now) {
-            return None;
-        }
-        let next = schedule.next_start(now);
-        let wait = next.and_then(|next| (next - now).to_std().ok()).unwrap_or(Duration::from_secs(60));
-        let reason = match next {
-            Some(next) => format!("outside session time (schedule '{schedule}'); next session starts {next}"),
-            None => format!("outside session time (schedule '{schedule}')"),
-        };
+        let reason = schedule.closed_reason(now)?;
+        let wait =
+            schedule.next_start(now).and_then(|next| (next - now).to_std().ok()).unwrap_or(Duration::from_secs(60));
         Some((wait, reason))
     }
 

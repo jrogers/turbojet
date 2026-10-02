@@ -325,7 +325,7 @@ impl SessionSchedule {
 
     /// The period containing `time`, if any.
     pub fn period_at(&self, time: DateTime<Utc>) -> Option<Period> {
-        self.periods_around(time).take_while(|p| p.start <= time).filter(|p| p.contains(time)).last()
+        self.dated_period_at(time).map(|(_, period)| period)
     }
 
     /// Whether `time` falls inside a period.
@@ -336,12 +336,39 @@ impl SessionSchedule {
     /// The start of the first period beginning after `time`, if one begins within `MAX_CANDIDATES`
     /// (400) days (weekly schedules: weeks).
     pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.periods_around(time).map(|p| p.start).find(|start| *start > time)
+        self.periods_around(time).map(|(_, p)| p.start).find(|start| *start > time)
     }
 
-    /// Periods in start order, from early enough that the first can still contain `time` (a daily
-    /// period lasts at most a day, a weekly one at most a week).
-    fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = Period> + '_ {
+    /// Why the schedule doesn't allow a session at `time`, naming the holiday if one is the reason;
+    /// `None` inside a period.
+    pub(crate) fn closed_reason(&self, time: DateTime<Utc>) -> Option<String> {
+        if self.is_active(time) {
+            return None;
+        }
+        let holiday = self.holiday_at(time).map(|date| format!("; {date} is a holiday")).unwrap_or_default();
+        Some(match self.next_start(time) {
+            Some(next) => format!("outside session time (schedule '{self}'{holiday}); next session starts {next}"),
+            None => format!("outside session time (schedule '{self}'{holiday})"),
+        })
+    }
+
+    /// The holiday that removed the period `time` would otherwise be in, if any.
+    fn holiday_at(&self, time: DateTime<Utc>) -> Option<NaiveDate> {
+        let open = Self { holidays: HolidayCalendar::default(), ..self.clone() };
+        // The date the period starts on, not the local date of its start: a start in a DST gap
+        // that straddles midnight resolves to just after the gap, on the next local date.
+        let (date, _) = open.dated_period_at(time)?;
+        self.holidays.contains(date).then_some(date)
+    }
+
+    /// The period containing `time`, if any, with the local date it starts on.
+    fn dated_period_at(&self, time: DateTime<Utc>) -> Option<(NaiveDate, Period)> {
+        self.periods_around(time).take_while(|(_, p)| p.start <= time).filter(|(_, p)| p.contains(time)).last()
+    }
+
+    /// Periods in start order, with the local dates they start on, from early enough that the first
+    /// can still contain `time` (a daily period lasts at most a day, a weekly one at most a week).
+    fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = (NaiveDate, Period)> + '_ {
         let today = self.time_zone.to_local(time).date();
         // A period's own length back (a day, or a week), plus a day's margin.
         let back = match self.kind {
@@ -351,9 +378,9 @@ impl SessionSchedule {
         self.periods_from(today - chrono::Duration::days(back))
     }
 
-    /// Periods in start order, starting on `first` (a local date) or later, at most
-    /// `MAX_CANDIDATES` days (weekly: weeks) of them.
-    fn periods_from(&self, first: NaiveDate) -> impl Iterator<Item = Period> + '_ {
+    /// Periods in start order, with the local dates they start on, starting on `first` or later, at
+    /// most `MAX_CANDIDATES` days (weekly: weeks) of them.
+    fn periods_from(&self, first: NaiveDate) -> impl Iterator<Item = (NaiveDate, Period)> + '_ {
         let (first, step) = match &self.kind {
             Kind::Daily { .. } => (first, chrono::Duration::days(1)),
             Kind::Weekly { start_day, .. } => {
@@ -364,7 +391,7 @@ impl SessionSchedule {
         std::iter::successors(Some(first), move |date| Some(*date + step))
             .take(MAX_CANDIDATES)
             .filter(|date| self.starts_on(*date))
-            .map(|date| self.period_starting(date))
+            .map(|date| (date, self.period_starting(date)))
     }
 
     /// Whether a period starts on `date`, a local date (for weekly schedules, one on the start day):
@@ -693,6 +720,29 @@ mod tests {
         assert_eq!(s.next_start(at("2026-12-22 12:00")), Some(at("2026-12-27 17:00")));
         let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-23"]);
         assert!(s.is_active(at("2026-12-23 12:00")), "a mid-week holiday changes nothing");
+    }
+
+    #[test]
+    fn closed_reasons_name_the_holiday() {
+        let s = closed("daily 08:00-17:00 mon-fri", &["2026-12-25"]);
+        assert_eq!(s.closed_reason(at("2026-12-24 10:00")), None);
+        assert_eq!(
+            s.closed_reason(at("2026-12-25 10:00")).unwrap(),
+            "outside session time (schedule 'daily 08:00:00-17:00:00 mon,tue,wed,thu,fri UTC'; \
+             2026-12-25 is a holiday); next session starts 2026-12-28 08:00:00 UTC"
+        );
+        // Evening of the holiday: outside hours anyway, so no holiday is named.
+        assert!(!s.closed_reason(at("2026-12-25 18:00")).unwrap().contains("holiday"));
+    }
+
+    #[cfg(feature = "tz")]
+    #[test]
+    fn closed_reasons_name_the_start_date_of_a_period_in_a_gap_over_midnight() {
+        // Nuuk springs forward from 23:00 on Saturday 2026-03-28 to 00:00 on the Sunday, so the
+        // 28th's 23:30 start doesn't exist and is taken as 00:30 on the 29th (01:30 UTC).
+        let s = closed("daily 23:30-23:45 America/Nuuk", &["2026-03-28"]);
+        let reason = s.closed_reason(at("2026-03-29 01:40")).unwrap();
+        assert!(reason.contains("2026-03-28 is a holiday"), "{reason}");
     }
 
     #[test]

@@ -1221,15 +1221,7 @@ impl Session {
 
     /// Why the schedule forbids logging on now, if it does.
     fn outside_schedule(&self) -> Option<String> {
-        let schedule = self.config.schedule.as_ref()?;
-        let now = self.config.clock.now();
-        if schedule.is_active(now) {
-            return None;
-        }
-        Some(match schedule.next_start(now) {
-            Some(next) => format!("outside session time (schedule '{schedule}'); next session starts {next}"),
-            None => format!("outside session time (schedule '{schedule}')"),
-        })
+        self.config.schedule.as_ref()?.closed_reason(self.config.clock.now())
     }
 
     /// Ties a newly bound session to its schedule period. Stored state from an earlier period is

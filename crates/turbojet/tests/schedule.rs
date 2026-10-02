@@ -8,7 +8,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::{
-    Acceptor, Application, Clock, Initiator, InitiatorConfig, MemoryStorage, SessionConfig, SessionHandle, SessionId,
+    Acceptor, Application, Clock, HolidayCalendar, Initiator, InitiatorConfig, MemoryStorage, SessionConfig,
+    SessionHandle, SessionId, SessionSchedule,
 };
 
 #[derive(Clone)]
@@ -124,4 +125,57 @@ async fn acceptor_logs_the_client_out_when_the_period_ends() {
     assert_eq!(next(&mut server).await, Event::LoggedOut);
     tokio::time::timeout(Duration::from_secs(5), connection).await.unwrap().unwrap().unwrap();
     assert!(!handle.is_connected());
+}
+
+// 2026-12-25 is a Friday.
+
+#[tokio::test]
+async fn initiator_waits_out_a_holiday() {
+    let mut server = SessionConfig::new("FIX.4.2", "SERVER");
+    server.max_latency = None;
+    let (addr, mut server) = start_acceptor(server).await;
+    let clock = ManualClock::at("2026-12-25 10:00:00");
+    let mut session = SessionConfig::new("FIX.4.2", "CLIENT");
+    let holidays: HolidayCalendar = "2026-12-25".parse().unwrap();
+    session.schedule = Some("daily 08:00-17:00 mon-fri".parse::<SessionSchedule>().unwrap().with_holidays(holidays));
+    session.clock = clock.clock();
+    session.max_latency = None;
+    let (app, mut client) = recorder();
+    let mut config = InitiatorConfig::new(session, "SERVER");
+    config.reset_on_logon = true;
+    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app);
+
+    let err = initiator.connect_once().await.unwrap_err();
+    assert!(err.to_string().contains("2026-12-25 is a holiday"), "{err}");
+    assert!(err.to_string().contains("next session starts 2026-12-28 08:00:00"), "{err}");
+
+    tokio::spawn(initiator.run());
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(server.try_recv().is_err(), "must not connect on the holiday");
+    clock.set("2026-12-28 08:00:01");
+    assert_eq!(next(&mut client).await, Event::LoggedOn);
+    assert_eq!(next(&mut server).await, Event::LoggedOn);
+}
+
+#[tokio::test]
+async fn acceptor_refuses_logons_on_a_holiday() {
+    let clock = ManualClock::at("2026-12-25 10:00:00");
+    let mut config = SessionConfig::new("FIX.4.2", "SERVER");
+    let holidays: HolidayCalendar = "2026-12-25".parse().unwrap();
+    config.schedule = Some("daily 08:00-17:00".parse::<SessionSchedule>().unwrap().with_holidays(holidays));
+    config.clock = clock.clock();
+    config.max_latency = None;
+    let (addr, mut server) = start_acceptor(config).await;
+
+    let (app, mut client) = recorder();
+    let mut client_config = SessionConfig::new("FIX.4.2", "CLIENT");
+    client_config.max_latency = None;
+    let initiator =
+        Initiator::new(addr, InitiatorConfig::new(client_config, "SERVER"), Arc::new(MemoryStorage::new()), app);
+    // The acceptor closes the connection before logon, which connect_once reports as a failure.
+    let result =
+        tokio::time::timeout(Duration::from_secs(5), initiator.connect_once()).await.expect("refused promptly");
+    assert!(result.is_err(), "the logon must be refused");
+    assert!(client.try_recv().is_err(), "no logon on the holiday");
+    assert!(server.try_recv().is_err(), "no logon on the holiday");
 }
