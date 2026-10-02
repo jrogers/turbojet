@@ -8,6 +8,10 @@
 //!   *starts* on.
 //! - **Weekly**: `weekly sun 17:00-fri 17:00 America/New_York`.
 //!
+//! Holidays ([`HolidayCalendar`], set with [`SessionSchedule::with_holidays`]) are dates, in the
+//! schedule's time zone, on which no period starts. A period that starts the day before a holiday
+//! still runs into it; a weekly schedule skips only a week that starts on a holiday.
+//!
 //! With a schedule configured, an acceptor refuses logons outside a period, an initiator waits
 //! for the next period before connecting, a logged-on session logs out when its period ends, and
 //! the first logon of a new period resets sequence numbers to 1.
@@ -260,21 +264,33 @@ enum Kind {
 
 /// When a session may be logged on. Parse one from a string (see the [module docs](self)) or build
 /// it with [`SessionSchedule::daily`] or [`SessionSchedule::weekly`].
+///
+/// Holidays aren't part of the text form: [`Display`](fmt::Display) leaves them out, and parsing
+/// gives a schedule without any. Add them with [`SessionSchedule::with_holidays`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSchedule {
     kind: Kind,
     time_zone: ScheduleTimeZone,
+    holidays: HolidayCalendar,
 }
 
 impl SessionSchedule {
     /// A period every day from `start` to `end` (the next day if `end <= start`), in UTC.
     pub fn daily(start: NaiveTime, end: NaiveTime) -> Self {
-        Self { kind: Kind::Daily { start, end, days: [true; 7] }, time_zone: ScheduleTimeZone::Utc }
+        Self {
+            kind: Kind::Daily { start, end, days: [true; 7] },
+            time_zone: ScheduleTimeZone::Utc,
+            holidays: HolidayCalendar::default(),
+        }
     }
 
     /// A period each week from `start_day start` to the next `end_day end`, in UTC.
     pub fn weekly(start_day: Weekday, start: NaiveTime, end_day: Weekday, end: NaiveTime) -> Self {
-        Self { kind: Kind::Weekly { start_day, start, end_day, end }, time_zone: ScheduleTimeZone::Utc }
+        Self {
+            kind: Kind::Weekly { start_day, start, end_day, end },
+            time_zone: ScheduleTimeZone::Utc,
+            holidays: HolidayCalendar::default(),
+        }
     }
 
     /// Restricts a daily schedule to periods starting on `days`. Has no effect on weekly
@@ -293,6 +309,18 @@ impl SessionSchedule {
     pub fn in_time_zone(mut self, time_zone: ScheduleTimeZone) -> Self {
         self.time_zone = time_zone;
         self
+    }
+
+    /// Starts no period on these dates, read in the schedule's time zone. For a weekly schedule,
+    /// only a holiday on its start day matters: it skips that week's period.
+    pub fn with_holidays(mut self, holidays: HolidayCalendar) -> Self {
+        self.holidays = holidays;
+        self
+    }
+
+    /// The dates on which no period starts.
+    pub fn holidays(&self) -> &HolidayCalendar {
+        &self.holidays
     }
 
     /// The period containing `time`, if any.
@@ -339,11 +367,14 @@ impl SessionSchedule {
             .map(|date| self.period_starting(date))
     }
 
-    /// Whether a period starts on `date`, a local date (for weekly schedules, one on the start day).
+    /// Whether a period starts on `date`, a local date (for weekly schedules, one on the start day):
+    /// never on a holiday, and for a daily schedule only on its days.
     fn starts_on(&self, date: NaiveDate) -> bool {
         match &self.kind {
-            Kind::Daily { days, .. } => days[date.weekday().num_days_from_monday() as usize],
-            Kind::Weekly { .. } => true,
+            Kind::Daily { days, .. } => {
+                !self.holidays.contains(date) && days[date.weekday().num_days_from_monday() as usize]
+            }
+            Kind::Weekly { .. } => !self.holidays.contains(date),
         }
     }
 
@@ -571,6 +602,8 @@ mod tests {
         assert_eq!(schedule("weekly sun 17:00 - fri 17:00"), schedule("weekly sun 17:00-fri 17:00 UTC"));
         assert_eq!(schedule("daily 08:00-17:00 fri-mon"), schedule("daily 08:00-17:00 fri,sat,sun,mon"));
         assert_eq!(schedule("DAILY 8:00-17:00 Mon-Fri utc"), schedule("daily 08:00-17:00 mon-fri"));
+        let holidays = closed("daily 08:00-17:00 mon-fri", &["2026-12-25"]);
+        assert_eq!(holidays.to_string(), "daily 08:00:00-17:00:00 mon,tue,wed,thu,fri UTC", "Display omits holidays");
     }
 
     #[test]
@@ -621,5 +654,62 @@ mod tests {
         assert!(err.contains("'2026-13-01'"), "{err}");
         let err = "2026-12-25 2026-12-26".parse::<HolidayCalendar>().unwrap_err();
         assert!(err.contains("line 1"), "{err}");
+    }
+
+    fn closed(s: &str, dates: &[&str]) -> SessionSchedule {
+        schedule(s).with_holidays(dates.iter().map(|d| date(d)).collect())
+    }
+
+    // 2026-12-25 is a Friday.
+
+    #[test]
+    fn no_period_starts_on_a_holiday() {
+        let s = closed("daily 08:00-17:00 mon-fri", &["2026-12-25"]);
+        assert!(s.is_active(at("2026-12-24 10:00")));
+        assert!(!s.is_active(at("2026-12-25 10:00")));
+        assert_eq!(s.next_start(at("2026-12-24 18:00")), Some(at("2026-12-28 08:00")), "over the holiday and weekend");
+    }
+
+    #[test]
+    fn next_start_crosses_a_long_run_of_holidays() {
+        let days: Vec<String> = (21..=31).map(|d| format!("2026-12-{d}")).collect();
+        let days: Vec<&str> = days.iter().map(String::as_str).collect();
+        let s = closed("daily 08:00-17:00 mon-fri", &days);
+        assert_eq!(s.next_start(at("2026-12-18 18:00")), Some(at("2027-01-01 08:00")));
+    }
+
+    #[test]
+    fn a_period_running_into_a_holiday_still_happens() {
+        let s = closed("daily 22:00-06:00", &["2026-12-25"]);
+        assert!(s.is_active(at("2026-12-25 05:00")), "started on the 24th");
+        assert!(!s.is_active(at("2026-12-25 23:00")), "would have started on the 25th");
+        assert_eq!(s.next_start(at("2026-12-25 06:00")), Some(at("2026-12-26 22:00")));
+    }
+
+    #[test]
+    fn weekly_schedules_skip_only_a_holiday_on_their_start_day() {
+        let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-20", "2026-12-25"]);
+        assert!(!s.is_active(at("2026-12-22 12:00")), "the week starting on the 20th is skipped");
+        assert_eq!(s.next_start(at("2026-12-22 12:00")), Some(at("2026-12-27 17:00")));
+        let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-23"]);
+        assert!(s.is_active(at("2026-12-23 12:00")), "a mid-week holiday changes nothing");
+    }
+
+    #[test]
+    fn a_calendar_closing_every_day_has_no_next_start() {
+        let first = date("2026-12-01");
+        let every_day = (0..800).map(|d| first + chrono::Duration::days(d)).collect();
+        let s = schedule("daily 08:00-17:00").with_holidays(every_day);
+        assert_eq!(s.period_at(at("2026-12-02 10:00")), None);
+        assert_eq!(s.next_start(at("2026-12-02 10:00")), None);
+    }
+
+    #[cfg(feature = "tz")]
+    #[test]
+    fn holidays_are_dates_in_the_schedules_time_zone() {
+        // 22:00 in New York on the 25th is 03:00 UTC on the 26th: still the 25th's period.
+        let s = closed("daily 22:00-06:00 America/New_York", &["2026-12-25"]);
+        assert!(s.is_active(at("2026-12-25 04:00")), "the 24th's period, until 06:00 New York");
+        assert!(!s.is_active(at("2026-12-26 04:00")));
     }
 }
