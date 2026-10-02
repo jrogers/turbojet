@@ -6,10 +6,16 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::future::Future;
+use std::pin::Pin;
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::tags;
 use turbojet::store::SessionStorage;
-use turbojet::{DiskStorage, InitiatorConfig, MemoryStorage, SessionConfig, SessionRegistry};
+
+use turbojet::{
+    DiskStorage, InitiatorConfig, MemoryStorage, SequenceError, SequenceNumbers, SessionConfig, SessionHandle,
+    SessionId, SessionRegistry, SessionSchedule,
+};
 
 use crate::Side;
 use crate::app::{RecordingApp, order, report};
@@ -20,7 +26,7 @@ use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
 use crate::rng::Rng;
 use crate::store::{Call, LedgerStorage, Trap};
-use crate::time::{Clocks, SimTime};
+use crate::time::{Clocks, SimTime, wall_start};
 
 /// How a simulation runs.
 #[derive(Debug, Clone)]
@@ -114,6 +120,13 @@ struct Faults {
     sub_sector: bool,
     /// Disk stores without sync: mean time between power losses, if any.
     power_loss_every: Option<Duration>,
+    /// Mean time between an application asking to log out, an operator skipping a side's
+    /// outgoing numbers ahead, and an operator resetting both sides, if any.
+    logout_every: Option<Duration>,
+    skip_every: Option<Duration>,
+    reset_both_every: Option<Duration>,
+    /// Both sides run to a daily schedule whose first period ends in the busy phase.
+    scheduled: bool,
 }
 
 impl Faults {
@@ -147,6 +160,10 @@ impl Faults {
             tears: rng.pick(&[0, 500_000]),
             sub_sector: rng.chance(300_000),
             power_loss_every: rng.pick(&[None, Some(secs(60)), Some(secs(20))]),
+            logout_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
+            skip_every: rng.pick(&[None, Some(secs(30)), Some(secs(10))]),
+            reset_both_every: rng.pick(&[None, None, Some(secs(60))]),
+            scheduled: rng.chance(250_000),
         }
     }
 
@@ -218,6 +235,14 @@ enum Event {
     WriteBack,
     /// A node loses power (a disk store without sync).
     PowerLoss,
+    /// One side's application asks to log out.
+    Logout,
+    /// An operator moves one side's next outgoing number ahead.
+    Skip,
+    /// An operator resets both sides: logs them out, then resets both stores once neither is
+    /// connected, checking again until then.
+    ResetBoth,
+    ResetBothStep,
 }
 
 /// What's scheduled for one connection's driver, so each kind of wake-up is queued once.
@@ -234,6 +259,11 @@ struct Pending {
 /// driver used to write all its output before reading again, so once both send buffers filled,
 /// neither read again; it now reads while output waits, and this would be a regression.
 pub const WRITE_DEADLOCK: &str = "write deadlock";
+
+/// How often a reset of both sides checks whether neither is connected yet, and how long it
+/// waits for that before giving up.
+const RESET_BOTH_CHECK: Duration = Duration::from_millis(100);
+const RESET_BOTH_LIMIT: Duration = Duration::from_secs(60);
 
 /// How often the OS writes back a disk store without sync.
 const WRITE_BACK_EVERY: Duration = Duration::from_secs(5);
@@ -266,6 +296,16 @@ struct World {
     down: [bool; 2],
     /// The initiator's process generation: one more after each crash.
     generation: u64,
+    /// Each side's session.
+    ids: [SessionId; 2],
+    /// Operator requests under way, until they resolve.
+    operators: Vec<Operator>,
+    /// A reset of both sides under way, since when: the initiator doesn't connect meanwhile.
+    resetting: Option<SimTime>,
+    /// The daily schedule both sides run to, if any.
+    schedule: Option<SessionSchedule>,
+    /// When the workload and faults stop.
+    busy_end: SimTime,
     /// Arrivals, closes and failures on their way.
     in_flight: usize,
     next_id: u64,
@@ -318,43 +358,75 @@ fn stores(kind: StoreKind) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2
     (dir, storage)
 }
 
+/// The two nodes, in `roles`, over `storage`.
+fn nodes(roles: [Role; 2], storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, faults: &Faults) -> [Node; 2] {
+    let [initiator, acceptor] = roles;
+    let node = |side: Side, role, app| {
+        let store: Arc<dyn SessionStorage> = storage[side.index()].clone();
+        let registry = Arc::new(SessionRegistry::new(store).with_clock(clocks.wall_clock()));
+        let mut node = Node::new(side, role, registry, app, clocks.clone());
+        node.resend_batch = faults.resend_batch;
+        node
+    };
+    [
+        node(Side::Initiator, initiator, RecordingApp::initiator()),
+        node(Side::Acceptor, acceptor, RecordingApp::acceptor()),
+    ]
+}
+
+/// An operator request under way.
+struct Operator {
+    side: Side,
+    future: Pin<Box<dyn Future<Output = Result<SequenceNumbers, SequenceError>>>>,
+}
+
+/// Polls `future` once: its output if it's ready. Operator requests on a session that isn't
+/// connected resolve at once; on one that is, once its driver has taken the command.
+fn poll_once<F: Future + ?Sized>(future: Pin<&mut F>) -> Option<F::Output> {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match future.poll(&mut cx) {
+        std::task::Poll::Ready(output) => Some(output),
+        std::task::Poll::Pending => None,
+    }
+}
+
+fn session_id(sender: &str, target: &str) -> SessionId {
+    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: sender.into(), target_comp_id: target.into() }
+}
+
+/// For a scheduled seed, a daily schedule whose first period ends 20 s in and whose next starts
+/// the next morning, and the busy phase running 20 s into that; otherwise none, and the busy
+/// phase as the options say.
+fn schedule(faults: &Faults, options: &Options) -> (Option<SessionSchedule>, SimTime) {
+    if !faults.scheduled {
+        return (None, SimTime::from_duration(options.busy));
+    }
+    let time = |h, m, s| chrono::NaiveTime::from_hms_opt(h, m, s).expect("a time");
+    let schedule = SessionSchedule::daily(time(8, 0, 0), time(9, 0, 20));
+    let next = schedule.next_start(wall_start() + chrono::TimeDelta::seconds(21)).expect("tomorrow");
+    let busy_end = SimTime::from_duration((next - wall_start()).to_std().expect("later")).after(options.busy);
+    (Some(schedule), busy_end)
+}
+
 impl World {
     fn new(options: Options) -> Self {
         let clocks = Clocks::new();
         let mut rng = Rng::new(options.seed);
+        let heartbeat = Duration::from_secs(rng.pick(&[1, 2, 5, 10, 30]));
+        let reconnect = Duration::from_millis(rng.between(100, 5_000));
+        let faults = Faults::draw(&mut rng.fork(), heartbeat);
+        let (schedule, busy_end) = schedule(&faults, &options);
         let config = |sender: &str| {
             let mut config = SessionConfig::new("FIX.4.4", sender);
             config.clock = clocks.wall_clock();
+            config.schedule.clone_from(&schedule);
             config
         };
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
-        initiator.heartbeat_interval = Duration::from_secs(rng.pick(&[1, 2, 5, 10, 30]));
-        initiator.reconnect_interval = Duration::from_millis(rng.between(100, 5_000));
-        let faults = Faults::draw(&mut rng.fork(), initiator.heartbeat_interval);
+        initiator.heartbeat_interval = heartbeat;
+        initiator.reconnect_interval = reconnect;
         let (dir, storage) = stores(faults.store);
-        let registry = |side: Side| {
-            let storage: Arc<dyn SessionStorage> = storage[side.index()].clone();
-            Arc::new(SessionRegistry::new(storage).with_clock(clocks.wall_clock()))
-        };
-        let mut nodes = [
-            Node::new(
-                Side::Initiator,
-                Role::Initiator(initiator),
-                registry(Side::Initiator),
-                RecordingApp::initiator(),
-                clocks.clone(),
-            ),
-            Node::new(
-                Side::Acceptor,
-                Role::Acceptor(config("GATEWAY")),
-                registry(Side::Acceptor),
-                RecordingApp::acceptor(),
-                clocks.clone(),
-            ),
-        ];
-        for node in &mut nodes {
-            node.resend_batch = faults.resend_batch;
-        }
+        let nodes = nodes([Role::Initiator(initiator), Role::Acceptor(config("GATEWAY"))], &storage, &clocks, &faults);
         let net = Net::new(faults.net.clone(), rng.fork());
         let mut world = Self {
             options,
@@ -373,6 +445,11 @@ impl World {
             connecting: true,
             down: [false; 2],
             generation: 0,
+            ids: [session_id("CLIENT", "GATEWAY"), session_id("GATEWAY", "CLIENT")],
+            operators: Vec::new(),
+            resetting: None,
+            schedule,
+            busy_end,
             in_flight: 0,
             next_id: 0,
             digest: 0xcbf2_9ce4_8422_2325,
@@ -410,6 +487,9 @@ impl World {
             (self.faults.stall_every, Event::Stall),
             (self.faults.crash_every, Event::Crash),
             (self.faults.trap_every, Event::Trap),
+            (self.faults.logout_every, Event::Logout),
+            (self.faults.skip_every, Event::Skip),
+            (self.faults.reset_both_every, Event::ResetBoth),
         ] {
             if let Some(every) = every {
                 let at = self.after_about(SimTime(0), every);
@@ -433,7 +513,7 @@ impl World {
     }
 
     fn run(&mut self) -> Result<(), Violation> {
-        let busy_end = SimTime::from_duration(self.options.busy);
+        let busy_end = self.busy_end;
         let end = busy_end.after(self.options.quiet);
         let limit = end.after(self.faults.settle_limit(self.reconnect_interval(), self.heartbeat()));
         let mut same_time = (SimTime(0), 0u64);
@@ -458,6 +538,7 @@ impl World {
             self.events += 1;
             self.record(&describe(&event));
             self.dispatch(event, at, busy_end)?;
+            self.poll_operators()?;
         }
         // Timers keep a running session's driver waking, so an empty queue means every driver is
         // stuck: blocked writing, with nothing to unblock it.
@@ -505,6 +586,13 @@ impl World {
             // A crashed acceptor's port refuses connections.
             Event::Connect(g) | Event::Established(g) if self.down[Side::Acceptor.index()] => {
                 self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed(g));
+            }
+            // While both sides are being reset, the initiator waits; the reset reconnects it.
+            Event::Connect(_) if self.resetting.is_some() => self.connecting = false,
+            // Outside the schedule, the initiator waits for the next period, as Initiator::run does.
+            Event::Connect(g) if self.active_from(now) > now => {
+                let at = self.active_from(now);
+                self.queue.push(at, Event::Connect(g));
             }
             Event::Connect(g) => {
                 let timeout = self.nodes[0].initiator_config().expect("the initiator").connect_timeout;
@@ -584,6 +672,7 @@ impl World {
                 self.after_all(Side::Initiator, now)?;
                 if busy {
                     let next = now.after(Duration::from_millis(self.rng.between(1, 200)));
+                    let next = self.active_from(next);
                     self.queue.push(next, Event::SendOrder);
                 }
             }
@@ -593,6 +682,7 @@ impl World {
                 self.after_all(Side::Acceptor, now)?;
                 if busy {
                     let next = now.after(Duration::from_millis(self.rng.between(50, 1_000)));
+                    let next = self.active_from(next);
                     self.queue.push(next, Event::SendReport);
                 }
             }
@@ -658,7 +748,9 @@ impl World {
                     storage.write_back();
                 }
                 if busy {
-                    self.queue.push(now.after(WRITE_BACK_EVERY), Event::WriteBack);
+                    // Nothing changes outside the schedule, so neither does what's written back.
+                    let next = self.active_from(now.after(WRITE_BACK_EVERY));
+                    self.queue.push(next, Event::WriteBack);
                 }
             }
             Event::PowerLoss => {
@@ -674,6 +766,30 @@ impl World {
                 }
                 self.again(busy, now, self.faults.power_loss_every, Event::PowerLoss);
             }
+            Event::Logout => {
+                let side = self.pick_side();
+                // Not connected: nothing to log out of.
+                let _ = self.handle(side).logout(Some("asked to by the application"));
+                self.after_all(side, now)?;
+                self.again(busy, now, self.faults.logout_every, Event::Logout);
+            }
+            Event::Skip => {
+                let side = self.pick_side();
+                self.skip(side, now)?;
+                self.again(busy, now, self.faults.skip_every, Event::Skip);
+            }
+            Event::ResetBoth => {
+                if self.resetting.is_none() {
+                    self.resetting = Some(now);
+                    for side in [Side::Initiator, Side::Acceptor] {
+                        let _ = self.handle(side).logout(Some("operator reset"));
+                        self.after_all(side, now)?;
+                    }
+                    self.queue.push(now.after(RESET_BOTH_CHECK), Event::ResetBothStep);
+                }
+                self.again(busy, now, self.faults.reset_both_every, Event::ResetBoth);
+            }
+            Event::ResetBothStep => self.reset_both_step(now)?,
             Event::Restart(side) => {
                 self.down[side.index()] = false;
                 let storage: Arc<dyn SessionStorage> = self.storage[side.index()].clone();
@@ -717,10 +833,84 @@ impl World {
         self.queue.push(now.after(after), Event::Restart(side));
     }
 
+    fn pick_side(&mut self) -> Side {
+        if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor }
+    }
+
+    /// An operator's handle on `side`'s session, from its registry.
+    fn handle(&self, side: Side) -> SessionHandle {
+        self.nodes[side.index()].registry.handle(self.ids[side.index()].clone())
+    }
+
+    /// `now`, or if the sessions run to a schedule and it's outside it, the next period's start.
+    fn active_from(&self, now: SimTime) -> SimTime {
+        let Some(schedule) = &self.schedule else { return now };
+        let wall = wall_start() + chrono::TimeDelta::from_std(now.since(SimTime(0))).expect("short");
+        if schedule.is_active(wall) {
+            return now;
+        }
+        let next = schedule.next_start(wall).expect("a daily schedule starts again");
+        SimTime::from_duration((next - wall_start()).to_std().expect("later"))
+    }
+
+    /// An operator moves `side`'s next outgoing number a little ahead; the checker is told first.
+    fn skip(&mut self, side: Side, now: SimTime) -> Result<(), Violation> {
+        self.sync_ledger(side)?;
+        let to = self.checker.numbers(side).0 + self.rng.between(1, 50);
+        self.record(&format!("operator: {side:?} next outgoing to {to}"));
+        self.checker.expect_skip(side, to);
+        let handle = self.handle(side);
+        self.operators.push(Operator { side, future: Box::pin(async move { handle.set_next_outgoing(to).await }) });
+        self.poll_operators()?;
+        self.after_all(side, now)
+    }
+
+    /// Resets both stores once neither side is connected; checks again shortly if not, and gives
+    /// up after a while.
+    fn reset_both_step(&mut self, now: SimTime) -> Result<(), Violation> {
+        let Some(since) = self.resetting else { return Ok(()) };
+        let idle = self.nodes.iter().all(|n| n.conns().next().is_none());
+        if idle {
+            for side in [Side::Initiator, Side::Acceptor] {
+                let handle = self.handle(side);
+                let result = poll_once(std::pin::pin!(handle.reset_sequence_numbers()));
+                self.record(&format!("operator: reset {side:?}: {result:?}"));
+            }
+        } else if now.since(since) < RESET_BOTH_LIMIT {
+            self.queue.push(now.after(RESET_BOTH_CHECK), Event::ResetBothStep);
+            return Ok(());
+        }
+        self.resetting = None;
+        if !self.connecting && !self.down[Side::Initiator.index()] {
+            self.connecting = true;
+            self.queue.push(now, Event::Connect(self.generation));
+        }
+        Ok(())
+    }
+
+    /// Polls the operator requests under way; one that has resolved is done with, and a skip that
+    /// didn't happen is withdrawn from the checker.
+    fn poll_operators(&mut self) -> Result<(), Violation> {
+        let mut i = 0;
+        while i < self.operators.len() {
+            let Some(result) = poll_once(self.operators[i].future.as_mut()) else {
+                i += 1;
+                continue;
+            };
+            let Operator { side, .. } = self.operators.swap_remove(i);
+            self.record(&format!("operator: {side:?} answered {result:?}"));
+            // What the skip recorded is checked before the checker stops expecting it.
+            self.sync_ledger(side)?;
+            self.checker.no_skip(side);
+        }
+        Ok(())
+    }
+
     /// Schedules the next fault of a kind, while the workload runs.
     fn again(&mut self, busy: bool, now: SimTime, every: Option<Duration>, event: Event) {
         if let (true, Some(every)) = (busy, every) {
             let at = self.after_about(now, every);
+            let at = self.active_from(at);
             self.queue.push(at, event);
         }
     }
@@ -910,7 +1100,8 @@ impl World {
         for side in [Side::Initiator, Side::Acceptor] {
             let received: BTreeSet<&str> = self.checker.received_ids(side.other()).collect();
             if let Some(missing) = self.checker.committed(side).find(|id| !received.contains(id)) {
-                return fail(format!("{side:?} sent {missing}, never delivered"));
+                let seq = self.checker.seq_of(side, missing).unwrap_or(0);
+                return fail(format!("{side:?} sent {missing} as {seq}, never delivered"));
             }
             // As each store last recorded them (a disk store can't be opened while its session is).
             let (ours, theirs) = (self.checker.numbers(side).0, self.checker.numbers(side.other()).1);

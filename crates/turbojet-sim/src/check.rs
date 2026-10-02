@@ -58,6 +58,9 @@ struct Sent {
     ledger_seen: usize,
     /// A change a power loss tore, until the store's next open shows what became of it.
     uncertain: Option<Stored>,
+    /// An operator is moving the next outgoing number forward to this: the store may record the
+    /// number before it as used, skipping those between.
+    skip_to: Option<u64>,
 }
 
 impl Sent {
@@ -67,6 +70,15 @@ impl Sent {
             Stored::Reset => *self = Sent { ledger_seen: self.ledger_seen, ..Sent::default() },
             Stored::Incoming { seq } => self.incoming = *seq,
             Stored::Sent { seq, bytes } => {
+                // An operator's skip: the numbers before `to` are used, without messages.
+                if bytes.is_none() && self.skip_to == Some(seq + 1) && *seq >= self.next_recorded {
+                    self.skip_to = None;
+                    for skipped in self.next_recorded..=*seq {
+                        self.recorded.insert(skipped, None);
+                    }
+                    self.next_recorded = seq + 1;
+                    return Ok(());
+                }
                 if *seq != self.next_recorded {
                     return Err(violation(
                         "2 sequence",
@@ -91,7 +103,15 @@ impl Sent {
 
 impl Default for Sent {
     fn default() -> Self {
-        Self { next_recorded: 1, incoming: 1, recorded: BTreeMap::new(), last_new: 0, ledger_seen: 0, uncertain: None }
+        Self {
+            next_recorded: 1,
+            incoming: 1,
+            recorded: BTreeMap::new(),
+            last_new: 0,
+            ledger_seen: 0,
+            uncertain: None,
+            skip_to: None,
+        }
     }
 }
 
@@ -130,6 +150,15 @@ fn body(msg: &Message) -> Vec<(u32, String)> {
 impl Checker {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The MsgSeqNum `side` stored application message `id` as, in this epoch.
+    pub fn seq_of(&self, side: Side, id: &str) -> Option<u64> {
+        self.sent[side.index()]
+            .recorded
+            .iter()
+            .find(|(_, m)| m.as_ref().and_then(id_of) == Some(id))
+            .map(|(seq, _)| *seq)
     }
 
     /// Application messages `side` has committed to sending, by id.
@@ -173,11 +202,27 @@ impl Checker {
                         *sent = applied;
                     }
                 }
-                change => sent.apply(side, change).or_else(|e| if lossy { Ok(()) } else { Err(e) })?,
+                change => {
+                    if matches!(change, Stored::Reset) {
+                        // Both numbers start again at 1: so do the deliveries this side receives.
+                        self.received[side.index()].last_seq = 0;
+                    }
+                    sent.apply(side, change).or_else(|e| if lossy { Ok(()) } else { Err(e) })?;
+                }
             }
             sent.ledger_seen += 1;
         }
         Ok(())
+    }
+
+    /// An operator is about to move `side`'s next outgoing number forward to `to`.
+    pub fn expect_skip(&mut self, side: Side, to: u64) {
+        self.sent[side.index()].skip_to = Some(to);
+    }
+
+    /// An operator's skip didn't happen.
+    pub fn no_skip(&mut self, side: Side) {
+        self.sent[side.index()].skip_to = None;
     }
 
     /// A power loss on a store without fsync has lost what the OS hadn't written back: from now
