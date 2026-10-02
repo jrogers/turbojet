@@ -2005,14 +2005,14 @@ impl Session {
         debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&buf[start..], &self.config.data_fields));
     }
 
-    /// Records the next incoming number. That clears the store's in-flight marker, so within an
-    /// open window it's recorded again: a store that makes each change as it's made (rather than
-    /// at the commit) must still have it if the process stops before the batch ends.
+    /// Records the next incoming number. That clears the store's in-flight marker, so while one is
+    /// needed it's recorded again: a store that makes each change as it's made (rather than at the
+    /// commit) must still have it if the process stops before the batch ends.
     fn set_next_incoming(&mut self, seq: u64) {
-        let window_start = self.window_end.map(|end| end - DELIVERIES_PER_COMMIT);
+        let marker = self.marker(seq);
         let log = &mut self.peer_mut().log;
         let recorded =
-            log.set_next_incoming(seq).and_then(|()| window_start.map_or(Ok(()), |start| log.set_in_flight(start)));
+            log.set_next_incoming(seq).and_then(|()| marker.map_or(Ok(()), |start| log.set_in_flight(start)));
         match recorded {
             Ok(()) => self.peer().metrics.next_incoming(seq),
             Err(e) => self.storage_failed(e),
@@ -2188,6 +2188,18 @@ impl Session {
         matches!(self.status, Status::Active | Status::LoggingOut { .. })
     }
 
+    /// Where the store's in-flight marker must start once the next incoming number is `next`: the
+    /// window recovered from before a restart while messages in it may still come back, so a
+    /// second crash finds it too; otherwise the open window's start, if one is open.
+    fn marker(&self, next: u64) -> Option<u64> {
+        self.live_recovered(next).or_else(|| self.window_end.map(|end| end - DELIVERIES_PER_COMMIT))
+    }
+
+    /// The window recovered from before a restart, while messages in it may still come back.
+    fn live_recovered(&self, next: u64) -> Option<u64> {
+        self.recovered.filter(|start| next < start + DELIVERIES_PER_COMMIT)
+    }
+
     /// Whether incoming `seq` may be handed to the application: it's in the committed window.
     fn covers(&self, seq: u64) -> bool {
         self.window_end.is_some_and(|end| seq < end)
@@ -2203,10 +2215,13 @@ impl Session {
             return Ok(None);
         };
         let next = peer.log.next_incoming();
+        // A recovered window still in use is kept: a new one starts where it does.
+        let recovered = self.recovered.filter(|start| next < start + DELIVERIES_PER_COMMIT);
         if self.window_wanted && receiving {
-            peer.log.set_in_flight(next)?;
-            self.opening = Some(next);
-        } else if self.window_end.is_some() {
+            let start = recovered.unwrap_or(next);
+            peer.log.set_in_flight(start)?;
+            self.opening = Some(start);
+        } else if self.window_end.is_some() && recovered.is_none() {
             // The batch is over: its window closes with this commit.
             peer.log.set_next_incoming(next)?;
         }

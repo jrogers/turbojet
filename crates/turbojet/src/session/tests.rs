@@ -1149,6 +1149,30 @@ fn an_operator_hears_of_a_change_once_it_is_committed() {
     assert_eq!(answer.try_recv().unwrap().unwrap().next_incoming, 7);
 }
 
+/// Regression (simulator): a window recovered after a restart stays recorded until messages in it
+/// can no longer come back, so if the process stops again first, the next restart still marks
+/// them. Closing each batch's window used to clear it.
+#[test]
+fn a_recovered_window_outlives_the_batches_before_its_messages_return() {
+    let storage = Arc::new(MemoryStorage::new());
+    {
+        let id = SessionId {
+            begin_string: "FIX.4.4".into(),
+            sender_comp_id: "GATEWAY".into(),
+            target_comp_id: "CLIENT".into(),
+        };
+        let mut log = storage.open(&id).unwrap();
+        log.record_outgoing(1, None).unwrap();
+        log.set_next_incoming(2).unwrap();
+        log.set_in_flight(2).unwrap();
+    }
+    let h = Harness::with_storage(storage);
+    let mut s = h.session();
+    assert_eq!(types(&s.recv(logon(4), h.t0)), ["Logon", "ResendRequest"]);
+    s.recv(resend_of(client(2, MsgType::Heartbeat)), h.t0);
+    assert_eq!(s.peer().log.in_flight(), Some(2), "3 may still come back, and may have been handled");
+}
+
 // ---- Messages ahead of a gap ----
 
 fn gap_fill(seq: u64, new_seq_no: u64) -> Message {
