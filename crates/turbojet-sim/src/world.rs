@@ -674,13 +674,15 @@ impl World {
                 let at = self.active_from(now);
                 self.queue.push(at, Event::Connect(g));
             }
+            // Refused and slow connects are faults: they stop with the others, after the busy phase.
             Event::Connect(g) => {
                 let timeout = self.nodes[0].initiator_config().expect("the initiator").connect_timeout;
-                if self.rng.chance(self.faults.refuse) {
+                if busy && self.rng.chance(self.faults.refuse) {
                     self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed(g));
                 } else {
-                    let takes =
-                        Duration::from_nanos(self.rng.between(0, SimTime::from_duration(self.faults.connect_max).0));
+                    let connect_max =
+                        if busy { self.faults.connect_max } else { self.faults.connect_max.min(timeout / 2) };
+                    let takes = Duration::from_nanos(self.rng.between(0, SimTime::from_duration(connect_max).0));
                     if takes >= timeout {
                         self.queue.push(now.after(timeout), Event::ConnectFailed(g));
                     } else {
