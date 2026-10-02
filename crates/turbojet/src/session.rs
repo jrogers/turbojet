@@ -38,7 +38,7 @@ use crate::registry::{
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, SessionId, SessionLog};
 use crate::telemetry::SessionMetrics;
-use crate::throttle::{InboundLimit, RateLimit, Window};
+use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
 /// An application version a FIXT.1.1 session supports, with the dictionary its messages are
 /// checked against, if any. Build it with [`SessionConfig::with_appl_ver_id`].
@@ -107,6 +107,18 @@ pub struct SessionConfig {
     /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
     /// allows more, and [`InboundLimit::Reject`] answers them with a BusinessMessageReject. Admin
     /// messages and resends don't count. `None` (the default) means no limit.
+    ///
+    /// With `Reject`, an application message that arrives while the window is full isn't handed
+    /// to the application: it's answered with a BusinessMessageReject(j) whose RefSeqNum(45) is
+    /// its MsgSeqNum, BusinessRejectReason(380) 0 (Other) and Text(58) "throttle limit
+    /// exceeded". It still takes its sequence number, as when the application rejects a message,
+    /// so the counterparty doesn't resend it. Rejected messages don't count, so a counterparty
+    /// sending too fast can't keep the window full.
+    ///
+    /// Recovery traffic neither counts nor is rejected: a message flagged PossDupFlag(43)=Y, or
+    /// any that arrives while a ResendRequest of ours is outstanding. It replaces messages we
+    /// missed, mostly at our own request, so it can't be too fast, and rejecting it would lose
+    /// them.
     pub inbound_limit: Option<InboundLimit>,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
@@ -426,6 +438,10 @@ pub struct Session {
     /// The times of the last application messages sent, under `config.outbound_limit`; see
     /// [`can_send`](Self::can_send). A new connection starts with an empty window.
     outbound: Option<Window>,
+    /// The times of the last application messages received, under `config.inbound_limit`, and
+    /// what happens to one over it; see [`deliver`](Self::deliver). A new connection starts with
+    /// an empty window.
+    inbound: Option<Inbound>,
     /// Scratch space for [`frame_into`](Self::frame_into)'s header, kept to reuse its allocation.
     header: String,
     /// Scratch space for the stored copy of a message, when it differs from the one sent.
@@ -486,6 +502,7 @@ impl Session {
         let appl_version = if initiator { config.appl_versions.first().cloned() } else { None };
         let (commands, receiver) = command_queues(config.send_queue);
         let outbound = config.outbound_limit.map(Window::new);
+        let inbound = config.inbound_limit.map(Inbound::new);
         let session = Self {
             config,
             role,
@@ -521,6 +538,7 @@ impl Session {
             resend_batch: MAX_RESEND_BATCH,
             pending: Vec::new(),
             outbound,
+            inbound,
             header: String::new(),
             wall_clock: Cell::new(None),
             stored: Vec::new(),
@@ -1648,6 +1666,13 @@ impl Session {
         // it's coming again: flagged as a resend, or answering our ResendRequest (in case the
         // counterparty doesn't flag its resends). New messages can't have been.
         let resent = msg.flag(tags::POSS_DUP_FLAG) || self.resend.is_some();
+        debug_assert!(!msg.msg_type().is_admin(), "admin messages are the session's, never delivered");
+        // Recovery traffic replaces messages we missed, often at our own request, so it's never
+        // too fast: rejecting it would lose them.
+        if !resent && self.over_inbound_limit(now) {
+            let text = "throttle limit exceeded".into();
+            return self.business_reject(msg, seq_num, BusinessRejectReason::Other, text, now);
+        }
         let redelivered =
             resent && self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
         if redelivered {
@@ -1676,6 +1701,22 @@ impl Session {
                 self.reject(msg, ref_tag, Some(reason), &text, now)
             }
             Err(MessageReject::Business { reason, text }) => self.business_reject(msg, seq_num, reason, text, now),
+        }
+    }
+
+    /// Whether a new application message received at `now` is over an inbound Reject limit. One
+    /// that isn't is recorded; one that is isn't, so rejections don't keep the window full.
+    fn over_inbound_limit(&mut self, now: Instant) -> bool {
+        let Some(inbound) = &mut self.inbound else { return false };
+        match inbound.over {
+            Over::Delay => false,
+            Over::Reject => {
+                if inbound.window.free_at(now).is_some() {
+                    return true;
+                }
+                inbound.window.record(now);
+                false
+            }
         }
     }
 

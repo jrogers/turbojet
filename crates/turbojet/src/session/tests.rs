@@ -3771,6 +3771,102 @@ fn without_a_limit_sends_never_wait() {
     assert!(s.outbound.is_none());
 }
 
+impl Harness {
+    /// A harness whose sessions reject application messages received over `messages` per `per`.
+    fn with_inbound_reject(messages: u32, per: Duration) -> Self {
+        let mut h = Self::new();
+        h.config.inbound_limit = Some(InboundLimit::Reject(RateLimit::new(messages, per)));
+        h
+    }
+}
+
+/// The ClOrdIDs the application has been handed, in order.
+fn delivered(h: &Harness) -> Vec<String> {
+    h.app.received.lock().unwrap().iter().map(|m| m.get(tags::CL_ORD_ID).unwrap().to_string()).collect()
+}
+
+/// Checks that `out` is the throttle's BusinessMessageReject of `seq_num`, alone.
+fn assert_throttled(out: &[Action], seq_num: u64) {
+    assert_eq!(types(out), ["BusinessMessageReject"], "{seq_num}");
+    let reject = sent(out)[0];
+    assert_eq!(reject.get(tags::REF_SEQ_NUM), Some(seq_num.to_string().as_str()));
+    assert_eq!(reject.get(tags::REF_MSG_TYPE), Some("D"));
+    assert_eq!(reject.get(tags::BUSINESS_REJECT_REASON), Some("0"), "Other");
+    assert_eq!(reject.get(tags::TEXT), Some("throttle limit exceeded"));
+}
+
+#[test]
+fn inbound_reject_answers_a_message_over_the_limit_with_a_business_reject() {
+    let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.recv(order(2, "A"), h.at(1))), ["ExecutionReport"]);
+    assert_eq!(types(&s.recv(order(3, "B"), h.at_millis(1_400))), ["ExecutionReport"]);
+    assert_throttled(&s.recv(order(4, "C"), h.at_millis(1_900)), 4);
+    assert_eq!(delivered(&h), ["A", "B"], "the application never sees C");
+    assert_eq!(s.peer().log.next_incoming(), 5, "C took its number, as an application's own reject does");
+    // Half-open: A no longer counts a whole window later.
+    assert_eq!(types(&s.recv(order(5, "D"), h.at(2))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "B", "D"]);
+    assert_eq!(s.peer().log.next_incoming(), 6);
+}
+
+#[test]
+fn inbound_reject_leaves_admin_messages_alone() {
+    let h = Harness::with_inbound_reject(1, Duration::from_secs(60));
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.recv(order(2, "A"), h.at(1))), ["ExecutionReport"]);
+    assert!(s.recv(client(3, MsgType::Heartbeat), h.at(2)).is_empty(), "a Heartbeat is just received");
+    let out = s.recv(client(4, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.at(3));
+    assert_eq!(types(&out), ["Heartbeat"]);
+    assert_eq!(sent(&out)[0].get(tags::TEST_REQ_ID), Some("x"));
+    assert_eq!(s.peer().log.next_incoming(), 5);
+    // Neither counted: the window still holds A alone, and frees a minute after it.
+    assert_throttled(&s.recv(order(5, "B"), h.at(60)), 5);
+    assert_eq!(types(&s.recv(order(6, "C"), h.at(61))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "C"]);
+}
+
+#[test]
+fn inbound_reject_delivers_what_the_counterparty_resends_at_our_request() {
+    let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    s.recv(order(3, "B"), h.at_millis(1_100));
+    // A gap: 6 waits behind our ResendRequest for 4 and 5, with the window full.
+    assert_eq!(types(&s.recv(order(6, "E"), h.at_millis(1_200))), ["ResendRequest"]);
+    assert_eq!(types(&s.recv(resend_of(order(4, "C")), h.at_millis(1_300))), ["ExecutionReport"]);
+    // Answering our request, the unflagged resend of 5 and the queued 6 are recovery too.
+    let out = s.recv(order(5, "D"), h.at_millis(1_400));
+    assert_eq!(types(&out), ["ExecutionReport", "ExecutionReport"]);
+    assert!(s.resend.is_none());
+    assert_eq!(delivered(&h), ["A", "B", "C", "D", "E"]);
+    // A message flagged PossDup with no request outstanding is a resend as well.
+    assert_eq!(types(&s.recv(resend_of(order(7, "F")), h.at_millis(1_500))), ["ExecutionReport"]);
+    // None counted: new messages are still over the limit until A expires.
+    assert_throttled(&s.recv(order(8, "G"), h.at_millis(1_600)), 8);
+    assert_eq!(types(&s.recv(order(9, "H"), h.at(2))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "B", "C", "D", "E", "F", "H"]);
+}
+
+#[test]
+fn inbound_rejections_do_not_count() {
+    let h = Harness::with_inbound_reject(2, Duration::from_secs(1));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    s.recv(order(3, "B"), h.at_millis(1_100));
+    for (i, seq_num) in (4..9).enumerate() {
+        let at = h.at_millis(1_200 + 100 * u64::try_from(i).unwrap());
+        assert_throttled(&s.recv(order(seq_num, "X"), at), seq_num);
+    }
+    // The window frees when A expires, as if the rejections hadn't happened, then again when B
+    // does.
+    assert_eq!(types(&s.recv(order(9, "C"), h.at(2))), ["ExecutionReport"]);
+    assert_throttled(&s.recv(order(10, "X"), h.at_millis(2_050)), 10);
+    assert_eq!(types(&s.recv(order(11, "D"), h.at_millis(2_100))), ["ExecutionReport"]);
+    assert_eq!(delivered(&h), ["A", "B", "C", "D"]);
+    assert_eq!(s.peer().log.next_incoming(), 12);
+}
+
 #[test]
 fn rate_limits_out_of_bounds_are_refused() {
     let config = |outbound, inbound| {

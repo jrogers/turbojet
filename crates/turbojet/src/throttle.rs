@@ -145,6 +145,32 @@ pub enum InboundLimit {
     Reject(RateLimit),
 }
 
+/// An inbound limit as a connection keeps it: the window of application messages received, and
+/// what happens to one over the limit.
+#[derive(Debug)]
+pub(crate) struct Inbound {
+    pub(crate) window: Window,
+    pub(crate) over: Over,
+}
+
+/// What [`Inbound`] does with a message over the limit; [`InboundLimit`] without the limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Over {
+    Delay,
+    Reject,
+}
+
+impl Inbound {
+    /// An empty window under `limit`. Panics if the limit is out of bounds, as [`Window::new`].
+    pub(crate) fn new(limit: InboundLimit) -> Self {
+        let (limit, over) = match limit {
+            InboundLimit::Delay(limit) => (limit, Over::Delay),
+            InboundLimit::Reject(limit) => (limit, Over::Reject),
+        };
+        Self { window: Window::new(limit), over }
+    }
+}
+
 /// The times of the last messages under a limit, oldest first: a ring of at most
 /// `limit.messages`, allocated when the window is made, so recording never allocates.
 #[derive(Debug)]
