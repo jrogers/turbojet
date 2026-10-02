@@ -32,11 +32,27 @@ const READ_BUFFER_SIZE: usize = 8 * 1024;
 /// times, which [`Session::next_deadline`] doesn't cover.
 const MAX_TIMER_SLEEP: Duration = Duration::from_secs(1);
 
+/// While this much output is still unwritten, handle commands wait in their queue, so a burst of
+/// application sends waits there rather than here.
+const COMMANDS_PAUSE_AT: usize = 256 * 1024;
+
+/// Most output left unwritten before the connection is dropped: the counterparty has stopped
+/// reading. The driver keeps reading while output waits (so two ends writing at once never wait
+/// for each other), so this grows only with replies to what it reads.
+const MAX_UNWRITTEN: usize = 16 * 1024 * 1024;
+
+/// Most input read but not yet processed, during a resend, before the connection is dropped.
+/// Input waits for the end of a resend, so nothing new goes out in the middle of it, but it's
+/// read meanwhile, so the counterparty's writes (its own resend, say) don't block.
+const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
+
 /// Runs `session` over `stream` until either side disconnects.
 ///
 /// Each wake-up (a read from the peer, a batch of handle commands, or a timer deadline) can produce
-/// several outgoing messages; the session encodes them into one buffer, written with a single
-/// write and flush.
+/// several outgoing messages; the session encodes them into one buffer, written as the stream
+/// takes it, usually in one write and flush. Reading goes on while output waits to be written, so
+/// two ends writing to each other at once never each wait for the other to read; a counterparty
+/// that stops reading altogether is disconnected once 16 MiB of output is waiting for it.
 ///
 /// Works with any transport (plain TCP, TLS, in-memory duplex), so custom transports can reuse
 /// the engine without going through [`Acceptor`](crate::Acceptor) or
@@ -93,12 +109,20 @@ where
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
     // After each read it keeps only an incomplete frame, which the codec caps at MAX_BODY_LENGTH
-    // plus header and trailer, so it grows to no more than that and one read.
+    // plus header and trailer, so it grows to no more than that and one read, except during a
+    // resend, when input waits here (up to MAX_UNPROCESSED).
     let mut buf = Vec::with_capacity(READ_BUFFER_SIZE);
+    // Input read during a resend, waiting in `buf` until it ends.
+    let mut deferred = false;
     // Every inbound frame is decoded into this one message, which keeps its allocations.
     let mut scratch = Message::default();
     // Bytes read before the session is bound (an acceptor's Logon) are attributed once it is.
     let mut unattributed_bytes = 0;
+    // What the session sent, written as the stream takes it while the driver goes on reading:
+    // `outbox[written..]` is still to go, and a flush is owed once it has (up to MAX_UNWRITTEN).
+    let mut outbox: Vec<u8> = Vec::new();
+    let mut written = 0;
+    let mut unflushed = false;
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
     tokio::pin!(timer);
     let mut stuck = None;
@@ -113,21 +137,49 @@ where
     }
     loop {
         *logged_on |= session.has_logged_on();
+        // Input that waited for a resend is processed once it has ended.
+        if deferred && !session.is_resending() && !session.is_closed() {
+            deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
+        }
         if let Some(metrics) = session.metrics() {
             metrics.bytes_received(std::mem::take(&mut unattributed_bytes));
             metrics.bytes_sent(session.output().len());
         }
-        // Everything the session sent, a Logout before a close included, goes out in one write.
         if !session.output().is_empty() {
-            writer.write_all(session.output()).await?;
-            // Buffering transports (TLS in particular) may hold written data until flushed;
-            // without this, replies can sit unsent while the driver waits for the peer.
-            writer.flush().await?;
+            if written == outbox.len() {
+                outbox.clear();
+                written = 0;
+            }
+            outbox.extend_from_slice(session.output());
             session.clear_output();
         }
-        if session.is_closed() {
-            // Release the session (and its store) before the peer sees the close, so an
-            // immediate reconnect can log on again.
+        // Most writes complete at once: try, before waiting for one in the select.
+        if written < outbox.len()
+            && let Some(result) = poll_once(writer.write(&outbox[written..]))
+        {
+            match result? {
+                0 => return Err(io::ErrorKind::WriteZero.into()),
+                n => written += n,
+            }
+            unflushed = true;
+        }
+        if written == outbox.len()
+            && unflushed
+            && let Some(result) = poll_once(writer.flush())
+        {
+            result?;
+            unflushed = false;
+        }
+        let unwritten = outbox.len() - written;
+        if unwritten > MAX_UNWRITTEN || buf.len() > MAX_UNPROCESSED {
+            warn!(unwritten, unprocessed = buf.len(), "the counterparty has stopped reading; disconnecting");
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "the counterparty has stopped reading"));
+        }
+        let closed = session.is_closed();
+        if closed && unwritten == 0 && !unflushed {
+            // Everything the session sent, a Logout before a close included, has gone. Release
+            // the session (and its store) before the peer sees the close, so an immediate
+            // reconnect can log on again.
             drop(session);
             let _ = writer.shutdown().await;
             return Ok(());
@@ -141,40 +193,43 @@ where
             timer.as_mut().reset(deadline);
         }
 
-        // While resending, the counterparty's input and the application's commands wait, held by
-        // TCP and the channel, so nothing new goes out in the middle of the range.
+        // While resending, input waits in the buffer and commands in their queue, so nothing new
+        // goes out in the middle of the range; each step waits until the last has been written.
         let resending = session.is_resending();
+        let pending = &outbox[written..];
         tokio::select! {
-            read = reader.read_buf(&mut buf), if !resending => {
+            // Write what the stream takes, then flush: buffering transports (TLS in particular)
+            // may hold written data until flushed. Each is cancel-safe, so another branch
+            // finishing first loses nothing.
+            result = async {
+                if pending.is_empty() { writer.flush().await.map(|()| 0) } else { writer.write(pending).await }
+            }, if !pending.is_empty() || unflushed => {
+                match result? {
+                    0 if !pending.is_empty() => return Err(io::ErrorKind::WriteZero.into()),
+                    0 => unflushed = false,
+                    n => {
+                        written += n;
+                        unflushed = true;
+                    }
+                }
+            }
+            read = reader.read_buf(&mut buf) => {
                 let read = read?;
                 if read == 0 {
                     return Ok(());
                 }
                 unattributed_bytes += read;
-                // Decode everything this read delivered, then drop the consumed bytes once; any
-                // partial message at the end stays for the next read. The messages arrived
-                // together, so they share one timestamp. Each is decoded into the same `scratch`.
-                let now = Instant::now().into_std();
-                let mut consumed = 0;
-                // Ends: a message consumes its frame and garbled bytes skip at least one.
-                loop {
-                    match decode_into(&buf[consumed..], session.data_fields(), &mut scratch) {
-                        DecodedInto::Message(len) => {
-                            consumed += len;
-                            debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
-                            session.on_message(&scratch, now);
-                        }
-                        DecodedInto::Incomplete => break,
-                        DecodedInto::Garbled { skip, reason } => {
-                            warn!("discarding {skip} garbled bytes: {reason}");
-                            telemetry::garbled_message();
-                            consumed += skip;
-                        }
-                    }
+                if closed {
+                    // Only the session's last output is still to go; what arrives is read so the
+                    // counterparty's writes don't block, and dropped.
+                    buf.clear();
+                } else if resending || deferred {
+                    deferred = true;
+                } else {
+                    deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
                 }
-                buf.drain(..consumed);
             }
-            Some(command) = commands.recv(), if !resending => {
+            Some(command) = commands.recv(), if !resending && !closed && unwritten < COMMANDS_PAUSE_AT => {
                 let now = Instant::now().into_std();
                 session.on_command(command, now);
                 // Take whatever else is already queued, so a burst of sends becomes one write.
@@ -183,14 +238,16 @@ where
                     session.on_command(command, now);
                 }
             }
-            // One step of the resend each time round, after the last step has been written.
-            () = std::future::ready(()), if resending => session.on_resume(Instant::now().into_std()),
+            // One step of the resend each time round, once the last step has been written.
+            () = std::future::ready(()), if resending && pending.is_empty() && !closed => {
+                session.on_resume(Instant::now().into_std());
+            }
             // Once only: after that the session's logout (or its timeout) ends the connection.
-            text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() => {
+            text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() && !closed => {
                 shutdown = None;
                 session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
-            () = &mut timer => {
+            () = &mut timer, if !closed => {
                 let now = Instant::now();
                 timer.as_mut().reset(now + MAX_TIMER_SLEEP);
                 session.on_timer(now.into_std());
@@ -199,6 +256,46 @@ where
             }
         }
     }
+}
+
+/// Polls `future` once, without waiting: its output if it's ready. Write and flush are
+/// cancel-safe, so one that isn't ready has done nothing, and is tried again in the select.
+fn poll_once<F: Future>(future: F) -> Option<F::Output> {
+    let mut future = std::pin::pin!(future);
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match future.as_mut().poll(&mut cx) {
+        std::task::Poll::Ready(output) => Some(output),
+        std::task::Poll::Pending => None,
+    }
+}
+
+/// Feeds `session` the complete messages in `buf`, each decoded into `scratch`, then drops the
+/// consumed bytes once; a partial message at the end stays for the next read. The messages
+/// arrived together, so they share one timestamp. Stops at a message that starts a resend:
+/// returns true if input is left waiting for it to end.
+fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
+    let mut consumed = 0;
+    // Ends: a message consumes its frame, garbled bytes skip at least one, and a resend stops it.
+    let deferred = loop {
+        if session.is_resending() || session.is_closed() {
+            break session.is_resending();
+        }
+        match decode_into(&buf[consumed..], session.data_fields(), scratch) {
+            DecodedInto::Message(len) => {
+                consumed += len;
+                debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
+                session.on_message(scratch, now);
+            }
+            DecodedInto::Incomplete => break false,
+            DecodedInto::Garbled { skip, reason } => {
+                warn!("discarding {skip} garbled bytes: {reason}");
+                telemetry::garbled_message();
+                consumed += skip;
+            }
+        }
+    };
+    buf.drain(..consumed);
+    deferred
 }
 
 #[cfg(test)]
@@ -356,6 +453,65 @@ mod tests {
         let last = messages.last().unwrap();
         assert_eq!((last.get(tags::CL_ORD_ID), last.get(tags::POSS_DUP_FLAG)), (Some("LATE"), None));
         assert_eq!(last.get(tags::MSG_SEQ_NUM), Some((ORDERS + 2).to_string().as_str()));
+    }
+
+    /// Counts the ExecutionReports it receives, and keeps its session's handle.
+    #[derive(Default)]
+    struct Counter {
+        reports: AtomicUsize,
+        handle: std::sync::Mutex<Option<crate::SessionHandle>>,
+        logged_on: tokio::sync::Notify,
+    }
+
+    impl Application for Counter {
+        fn on_logon(&self, session: crate::SessionHandle) {
+            *self.handle.lock().unwrap() = Some(session);
+            self.logged_on.notify_one();
+        }
+
+        fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+            if msg.msg_type() == MsgType::ExecutionReport {
+                self.reports.fetch_add(1, Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
+
+    /// Both ends write faster than a small connection carries: orders one way, acknowledgements
+    /// the other. Each driver must keep reading while its own output waits, or once both send
+    /// buffers fill, each waits for the other to read, forever.
+    #[tokio::test]
+    async fn both_ends_writing_at_once_do_not_deadlock() {
+        const ORDERS: usize = 2_000;
+        let (ours, theirs) = duplex(4 * 1024);
+        let acceptor_now = tokio::time::Instant::now().into_std();
+        let (acceptor, commands) = Session::acceptor(
+            SessionConfig::new("FIX.4.2", "GATEWAY"),
+            Arc::new(SessionRegistry::default()),
+            Arc::new(Acker),
+            acceptor_now,
+        );
+        tokio::spawn(run(theirs, acceptor, commands));
+        let app = Arc::new(Counter::default());
+        let config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "GATEWAY");
+        let now = tokio::time::Instant::now().into_std();
+        let (initiator, commands) = Session::initiator(&config, Arc::new(SessionRegistry::default()), app.clone(), now);
+        tokio::spawn(run(ours, initiator, commands));
+        tokio::time::timeout(Duration::from_secs(5), app.logged_on.notified()).await.expect("logged on");
+
+        let handle = app.handle.lock().unwrap().clone().unwrap();
+        for i in 0..ORDERS {
+            let order =
+                Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, format!("O{i}")).with(tags::SYMBOL, "X");
+            handle.send(order).unwrap();
+        }
+        let all_acked = async {
+            while app.reports.load(Ordering::SeqCst) < ORDERS {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        let acked = tokio::time::timeout(Duration::from_secs(10), all_acked).await;
+        assert!(acked.is_ok(), "deadlocked after {} of {ORDERS} acknowledgements", app.reports.load(Ordering::SeqCst));
     }
 
     /// A Heartbeat falls due HeartBtInt after the last send, not at the next whole-second tick.
