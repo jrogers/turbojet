@@ -981,11 +981,12 @@ fn the_incoming_number_is_saved_after_the_application() {
     let mut s = h.logged_on();
     writes.lock().unwrap().clear();
     s.recv(order(2, "A"), h.t0);
-    assert_eq!(*writes.lock().unwrap(), ["in flight 2", "outgoing 2", "incoming 3"]);
+    // The window is recorded again after the number moves on, and cleared as the batch ends.
+    assert_eq!(*writes.lock().unwrap(), ["in flight 2", "outgoing 2", "incoming 3", "in flight 2", "incoming 3"]);
     // Each batch opens a window of its own, whatever it holds.
     writes.lock().unwrap().clear();
     s.recv(client(3, MsgType::Heartbeat), h.t0);
-    assert_eq!(*writes.lock().unwrap(), ["in flight 3", "incoming 4"]);
+    assert_eq!(*writes.lock().unwrap(), ["in flight 3", "incoming 4", "in flight 3", "incoming 4"]);
 }
 
 /// After a crash while messages from 2 on were with the application, their resends are marked as
@@ -1060,8 +1061,27 @@ fn input_waits_for_a_window_to_be_committed() {
     assert!(run_commit(&mut s, h.t0), "the batch's end");
     assert_eq!(types(&taken(&mut s, false)), ["ExecutionReport", "ExecutionReport"]);
     let calls = storage.calls.lock().unwrap().clone();
-    assert_eq!(calls, ["in flight 2", "commit", "outgoing 2", "incoming 3", "outgoing 3", "incoming 4", "commit"]);
+    let expected = ["in flight 2", "commit", "outgoing 2", "incoming 3", "in flight 2", "outgoing 3", "incoming 4"];
+    assert_eq!(calls, [&expected[..], &["in flight 2", "incoming 4", "commit"]].concat());
     assert!(!s.ready_for_input(), "the batch's commit closed the window");
+}
+
+/// Regression: a store that makes each change as it's made (as `MemoryStorage` does) still has
+/// the window if the process stops part-way through a batch. Recording the next incoming number
+/// used to clear it, so the message being handled when it stopped came back unmarked.
+#[test]
+fn a_batch_cut_short_leaves_its_window_in_a_store_without_commits() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert!(!s.ready_for_input());
+    s.commit_blocking(h.t0);
+    s.on_message(&order(2, "A"), h.t0);
+    s.on_message(&order(3, "B"), h.t0);
+    // The process stops before the batch's commit.
+    let log = &s.peer().log;
+    assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(2)));
+    s.commit_blocking(h.t0);
+    assert_eq!(s.peer().log.in_flight(), None, "the batch's end clears it");
 }
 
 #[test]
@@ -1087,7 +1107,9 @@ fn messages_queued_behind_a_gap_are_handled_a_window_at_a_time() {
     writes.lock().unwrap().clear();
     s.recv(order(2, "first"), h.t0);
     assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "all of them, in sequence");
-    let windows: Vec<String> = writes.lock().unwrap().iter().filter(|w| w.starts_with("in flight")).cloned().collect();
+    let mut windows: Vec<String> =
+        writes.lock().unwrap().iter().filter(|w| w.starts_with("in flight")).cloned().collect();
+    windows.dedup();
     assert_eq!(windows, ["in flight 2".to_string(), format!("in flight {}", 2 + DELIVERIES_PER_COMMIT)]);
 }
 

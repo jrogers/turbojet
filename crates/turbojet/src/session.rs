@@ -2005,8 +2005,15 @@ impl Session {
         debug!(target: "turbojet::messages", direction = "out", "{}", Outbound(&buf[start..], &self.config.data_fields));
     }
 
+    /// Records the next incoming number. That clears the store's in-flight marker, so within an
+    /// open window it's recorded again: a store that makes each change as it's made (rather than
+    /// at the commit) must still have it if the process stops before the batch ends.
     fn set_next_incoming(&mut self, seq: u64) {
-        match self.peer_mut().log.set_next_incoming(seq) {
+        let window_start = self.window_end.map(|end| end - DELIVERIES_PER_COMMIT);
+        let log = &mut self.peer_mut().log;
+        let recorded =
+            log.set_next_incoming(seq).and_then(|()| window_start.map_or(Ok(()), |start| log.set_in_flight(start)));
+        match recorded {
             Ok(()) => self.peer().metrics.next_incoming(seq),
             Err(e) => self.storage_failed(e),
         }
@@ -2195,10 +2202,13 @@ impl Session {
             // Nothing is stored: the reply to a Logon that was refused, or a store that failed.
             return Ok(None);
         };
+        let next = peer.log.next_incoming();
         if self.window_wanted && receiving {
-            let next = peer.log.next_incoming();
             peer.log.set_in_flight(next)?;
             self.opening = Some(next);
+        } else if self.window_end.is_some() {
+            // The batch is over: its window closes with this commit.
+            peer.log.set_next_incoming(next)?;
         }
         peer.log.commit()
     }
