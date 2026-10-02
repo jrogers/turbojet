@@ -32,8 +32,13 @@ fn main() -> ExitCode {
                     println!("{line}");
                 }
                 println!(
-                    "seed {seed} passed: {} events, {} connections, {:?} application messages sent, {} resent, digest {:016x}",
-                    report.events, report.connections, report.committed, report.resent, report.digest
+                    "seed {seed} passed: {} events, {} connections, {:?} application messages sent, {} resent, {} redelivered, digest {:016x}",
+                    report.events,
+                    report.connections,
+                    report.committed,
+                    report.resent,
+                    report.redelivered,
+                    report.digest
                 );
                 ExitCode::SUCCESS
             }

@@ -18,7 +18,7 @@ use crate::net::{ConnId, Net, Params};
 use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
 use crate::rng::Rng;
-use crate::store::LedgerStorage;
+use crate::store::{Call, LedgerStorage, Trap};
 use crate::time::{Clocks, SimTime};
 
 /// How a simulation runs.
@@ -52,6 +52,8 @@ pub struct Report {
     /// Connections made, and resends (PossDup messages) sent.
     pub connections: u64,
     pub resent: u64,
+    /// Deliveries marked as possibly handled already (after a crash or store failure).
+    pub redelivered: usize,
     pub trace: Vec<String>,
 }
 
@@ -99,6 +101,10 @@ struct Faults {
     crash_every: Option<Duration>,
     /// Longest a crashed node takes to restart.
     restart_max: Duration,
+    /// Mean time between traps set in a store call (of either node), if any, and the chance in a
+    /// million that one crashes the process rather than just failing the call.
+    trap_every: Option<Duration>,
+    trap_crashes: u32,
 }
 
 impl Faults {
@@ -121,6 +127,8 @@ impl Faults {
             resend_batch: if rng.chance(330_000) { Some(rng.between(1, 8)) } else { None },
             crash_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
             restart_max: rng.pick(&[ms(100), secs(5), secs(30)]),
+            trap_every: rng.pick(&[None, Some(secs(30)), Some(secs(5))]),
+            trap_crashes: rng.pick(&[0, 500_000, 1_000_000]),
         }
     }
 
@@ -176,6 +184,8 @@ enum Event {
     /// A node's process crashes, and later restarts.
     Crash,
     Restart(Side),
+    /// A trap is set in the next store call of a kind on one node.
+    Trap,
 }
 
 /// What's scheduled for one connection's driver, so each kind of wake-up is queued once.
@@ -239,6 +249,11 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s).count()),
             connections: world.connections,
             resent: world.resent,
+            redelivered: world
+                .nodes
+                .iter()
+                .map(|n| n.app.deliveries.lock().unwrap().iter().filter(|d| d.redelivered).count())
+                .sum(),
             trace: world.trace,
         }),
         Err(violation) => Err(Failure {
@@ -339,6 +354,7 @@ impl World {
             (self.faults.black_hole_every, Event::BlackHole),
             (self.faults.stall_every, Event::Stall),
             (self.faults.crash_every, Event::Crash),
+            (self.faults.trap_every, Event::Trap),
         ] {
             if let Some(every) = every {
                 let at = self.after_about(SimTime(0), every);
@@ -560,6 +576,17 @@ impl World {
                 }
                 self.again(busy, now, self.faults.crash_every, Event::Crash);
             }
+            Event::Trap => {
+                let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
+                let trap = Trap {
+                    call: self.rng.pick(&[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight]),
+                    applies: self.rng.chance(500_000),
+                    crash: self.rng.chance(self.faults.trap_crashes),
+                };
+                self.record(&format!("trap {side:?} {trap:?}"));
+                self.storage[side.index()].arm(trap);
+                self.again(busy, now, self.faults.trap_every, Event::Trap);
+            }
             Event::Restart(side) => {
                 self.down[side.index()] = false;
                 let storage: Arc<dyn SessionStorage> = self.storage[side.index()].clone();
@@ -629,6 +656,13 @@ impl World {
     /// closes the connection if the driver returned or the session closed and its output has
     /// gone, and schedules what the driver waits for next.
     fn apply(&mut self, side: Side, conn: ConnId, effects: Effects, now: SimTime) -> Result<(), Violation> {
+        // A trap that crashed the process: nothing this step produced is written.
+        if self.storage[side.index()].sprung() == Some(true) {
+            self.record(&format!("crash {side:?} in a store call"));
+            self.sync_ledger(side)?;
+            self.crash(side, now);
+            return Ok(());
+        }
         if effects.read > 0 {
             self.net.read(conn, side, effects.read);
             let writer = side.other();

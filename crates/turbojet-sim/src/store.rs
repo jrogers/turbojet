@@ -24,15 +24,50 @@ pub enum Stored {
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
 
+/// A store call a trap can catch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Call {
+    RecordOutgoing,
+    SetNextIncoming,
+    SetInFlight,
+}
+
+/// What happens at the next call of a kind: it takes effect or not, then fails; and with
+/// `crash`, the process dies there too.
+#[derive(Debug, Clone, Copy)]
+pub struct Trap {
+    pub call: Call,
+    pub applies: bool,
+    pub crash: bool,
+}
+
+#[derive(Default)]
+struct Traps {
+    armed: Option<Trap>,
+    /// A trap went off: whether it crashed the process.
+    sprung: Option<bool>,
+}
+
 /// Wraps a store, appending to `ledger` whatever its logs record.
 pub struct LedgerStorage {
     inner: Arc<dyn SessionStorage>,
     pub ledger: Ledger,
+    traps: Arc<Mutex<Traps>>,
 }
 
 impl LedgerStorage {
     pub fn new(inner: Arc<dyn SessionStorage>) -> Self {
-        Self { inner, ledger: Ledger::default() }
+        Self { inner, ledger: Ledger::default(), traps: Arc::default() }
+    }
+
+    /// Sets `trap` for the next call of its kind, replacing any not yet sprung.
+    pub fn arm(&self, trap: Trap) {
+        self.traps.lock().unwrap().armed = Some(trap);
+    }
+
+    /// Whether a trap has gone off since the last call, and if so whether it crashed the process.
+    pub fn sprung(&self) -> Option<bool> {
+        self.traps.lock().unwrap().sprung.take()
     }
 }
 
@@ -41,13 +76,41 @@ impl SessionStorage for LedgerStorage {
         let inner = self.inner.open(id)?;
         let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
         self.ledger.lock().unwrap().push(opened);
-        Ok(Box::new(LedgerLog { inner, ledger: self.ledger.clone() }))
+        Ok(Box::new(LedgerLog { inner, ledger: self.ledger.clone(), traps: self.traps.clone() }))
     }
 }
 
 struct LedgerLog {
     inner: Box<dyn SessionLog>,
     ledger: Ledger,
+    traps: Arc<Mutex<Traps>>,
+}
+
+impl LedgerLog {
+    /// Runs `call` through `f` unless a trap is armed for it: then `f` runs only if the trap says
+    /// it applies, and the call fails either way.
+    fn call(&mut self, call: Call, f: impl FnOnce(&mut Self) -> io::Result<()>) -> io::Result<()> {
+        let trap = {
+            let mut traps = self.traps.lock().unwrap();
+            match traps.armed {
+                Some(trap) if trap.call == call => {
+                    traps.armed = None;
+                    traps.sprung = Some(trap.crash);
+                    Some(trap)
+                }
+                _ => None,
+            }
+        };
+        match trap {
+            None => f(self),
+            Some(trap) => {
+                if trap.applies {
+                    f(self)?;
+                }
+                Err(io::Error::other(format!("simulated failure in {call:?}")))
+            }
+        }
+    }
 }
 
 impl SessionLog for LedgerLog {
@@ -60,15 +123,19 @@ impl SessionLog for LedgerLog {
     }
 
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
-        self.inner.set_next_incoming(seq)?;
-        self.ledger.lock().unwrap().push(Stored::Incoming { seq });
-        Ok(())
+        self.call(Call::SetNextIncoming, |log| {
+            log.inner.set_next_incoming(seq)?;
+            log.ledger.lock().unwrap().push(Stored::Incoming { seq });
+            Ok(())
+        })
     }
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
-        self.inner.record_outgoing(seq, msg)?;
-        self.ledger.lock().unwrap().push(Stored::Sent { seq, bytes: msg.map(<[u8]>::to_vec) });
-        Ok(())
+        self.call(Call::RecordOutgoing, |log| {
+            log.inner.record_outgoing(seq, msg)?;
+            log.ledger.lock().unwrap().push(Stored::Sent { seq, bytes: msg.map(<[u8]>::to_vec) });
+            Ok(())
+        })
     }
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
@@ -86,7 +153,7 @@ impl SessionLog for LedgerLog {
     }
 
     fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
-        self.inner.set_in_flight(seq)
+        self.call(Call::SetInFlight, |log| log.inner.set_in_flight(seq))
     }
 
     fn created_at(&self) -> Option<UtcTimestamp> {
