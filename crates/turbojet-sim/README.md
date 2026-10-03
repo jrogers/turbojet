@@ -37,7 +37,10 @@ either takes effect or not); a store call can also just fail. A crash between th
 handling a message and the session recording it is redelivered, marked `maybe_redelivered`. Disk
 seeds lose power too: with sync, the call in progress is torn at a byte (on some seeds within a
 sector, mixing old and new bytes); without it, the files go back to what the OS had written back,
-a loss `DiskStorage` documents, after which only rule 1 and "the store reopens" are checked.
+a loss `DiskStorage` documents, after which only rule 1 and "the store reopens" are checked. On
+half the seeds the stores are slow, as a networked one is: they hand each commit, resend read and
+opening of a session's log to the driver as a job, which finishes up to 5 ms later (now and then
+50 ms), and the session waits for it.
 
 Applications ask to log out now and then; operators move a side's next outgoing number ahead
 (connected or not) and reset both sides (logging them out first); and a quarter of the seeds run

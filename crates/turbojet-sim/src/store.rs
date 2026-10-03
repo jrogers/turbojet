@@ -11,7 +11,7 @@ use turbojet::SessionId;
 
 use crate::files::{DiskFiles, Snapshot, Tear};
 use turbojet::fields::UtcTimestamp;
-use turbojet::store::{Commit, SessionLog, SessionStorage};
+use turbojet::store::{Commit, Fetched, Job, Opened, SessionLog, SessionStorage};
 
 /// One change to a side's outgoing sequence, in the order the session made them.
 #[derive(Debug, Clone)]
@@ -75,7 +75,8 @@ pub struct LedgerStorage {
     /// A planted bug: from this many messages stored on, keep each one's number but not the message.
     forget: Arc<Mutex<Option<u64>>>,
     /// Commits take a while: the store hands each back to the driver to run, as one with fsync
-    /// does, and the world decides when it finishes.
+    /// does, and the world decides when it finishes. So do openings and resend reads, as a
+    /// networked store's do.
     slow: bool,
     /// A planted bug: a commit reaches the ledger only with the next one, so it's reported done
     /// before it is.
@@ -144,6 +145,11 @@ impl LedgerStorage {
 }
 
 impl SessionStorage for LedgerStorage {
+    fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
+        let log = self.open(id)?;
+        Ok(if self.slow { Opened::Pending(Job::blocking(move || Ok(log))) } else { Opened::Ready(log) })
+    }
+
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         let inner =
             self.inner.open(id).inspect_err(|e| self.ledger.lock().unwrap().push(Stored::OpenFailed(e.to_string())))?;
@@ -325,6 +331,11 @@ impl SessionLog for LedgerLog {
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         self.inner.sent_messages(begin, end)
+    }
+
+    fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {
+        let read = self.inner.sent_messages(begin, end)?;
+        Ok(if self.slow { Fetched::Pending(Job::blocking(move || Ok(read))) } else { Fetched::Ready(read) })
     }
 
     /// Written at once, superseding what came before it, committed or not.

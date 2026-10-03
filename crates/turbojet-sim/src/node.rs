@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use turbojet::codec::{DecodedInto, decode_into};
 use turbojet::message::DataFields;
 use turbojet::registry::CommandReceiver;
-use turbojet::store::Commit;
+use turbojet::store::{Commit, Job, SentMessages, SessionLog};
 use turbojet::{InitiatorConfig, Message, Session, SessionConfig, SessionRegistry};
 
 use crate::Side;
@@ -67,8 +67,15 @@ struct Running {
     stuck: Option<SimTime>,
     /// Output the send buffer hasn't taken yet.
     outbox: Vec<u8>,
-    /// The store's commit under way: the session waits for it.
-    commit: Option<Commit>,
+    /// The store's commit, read or opening under way: the session waits for it.
+    store: Option<StoreWork>,
+}
+
+/// As `StoreTask` in the connection driver: the store's work under way, for the world to finish.
+enum StoreWork {
+    Commit(Commit),
+    Fetch(Job<SentMessages>),
+    Open(Job<Box<dyn SessionLog>>),
 }
 
 /// What a driver step leaves for the world: new output from the session (to check; the node
@@ -148,7 +155,7 @@ impl Node {
             timer: now.after(MAX_TIMER_SLEEP),
             stuck: None,
             outbox: Vec::new(),
-            commit: None,
+            store: None,
         };
         assert!(self.running.insert(conn, running).is_none(), "a connection starts once");
         self.step(conn, now, |session, instant| session.on_connect(instant))
@@ -190,7 +197,7 @@ impl Node {
         running.buf.append(&mut running.unread);
         if running.session.is_closed() {
             running.buf.clear();
-        } else if running.session.is_resending() || running.deferred || running.commit.is_some() {
+        } else if running.session.is_resending() || running.deferred || running.store.is_some() {
             running.deferred = true;
         } else {
             running.deferred = feed(running, data_fields, instant);
@@ -210,7 +217,7 @@ impl Node {
     /// as the outbound window allows.
     pub fn commands(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
-        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.commit.is_none()) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.store.is_none()) else {
             return Effects::default();
         };
         if let Some(command) = running.commands.try_control() {
@@ -241,7 +248,7 @@ impl Node {
         let instant = self.clocks.instant(now);
         let clocks = self.clocks.clone();
         let Some(running) =
-            self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.commit.is_none() && r.timer <= now)
+            self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.store.is_none() && r.timer <= now)
         else {
             return Effects::default();
         };
@@ -251,12 +258,17 @@ impl Node {
         self.settle(conn, now)
     }
 
-    /// The commit branch: the store's commit has finished, and what it covers can be written.
+    /// The store branch: the store's commit has finished, and what it covers can be written; or
+    /// its read, and the resend step goes on; or its opening, and logon goes on.
     pub fn committed(&mut self, conn: ConnId, now: SimTime) -> Effects {
-        let Some(commit) = self.running.get_mut(&conn).and_then(|r| r.commit.take()) else {
+        let Some(work) = self.running.get_mut(&conn).and_then(|r| r.store.take()) else {
             return Effects::default();
         };
-        self.step(conn, now, |session, instant| session.on_committed(commit.run(), instant))
+        self.step(conn, now, |session, instant| match work {
+            StoreWork::Commit(commit) => session.on_committed(commit.run(), instant),
+            StoreWork::Fetch(fetch) => session.on_fetched(fetch.run(), instant),
+            StoreWork::Open(open) => session.on_opened(open.run(), instant),
+        })
     }
 
     /// The window branches: the outbound window has freed up for the sends it held, or the
@@ -281,7 +293,7 @@ impl Node {
     /// The session has closed and its output has all gone: the driver closes the connection and
     /// returns.
     pub fn finished(&self, conn: ConnId) -> bool {
-        self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty() && r.commit.is_none())
+        self.running.get(&conn).is_some_and(|r| r.session.is_closed() && r.outbox.is_empty() && r.store.is_none())
     }
 
     /// Whether the session on `conn`, which has ended, had logged on; asked once.
@@ -329,29 +341,34 @@ impl Node {
         }
         let instant = clocks.instant(now);
         loop {
-            let committing = running.commit.is_some();
             if running.deferred
                 && !running.session.is_resending()
                 && !running.session.is_closed()
-                && !committing
+                && !running.session.is_waiting_on_store()
                 && running.input_held_until(instant).is_none()
             {
                 running.deferred = feed(running, data_fields, instant);
             }
             // A Logout that was waiting for the sends queued before it, now they've been taken.
             while !running.session.is_closed()
-                && running.commit.is_none()
+                && !running.session.is_waiting_on_store()
                 && let Some(command) = running.commands.try_control()
             {
                 running.session.on_command(command, instant);
             }
-            // Whatever the session did is committed before it's written.
-            if running.commit.is_none() {
-                running.commit = running.session.take_commit(instant);
+            // Whatever the session did is committed before it's written; a resend step or a logon
+            // the store reads or opens with a job waits for it.
+            if running.store.is_none() {
+                running.store = running
+                    .session
+                    .take_commit(instant)
+                    .map(StoreWork::Commit)
+                    .or_else(|| running.session.take_fetch().map(StoreWork::Fetch))
+                    .or_else(|| running.session.take_open().map(StoreWork::Open));
             }
             // Input that stopped for a commit made at once goes on. Input the inbound window holds
             // waits for its wake-up.
-            let stopped = running.deferred && running.commit.is_none();
+            let stopped = running.deferred && running.store.is_none();
             if !(stopped
                 && !running.session.is_resending()
                 && !running.session.is_closed()
@@ -382,7 +399,7 @@ impl Node {
         let running = self.running.get(&conn)?;
         let instant = self.clocks.instant(now);
         let closed = running.session.is_closed();
-        let committing = running.commit.is_some();
+        let committing = running.store.is_some();
         let sends = running.takes_sends() && running.commands.has_sends();
         Some(Wants {
             commit: committing,
@@ -422,13 +439,13 @@ impl Running {
         self.session.has_logged_on()
             && !self.session.is_resending()
             && !self.session.is_closed()
-            && self.commit.is_none()
+            && self.store.is_none()
             && self.outbox.len() < COMMANDS_PAUSE_AT
     }
 
     /// The resume branch is enabled.
     fn resumes(&self) -> bool {
-        self.session.is_resending() && self.outbox.is_empty() && !self.session.is_closed() && self.commit.is_none()
+        self.session.is_resending() && self.outbox.is_empty() && !self.session.is_closed() && self.store.is_none()
     }
 }
 
