@@ -46,15 +46,29 @@ struct Connection {
     acks: mpsc::UnboundedReceiver<Message>,
 }
 
-/// Starts an acceptor storing to `storage` and a logged-on initiator. With `tls`, both use TLS.
-async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>) -> Connection {
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "GATEWAY"), storage, Arc::new(common::Acker::default()));
+/// A FIX 4.2 session sent as `sender`, recording the latency histograms if `latency`.
+fn config(sender: &str, latency: bool) -> SessionConfig {
+    #[cfg_attr(not(feature = "metrics"), allow(unused_mut))]
+    let mut config = SessionConfig::new("FIX.4.2", sender);
+    #[cfg(feature = "metrics")]
+    {
+        config.latency_metrics = latency;
+    }
+    #[cfg(not(feature = "metrics"))]
+    assert!(!latency, "latency metrics need the metrics feature");
+    config
+}
+
+/// Starts an acceptor storing to `storage` and a logged-on initiator. With `tls`, both use TLS;
+/// with `latency`, both record the latency histograms.
+async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, latency: bool) -> Connection {
+    let acceptor = Acceptor::new(config("GATEWAY", latency), storage, Arc::new(common::Acker::default()));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
 
     let (logged_on, mut logons) = mpsc::unbounded_channel();
     let (received, acks) = mpsc::unbounded_channel();
-    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "GATEWAY");
+    let mut config = InitiatorConfig::new(config("CLIENT", latency), "GATEWAY");
     config.reset_on_logon = true;
     let initiator =
         Initiator::new(addr, config, Arc::new(common::DiscardStorage), Arc::new(Client { logged_on, received }));
@@ -79,8 +93,20 @@ async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>) -
 
 /// The latency and pipelined benchmarks, `window` orders in flight in the latter.
 fn transport(c: &mut Criterion, name: &str, tls: bool, storage: Arc<dyn SessionStorage>, window: u64) {
+    transport_with(c, name, tls, storage, window, false);
+}
+
+/// [`transport`], recording the latency histograms if `latency`.
+fn transport_with(
+    c: &mut Criterion,
+    name: &str,
+    tls: bool,
+    storage: Arc<dyn SessionStorage>,
+    window: u64,
+    latency: bool,
+) {
     let runtime = Runtime::new().unwrap();
-    let mut conn = runtime.block_on(connect(tls, storage));
+    let mut conn = runtime.block_on(connect(tls, storage, latency));
     let mut next_id = 0u64;
     let mut group = c.benchmark_group(format!("roundtrip {name}"));
     if name.contains("fsync") {
@@ -211,6 +237,21 @@ fn roundtrip(c: &mut Criterion) {
     transport(c, "tcp, disk store", false, disk(false), WINDOW);
     // An fsync takes milliseconds, so fewer orders are in flight.
     transport(c, "tcp, disk store + fsync", false, disk(true), FSYNC_WINDOW);
+    // Last, since the recorder stays installed: what the latency histograms cost, against the
+    // same recorder without them.
+    #[cfg(feature = "metrics")]
+    {
+        metrics_exporter_prometheus::PrometheusBuilder::new().install_recorder().unwrap();
+        transport(c, "tcp, Prometheus recorder", false, Arc::new(common::DiscardStorage), WINDOW);
+        transport_with(
+            c,
+            "tcp, Prometheus recorder, latency metrics",
+            false,
+            Arc::new(common::DiscardStorage),
+            WINDOW,
+            true,
+        );
+    }
 }
 
 criterion_group!(benches, roundtrip);
