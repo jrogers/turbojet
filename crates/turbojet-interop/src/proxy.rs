@@ -25,8 +25,8 @@
 //! - [`Proxy::hold`] and [`Proxy::release`]: keeps reading, but holds everything in that direction
 //!   (up to [`MAX_HELD`] bytes) until released, then forwards it in order.
 //! - [`Proxy::bandwidth`]: paces forwarding to a byte rate.
-//! - [`Proxy::stall`] and [`Proxy::unstall`]: stops reading from the sender (after the read in
-//!   progress), so its writes back up into TCP and block, then reads again.
+//! - [`Proxy::stall`] and [`Proxy::unstall`]: stops reading from the sender, so its writes back
+//!   up into TCP and block, then reads again. What was read before the stall is still forwarded.
 //!
 //! Each direction runs as a reader, which frames what arrives and applies the faults on single
 //! frames, and a writer, which applies holds, delays and pacing. Between them is a queue of at most
@@ -247,7 +247,7 @@ impl Proxy {
         self.faults.send_modify(|f| f.bandwidth[dir.index()] = Some(bytes_per_sec));
     }
 
-    /// Stops reading from the sender in `dir`, once the read in progress completes.
+    /// Stops reading from the sender in `dir`. What was already read is still forwarded.
     pub fn stall(&self, dir: Dir) {
         self.faults.send_modify(|f| f.stall[dir.index()] = true);
     }
@@ -459,10 +459,12 @@ async fn read_pieces(
                 return;
             }
         }
-        let size = match src.read(&mut chunk).await {
-            Ok(0) | Err(_) => 0,
-            Ok(size) => size,
+        // A read is cancel-safe, so a stall stops it at once rather than after the next arrival.
+        let read = tokio::select! {
+            read = src.read(&mut chunk) => read,
+            Ok(()) = changes.changed() => continue,
         };
+        let size = read.unwrap_or(0);
         let closed = size == 0;
         buffer.extend_from_slice(&chunk[..size]);
         debug_assert!(buffer.len() <= MAX_FRAME + READ_CHUNK);
