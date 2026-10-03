@@ -31,8 +31,18 @@ postgres = ["sqlx/postgres"]
 tls = ["sqlx/tls-rustls-ring-native-roots"]
 
 [dev-dependencies]
+criterion.workspace = true
 tempfile.workspace = true
 turbojet = { workspace = true, features = ["conformance"] }
+
+# Benchmarks use criterion; keep the libtest bench harness out of `cargo bench`.
+[lib]
+bench = false
+
+[[bench]]
+name = "storage"
+harness = false
+required-features = ["sqlite"]
 
 [lints]
 workspace = true
