@@ -6,6 +6,13 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Application replies are built in messages the session reuses: the session keeps the list
+  `Context::send` adds to, and writes a typed reply into a spare message (at most 8 kept per
+  session, none over 64 KiB) with the new `FixMessage::write_into`, which `fix_message!` implements
+  in place. That's 3 fewer allocations per order → ack, and about 7% less time. `Message::reset`
+  and `reset_with_capacity` empty a message for reuse, keeping its allocations. Breaking:
+  `Context::send` takes a `Message` or a typed `FixMessage` (the sealed `application::Reply`
+  trait) rather than any `impl Into<Message>`.
 - Message-rate limits: `SessionConfig::outbound_limit` and `inbound_limit` take a
   `throttle::RateLimit` (at most N application messages in any sliding window W, N up to 100,000
   and W up to a day; it parses `100/1s` or `50/200ms`), inbound with `throttle::InboundLimit::Delay` or

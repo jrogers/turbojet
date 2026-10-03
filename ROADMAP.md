@@ -214,14 +214,16 @@ allocates nothing. Allocations per order → ack are counted by stage (`tests/al
 the build fails if a count changes, so each step below shows up as a lower budget. Each inbound
 frame is decoded into one `Message` reused for the connection, so decoding doesn't allocate once it
 has grown. The session encodes what it sends once, straight into one reused output buffer, and the
-stores keep those bytes. As of 2026-09-30 the engine makes about 2 allocations per order with the
-memory store, 1 with the disk store (the store's copy or index node, and the reply list the
-application's first send grows), and the example application 7 (typed parsing allocates nothing, but
-its acknowledgement copies the strings it parsed into an owned ExecutionReport). What remains, per
+stores keep those bytes. The application's replies go into a list the session keeps, and a typed
+reply is written into a message the session reuses (`FixMessage::write_into`). As of 2026-10-03 the
+engine makes about 1 allocation per order with the memory store and 0.2 with the disk store (the
+store's copy or index node), and the example application 5 (typed parsing allocates nothing, but its
+acknowledgement copies the strings it parsed into an owned ExecutionReport). What remains, per
 message:
-- **Reuse per-call buffers** (S). The application's replies go through a new `Vec` in each
-  `Context`; reuse one per session. Let applications build outbound messages in pooled buffers
-  rather than a fresh `Message` each time.
+- **Write borrowed replies** (M). An application's owned reply copies the strings it takes from
+  the order (5 allocations in the example). Letting it build a reply from borrowed values (the
+  `…Ref` forms, or a builder writing straight into the reused message) would avoid them; groups
+  in the `…Ref` forms point into a parsed message, so they'd need a form of their own.
 - **Inbound without the copy** (M). Decoding still copies each frame, once, out of the read
   buffer into the reused message. A view borrowing the read buffer would avoid that, at the cost
   of a second message type through `Fields`, the typed-message macros and the generated crates;

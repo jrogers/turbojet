@@ -648,8 +648,8 @@ to partition the crate.
 | Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² | 448 ns / 722 ns / 1.03 µs | |
 | Typed build ExecutionReport¹ | 158 ns | |
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store)² | 883 ns | 1.13M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)² | 1.09 µs | 921k msg/s |
+| Session: order → ack, no I/O, encoded reply (memory store)⁵ | 878 ns | 1.14M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 1.11 µs | 899k msg/s |
 | Store a sent message and commit it: memory / disk / disk + fsync³ | 49 ns / 3.3 µs / 8.2 ms | |
 | Store a sent message, 100 per commit: disk / disk + fsync³ | 88 ns / 82 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |
@@ -676,7 +676,9 @@ messages a second with 100 in flight; and with each commit recording the next in
 (before that, 12.2 ms one at a time with fsync). The other rows are the 2026-09-27 snapshot.
 The FIX 4.4 order has three parties with two sub-IDs each. ⁴ Measured 2026-10-03
 (`cargo bench -p turbojet-sql --all-features`), PostgreSQL 14 on the same machine over TCP; SQLite
-synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is.
+synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. ⁵ Re-measured
+2026-10-03, after the application's replies were built in messages the session reuses: 945 ns and
+1.20 µs just before, on the same day.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
@@ -689,16 +691,17 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 |---|---|---|---|
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
-| Application (typed parse and ack)³ | 8 | 2 | 3,138 |
+| Application (typed parse and ack)³ | 5 | 2 | 34 |
 | Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 | Engine (all but the application): memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 
 Means of 1,000 orders after 100 warm-up, 2026-09-30, with each store (the disk store without
 fsync). Store allocations are fractional because the stores' maps allocate a node every few
 messages; the memory store also copies each message it keeps. Debug and release builds count the
-same. ³ Includes one of the engine's: the reply list that `Context::send` pushes onto. The
-application parses the order borrowed, without allocating, and copies the strings it needs into
-its owned ExecutionReport.
+same. ³ Measured 2026-10-03. The application parses the order borrowed, without allocating, and
+copies the strings it needs into its owned ExecutionReport; those are its 5 allocations.
+`Context::send` writes the ExecutionReport into a message the session reuses, which allocates
+nothing once warmed up (before 2026-10-03 the reply list and the message cost 3 allocations).
 
 Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
 
