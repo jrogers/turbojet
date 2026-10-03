@@ -115,7 +115,10 @@ public final class Peer implements Application {
         }
         int port = 0;
         if (role.equals("acceptor")) {
-            // Any free port; read back once bound.
+            // Any free port; read back once bound. On loopback, not the wildcard address: on macOS
+            // a wildcard bind can get a port that some process (it was the Gradle daemon) already
+            // listens on at 127.0.0.1, and that socket then takes the connections meant for this one.
+            settings.setString(id, "SocketAcceptAddress", "127.0.0.1");
             settings.setString(id, "SocketAcceptPort", "0");
         } else {
             port = Integer.parseInt(opts.get("port"));
