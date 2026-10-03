@@ -194,6 +194,8 @@ fn describe(frame: &[u8]) -> String {
 /// The proxy, listening on 127.0.0.1. Dropping it stops it and closes its connections.
 pub struct Proxy {
     addr: SocketAddr,
+    /// The acceptor the proxy dials.
+    upstream: SocketAddr,
     /// Changes wake a connection pair that is withholding a close, to check the blackhole again.
     faults: Arc<watch::Sender<Faults>>,
     traffic: Arc<Mutex<Traffic>>,
@@ -217,7 +219,7 @@ impl Proxy {
         let traffic = Arc::new(Mutex::new(Traffic::default()));
         let link = Link { faults: faults.clone(), traffic: traffic.clone(), events };
         let task = tokio::spawn(serve(listener, upstream, downstream_to_upstream, link));
-        Self { addr, faults, traffic, events: Mailbox::new(rx), task }
+        Self { addr, upstream, faults, traffic, events: Mailbox::new(rx), task }
     }
 
     pub fn addr(&self) -> SocketAddr {
@@ -364,6 +366,37 @@ impl Drop for Proxy {
                     ago(&t.last_forwarded)
                 );
             }
+            sockets(self.addr.port(), self.upstream.port());
+        }
+    }
+}
+
+/// On Linux, the kernel's view of the pair's four sockets (both ends of each connection) and its
+/// TCP counters, for a test that failed: congestion window, unacknowledged and retransmitted
+/// segments and backoff show whether bytes the proxy forwarded were held back by TCP rather than
+/// left unread. Best effort: `ss` and `nstat` (iproute2) may be missing.
+fn sockets(proxy_port: u16, upstream_port: u16) {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let filter = format!(
+        "( sport = :{proxy_port} or dport = :{proxy_port} or sport = :{upstream_port} or dport = :{upstream_port} )"
+    );
+    for (title, program, args) in [
+        ("ss -tinoem", "ss", vec!["-tinoem", filter.as_str()]),
+        ("nstat -az (TCP drops and probes)", "nstat", vec!["-az"]),
+    ] {
+        eprintln!("---- {title} ----");
+        match std::process::Command::new(program).args(&args).output() {
+            Ok(out) if program == "nstat" => {
+                let text = String::from_utf8_lossy(&out.stdout);
+                let wanted = ["Drop", "Prune", "Probe", "Timeout", "Skipped", "Retrans", "Window"];
+                for line in text.lines().filter(|l| wanted.iter().any(|w| l.contains(w))) {
+                    eprintln!("{line}");
+                }
+            }
+            Ok(out) => eprint!("{}", String::from_utf8_lossy(&out.stdout)),
+            Err(e) => eprintln!("({program} unavailable: {e})"),
         }
     }
 }
