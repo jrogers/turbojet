@@ -51,7 +51,7 @@
 
 use std::collections::VecDeque;
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -163,11 +163,40 @@ impl Faults {
     }
 }
 
+/// What each direction of the current pair has carried, shown when a test fails: where traffic
+/// stopped, if it did (not read from the sender, or read but not forwarded).
+#[derive(Debug, Default)]
+struct Traffic {
+    /// By [`Dir::index`].
+    dirs: [DirTraffic; 2],
+}
+
+#[derive(Debug, Default)]
+struct DirTraffic {
+    /// Bytes read from the sender.
+    read: u64,
+    /// Bytes written to the receiver.
+    forwarded: u64,
+    /// The last frame read and the last forwarded, by MsgType and MsgSeqNum, and when.
+    last_read: Option<(String, Instant)>,
+    last_forwarded: Option<(String, Instant)>,
+}
+
+/// A frame's MsgType and MsgSeqNum, as `35=D 34=12`.
+fn describe(frame: &[u8]) -> String {
+    let seq = frame.windows(4).position(|w| w == b"\x0134=").map_or(&[][..], |i| {
+        let rest = &frame[i + 4..];
+        &rest[..rest.iter().position(|&b| b == SOH).unwrap_or(rest.len())]
+    });
+    format!("35={} 34={}", String::from_utf8_lossy(msg_type(frame)), String::from_utf8_lossy(seq))
+}
+
 /// The proxy, listening on 127.0.0.1. Dropping it stops it and closes its connections.
 pub struct Proxy {
     addr: SocketAddr,
     /// Changes wake a connection pair that is withholding a close, to check the blackhole again.
     faults: Arc<watch::Sender<Faults>>,
+    traffic: Arc<Mutex<Traffic>>,
     events: Mailbox<ProxyEvent>,
     task: JoinHandle<()>,
 }
@@ -185,8 +214,10 @@ impl Proxy {
         };
         let faults = Arc::new(watch::Sender::new(Faults::default()));
         let (events, rx) = mpsc::unbounded_channel();
-        let task = tokio::spawn(serve(listener, upstream, downstream_to_upstream, faults.clone(), events));
-        Self { addr, faults, events: Mailbox::new(rx), task }
+        let traffic = Arc::new(Mutex::new(Traffic::default()));
+        let link = Link { faults: faults.clone(), traffic: traffic.clone(), events };
+        let task = tokio::spawn(serve(listener, upstream, downstream_to_upstream, link));
+        Self { addr, faults, traffic, events: Mailbox::new(rx), task }
     }
 
     pub fn addr(&self) -> SocketAddr {
@@ -318,18 +349,35 @@ impl Drop for Proxy {
             for event in self.events.drain() {
                 eprintln!("{event:?}");
             }
+            eprintln!("---- proxy traffic on the current pair ----");
+            let now = Instant::now();
+            let ago = |last: &Option<(String, Instant)>| {
+                last.as_ref().map_or("none".into(), |(frame, at)| format!("{frame}, {:?} ago", now - *at))
+            };
+            for dir in [Dir::ToPeer, Dir::ToTj] {
+                let t = &self.traffic.lock().unwrap().dirs[dir.index()];
+                eprintln!(
+                    "{dir:?}: read {} B (last {}), forwarded {} B (last {})",
+                    t.read,
+                    ago(&t.last_read),
+                    t.forwarded,
+                    ago(&t.last_forwarded)
+                );
+            }
         }
     }
 }
 
 /// Accepts connections one at a time and links each to a new connection to `upstream`.
-async fn serve(
-    listener: TcpListener,
-    upstream: SocketAddr,
-    downstream_to_upstream: Dir,
+/// What a connection pair shares with the [`Proxy`].
+struct Link {
     faults: Arc<watch::Sender<Faults>>,
+    traffic: Arc<Mutex<Traffic>>,
     events: mpsc::UnboundedSender<ProxyEvent>,
-) {
+}
+
+async fn serve(listener: TcpListener, upstream: SocketAddr, downstream_to_upstream: Dir, shared: Link) {
+    let Link { faults, traffic, events } = &shared;
     loop {
         let downstream = match listener.accept().await {
             Ok((stream, _)) => stream,
@@ -349,8 +397,9 @@ async fn serve(
         for stream in [&downstream, &upstream] {
             stream.set_nodelay(true).unwrap();
         }
+        *traffic.lock().unwrap() = Traffic::default();
         let _ = events.send(ProxyEvent::Connected);
-        link(downstream, upstream, downstream_to_upstream, &faults, &events).await;
+        link(downstream, upstream, downstream_to_upstream, faults, traffic, events).await;
         faults.send_replace(Faults::default());
         let _ = events.send(ProxyEvent::Disconnected);
     }
@@ -371,14 +420,15 @@ async fn link(
     mut upstream: TcpStream,
     downstream_to_upstream: Dir,
     faults: &watch::Sender<Faults>,
+    traffic: &Mutex<Traffic>,
     events: &mpsc::UnboundedSender<ProxyEvent>,
 ) {
     // Borrowed halves: a direction that stops must not shut down the other socket's write side,
     // which would pass on a close that a blackhole withholds.
     let (mut down_read, mut down_write) = downstream.split();
     let (mut up_read, mut up_write) = upstream.split();
-    let forward = pump(downstream_to_upstream, &mut down_read, &mut up_write, faults, events);
-    let backward = pump(downstream_to_upstream.reverse(), &mut up_read, &mut down_write, faults, events);
+    let forward = pump(downstream_to_upstream, &mut down_read, &mut up_write, faults, traffic, events);
+    let backward = pump(downstream_to_upstream.reverse(), &mut up_read, &mut down_write, faults, traffic, events);
     tokio::pin!(forward, backward);
     let mut changes = faults.subscribe();
     let mut ended = [false; 2];
@@ -415,11 +465,12 @@ async fn pump(
     src: &mut ReadHalf<'_>,
     dst: &mut WriteHalf<'_>,
     faults: &watch::Sender<Faults>,
+    traffic: &Mutex<Traffic>,
     events: &mpsc::UnboundedSender<ProxyEvent>,
 ) -> End {
     let (tx, rx) = mpsc::channel(QUEUE_PIECES);
-    let reader = read_pieces(dir, src, tx, faults, events);
-    let writer = write_pieces(dir, dst, rx, faults, events);
+    let reader = read_pieces(dir, src, tx, faults, traffic, events);
+    let writer = write_pieces(dir, dst, rx, faults, traffic, events);
     tokio::pin!(reader, writer);
     let mut reading = true;
     loop {
@@ -448,6 +499,7 @@ async fn read_pieces(
     src: &mut ReadHalf<'_>,
     tx: mpsc::Sender<Piece>,
     faults: &watch::Sender<Faults>,
+    traffic: &Mutex<Traffic>,
     events: &mpsc::UnboundedSender<ProxyEvent>,
 ) {
     let mut changes = faults.subscribe();
@@ -466,6 +518,7 @@ async fn read_pieces(
         };
         let size = read.unwrap_or(0);
         let closed = size == 0;
+        traffic.lock().unwrap().dirs[dir.index()].read += u64::try_from(size).unwrap();
         buffer.extend_from_slice(&chunk[..size]);
         debug_assert!(buffer.len() <= MAX_FRAME + READ_CHUNK);
         loop {
@@ -476,6 +529,9 @@ async fn read_pieces(
                 Parse::Incomplete if closed && !buffer.is_empty() => (buffer.len(), false),
                 Parse::Incomplete => break,
             };
+            if framed {
+                traffic.lock().unwrap().dirs[dir.index()].last_read = Some((describe(&buffer[..len]), Instant::now()));
+            }
             let piece = apply(dir, &buffer[..len], framed, faults, events);
             buffer.drain(..len);
             let Some(piece) = piece else { continue };
@@ -535,6 +591,7 @@ async fn write_pieces(
     dst: &mut WriteHalf<'_>,
     mut rx: mpsc::Receiver<Piece>,
     faults: &watch::Sender<Faults>,
+    traffic: &Mutex<Traffic>,
     events: &mpsc::UnboundedSender<ProxyEvent>,
 ) -> End {
     let mut changes = faults.subscribe();
@@ -546,7 +603,7 @@ async fn write_pieces(
         let hold = changes.borrow_and_update().hold[dir.index()];
         if !hold && let Some(piece) = held.pop_front() {
             held_len -= piece.bytes.len();
-            if forward(dir, dst, &piece, &mut dst_open, faults).await == Some(End::Cut) {
+            if forward(dir, dst, &piece, &mut dst_open, faults, traffic).await == Some(End::Cut) {
                 return End::Cut;
             }
             continue;
@@ -566,7 +623,7 @@ async fn write_pieces(
                     held.push_back(piece);
                 }
                 Some(piece) => {
-                    if forward(dir, dst, &piece, &mut dst_open, faults).await == Some(End::Cut) {
+                    if forward(dir, dst, &piece, &mut dst_open, faults, traffic).await == Some(End::Cut) {
                         return End::Cut;
                     }
                 }
@@ -584,6 +641,7 @@ async fn forward(
     piece: &Piece,
     dst_open: &mut bool,
     faults: &watch::Sender<Faults>,
+    traffic: &Mutex<Traffic>,
 ) -> Option<End> {
     if let Some(not_before) = piece.not_before {
         tokio::time::sleep_until(not_before).await;
@@ -595,11 +653,17 @@ async fn forward(
         if *dst_open && dst.write_all(&rest[..step]).await.is_err() {
             *dst_open = false;
         }
+        if *dst_open {
+            traffic.lock().unwrap().dirs[dir.index()].forwarded += u64::try_from(step).unwrap();
+        }
         if let Some(rate) = rate {
             let step = u64::try_from(step).unwrap();
             tokio::time::sleep(Duration::from_micros(step * 1_000_000 / u64::from(rate))).await;
         }
         rest = &rest[step..];
+    }
+    if piece.framed && *dst_open {
+        traffic.lock().unwrap().dirs[dir.index()].last_forwarded = Some((describe(&piece.bytes), Instant::now()));
     }
     piece.cut.then_some(End::Cut)
 }
@@ -779,6 +843,12 @@ mod tests {
         // A header that never ends isn't waited for either.
         assert_eq!(parse(&[b'8'; MAX_HEADER]), Parse::Unframed(MAX_HEADER));
         assert_eq!(msg_type(&order), b"D");
+    }
+
+    #[test]
+    fn describes_a_frame_by_type_and_number() {
+        assert_eq!(describe(&frame("D", 12)), "35=D 34=12");
+        assert_eq!(describe(b"8=FIX.4.4\x019=5\x0135=0\x01"), "35=0 34=");
     }
 
     #[test]
