@@ -209,10 +209,19 @@ const STALL_LIMIT: usize = 200_000;
 /// Orders sent to the stalled side while it can't write.
 const ORDERS_TO_STALLED: usize = 200;
 
+// Neither stall test checks that the open direction delivers *during* the stall. Linux TCP
+// doesn't guarantee it: the stalled socket's receive buffer overfills, its kernel drops what keeps
+// arriving there, and the far side's segments then land outside the shut window and are discarded
+// whole, ACKs and all. The proxy's sends on that socket go unacknowledged, and it backs off (cwnd 1,
+// RTO in seconds) until the stall ends. CI saw exactly that (runs 37138539634, 37144369183 and
+// 37145728414): the receiver got the first ten orders, the initial window, and then nothing. So
+// each test checks back-pressure during the stall and delivery after it. That an engine keeps
+// reading while its writes are blocked (the write deadlock) is checked without TCP's part in it:
+// `both_ends_writing_at_once_do_not_deadlock` in the connection driver, and the simulator.
+
 /// The proxy stops reading what Turbojet sends. Turbojet sends until its writes block: its socket
-/// fills, then its send queue, which `send` reports as full. Meanwhile QuickFIX/J sends to
-/// Turbojet, which must keep reading and delivering while its writes are blocked (the write
-/// deadlock). Then the proxy reads again, and every order is delivered once, in order.
+/// fills, then its send queue, which `send` reports as full. QuickFIX/J sends to Turbojet
+/// meanwhile. Then the proxy reads again, and every order both ways is delivered once, in order.
 async fn stalled_reader_at_tj(setup: Setup) {
     let mut pair = start(setup, Options::default()).await;
     pair.proxy().stall(Dir::ToPeer);
@@ -220,10 +229,10 @@ async fn stalled_reader_at_tj(setup: Setup) {
     eprintln!("Turbojet's writes blocked after {sent} orders");
 
     pair.peer.cmd(&format!("send-many {ORDERS_TO_STALLED} {}", peer_order("P{i}"))).await;
-    tj_receives_in_order(&mut pair, "P", ORDERS_TO_STALLED).await;
     assert!(pair.handle.send(tj_order("EXTRA")).is_err(), "Turbojet's writes unblocked during the stall");
 
     pair.proxy().unstall(Dir::ToPeer);
+    tj_receives_in_order(&mut pair, "P", ORDERS_TO_STALLED).await;
     peer_receives_in_order(&mut pair, "T", sent).await;
     pair.barrier().await;
     no_more_orders(&mut pair).await;
@@ -260,9 +269,12 @@ async fn send_until_blocked(pair: &Pair) -> usize {
 /// macOS loopback (see the proxy's `stall_backs_up_the_sender`). QuickFIX/J writes asynchronously
 /// and never reports that it is blocked, so this can't be measured as it is for Turbojet.
 const PEER_ORDERS_INTO_STALL: usize = 30_000;
+/// How long Turbojet must receive nothing while the proxy doesn't read QuickFIX/J.
+const STALL_QUIET: Duration = Duration::from_millis(200);
 
 /// The mirror image: the proxy stops reading what QuickFIX/J sends, QuickFIX/J sends more than the
-/// sockets hold, and Turbojet sends to QuickFIX/J meanwhile, which must keep reading and delivering.
+/// sockets hold, and Turbojet sends to QuickFIX/J meanwhile. Nothing reaches Turbojet until the
+/// proxy reads again; then every order both ways is delivered once, in order.
 async fn stalled_reader_at_peer(setup: Setup) {
     let mut pair = start(setup, Options::default()).await;
     pair.proxy().stall(Dir::ToTj);
@@ -271,10 +283,10 @@ async fn stalled_reader_at_peer(setup: Setup) {
     for i in 0..ORDERS_TO_STALLED {
         pair.handle.send_when_ready(tj_order(&format!("T{i}"))).await.unwrap();
     }
-    peer_receives_in_order(&mut pair, "T", ORDERS_TO_STALLED).await;
-    pair.tj_expect_none("order during the stall", |e| matches!(e, TjEvent::Message(_)), Duration::ZERO).await;
+    pair.tj_expect_none("order during the stall", |e| matches!(e, TjEvent::Message(_)), STALL_QUIET).await;
 
     pair.proxy().unstall(Dir::ToTj);
+    peer_receives_in_order(&mut pair, "T", ORDERS_TO_STALLED).await;
     tj_receives_in_order(&mut pair, "P", PEER_ORDERS_INTO_STALL).await;
     pair.barrier().await;
     no_more_orders(&mut pair).await;

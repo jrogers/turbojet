@@ -19,7 +19,9 @@ There are 33 scenarios (264 tests, plus checks on the harness itself):
 - through the proxy, slowed down (`delays.rs`): a latency spike either way that the receiver
   probes and survives; an order delayed past a short MaxLatency, rejected (SessionRejectReason 10)
   and followed by a Logout; a link capped at 20 KB/s carrying hundreds of orders each way; and a
-  side whose reads stall while it keeps receiving, then catches up.
+  side whose reads stall until the other's writes block, after which every order both ways
+  arrives once, in order. (What arrives *during* a stall is left unchecked: on Linux, TCP may hold
+  the open direction back until it ends; see `tests/delays.rs`.)
 
 The QuickFIX/J side is a small Java program (`peer/`) that runs one session and is driven over
 stdin and stdout. The crate isn't published.
