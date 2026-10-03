@@ -13,6 +13,7 @@ use crate::message::Message;
 use crate::registry::{Command, CommandReceiver, Next, Sends};
 use crate::session::Session;
 use crate::shutdown::Signal;
+use crate::store::SentMessages;
 use crate::telemetry;
 
 // The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
@@ -136,8 +137,8 @@ where
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
     tokio::pin!(timer);
     let mut stuck = None;
-    // The store's commit under way, on a blocking thread: the session waits for it.
-    let mut commit: Option<JoinHandle<io::Result<()>>> = None;
+    // The store's commit or read under way, off the connection's task: the session waits for it.
+    let mut store: Option<StoreTask> = None;
     // The store's commits wait (an fsync), so input that has already arrived is worth taking into
     // a batch before committing it. Commits made at once aren't: smaller batches let the
     // counterparty start on the replies sooner (see READ_BUFFER_SIZE).
@@ -162,14 +163,14 @@ where
             if deferred
                 && !session.is_resending()
                 && !session.is_closed()
-                && !session.is_committing()
+                && !session.is_waiting_on_store()
                 && input_held_until(&session).is_none()
             {
                 deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
             }
             // A Logout that was waiting for the sends queued before it, now they've been taken.
             while !session.is_closed()
-                && !session.is_committing()
+                && !session.is_waiting_on_store()
                 && let Some(command) = commands.try_control()
             {
                 session.on_command(command, Instant::now().into_std());
@@ -179,7 +180,7 @@ where
             let mut reads = 0;
             while commits_wait
                 && reads < MAX_READS_PER_BATCH
-                && commit.is_none()
+                && store.is_none()
                 && !deferred
                 && !session.is_closed()
                 && !session.is_resending()
@@ -197,18 +198,21 @@ where
                     }
                 }
             }
-            // Whatever the session did since the last commit is committed before it's written.
-            if commit.is_none()
-                && let Some(job) = session.take_commit(Instant::now().into_std())
-            {
-                commit = Some(job.spawn());
-                commits_wait = true;
+            // Whatever the session did since the last commit is committed before it's written; a
+            // resend step the store reads with a job waits for it.
+            if store.is_none() {
+                if let Some(job) = session.take_commit(Instant::now().into_std()) {
+                    store = Some(StoreTask::Commit(job.spawn()));
+                    commits_wait = true;
+                } else if let Some(job) = session.take_fetch() {
+                    store = Some(StoreTask::Fetch(job.spawn()));
+                }
             }
             // Input that stopped for a commit made at once goes on: each time round, the commit
             // opens the window it stopped for, or is left under way. Input the inbound window
             // holds waits for the select's wake-up.
             if !(deferred
-                && commit.is_none()
+                && store.is_none()
                 && !session.is_resending()
                 && !session.is_closed()
                 && input_held_until(&session).is_none())
@@ -251,7 +255,8 @@ where
             return Err(io::Error::new(io::ErrorKind::TimedOut, "the counterparty has stopped reading"));
         }
         let closed = session.is_closed();
-        let committing = commit.is_some();
+        // While the store works, everything but reading and writing waits.
+        let committing = store.is_some();
         if closed && unwritten == 0 && !unflushed && !committing {
             // Everything the session sent, a Logout before a close included, has gone. Release
             // the session (and its store) before the peer sees the close, so an immediate
@@ -368,11 +373,11 @@ where
                 shutdown = None;
                 session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
-            // The store's commit has ended: what it covers can be written.
-            result = async { commit.as_mut().expect("guarded by is_some").await }, if committing => {
-                commit = None;
-                let result = result.unwrap_or_else(|e| Err(io::Error::other(format!("the store's commit failed: {e}"))));
-                session.on_committed(result, Instant::now().into_std());
+            // The store's commit has ended, and what it covers can be written; or its read, and
+            // the resend step goes on.
+            done = async { store.as_mut().expect("guarded by is_some").finished().await }, if committing => {
+                store = None;
+                done.deliver(&mut session, Instant::now().into_std());
             }
             () = &mut timer, if !closed && !committing => {
                 let now = Instant::now();
@@ -383,6 +388,42 @@ where
             }
         }
     }
+}
+
+/// The store's work under way, off the connection's task.
+enum StoreTask {
+    Commit(JoinHandle<io::Result<()>>),
+    Fetch(JoinHandle<io::Result<SentMessages>>),
+}
+
+/// The result of a [`StoreTask`], for the session.
+enum StoreDone {
+    Committed(io::Result<()>),
+    Fetched(io::Result<SentMessages>),
+}
+
+impl StoreTask {
+    /// Waits for the task. Cancel-safe: the task runs on whether or not this is polled.
+    async fn finished(&mut self) -> StoreDone {
+        match self {
+            Self::Commit(task) => StoreDone::Committed(joined(task.await)),
+            Self::Fetch(task) => StoreDone::Fetched(joined(task.await)),
+        }
+    }
+}
+
+impl StoreDone {
+    fn deliver(self, session: &mut Session, now: std::time::Instant) {
+        match self {
+            Self::Committed(result) => session.on_committed(result, now),
+            Self::Fetched(result) => session.on_fetched(result, now),
+        }
+    }
+}
+
+/// A store task's result, or its panic as an error.
+fn joined<T>(result: Result<io::Result<T>, tokio::task::JoinError>) -> io::Result<T> {
+    result.unwrap_or_else(|e| Err(io::Error::other(format!("the store's job failed: {e}"))))
 }
 
 /// What the command branch does with application sends this time round, and when to wake for
@@ -1180,6 +1221,51 @@ mod tests {
         let last = messages.last().unwrap();
         assert_eq!((last.get(tags::CL_ORD_ID), last.get(tags::POSS_DUP_FLAG)), (Some("LATE"), None));
         assert_eq!(last.get(tags::MSG_SEQ_NUM), Some((ORDERS + 2).to_string().as_str()));
+    }
+
+    /// A resend over a store that reads each step with a job goes out in order, step by step as
+    /// each read ends, and an order that arrives meanwhile is answered after it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_resend_waits_for_the_stores_reads() {
+        const ORDERS: u64 = 600;
+        let storage = crate::store::deferring::DeferringStorage::deferring_reads();
+        // Every commit and read takes a while, so the driver must wait for it.
+        *storage.job.lock().unwrap() = Arc::new(|| {
+            std::thread::sleep(Duration::from_millis(1));
+            Ok(())
+        });
+        let calls = storage.calls.clone();
+        let (ours, mut peer) = duplex(1 << 20);
+        let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        receive(&mut peer, &mut buf, 1).await;
+        for seq in 2..ORDERS + 2 {
+            let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, format!("O{seq}"));
+            peer.write_all(&from_peer(seq, order)).await.unwrap();
+        }
+        receive(&mut peer, &mut buf, usize::try_from(ORDERS).unwrap()).await;
+
+        let request = Message::new(MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, 1u64).with(tags::END_SEQ_NO, 0u64);
+        peer.write_all(&from_peer(ORDERS + 2, request)).await.unwrap();
+        let late = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "LATE");
+        peer.write_all(&from_peer(ORDERS + 3, late)).await.unwrap();
+
+        let messages = receive(&mut peer, &mut buf, usize::try_from(ORDERS).unwrap() + 2).await;
+        assert_eq!(messages[0].get(tags::NEW_SEQ_NO), Some("2"), "the Logon is gap-filled");
+        for (expected, msg) in (2..).zip(&messages[1..messages.len() - 1]) {
+            assert_eq!(msg.get(tags::CL_ORD_ID), Some(format!("O{expected}").as_str()));
+            assert_eq!(msg.get(tags::POSS_DUP_FLAG), Some("Y"));
+        }
+        let last = messages.last().unwrap();
+        assert_eq!((last.get(tags::CL_ORD_ID), last.get(tags::POSS_DUP_FLAG)), (Some("LATE"), None));
+        let fetches: Vec<String> = calls.lock().unwrap().iter().filter(|c| c.starts_with("fetch")).cloned().collect();
+        assert_eq!(fetches, ["fetch 1..=256", "fetch 257..=512", "fetch 513..=601"]);
     }
 
     /// Counts the ExecutionReports it receives, and keeps its session's handle.

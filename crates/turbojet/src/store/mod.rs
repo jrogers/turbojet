@@ -63,7 +63,20 @@ pub trait SessionLog: Send {
 
     /// Stored messages with sequence numbers in `begin..=end`, in ascending order, as they were
     /// given to `record_outgoing`.
-    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>>;
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<SentMessages>;
+
+    /// Stored messages with sequence numbers in `begin..=end`, as
+    /// [`sent_messages`](SessionLog::sent_messages) returns them: at once, or from a [`Job`] the
+    /// session's driver runs off the async runtime, while the resend waits. The session calls
+    /// this for each step of a resend, and makes no other call while a returned job runs. The
+    /// default reads [`sent_messages`](SessionLog::sent_messages) at once, which suits stores
+    /// that read from memory or local files.
+    ///
+    /// A store that waits for a network to read should return a job here. Its reads must see
+    /// every mutation made, committed or not, as `sent_messages` does.
+    fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {
+        self.sent_messages(begin, end).map(Fetched::Ready)
+    }
 
     /// Makes the mutations made since the last commit durable (to the implementation's
     /// guarantee): at once, returning `Ok(None)`, or by running the returned [`Commit`], which
@@ -118,6 +131,19 @@ pub trait SessionLog: Send {
     fn set_created_at(&mut self, _at: UtcTimestamp) -> io::Result<()> {
         Ok(())
     }
+}
+
+/// Stored messages and their sequence numbers, in ascending order, as given to
+/// [`SessionLog::record_outgoing`].
+pub type SentMessages = Vec<(u64, Vec<u8>)>;
+
+/// Stored messages read for a resend: see [`SessionLog::fetch`].
+#[derive(Debug)]
+pub enum Fetched {
+    /// Read at once.
+    Ready(SentMessages),
+    /// To be read by running the job, which the session's driver does off the async runtime.
+    Pending(Job<SentMessages>),
 }
 
 /// Work that makes a [`SessionLog`]'s buffered mutations durable, returned by
@@ -194,7 +220,8 @@ pub(crate) fn commit_now(log: &mut dyn SessionLog) -> io::Result<()> {
 
 /// A store over [`MemoryStorage`] whose commits run a job the test chooses, recording the
 /// mutations and commits made of it: the session must wait for each commit before writing what it
-/// covers.
+/// covers. With [`deferring_reads`](deferring::DeferringStorage::deferring_reads), its resend reads
+/// are jobs too, which run the same job before returning what was read.
 #[cfg(test)]
 pub(crate) mod deferring {
     use std::sync::{Arc, Mutex};
@@ -208,12 +235,20 @@ pub(crate) mod deferring {
         inner: MemoryStorage,
         pub calls: Arc<Mutex<Vec<String>>>,
         pub job: Arc<Mutex<Job>>,
+        reads: bool,
+    }
+
+    impl DeferringStorage {
+        /// Returns resend reads as jobs as well as commits.
+        pub fn deferring_reads() -> Self {
+            Self { reads: true, ..Self::default() }
+        }
     }
 
     impl Default for DeferringStorage {
         fn default() -> Self {
             let job: Job = Arc::new(|| Ok(()));
-            Self { inner: MemoryStorage::new(), calls: Arc::default(), job: Arc::new(Mutex::new(job)) }
+            Self { inner: MemoryStorage::new(), calls: Arc::default(), job: Arc::new(Mutex::new(job)), reads: false }
         }
     }
 
@@ -223,12 +258,13 @@ pub(crate) mod deferring {
         job: Arc<Mutex<Job>>,
         /// Mutations since the last commit.
         dirty: bool,
+        reads: bool,
     }
 
     impl SessionStorage for DeferringStorage {
         fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
             let (calls, job) = (self.calls.clone(), self.job.clone());
-            Ok(Box::new(DeferringLog { inner: self.inner.open(id)?, calls, job, dirty: false }))
+            Ok(Box::new(DeferringLog { inner: self.inner.open(id)?, calls, job, dirty: false, reads: self.reads }))
         }
     }
 
@@ -254,8 +290,18 @@ pub(crate) mod deferring {
             self.mutated(format!("outgoing {seq}"));
             self.inner.record_outgoing(seq, msg)
         }
-        fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
+        fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<SentMessages> {
             self.inner.sent_messages(begin, end)
+        }
+        fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {
+            let read = self.inner.sent_messages(begin, end)?;
+            if !self.reads {
+                return Ok(Fetched::Ready(read));
+            }
+            self.calls.lock().unwrap().push(format!("fetch {begin}..={end}"));
+            // The job the test has chosen when the read runs.
+            let job = self.job.clone();
+            Ok(Fetched::Pending(super::Job::blocking(move || (job.lock().unwrap().clone())().map(|()| read))))
         }
         fn reset(&mut self) -> io::Result<()> {
             self.mutated("reset".into());

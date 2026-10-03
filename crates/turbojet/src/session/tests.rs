@@ -1112,6 +1112,75 @@ fn a_resend_step_costs_no_commit() {
     }
 }
 
+/// A logged-on session over a store whose resend reads are jobs, having sent two
+/// ExecutionReports (our 2 and 3), and asked to resend from 1 one sequence number per step: the
+/// first step's read is due.
+fn resending_with_deferred_reads() -> (Arc<DeferringStorage>, Harness, Session) {
+    let storage = Arc::new(DeferringStorage::deferring_reads());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.logged_on();
+    s.set_resend_batch(1);
+    s.recv(order(2, "A"), h.t0);
+    s.recv(order(3, "B"), h.t0);
+    s.on_message(&resend_request(4, 1), h.t0);
+    assert!(run_commit(&mut s, h.t0), "the ResendRequest's number");
+    s.clear_output();
+    (storage, h, s)
+}
+
+/// Each step of a resend waits for the store's read: nothing of it goes out, the session takes
+/// no input, and resuming starts no second read, until the read's result is handed back.
+#[test]
+fn a_resend_step_waits_for_the_stores_read() {
+    let (storage, h, mut s) = resending_with_deferred_reads();
+    let mut resent = Vec::new();
+    while s.is_resending() {
+        assert!(s.take_commit(h.t0).is_none(), "a resend step stores nothing");
+        let fetch = s.take_fetch().expect("each step is read by a job");
+        assert!(s.is_waiting_on_store());
+        assert!(s.output().is_empty(), "nothing of the step goes out before its read");
+        s.on_resume(h.t0);
+        assert!(s.take_fetch().is_none(), "one read at a time");
+        s.on_fetched(fetch.run(), h.t0);
+        assert!(!s.is_waiting_on_store());
+        assert!(s.take_commit(h.t0).is_none(), "a resend step stores nothing");
+        resent.extend(covered(&taken(&mut s, false)));
+        s.clear_output();
+        s.on_resume(h.t0);
+    }
+    assert_eq!(resent, [1, 2, 3], "the Logon gap-filled, both reports resent");
+    let fetches: Vec<String> =
+        storage.calls.lock().unwrap().iter().filter(|c| c.starts_with("fetch")).cloned().collect();
+    assert_eq!(fetches, ["fetch 1..=1", "fetch 2..=2", "fetch 3..=3"]);
+}
+
+/// A read that fails is a store failure: the session drops the resend and disconnects.
+#[test]
+fn a_failed_read_closes_the_session() {
+    let (storage, h, mut s) = resending_with_deferred_reads();
+    *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("connection reset")));
+    let fetch = s.take_fetch().expect("the first step's read");
+    s.on_fetched(fetch.run(), h.t0);
+    assert!(s.is_closed());
+    assert!(!s.is_resending());
+    assert_eq!(types(&taken(&mut s, false)), ["DISCONNECT"]);
+}
+
+/// A read that ends after its resend did (the session logged out meanwhile) is ignored.
+#[test]
+fn a_read_after_its_resend_ended_is_ignored() {
+    let (_, h, mut s) = resending_with_deferred_reads();
+    let fetch = s.take_fetch().expect("the first step's read");
+    s.on_shutdown(None, h.t0);
+    s.commit_blocking(h.t0);
+    assert!(!s.is_resending());
+    assert_eq!(types(&taken(&mut s, false)), ["Logout"]);
+    s.clear_output();
+    s.on_fetched(fetch.run(), h.t0);
+    assert!(s.output().is_empty(), "nothing of the resend goes out");
+    assert!(!s.is_waiting_on_store());
+}
+
 /// Regression: a store that makes each change as it's made (as `MemoryStorage` does) still has
 /// the window if the process stops part-way through a batch. Recording the next incoming number
 /// used to clear it, so the message being handled when it stopped came back unmarked.

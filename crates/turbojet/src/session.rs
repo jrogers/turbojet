@@ -36,7 +36,7 @@ use crate::registry::{
     SessionRegistry, apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
-use crate::store::{Commit, SessionId, SessionLog};
+use crate::store::{Commit, Fetched, Job, SentMessages, SessionId, SessionLog};
 use crate::telemetry::SessionMetrics;
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
@@ -381,6 +381,16 @@ struct Replay {
     scan: u64,
     /// The last sequence number to resend.
     end: u64,
+    /// The store's read of this step, while it's under way: the step resends up to `to`.
+    fetch: Option<Fetching>,
+}
+
+/// A read of stored messages for a step of a resend that the store returned as a job.
+struct Fetching {
+    /// The last sequence number the step covers.
+    to: u64,
+    /// The job, until the driver takes it.
+    job: Option<Job<SentMessages>>,
 }
 
 /// A message that arrived ahead of a gap, kept until its turn.
@@ -677,6 +687,36 @@ impl Session {
         }
     }
 
+    /// The store's read of the messages for the next step of a resend, if it returned one as a
+    /// job (see [`SessionLog::fetch`]): run it off the async runtime, feed the session nothing
+    /// meanwhile, and hand its result to [`on_fetched`](Self::on_fetched). Stores that read at
+    /// once never return one. Call it after [`take_commit`](Self::take_commit) returns `None`.
+    pub fn take_fetch(&mut self) -> Option<Job<SentMessages>> {
+        self.replay.as_mut()?.fetch.as_mut()?.job.take()
+    }
+
+    /// A read from [`take_fetch`](Self::take_fetch) has ended: the resend step it was for goes
+    /// into [`output`](Self::output), or, if it failed, the store has failed and the session
+    /// closes. A resend that ended meanwhile (the session closed) ignores it. Call
+    /// [`take_commit`](Self::take_commit) after it, as after any call into the session.
+    pub fn on_fetched(&mut self, result: io::Result<SentMessages>, now: Instant) {
+        self.wall_clock.set(None);
+        let Some(fetch) = self.replay.as_mut().and_then(|replay| replay.fetch.take()) else {
+            return;
+        };
+        debug_assert!(fetch.job.is_none(), "the read was taken");
+        match result {
+            Ok(stored) => self.resend_stored(stored, fetch.to, now),
+            Err(e) => self.storage_failed(e),
+        }
+    }
+
+    /// Whether the session waits for the store: a commit or a read for a resend, taken or due to
+    /// be. Feed it nothing until that ends.
+    pub fn is_waiting_on_store(&self) -> bool {
+        self.committing || self.replay.as_ref().is_some_and(|replay| replay.fetch.is_some())
+    }
+
     /// Whether a commit from [`take_commit`](Self::take_commit) is under way.
     pub fn is_committing(&self) -> bool {
         self.committing
@@ -766,11 +806,17 @@ impl Session {
         self.hold_end().map_or(since, |hold_end| since.max(hold_end))
     }
 
-    /// Commits on this thread until nothing is left to commit, running any commit the store
-    /// returns: for drivers that may block (tests, tools).
+    /// Runs the store's work on this thread until none is left, the commits and resend reads it
+    /// returns as jobs: for drivers that may block (tests, tools).
     pub fn commit_blocking(&mut self, now: Instant) {
-        while let Some(commit) = self.take_commit(now) {
-            self.on_committed(commit.run(), now);
+        loop {
+            if let Some(commit) = self.take_commit(now) {
+                self.on_committed(commit.run(), now);
+            } else if let Some(fetch) = self.take_fetch() {
+                self.on_fetched(fetch.run(), now);
+            } else {
+                break;
+            }
         }
     }
 
@@ -1979,16 +2025,37 @@ impl Session {
         if self.replay.is_some() {
             self.held.clear();
         }
-        self.replay = Some(Replay { next: begin, scan: begin, end });
+        self.replay = Some(Replay { next: begin, scan: begin, end, fetch: None });
         self.resend_step(now);
     }
 
     /// Resends the next `resend_batch` sequence numbers of the replay, and ends it after the last.
+    /// If the store reads them with a job, the step waits for it: see
+    /// [`take_fetch`](Self::take_fetch).
     fn resend_step(&mut self, now: Instant) {
-        let Some(Replay { mut next, scan, end }) = self.replay.take() else { return };
-        debug_assert!(next <= scan && scan <= end);
+        let Some(replay) = &self.replay else { return };
+        if replay.fetch.is_some() {
+            return;
+        }
+        let (scan, end) = (replay.scan, replay.end);
+        debug_assert!(replay.next <= scan && scan <= end);
         let to = end.min(scan.saturating_add(self.resend_batch - 1));
-        let originals = match self.stored_messages(scan, to) {
+        match self.peer_mut().log.fetch(scan, to) {
+            Ok(Fetched::Ready(stored)) => self.resend_stored(stored, to, now),
+            Ok(Fetched::Pending(job)) => {
+                let replay = self.replay.as_mut().expect("checked above");
+                replay.fetch = Some(Fetching { to, job: Some(job) });
+            }
+            Err(e) => self.storage_failed(e),
+        }
+    }
+
+    /// Resends `stored`, the messages the store holds of the replay's next step, up to `to`, and
+    /// gap-fills the rest of the step.
+    fn resend_stored(&mut self, stored: SentMessages, to: u64, now: Instant) {
+        let Some(Replay { mut next, scan, end, fetch }) = self.replay.take() else { return };
+        debug_assert!(fetch.is_none(), "the step's read has ended");
+        let originals = match self.parse_stored(stored, scan, to) {
             Ok(originals) => originals,
             Err(e) => return self.storage_failed(e),
         };
@@ -2007,7 +2074,7 @@ impl Session {
             next = seq + 1;
         }
         if to < end {
-            self.replay = Some(Replay { next, scan: to + 1, end });
+            self.replay = Some(Replay { next, scan: to + 1, end, fetch: None });
         } else {
             if next <= end {
                 self.send_gap_fill(next, end + 1, &now_ts);
@@ -2021,12 +2088,14 @@ impl Session {
 
     /// Stored messages `begin..=end`, parsed with the session's data fields: all of them, or an
     /// error if any is corrupt, so that none of a corrupt range is resent.
-    fn stored_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
+    fn parse_stored(&self, stored: SentMessages, begin: u64, end: u64) -> io::Result<Vec<(u64, Message)>> {
         // Stores keep the bytes as sent; they're parsed here.
-        let stored = self.peer_mut().log.sent_messages(begin, end)?;
         let mut originals = Vec::with_capacity(stored.len());
+        let mut last = None;
         for (seq, bytes) in stored {
-            debug_assert!((begin..=end).contains(&seq));
+            assert!((begin..=end).contains(&seq), "the store read {seq}, outside {begin}..={end}");
+            assert!(last < Some(seq), "the store read {seq} after {last:?}");
+            last = Some(seq);
             match decode_stored(&bytes, &self.config.data_fields) {
                 Decoded::Message(msg, len) if len == bytes.len() && msg.defect().is_none() => {
                     originals.push((seq, msg))
