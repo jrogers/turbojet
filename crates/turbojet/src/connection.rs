@@ -201,7 +201,7 @@ where
             if commit.is_none()
                 && let Some(job) = session.take_commit(Instant::now().into_std())
             {
-                commit = Some(tokio::task::spawn_blocking(move || job.run()));
+                commit = Some(job.spawn());
                 commits_wait = true;
             }
             // Input that stopped for a commit made at once goes on: each time round, the commit

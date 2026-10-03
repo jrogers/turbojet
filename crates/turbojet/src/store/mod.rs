@@ -5,7 +5,9 @@ mod disk;
 mod memory;
 
 use std::fmt;
+use std::future::Future;
 use std::io;
+use std::pin::Pin;
 
 pub use disk::DiskStorage;
 pub use memory::MemoryStorage;
@@ -119,26 +121,68 @@ pub trait SessionLog: Send {
 }
 
 /// Work that makes a [`SessionLog`]'s buffered mutations durable, returned by
-/// [`SessionLog::commit`] for its caller to run where blocking is harmless: the connection
-/// driver runs it on a blocking thread.
-pub struct Commit(Box<dyn FnOnce() -> io::Result<()> + Send>);
+/// [`SessionLog::commit`] for its caller to run off the connection's task.
+pub type Commit = Job<()>;
 
-impl Commit {
-    /// A commit that blocks the thread it runs on (writing and syncing files, say) until the
-    /// mutations are durable.
-    pub fn blocking(job: impl FnOnce() -> io::Result<()> + Send + 'static) -> Self {
-        Self(Box::new(job))
+/// Store work handed to the session's driver rather than done on the connection's task: either
+/// a closure that blocks (writing and syncing files, say), which the driver runs on a blocking
+/// thread, or a future (a database round trip), which it spawns on the runtime.
+pub struct Job<T>(Work<T>);
+
+enum Work<T> {
+    Blocking(Box<dyn FnOnce() -> io::Result<T> + Send>),
+    Future(Pin<Box<dyn Future<Output = io::Result<T>> + Send>>),
+}
+
+impl<T: Send + 'static> Job<T> {
+    /// A job that blocks the thread it runs on until it's done.
+    pub fn blocking(job: impl FnOnce() -> io::Result<T> + Send + 'static) -> Self {
+        Self(Work::Blocking(Box::new(job)))
     }
 
-    /// Runs the commit on this thread, returning once the mutations are durable or it has failed.
-    pub fn run(self) -> io::Result<()> {
-        (self.0)()
+    /// A job that's a future, for stores that wait on a network rather than a device.
+    pub fn future(job: impl Future<Output = io::Result<T>> + Send + 'static) -> Self {
+        Self(Work::Future(Box::pin(job)))
+    }
+
+    /// Runs the job on this thread, returning once it's done or has failed: for drivers that may
+    /// block (tests, tools). A future job needs a multi-threaded tokio runtime current on this
+    /// thread, whose worker it blocks meanwhile; without one it fails.
+    pub fn run(self) -> io::Result<T> {
+        match self.0 {
+            Work::Blocking(job) => job(),
+            Work::Future(job) => {
+                let handle = tokio::runtime::Handle::try_current()
+                    .map_err(|_| io::Error::other("a store's future job needs a tokio runtime to run on"))?;
+                if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+                    return Err(io::Error::other("a store's future job can't block a current-thread runtime"));
+                }
+                tokio::task::block_in_place(|| handle.block_on(job))
+            }
+        }
+    }
+
+    /// Runs the job without blocking the runtime: a blocking job on a blocking thread, a future
+    /// as a task of its own.
+    pub async fn run_async(self) -> io::Result<T> {
+        self.spawn().await.unwrap_or_else(|e| Err(io::Error::other(format!("the store's job failed: {e}"))))
+    }
+
+    /// Starts the job on the current runtime.
+    pub(crate) fn spawn(self) -> tokio::task::JoinHandle<io::Result<T>> {
+        match self.0 {
+            Work::Blocking(job) => tokio::task::spawn_blocking(job),
+            Work::Future(job) => tokio::spawn(job),
+        }
     }
 }
 
-impl fmt::Debug for Commit {
+impl<T> fmt::Debug for Job<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Commit")
+        f.write_str(match self.0 {
+            Work::Blocking(_) => "Job::Blocking",
+            Work::Future(_) => "Job::Future",
+        })
     }
 }
 
@@ -255,6 +299,22 @@ pub(crate) mod conformance {
         assert!(Commit::blocking(|| Ok(())).run().is_ok());
         let failed = Commit::blocking(|| Err(io::Error::other("disk full"))).run();
         assert_eq!(failed.unwrap_err().to_string(), "disk full");
+    }
+
+    /// A future job runs as a task, or blocks a multi-threaded runtime's worker when run on the
+    /// thread; with no runtime to run on, or only a current-thread one, it fails rather than hang.
+    #[test]
+    fn a_future_job_runs_on_a_runtime() {
+        let future = || Job::future(async { Ok(7) });
+        assert!(future().run().is_err(), "no runtime");
+
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).build().unwrap();
+        assert_eq!(runtime.block_on(future().run_async()).unwrap(), 7);
+        assert_eq!(runtime.block_on(async { future().run() }).unwrap(), 7);
+        assert_eq!(runtime.block_on(Job::blocking(|| Ok(8)).run_async()).unwrap(), 8);
+
+        let current = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        assert!(current.block_on(async { future().run() }).is_err(), "would deadlock");
     }
 
     pub fn id(target: &str) -> SessionId {
