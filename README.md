@@ -43,6 +43,7 @@ cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --
     [--tls-cert server.pem --tls-key server.key \
       [--tls-client-ca ca.pem [--tls-client-auth optional] [--tls-match-comp-id]]] \
     [--schedule "daily 08:00-17:00 mon-fri America/New_York" [--holidays holidays.txt]] \
+    [--inbound-limit 100/1s [--over-limit reject]] \
     [--metrics-listen 127.0.0.1:9000] [--log-format json]
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
@@ -386,6 +387,43 @@ Times are in UTC, a fixed offset, or, with turbojet's `tz` feature, an IANA zone
 daylight saving. `SessionConfig::clock` supplies wall-clock time; replace it with
 `Clock::from_fn` to test schedules without waiting.
 
+## Throttling
+
+Venues limit how fast a counterparty may send. `SessionConfig::outbound_limit` keeps a session
+within such a limit, and `inbound_limit` holds a counterparty to one:
+
+```rust
+config.outbound_limit = Some("100/1s".parse()?); // RateLimit::new(100, Duration::from_secs(1))
+config.inbound_limit = Some(InboundLimit::Delay("50/200ms".parse()?)); // or InboundLimit::Reject
+```
+
+A `RateLimit` of N per W allows at most N application messages in any window of length W, sliding
+and half-open, so it's exactly a venue's "N per second". N is at most 100,000 and W at most a day.
+Each connection starts with an empty window.
+
+- **Outbound.** `SessionHandle::send`s wait in the send queue while the window is full, so a full
+  queue hands them back as usual. Replies from `Application::on_message` go out at once but count,
+  so they can take a window past N. Admin messages, resends and the session's own
+  BusinessMessageRejects neither count nor wait. A message counts when it's framed, not when it's
+  written, and sends still waiting when the session logs out are dropped.
+- **Inbound, `Delay`.** Every application message counts as it arrives, resends included. While
+  the window is full the connection stops reading, and TCP slows the counterparty down. Admin
+  messages wait in order behind the rest, so a Logout or ResendRequest may wait up to W, and a
+  counterparty that has died may be noticed up to W late; the time held doesn't count as its
+  silence.
+- **Inbound, `Reject`.** A message over the limit takes its sequence number but is answered with
+  a BusinessMessageReject (reason Other, "throttle limit exceeded") instead of being delivered.
+  Rejections don't count. Recovery we asked for counts but is never rejected, so a hostile
+  counterparty, which controls its own gaps, can push one gap's worth through. `Reject` suits a
+  fast but well-behaved counterparty, `Delay` holds against a hostile one, and under a flood
+  `Delay` is also the cheaper.
+
+`turbojet_throttled_total` counts sends that waited, holds and rejects, and the first time a limit
+is reached on a connection it logs a warning. Custom drivers pace themselves with
+`Session::can_send`, `send_free_at` and `input_free_at`. The gateway limits each counterparty with
+`--inbound-limit N/W`, and `--over-limit delay` (the default) or `reject`. Limits that are never
+reached cost about 10 ns an order, within noise.
+
 ## Initiator failover
 
 An initiator has a primary endpoint and any number of backups, tried in order:
@@ -553,6 +591,7 @@ metric is labelled with `session`:
 | `turbojet_rejects_sent_total` (`type` = `session`/`business`) | counter |
 | `turbojet_sequence_gaps_total`, `turbojet_resend_requests_received_total` | counter |
 | `turbojet_resend_requests_evicted_total` (reaching messages the store evicted) | counter |
+| `turbojet_throttled_total` (`direction` = `inbound`/`outbound`; see Throttling) | counter |
 | `turbojet_session_logged_on`, `turbojet_next_incoming_seq`, `turbojet_next_outgoing_seq` | gauge |
 
 plus an unlabelled `turbojet_garbled_messages_total`, `turbojet_connections_refused_total` by

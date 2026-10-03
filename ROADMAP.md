@@ -48,6 +48,9 @@ later, with:
   at a configured one;
 - memory and disk session storage, session schedules with holiday calendars, and operator control
   of sequence numbers;
+- optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
+  outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
+  read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
   the disk store keeps its sequence numbers in two checksummed slots, so a write torn by a power
   loss falls back to the record before it; both stores keep each session's newest messages up
   to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
@@ -271,8 +274,6 @@ From the benchmarks.
   and their state; starts, stops, logs out and resets them; triggers resends; and browses and
   searches the message log live. A web console on top is what commercial engines sell on. The
   gateway should use it.
-- **Throttling** (M). Optional per-session inbound and outbound message-rate limits. (The
-  back-pressure half is done: a full send queue refuses sends, or `send_when_ready` waits.)
 - **Inbound message persistence** (M). Only sent messages are stored. An optional audit store of
   received messages would help post-incident analysis beyond what the logs keep.
 - **Message log retention** (M). A message log of both directions, kept apart from the resend
@@ -360,6 +361,15 @@ Behaviour that's deliberate or documented, but worth revisiting.
 - A schedule time skipped by a clock change of three hours or more (Samoa skipping 2011-12-30) is
   resolved with the wrong offset, giving that day a zero-length or inverted period. Changes of an
   hour or so, as in daylight saving, are handled.
+- Replies an application makes in `on_message` go out at once but count against
+  `outbound_limit`, so they can take a window past its N; queued sends then wait longer.
+- An inbound `Delay` limit holds admin messages too, in order behind held input: a counterparty
+  that has died, or its Logout or ResendRequest, may be noticed up to a window late.
+- An inbound `Reject` limit never rejects recovery we asked for, and a counterparty controls its
+  own gaps, so a hostile one can push one gap's worth of messages through. `Delay` doesn't have
+  this hole.
+- The simulator exercises outbound limits and inbound `Delay`, but not `Reject`: its checker
+  can't cheaply model a BusinessMessageReject in place of a delivery. Session tests cover it.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.

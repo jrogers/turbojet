@@ -6,6 +6,20 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Message-rate limits: `SessionConfig::outbound_limit` and `inbound_limit` take a
+  `throttle::RateLimit` (at most N application messages in any sliding window W, N up to 100,000
+  and W up to a day; it parses `100/1s` or `50/200ms`), inbound with `throttle::InboundLimit::Delay` or
+  `Reject`. Sends beyond the outbound limit wait in the send queue, so back-pressure reaches
+  `send` and `send_when_ready`; replies from `on_message` go out at once but count. Admin
+  messages, resends and the session's own BusinessMessageRejects don't count. Inbound, `Delay`
+  stops reading while the window is full, holding admin messages too, and `Reject` answers a
+  message over the limit with a BusinessMessageReject (reason Other, "throttle limit exceeded")
+  instead of delivering it. Custom drivers pace themselves with `Session::can_send`,
+  `send_free_at` and `input_free_at`, and give `Session::on_command` sends only after logon when
+  there's an outbound limit. `turbojet_throttled_total` (by `direction`) counts sends that
+  waited, holds and rejects. The example gateway limits counterparties with
+  `--inbound-limit N/W` and `--over-limit delay|reject`. Breaking for a `SessionConfig` built as
+  a struct literal: it has the two new fields.
 - Session schedules can skip holidays: a `HolidayCalendar`, set with
   `SessionSchedule::with_holidays`, lists dates (in the schedule's time zone) on which no period
   starts. It parses one `YYYY-MM-DD` per line. A refused logon or an initiator's wait names the
