@@ -10,7 +10,12 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::codec::{DecodedInto, decode_into, encode};
 use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
-use turbojet::{DiskStorage, MemoryStorage, Message, SessionId};
+use turbojet::throttle::{InboundLimit, RateLimit};
+use turbojet::{DiskStorage, MemoryStorage, Message, SessionConfig, SessionId};
+
+/// A limit the `limits never reached` benchmarks stay well under: at an order a microsecond, a
+/// window holds about 1,000.
+const NEVER_REACHED: RateLimit = RateLimit { messages: 10_000, per: Duration::from_millis(1) };
 
 /// Messages per logged-on session; a fresh session (and store) is set up, untimed, for each chunk
 /// so the in-memory resend store doesn't grow without bound.
@@ -60,6 +65,38 @@ fn session(c: &mut Criterion) {
             )
         })
     });
+
+    // The same with an outbound limit and an inbound one, Delay or Reject, that are never
+    // reached: what keeping the windows costs. Time moves on a microsecond an order, so about
+    // 1,000 messages are in each window and one expires per order, as in a steady stream.
+    for (name, inbound) in
+        [("delay", InboundLimit::Delay(NEVER_REACHED)), ("reject", InboundLimit::Reject(NEVER_REACHED))]
+    {
+        group.bench_function(format!("order to ack (memory store, limits never reached, {name})"), |b| {
+            b.iter_custom(|iters| {
+                chunked(
+                    iters,
+                    |n| {
+                        let mut config = SessionConfig::new("FIX.4.2", "GATEWAY");
+                        config.outbound_limit = Some(NEVER_REACHED);
+                        config.inbound_limit = Some(inbound);
+                        let storage = Arc::new(MemoryStorage::new());
+                        (common::logged_on_with(config, storage, Arc::new(common::Acker::default())), common::orders(n))
+                    },
+                    |(mut session, orders)| {
+                        let mut now = Instant::now();
+                        for order in orders {
+                            session.on_message(&order, now);
+                            session.commit_blocking(now);
+                            black_box(session.output());
+                            session.clear_output();
+                            now += Duration::from_micros(1);
+                        }
+                    },
+                )
+            })
+        });
+    }
 
     // The same with sequence numbers and sent messages written to disk (without fsync), as in
     // production: the store's writes per order, not only the state machine's work.

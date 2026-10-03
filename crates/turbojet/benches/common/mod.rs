@@ -89,9 +89,13 @@ pub fn with_header(sender: &str, target: &str, seq: u64, body: Message) -> Messa
 /// A logged-on FIX 4.2 acceptor session with `storage` and `app`, whose counterparty's next
 /// MsgSeqNum is 2, and whose output (the Logon reply) has been cleared.
 pub fn logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Session {
+    logged_on_with(SessionConfig::new("FIX.4.2", "GATEWAY"), storage, app)
+}
+
+/// As [`logged_on`], with `config` (a FIX 4.2 acceptor's, sent as GATEWAY).
+pub fn logged_on_with(config: SessionConfig, storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Session {
     let registry = Arc::new(SessionRegistry::new(storage));
-    let (mut session, _commands) =
-        Session::acceptor(SessionConfig::new("FIX.4.2", "GATEWAY"), registry, app, Instant::now());
+    let (mut session, _commands) = Session::acceptor(config, registry, app, Instant::now());
     let logon = admin::Logon {
         encrypt_method: EncryptMethod::None,
         heart_bt_int: 30,
