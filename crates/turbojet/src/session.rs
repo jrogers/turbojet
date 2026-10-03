@@ -98,14 +98,19 @@ pub struct SessionConfig {
     /// [`SessionHandle::send`](crate::SessionHandle::send)s beyond it wait in the send queue
     /// until the window allows them, so a full queue hands them back as usual. Replies the
     /// application makes in [`Application::on_message`] can't wait: they go out at once but
-    /// count, so they can take a window past the limit, and queued sends then wait longer. Admin
-    /// messages, the BusinessMessageRejects the session sends itself, and resends neither count
-    /// nor wait; nor does a message the session refuses to send. A message counts when the
-    /// session frames it, not when it's written, and each connection starts with an empty
-    /// window. `None` (the default) means no limit.
+    /// count, so they can take a window past the limit, and while they alone fill it, queued
+    /// sends wait. Admin messages, the BusinessMessageRejects the session sends itself, and
+    /// resends neither count nor wait; nor does a message the session refuses to send. A message
+    /// counts when the session frames it, not when it's written, and each connection starts with
+    /// an empty window. `None` (the default) means no limit.
     ///
-    /// The first time sends wait on a connection, it logs a warning; after that they wait
-    /// quietly, and `turbojet_throttled_total` counts them (see [`telemetry`](crate::telemetry)).
+    /// [`SessionHandle::logout`](crate::SessionHandle::logout) waits for the sends queued before
+    /// it, which leave at the limit's rate. A shutdown, or a logout the session starts itself (a
+    /// schedule's end, the counterparty's Logout), drops them instead.
+    ///
+    /// The first time sends wait on a connection, Turbojet's connection driver logs a warning;
+    /// after that they wait quietly, and `turbojet_throttled_total` counts them (see
+    /// [`telemetry`](crate::telemetry)).
     pub outbound_limit: Option<RateLimit>,
     /// At most this many application messages received per window, counted on each connection,
     /// and what happens to the rest: [`InboundLimit::Delay`] stops reading until the window
@@ -744,8 +749,8 @@ impl Session {
 
     /// When input held by a Delay limit goes on, if the window has filled since it last had room,
     /// whether or not that has passed. Whatever the counterparty sends meanwhile, its Heartbeats
-    /// and answers to our TestRequests included, waits unread, so [`silent_from`](Self::silent_from)
-    /// doesn't count the hold as silence.
+    /// and answers to our TestRequests included, waits unread, so
+    /// [`silent_from`](Self::silent_from) doesn't count the hold as silence.
     fn hold_end(&self) -> Option<Instant> {
         let inbound = self.inbound.as_ref().filter(|inbound| inbound.over == Over::Delay)?;
         inbound.window.free_at_or_none()

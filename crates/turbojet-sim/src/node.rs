@@ -433,7 +433,8 @@ impl Running {
 }
 
 /// As `feed` in the connection driver: the complete messages in `buf` fed in, up to one that
-/// starts a resend, or one that waits for a commit or the inbound window. Returns true if input is left waiting.
+/// starts a resend, or one that waits for a commit or the inbound window. Returns true if input is
+/// left waiting.
 fn feed(running: &mut Running, data_fields: &DataFields, instant: Instant) -> bool {
     let mut consumed = 0;
     let deferred = loop {

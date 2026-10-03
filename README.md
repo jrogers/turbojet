@@ -403,9 +403,11 @@ Each connection starts with an empty window.
 
 - **Outbound.** `SessionHandle::send`s wait in the send queue while the window is full, so a full
   queue hands them back as usual. Replies from `Application::on_message` go out at once but count,
-  so they can take a window past N. Admin messages, resends and the session's own
-  BusinessMessageRejects neither count nor wait. A message counts when it's framed, not when it's
-  written, and sends still waiting when the session logs out are dropped.
+  so they can take a window past N, and while they alone fill it, queued sends wait. Admin
+  messages, resends and the session's own BusinessMessageRejects neither count nor wait. A message
+  counts when it's framed, not when it's written. `SessionHandle::logout` waits for the sends
+  queued before it, at the limit's rate; a shutdown, or a logout the session starts itself (a
+  schedule's end, the counterparty's Logout), drops them.
 - **Inbound, `Delay`.** Every application message counts as it arrives, resends included. While
   the window is full the connection stops reading, and TCP slows the counterparty down. Admin
   messages wait in order behind the rest, so a Logout or ResendRequest may wait up to W, and a
@@ -420,7 +422,8 @@ Each connection starts with an empty window.
 
 `turbojet_throttled_total` counts sends that waited, holds and rejects, and the first time a limit
 is reached on a connection it logs a warning. Custom drivers pace themselves with
-`Session::can_send`, `send_free_at` and `input_free_at`. The gateway limits each counterparty with
+`Session::can_send`, `send_free_at` and `input_free_at`; the outbound warning and count come from
+Turbojet's own connection driver. The gateway limits each counterparty with
 `--inbound-limit N/W`, and `--over-limit delay` (the default) or `reject`. Limits that are never
 reached cost about 10 ns an order, within noise.
 

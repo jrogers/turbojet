@@ -48,13 +48,13 @@ later, with:
   at a configured one;
 - memory and disk session storage, session schedules with holiday calendars, and operator control
   of sequence numbers;
-- optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
-  outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
-  read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
   the disk store keeps its sequence numbers in two checksummed slots, so a write torn by a power
   loss falls back to the record before it; both stores keep each session's newest messages up
   to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
   oldest, and the memory store a capped number of sessions;
+- optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
+  outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
+  read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
 - structured logging and Prometheus-compatible metrics;
 - criterion benchmarks (about 0.9 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
@@ -362,7 +362,15 @@ Behaviour that's deliberate or documented, but worth revisiting.
   resolved with the wrong offset, giving that day a zero-length or inverted period. Changes of an
   hour or so, as in daylight saving, are handled.
 - Replies an application makes in `on_message` go out at once but count against
-  `outbound_limit`, so they can take a window past its N; queued sends then wait longer.
+  `outbound_limit`, so they can take a window past its N; queued sends then wait longer, and
+  while replies alone fill the window, queued sends wait until they slow.
+- With an `outbound_limit`, `SessionHandle::logout` waits for the sends queued before it, which
+  leave at the limit's rate: a long queue under a slow limit delays the Logout. A shutdown, or a
+  logout the session starts itself, drops them instead.
+- Under an inbound `Reject` limit, the BusinessMessageRejects the session sends don't count
+  against its own `outbound_limit`, so a flood is answered at the counterparty's rate.
+- Each connection starts with empty windows, so a counterparty that reconnects starts afresh.
+  Acceptor connection limits and the cost of a logon bound this.
 - An inbound `Delay` limit holds admin messages too, in order behind held input: a counterparty
   that has died, or its Logout or ResendRequest, may be noticed up to a window late.
 - An inbound `Reject` limit never rejects recovery we asked for, and a counterparty controls its
