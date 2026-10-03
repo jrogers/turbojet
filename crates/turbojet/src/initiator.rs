@@ -145,6 +145,10 @@ pub struct Initiator {
     #[cfg(feature = "tls")]
     tls: Option<(crate::tls::TlsConnector, String)>,
     shutdown: Arc<Shutdown>,
+    /// Addresses whose TCP connect never completes, as with a host that silently drops packets,
+    /// which a real socket can't reliably be made to do.
+    #[cfg(test)]
+    unreachable: Vec<String>,
 }
 
 /// How a connection attempt to one endpoint ended.
@@ -177,6 +181,8 @@ impl Initiator {
             #[cfg(feature = "tls")]
             tls: None,
             shutdown: Arc::new(Shutdown::new()),
+            #[cfg(test)]
+            unreachable: Vec::new(),
         }
     }
 
@@ -343,7 +349,7 @@ impl Initiator {
         // Counted from here, so shutdown also waits for a TLS handshake; the connect and the
         // handshake are abandoned as soon as it starts.
         let _open = self.shutdown.track();
-        let connect = tokio::time::timeout(self.config.connect_timeout, TcpStream::connect(&endpoint.addr));
+        let connect = tokio::time::timeout(self.config.connect_timeout, self.tcp_connect(&endpoint.addr));
         let connect = match self.unless_shutdown(connect).await {
             Ok(connect) => connect,
             Err(e) => return Attempt::Failed(e),
@@ -388,6 +394,14 @@ impl Initiator {
         self.run_session(stream, ConnectionInfo::new(addr, Vec::new())).await
     }
 
+    async fn tcp_connect(&self, addr: &str) -> io::Result<TcpStream> {
+        #[cfg(test)]
+        if self.unreachable.iter().any(|unreachable| unreachable == addr) {
+            return std::future::pending().await;
+        }
+        TcpStream::connect(addr).await
+    }
+
     async fn run_session<S>(&self, stream: S, info: ConnectionInfo) -> Attempt
     where
         S: AsyncRead + AsyncWrite + Unpin,
@@ -416,4 +430,68 @@ fn shutting_down() -> io::Error {
 fn tls_server_name(name: &str) -> io::Result<crate::tls::ServerName<'static>> {
     crate::tls::ServerName::try_from(name.to_string())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid TLS server name '{name}': {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::net::TcpListener;
+
+    use super::*;
+    use crate::store::MemoryStorage;
+
+    struct Nothing;
+    impl Application for Nothing {}
+
+    const UNREACHABLE: &str = "192.0.2.1:9876";
+
+    fn initiator(primary: &str, connect_timeout: Duration) -> Initiator {
+        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+        config.connect_timeout = connect_timeout;
+        let mut initiator = Initiator::new(primary, config, Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+        initiator.unreachable.push(UNREACHABLE.to_string());
+        initiator
+    }
+
+    #[tokio::test]
+    async fn a_connect_that_never_completes_times_out_and_fails_over() {
+        let backup = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backup_addr = backup.local_addr().unwrap().to_string();
+        // The backup takes the connection and closes it before logon, so the attempt ends there.
+        let accepted = tokio::spawn(async move {
+            let (_stream, _) = backup.accept().await.unwrap();
+            Instant::now()
+        });
+        let connect_timeout = Duration::from_millis(200);
+        let initiator = initiator(UNREACHABLE, connect_timeout).with_failover(backup_addr.as_str());
+
+        let started = Instant::now();
+        let err = tokio::time::timeout(Duration::from_secs(5), initiator.connect_once())
+            .await
+            .expect("the connect times out rather than hanging")
+            .unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains(&format!("{UNREACHABLE}: connect timed out after 200ms")), "{message}");
+        assert!(message.contains(&backup_addr), "the backup is tried: {message}");
+        let accepted =
+            tokio::time::timeout(Duration::from_secs(5), accepted).await.expect("the backup connects").unwrap();
+        assert!(accepted - started >= connect_timeout, "the backup is tried only after the timeout");
+    }
+
+    #[tokio::test]
+    async fn shutdown_abandons_a_connect_that_never_completes() {
+        let initiator = Arc::new(initiator(UNREACHABLE, Duration::from_secs(60)));
+        let connecting = tokio::spawn({
+            let initiator = initiator.clone();
+            async move { initiator.connect_once().await }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::timeout(Duration::from_secs(5), initiator.shutdown(None)).await.expect("shutdown is prompt");
+        let err = tokio::time::timeout(Duration::from_secs(5), connecting)
+            .await
+            .expect("the connect is abandoned, not waited out")
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotConnected, "{err}");
+        assert!(err.to_string().contains("shutting down"), "{err}");
+    }
 }
