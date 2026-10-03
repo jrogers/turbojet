@@ -146,6 +146,7 @@ where
     // Whether application sends have waited for the outbound window since the queue was last
     // empty: those taken meanwhile count as throttled.
     let mut sends_held = false;
+    let mut timings = Timings::default();
 
     // A connection made once shutdown has started closes without logging on.
     match shutdown.as_ref().and_then(Signal::started_now) {
@@ -194,7 +195,9 @@ where
                     0 => break,
                     read => {
                         unattributed_bytes += read;
-                        deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
+                        let now = Instant::now();
+                        timings.read(&session, now);
+                        deferred = feed(&mut session, &mut buf, &mut scratch, now.into_std());
                     }
                 }
             }
@@ -205,10 +208,15 @@ where
                 if let Some(job) = session.take_commit(Instant::now().into_std()) {
                     store = Some(StoreTask::Commit(job.spawn()));
                     commits_wait = true;
+                    timings.commit_started(&session, deferred);
                 } else if let Some(job) = session.take_fetch() {
                     store = Some(StoreTask::Fetch(job.spawn()));
                 } else if let Some(job) = session.take_open() {
                     store = Some(StoreTask::Open(job.spawn()));
+                }
+                if store.is_none() && !deferred {
+                    // Committed at once: what was read has all been handled and can be written.
+                    timings.handled(&session);
                 }
             }
             // Input that stopped for a commit made at once goes on: each time round, the commit
@@ -320,8 +328,13 @@ where
                     buf.clear();
                 } else if resending || deferred || committing {
                     deferred = true;
+                    if session.times_latency() {
+                        timings.read(&session, Instant::now());
+                    }
                 } else {
-                    deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
+                    let now = Instant::now();
+                    timings.read(&session, now);
+                    deferred = feed(&mut session, &mut buf, &mut scratch, now.into_std());
                 }
             }
             // Logout and operator commands, whatever else is going on (a Logout once the sends
@@ -380,7 +393,11 @@ where
             // the resend step goes on.
             done = async { store.as_mut().expect("guarded by is_some").finished().await }, if committing => {
                 store = None;
-                done.deliver(&mut session, Instant::now().into_std());
+                let now = Instant::now();
+                if let StoreDone::Committed(result) = &done {
+                    timings.commit_finished(&session, result.is_ok(), now);
+                }
+                done.deliver(&mut session, now.into_std());
             }
             () = &mut timer, if !closed && !committing => {
                 let now = Instant::now();
@@ -389,6 +406,56 @@ where
                 // A deadline on_timer left in the past waits for the ceiling rather than spin.
                 stuck = session.next_deadline().map(Instant::from_std).filter(|deadline| *deadline <= now);
             }
+        }
+    }
+}
+
+/// What the latency histograms time, while the session records them (see
+/// [`telemetry`](crate::telemetry#latency-histograms)); otherwise nothing is set and the clock isn't
+/// read for them.
+#[derive(Default)]
+struct Timings {
+    /// When the oldest input not yet handled and committed was read.
+    read_at: Option<Instant>,
+    /// The commit under way: when it started, and when the oldest input it covers was read.
+    commit: Option<(Instant, Option<Instant>)>,
+}
+
+impl Timings {
+    /// Input was read at `now`.
+    fn read(&mut self, session: &Session, now: Instant) {
+        if session.times_latency() {
+            self.read_at.get_or_insert(now);
+        }
+    }
+
+    /// A commit job has started, covering the input read so far. Input left `deferred` waits for a
+    /// later commit, so its read time is kept for that one too.
+    fn commit_started(&mut self, session: &Session, deferred: bool) {
+        if session.times_latency() {
+            let read_at = if deferred { self.read_at } else { self.read_at.take() };
+            self.commit = Some((Instant::now(), read_at));
+        }
+    }
+
+    /// The commit job ended at `now`, and what it covers can be written if it `succeeded`.
+    fn commit_finished(&mut self, session: &Session, succeeded: bool, now: Instant) {
+        if let Some(latency) = session.latency_metrics()
+            && let Some((started, read_at)) = self.commit.take()
+        {
+            latency.commit(now.saturating_duration_since(started));
+            if succeeded && let Some(read_at) = read_at {
+                latency.read_to_write(now.saturating_duration_since(read_at));
+            }
+        }
+    }
+
+    /// Everything read has been handled and committed at once, so can be written.
+    fn handled(&mut self, session: &Session) {
+        if let Some(latency) = session.latency_metrics()
+            && let Some(read_at) = self.read_at.take()
+        {
+            latency.read_to_write(Instant::now().saturating_duration_since(read_at));
         }
     }
 }
@@ -485,6 +552,9 @@ fn poll_once<F: Future>(future: F) -> Option<F::Output> {
 /// waiting.
 fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
     let mut consumed = 0;
+    // When the next message started, for the latency histograms: each message's end starts the
+    // next, so timing them costs one clock read each.
+    let mut started = now;
     // Ends: a message consumes its frame, garbled bytes skip at least one, and a resend or a
     // commit stops it.
     let deferred = loop {
@@ -500,12 +570,20 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
                 consumed += len;
                 debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
                 session.on_message(scratch, now);
+                if let Some(latency) = session.latency_metrics() {
+                    let ended = Instant::now().into_std();
+                    latency.inbound_message(ended.saturating_duration_since(started));
+                    started = ended;
+                }
             }
             DecodedInto::Incomplete => break false,
             DecodedInto::Garbled { skip, reason } => {
                 warn!("discarding {skip} garbled bytes: {reason}");
                 telemetry::garbled_message();
                 consumed += skip;
+                if session.latency_metrics().is_some() {
+                    started = Instant::now().into_std();
+                }
             }
         }
     };

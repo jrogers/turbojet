@@ -58,6 +58,8 @@ Options:
                        slows the sender; `reject` answers each message over it with a
                        BusinessMessageReject
   --metrics-listen A   Serve Prometheus metrics at http://A/metrics
+  --latency-metrics    With --metrics-listen: also record latency summaries per session (time to
+                       handle each message, to commit, and from reading input to its replies)
   --log-format F       `text` (default) or `json`
   -h, --help           Show this help
 
@@ -115,6 +117,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let (mut tls_cert, mut tls_key, mut tls_client_ca, mut tls_client_auth) = (None, None, None, None);
     let mut tls_match_comp_id = false;
     let mut metrics_listen = None;
+    let mut latency_metrics = false;
     let mut json_logs = false;
     let mut holidays = None;
     let (mut inbound_limit, mut over_limit) = (None, None);
@@ -157,6 +160,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let addr = value()?;
                 metrics_listen = Some(addr.parse().map_err(|e| format!("invalid --metrics-listen '{addr}': {e}"))?);
             }
+            "--latency-metrics" => latency_metrics = true,
             "--log-format" => {
                 json_logs = match value()?.as_str() {
                     "text" => false,
@@ -196,6 +200,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         (None, Some(_)) => return Err("--over-limit requires --inbound-limit".into()),
         (None, None) => None,
     };
+    if latency_metrics && metrics_listen.is_none() {
+        return Err("--latency-metrics requires --metrics-listen".into());
+    }
+    config.latency_metrics = latency_metrics;
     if fsync && store_dir.is_none() {
         return Err("--fsync requires --store-dir".into());
     }

@@ -37,7 +37,7 @@ use crate::registry::{
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
-use crate::telemetry::SessionMetrics;
+use crate::telemetry::{LatencyMetrics, SessionMetrics};
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
 /// An application version a FIXT.1.1 session supports, with the dictionary its messages are
@@ -164,6 +164,12 @@ pub struct SessionConfig {
     /// FIXT sessions have one per application version instead.
     #[cfg(feature = "validation")]
     pub validator: Option<Arc<crate::validation::Validator>>,
+    /// Records the latency histograms (feature `metrics`): the time to handle each inbound message,
+    /// to commit, and from reading input to its replies being ready to write; see
+    /// [`telemetry`](crate::telemetry#latency-histograms). Off by default: they cost a clock read
+    /// per inbound message, and a few per batch.
+    #[cfg(feature = "metrics")]
+    pub latency_metrics: bool,
 }
 
 impl SessionConfig {
@@ -189,6 +195,8 @@ impl SessionConfig {
             appl_versions: Vec::new(),
             #[cfg(feature = "validation")]
             validator: None,
+            #[cfg(feature = "metrics")]
+            latency_metrics: false,
         }
     }
 
@@ -1521,7 +1529,11 @@ impl Session {
         // Label the driver's span (see `connection::run`), so every later log line, from the
         // engine or the application, carries the session ID.
         tracing::Span::current().record("id", tracing::field::display(&id));
-        let metrics = SessionMetrics::new(&id);
+        #[cfg(feature = "metrics")]
+        let latency = self.config.latency_metrics;
+        #[cfg(not(feature = "metrics"))]
+        let latency = false;
+        let metrics = SessionMetrics::new(&id, latency);
         self.peer = Some(Peer { id, log, heartbeat, metrics });
         if let Err(e) = self.start_period() {
             return self.storage_failed(e);
@@ -2463,6 +2475,20 @@ impl Session {
     /// Byte counts from the driver, once the session is bound.
     pub(crate) fn metrics(&self) -> Option<&SessionMetrics> {
         self.peer.as_ref().map(|p| &p.metrics)
+    }
+
+    /// The latency histograms, once the session is bound, if its configuration asks for them.
+    pub(crate) fn latency_metrics(&self) -> Option<&LatencyMetrics> {
+        self.metrics()?.latency()
+    }
+
+    /// Whether the configuration asks for the latency histograms: the driver times input from
+    /// when it's read, before the session that records it is bound (an acceptor's Logon).
+    pub(crate) fn times_latency(&self) -> bool {
+        #[cfg(feature = "metrics")]
+        return self.config.latency_metrics;
+        #[cfg(not(feature = "metrics"))]
+        false
     }
 
     /// Messages stored whose commit failed, or never finished: they may have been stored.

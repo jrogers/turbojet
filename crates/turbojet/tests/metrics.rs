@@ -10,16 +10,17 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::message::tags;
 use turbojet::{
-    Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle,
+    Acceptor, Application, Context, DiskStorage, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
+    MsgType, SessionConfig, SessionHandle,
 };
 
 const SERVER: &str = "FIX.4.2:SERVER->CLIENT";
 const CLIENT: &str = "FIX.4.2:CLIENT->SERVER";
 
-/// Running totals: snapshots reset counters, so counters are summed across snapshots.
+/// Running totals: snapshots reset counters, so counters are summed across snapshots. Histograms
+/// count their samples, and their sums are kept apart.
 #[derive(Default)]
-struct Totals(HashMap<(String, String), f64>);
+struct Totals(HashMap<(String, String), f64>, HashMap<(String, String), f64>);
 
 impl Totals {
     fn update(&mut self, snapshotter: &Snapshotter) {
@@ -27,17 +28,27 @@ impl Totals {
             let key = key.key();
             let session =
                 key.labels().find(|l| l.key() == "session").map(|l| l.value().to_string()).unwrap_or_default();
-            let entry = self.0.entry((key.name().to_string(), session)).or_default();
+            let entry = self.0.entry((key.name().to_string(), session.clone())).or_default();
             match value {
                 DebugValue::Counter(n) => *entry += n as f64,
                 DebugValue::Gauge(g) => *entry = g.into_inner(),
-                DebugValue::Histogram(_) => {}
+                DebugValue::Histogram(samples) => {
+                    assert!(samples.iter().all(|s| s.is_finite() && **s >= 0.0), "{} {samples:?}", key.name());
+                    *entry += samples.len() as f64;
+                    *self.1.entry((key.name().to_string(), session.clone())).or_default() +=
+                        samples.iter().map(|s| **s).sum::<f64>();
+                }
             }
         }
     }
 
     fn get(&self, name: &str, session: &str) -> f64 {
         self.0.get(&(name.to_string(), session.to_string())).copied().unwrap_or_default()
+    }
+
+    /// The sum of a histogram's samples.
+    fn sum(&self, name: &str, session: &str) -> f64 {
+        self.1.get(&(name.to_string(), session.to_string())).copied().unwrap_or_default()
     }
 }
 
@@ -65,6 +76,8 @@ impl Application for Client {
     }
 }
 
+/// Also the latency histograms, which the acceptor records, storing with fsync so its commits are
+/// timed, and the initiator doesn't.
 #[tokio::test]
 async fn both_ends_agree_on_messages_and_bytes() {
     const ORDERS: usize = 10;
@@ -72,8 +85,10 @@ async fn both_ends_agree_on_messages_and_bytes() {
     let snapshotter = recorder.snapshotter();
     metrics::set_global_recorder(recorder).expect("recorder already installed");
 
-    let acceptor =
-        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Acker));
+    let dir = tempfile::tempdir().unwrap();
+    let mut server = SessionConfig::new("FIX.4.2", "SERVER");
+    server.latency_metrics = true;
+    let acceptor = Acceptor::new(server, Arc::new(DiskStorage::new(dir.path(), true).unwrap()), Arc::new(Acker));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));
@@ -129,5 +144,17 @@ async fn both_ends_agree_on_messages_and_bytes() {
         assert_eq!(get("turbojet_logons_total", session), 1.0, "{session}");
         assert_eq!(get("turbojet_disconnects_total", session), 1.0, "{session}");
         assert_eq!(get("turbojet_session_logged_on", session), 0.0, "{session}");
+    }
+
+    // Each message the acceptor handled once bound: its Logon binds it as it's handled.
+    assert_eq!(get("turbojet_inbound_message_seconds", SERVER), (ORDERS + 2) as f64);
+    assert!(totals.sum("turbojet_inbound_message_seconds", SERVER) > 0.0);
+    // At least one commit, for one read; with fsync, both take time.
+    for name in ["turbojet_commit_seconds", "turbojet_read_to_write_seconds"] {
+        assert!(get(name, SERVER) >= 1.0, "{name}");
+        assert!(totals.sum(name, SERVER) > 0.0, "{name}");
+    }
+    for name in ["turbojet_inbound_message_seconds", "turbojet_commit_seconds", "turbojet_read_to_write_seconds"] {
+        assert_eq!(get(name, CLIENT), 0.0, "{name}: the initiator doesn't record latency");
     }
 }

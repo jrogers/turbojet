@@ -37,8 +37,33 @@
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |
 //! | `turbojet_next_incoming_seq` | gauge | `session` |
 //! | `turbojet_next_outgoing_seq` | gauge | `session` |
+//! | `turbojet_inbound_message_seconds` | histogram, opt-in | `session` |
+//! | `turbojet_commit_seconds` | histogram, opt-in | `session` |
+//! | `turbojet_read_to_write_seconds` | histogram, opt-in | `session` |
 //!
 //! `session` is the session ID, e.g. `FIX.4.2:GATEWAY->CLIENT1`.
+//!
+//! ## Latency histograms
+//!
+//! The histograms are recorded only for sessions with
+//! [`latency_metrics`](crate::SessionConfig::latency_metrics) set, since they cost a clock read per
+//! inbound message, and a few per batch. They time the connection's own work, in seconds:
+//!
+//! - `turbojet_inbound_message_seconds`: handling one inbound message: decoding it, the session's
+//!   checks, and the application's [`on_message`](crate::Application::on_message).
+//! - `turbojet_commit_seconds`: a store commit run off the connection's task, from its start to its
+//!   end: an fsync, or a database transaction. Stores that commit at once (`MemoryStorage`, and
+//!   `DiskStorage` without fsync) commit within the session's own work, and aren't timed here.
+//! - `turbojet_read_to_write_seconds`: from reading input to everything it caused being committed
+//!   and ready to write: handling it, waiting for a commit under way, and committing it. One sample
+//!   each time input becomes ready to write, timed from the oldest read it includes, so input read
+//!   while a commit is under way, which the next commit takes together, is one sample. Input
+//!   already read that waits for a resend, or for an inbound [`Delay`](crate::InboundLimit::Delay)
+//!   limit, counts its wait, as the counterparty sees it; input the limit leaves unread isn't timed
+//!   until it's read. Writing to the transport isn't included.
+//!
+//! Exporters choose how samples are aggregated: the Prometheus exporter makes summaries by
+//! default, or histograms with the buckets it's given.
 //!
 //! `turbojet_throttled_total` counts application messages held back or rejected by a session's
 //! [`outbound_limit`](crate::SessionConfig::outbound_limit) or
@@ -51,14 +76,19 @@
 //!   the window, which holds input until it frees up. What the counterparty sends meanwhile waits
 //!   unread, in the transport, so it can't be counted message by message.
 
-pub(crate) use imp::{SessionMetrics, application_panic, connection_refused, garbled_message};
+pub(crate) use imp::{LatencyMetrics, SessionMetrics, application_panic, connection_refused, garbled_message};
 
 #[cfg(feature = "metrics")]
 pub use imp::describe_metrics;
 
 #[cfg(feature = "metrics")]
 mod imp {
-    use ::metrics::{Counter, Gauge, Unit, counter, describe_counter, describe_gauge, gauge};
+    use std::time::Duration;
+
+    use ::metrics::{
+        Counter, Gauge, Histogram, Unit, counter, describe_counter, describe_gauge, describe_histogram, gauge,
+        histogram,
+    };
 
     use crate::store::SessionId;
 
@@ -91,6 +121,21 @@ mod imp {
         describe_gauge!("turbojet_session_logged_on", "1 while the session is logged on, else 0");
         describe_gauge!("turbojet_next_incoming_seq", "Next expected inbound MsgSeqNum");
         describe_gauge!("turbojet_next_outgoing_seq", "Next outbound MsgSeqNum");
+        describe_histogram!(
+            "turbojet_inbound_message_seconds",
+            Unit::Seconds,
+            "Handling an inbound message: decoding, session checks and the application (opt-in)"
+        );
+        describe_histogram!(
+            "turbojet_commit_seconds",
+            Unit::Seconds,
+            "Store commits run off the connection's task, such as an fsync (opt-in)"
+        );
+        describe_histogram!(
+            "turbojet_read_to_write_seconds",
+            Unit::Seconds,
+            "From reading input to what it caused being committed and ready to write (opt-in)"
+        );
     }
 
     pub(crate) fn garbled_message() {
@@ -122,15 +167,44 @@ mod imp {
         logged_on: Gauge,
         next_incoming: Gauge,
         next_outgoing: Gauge,
+        latency: Option<LatencyMetrics>,
+    }
+
+    /// The opt-in latency histograms; see the [module docs](super#latency-histograms).
+    pub(crate) struct LatencyMetrics {
+        inbound_message: Histogram,
+        commit: Histogram,
+        read_to_write: Histogram,
+    }
+
+    impl LatencyMetrics {
+        pub(crate) fn inbound_message(&self, took: Duration) {
+            self.inbound_message.record(took);
+        }
+
+        pub(crate) fn commit(&self, took: Duration) {
+            self.commit.record(took);
+        }
+
+        pub(crate) fn read_to_write(&self, took: Duration) {
+            self.read_to_write.record(took);
+        }
     }
 
     impl SessionMetrics {
-        pub(crate) fn new(id: &SessionId) -> Self {
+        /// The session's metrics, with the latency histograms if `latency`.
+        pub(crate) fn new(id: &SessionId, latency: bool) -> Self {
             let session = id.to_string();
             let counter = |name: &'static str| counter!(name, "session" => session.clone());
             let gauge = |name: &'static str| gauge!(name, "session" => session.clone());
             let rejects = |kind: &'static str| counter!("turbojet_rejects_sent_total", "session" => session.clone(), "type" => kind);
             let throttled = |direction: &'static str| counter!("turbojet_throttled_total", "session" => session.clone(), "direction" => direction);
+            let histogram = |name: &'static str| histogram!(name, "session" => session.clone());
+            let latency = latency.then(|| LatencyMetrics {
+                inbound_message: histogram("turbojet_inbound_message_seconds"),
+                commit: histogram("turbojet_commit_seconds"),
+                read_to_write: histogram("turbojet_read_to_write_seconds"),
+            });
             Self {
                 messages_received: counter("turbojet_messages_received_total"),
                 messages_sent: counter("turbojet_messages_sent_total"),
@@ -148,7 +222,13 @@ mod imp {
                 logged_on: gauge("turbojet_session_logged_on"),
                 next_incoming: gauge("turbojet_next_incoming_seq"),
                 next_outgoing: gauge("turbojet_next_outgoing_seq"),
+                latency,
             }
+        }
+
+        /// The latency histograms, if the session records them.
+        pub(crate) fn latency(&self) -> Option<&LatencyMetrics> {
+            self.latency.as_ref()
         }
 
         pub(crate) fn message_received(&self) {
@@ -221,6 +301,8 @@ mod imp {
 
 #[cfg(not(feature = "metrics"))]
 mod imp {
+    use std::time::Duration;
+
     use crate::store::SessionId;
 
     #[inline(always)]
@@ -235,11 +317,31 @@ mod imp {
     /// No-op stand-in when the `metrics` feature is off.
     pub(crate) struct SessionMetrics;
 
+    /// Never made when the `metrics` feature is off: [`SessionMetrics::latency`] is always `None`,
+    /// so the driver's timing compiles away.
+    pub(crate) enum LatencyMetrics {}
+
+    impl LatencyMetrics {
+        pub(crate) fn inbound_message(&self, _took: Duration) {
+            match *self {}
+        }
+        pub(crate) fn commit(&self, _took: Duration) {
+            match *self {}
+        }
+        pub(crate) fn read_to_write(&self, _took: Duration) {
+            match *self {}
+        }
+    }
+
     #[allow(clippy::unused_self)]
     impl SessionMetrics {
         #[inline(always)]
-        pub(crate) fn new(_id: &SessionId) -> Self {
+        pub(crate) fn new(_id: &SessionId, _latency: bool) -> Self {
             Self
+        }
+        #[inline(always)]
+        pub(crate) fn latency(&self) -> Option<&LatencyMetrics> {
+            None
         }
         #[inline(always)]
         pub(crate) fn message_received(&self) {}

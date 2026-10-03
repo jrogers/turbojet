@@ -585,3 +585,13 @@ fn gateway_refuses_a_bad_inbound_limit() {
         .expect("unknown action");
     assert!(err.contains("--over-limit must be 'delay' or 'reject', not 'drop'"), "{err}");
 }
+
+#[test]
+fn gateway_records_latency_only_with_a_metrics_listener() {
+    let parsed = crate::parse_args(args(&["--allow-any", "--metrics-listen", "127.0.0.1:9000", "--latency-metrics"]));
+    assert!(parsed.unwrap().config.latency_metrics);
+    assert!(!crate::parse_args(args(&["--allow-any"])).unwrap().config.latency_metrics, "off by default");
+
+    let err = crate::parse_args(args(&["--allow-any", "--latency-metrics"])).err().expect("needs the listener");
+    assert!(err.contains("--latency-metrics requires --metrics-listen"), "{err}");
+}
