@@ -8,9 +8,11 @@ mod mailbox;
 pub mod orders;
 mod pair;
 mod peer;
+mod proxy;
 
 pub use pair::{Options, Pair, Role, Setup, TjEvent, Version};
 pub use peer::{EVENT_TIMEOUT, FixMsg, Peer, PeerConfig, PeerEvent, QFJ};
+pub use proxy::{Dir, Fault, Proxy, ProxyEvent};
 
 /// Turbojet's CompID in every interop session.
 pub const TJ: &str = "TJ";

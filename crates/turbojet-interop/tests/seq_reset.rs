@@ -9,7 +9,7 @@ use turbojet_interop::{Options, Pair, PeerEvent, Setup, TjEvent, matrix};
 matrix!(sequence_reset_from_peer, sequence_reset_from_tj, seq_too_low_at_tj, seq_too_low_at_peer);
 
 /// Longer than a scenario's 120s backstop.
-const NO_RECONNECT: Options = Options { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 300 };
+const NO_RECONNECT: Options = Options { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 300, proxy: false };
 
 /// Exchanges a TestRequest and Heartbeat, so both sides have processed everything sent before.
 async fn barrier(pair: &mut Pair) {

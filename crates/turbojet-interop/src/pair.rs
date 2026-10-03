@@ -1,5 +1,6 @@
 //! A Turbojet session connected to the QuickFIX/J peer, in either role.
 
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ use turbojet::{
 };
 
 use crate::mailbox::{Mailbox, Missing};
-use crate::{EVENT_TIMEOUT, Peer, PeerConfig, QFJ, TJ};
+use crate::{EVENT_TIMEOUT, Peer, PeerConfig, Proxy, QFJ, TJ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -58,11 +59,13 @@ pub struct Options {
     pub reset_on_logon: bool,
     /// How long the initiator (whichever side it is) waits before reconnecting.
     pub reconnect_secs: u32,
+    /// Puts a [`Proxy`] between the two, as [`Pair::proxy`], to inject faults.
+    pub proxy: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 1 }
+        Self { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 1, proxy: false }
     }
 }
 
@@ -99,6 +102,9 @@ pub struct Pair {
     pub peer: Peer,
     /// Turbojet's session with the peer; usable once logged on.
     pub handle: SessionHandle,
+    /// The proxy between the two, with [`Options::proxy`]. The initiator connects to it, and it
+    /// dials the acceptor.
+    pub proxy: Option<Proxy>,
     tj: Mailbox<TjEvent>,
     task: JoinHandle<()>,
     finished: bool,
@@ -132,22 +138,34 @@ impl Setup {
             reset_on_logon: options.reset_on_logon && self.role == Role::TjAcceptor,
             reconnect_secs: options.reconnect_secs,
         };
+        let mut proxy = None;
         let (peer, handle, task) = match self.role {
             Role::TjInitiator => {
                 let peer = Peer::spawn(peer_config).await;
+                let mut addr = SocketAddr::from((Ipv4Addr::LOCALHOST, peer.port()));
+                if options.proxy {
+                    let started = Proxy::start(addr, self.role).await;
+                    addr = started.addr();
+                    proxy = Some(started);
+                }
                 let mut config = InitiatorConfig::new(session, QFJ);
                 config.heartbeat_interval = Duration::from_secs(options.heartbeat_secs.into());
                 config.reset_on_logon = options.reset_on_logon;
                 config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_secs(options.reconnect_secs.into()));
-                let addr = format!("127.0.0.1:{}", peer.port());
-                let initiator = Initiator::new(addr, config, storage, app);
+                let initiator = Initiator::new(addr.to_string(), config, storage, app);
                 let handle = initiator.handle();
                 (peer, handle, tokio::spawn(initiator.run()))
             }
             Role::TjAcceptor => {
                 let acceptor = Acceptor::new(session, storage, app);
                 let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-                peer_config.port = Some(listener.local_addr().unwrap().port());
+                let addr = listener.local_addr().unwrap();
+                peer_config.port = Some(addr.port());
+                if options.proxy {
+                    let started = Proxy::start(addr, self.role).await;
+                    peer_config.port = Some(started.port());
+                    proxy = Some(started);
+                }
                 let handle = acceptor.session(QFJ);
                 let task = tokio::spawn(async move {
                     if let Err(e) = acceptor.serve(listener).await {
@@ -157,7 +175,7 @@ impl Setup {
                 (Peer::spawn(peer_config).await, handle, task)
             }
         };
-        Pair { setup: self, peer, handle, tj: Mailbox::new(tj), task, finished: false }
+        Pair { setup: self, peer, handle, proxy, tj: Mailbox::new(tj), task, finished: false }
     }
 }
 
