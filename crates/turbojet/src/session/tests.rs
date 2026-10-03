@@ -1112,11 +1112,96 @@ fn a_resend_step_costs_no_commit() {
     }
 }
 
+fn client_id() -> SessionId {
+    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() }
+}
+
+/// An acceptor's logon waits for the store to open the session's log: the session is claimed
+/// meanwhile, takes no input and sends nothing, and answers once the log is open.
+#[test]
+fn a_logon_waits_for_the_store_to_open_the_log() {
+    let storage = Arc::new(DeferringStorage::deferring_all());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    assert!(s.take_commit(h.t0).is_none(), "nothing to commit before the log is open");
+    let open = s.take_open().expect("the store opens the log with a job");
+    assert!(s.take_open().is_none(), "one opening");
+    assert!(s.is_waiting_on_store());
+    assert!(!s.ready_for_input());
+    assert!(s.output().is_empty());
+    assert_eq!(s.session_id(), None, "not bound yet");
+    assert_eq!(h.registry.sessions(), [client_id()], "claimed meanwhile");
+
+    s.on_opened(open.run(), h.t0);
+    assert!(!s.is_waiting_on_store());
+    s.commit_blocking(h.t0);
+    assert_eq!(types(&taken(&mut s, false)), ["Logon"]);
+    assert!(s.is_logged_on());
+    assert_eq!(storage.calls.lock().unwrap()[0], format!("open {}", client_id()));
+}
+
+/// An initiator sends its Logon once the store has opened the session's log.
+#[test]
+fn an_initiator_sends_logon_once_the_log_is_open() {
+    let h = Harness::with_storage(Arc::new(DeferringStorage::deferring_all()));
+    let mut s = h.initiator(false);
+    s.on_connect(h.t0);
+    let open = s.take_open().expect("the store opens the log with a job");
+    assert!(s.output().is_empty());
+    s.on_opened(open.run(), h.t0);
+    s.commit_blocking(h.t0);
+    assert_eq!(types(&taken(&mut s, false)), ["Logon"]);
+}
+
+/// A failed opening refuses the logon and releases the session, which can log on again.
+#[test]
+fn a_failed_open_refuses_the_logon_and_releases_the_session() {
+    let storage = Arc::new(DeferringStorage::deferring_all());
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    let open = s.take_open().expect("the store opens the log with a job");
+    *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("connection refused")));
+    s.on_opened(open.run(), h.t0);
+    assert!(s.is_closed());
+    assert_eq!(types(&taken(&mut s, false)), ["DISCONNECT"]);
+    assert!(h.registry.sessions().is_empty(), "released");
+
+    *storage.job.lock().unwrap() = Arc::new(|| Ok(()));
+    let mut again = h.session();
+    again.on_message(&logon(1), h.t0);
+    again.commit_blocking(h.t0);
+    assert!(again.is_logged_on());
+}
+
+/// A session that closes, or is dropped, while its log opens releases the session: the log, once
+/// open, is closed rather than bound.
+#[test]
+fn a_session_that_ends_while_its_log_opens_releases_it() {
+    let h = Harness::with_storage(Arc::new(DeferringStorage::deferring_all()));
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    let open = s.take_open().expect("the store opens the log with a job");
+    s.on_shutdown(None, h.t0);
+    assert!(s.is_closed());
+    s.on_opened(open.run(), h.t0);
+    assert_eq!(s.session_id(), None, "never bound");
+    assert!(h.registry.sessions().is_empty(), "released");
+    assert!(!s.is_waiting_on_store());
+
+    let mut s = h.session();
+    s.on_message(&logon(1), h.t0);
+    assert!(s.take_open().is_some());
+    drop(s);
+    assert!(h.registry.sessions().is_empty(), "released");
+}
+
 /// A logged-on session over a store whose resend reads are jobs, having sent two
 /// ExecutionReports (our 2 and 3), and asked to resend from 1 one sequence number per step: the
 /// first step's read is due.
 fn resending_with_deferred_reads() -> (Arc<DeferringStorage>, Harness, Session) {
-    let storage = Arc::new(DeferringStorage::deferring_reads());
+    let storage = Arc::new(DeferringStorage::deferring_all());
     let h = Harness::with_storage(storage.clone());
     let mut s = h.logged_on();
     s.set_resend_batch(1);

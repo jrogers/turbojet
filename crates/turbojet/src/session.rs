@@ -36,7 +36,7 @@ use crate::registry::{
     SessionRegistry, apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
-use crate::store::{Commit, Fetched, Job, SentMessages, SessionId, SessionLog};
+use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
 use crate::telemetry::SessionMetrics;
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
@@ -385,6 +385,25 @@ struct Replay {
     fetch: Option<Fetching>,
 }
 
+/// A log the store opens with a job, and what logon does once it's open.
+struct OpeningLog {
+    id: SessionId,
+    heartbeat: Duration,
+    then: AfterOpen,
+    /// The job, until the driver takes it.
+    job: Option<Job<Box<dyn SessionLog>>>,
+}
+
+/// The rest of logon, once the session's log is open.
+#[derive(Debug, Clone, Copy)]
+enum AfterOpen {
+    /// Initiator: send our Logon, resetting first with `reset`.
+    SendLogon { reset: bool },
+    /// Acceptor: answer the counterparty's Logon, which asked to reset with `reset`, came with
+    /// MsgSeqNum `seq_num`, and NextExpectedMsgSeqNum `their_next` if any.
+    AnswerLogon { reset: bool, seq_num: u64, their_next: Option<u64>, heartbeat: Duration },
+}
+
 /// A read of stored messages for a step of a resend that the store returned as a job.
 struct Fetching {
     /// The last sequence number the step covers.
@@ -470,6 +489,8 @@ pub struct Session {
     receipts: Vec<(ReceiptSender, u64)>,
     /// The resend in progress, if any; see [`on_resume`](Self::on_resume).
     replay: Option<Replay>,
+    /// The session's log, while the store opens it with a job: logon waits for it.
+    opening_log: Option<OpeningLog>,
     /// New messages sent while a resend is in progress, framed and stored, to follow it. Drivers
     /// feed no input meanwhile, so it holds what the call that started the resend went on to
     /// send: replies to one message, to those queued behind a gap, or the commands held during
@@ -586,6 +607,7 @@ impl Session {
             replies: Vec::new(),
             receipts: Vec::new(),
             replay: None,
+            opening_log: None,
             held: Vec::new(),
             resend_batch: MAX_RESEND_BATCH,
             pending: Vec::new(),
@@ -711,10 +733,47 @@ impl Session {
         }
     }
 
-    /// Whether the session waits for the store: a commit or a read for a resend, taken or due to
-    /// be. Feed it nothing until that ends.
+    /// The store's opening of the session's log, if it returned one as a job (see
+    /// [`SessionStorage::begin_open`](crate::store::SessionStorage::begin_open)), once logon has
+    /// told the session its ID: run it off the async runtime, feed the session nothing
+    /// meanwhile, and hand its result to [`on_opened`](Self::on_opened). Stores that open at once
+    /// never return one. Call it after [`take_commit`](Self::take_commit) returns `None`.
+    pub fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
+        self.opening_log.as_mut()?.job.take()
+    }
+
+    /// An opening from [`take_open`](Self::take_open) has ended: logon goes on, or, if it failed,
+    /// the session refuses it and closes. A session that closed meanwhile (shutdown) closes the
+    /// log at once. Call [`take_commit`](Self::take_commit) after it, as after any call into the
+    /// session.
+    pub fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: Instant) {
+        self.wall_clock.set(None);
+        let Some(OpeningLog { id, heartbeat, then, job }) = self.opening_log.take() else {
+            debug_assert!(false, "an opening was taken");
+            return;
+        };
+        debug_assert!(job.is_none(), "the opening was taken");
+        match result {
+            Ok(log) if self.status == Status::Closed => {
+                // Closed before the store opened it: close the log before releasing the claim.
+                drop(log);
+                self.registry.release(&id);
+            }
+            Ok(log) => self.bound(id, heartbeat, log, then, now),
+            Err(e) => {
+                warn!("refusing logon: cannot open session store for {id}: {e}");
+                self.registry.release(&id);
+                self.close();
+            }
+        }
+    }
+
+    /// Whether the session waits for the store: a commit, a read for a resend or the opening of
+    /// its log, taken or due to be. Feed it nothing until that ends.
     pub fn is_waiting_on_store(&self) -> bool {
-        self.committing || self.replay.as_ref().is_some_and(|replay| replay.fetch.is_some())
+        self.committing
+            || self.opening_log.is_some()
+            || self.replay.as_ref().is_some_and(|replay| replay.fetch.is_some())
     }
 
     /// Whether a commit from [`take_commit`](Self::take_commit) is under way.
@@ -726,10 +785,12 @@ impl Session {
     /// waits for a commit, under way or due from [`take_commit`](Self::take_commit): one that
     /// records the messages about to be handed to the application as in flight, so that a crash
     /// while they're handled is noticed when they're resent. A message fed in anyway is handled
-    /// once the session has committed that itself, on the calling thread. Input also waits while
+    /// once the session has committed that itself, on the calling thread. Input also waits for
+    /// a resend's read or the opening of the session's log (see
+    /// [`is_waiting_on_store`](Self::is_waiting_on_store)), and while
     /// [`input_free_at`](Self::input_free_at) holds it, which needs the time.
     pub fn ready_for_input(&mut self) -> bool {
-        if self.committing {
+        if self.is_waiting_on_store() {
             return false;
         }
         // Otherwise the next commit records a window that covers it.
@@ -806,14 +867,16 @@ impl Session {
         self.hold_end().map_or(since, |hold_end| since.max(hold_end))
     }
 
-    /// Runs the store's work on this thread until none is left, the commits and resend reads it
-    /// returns as jobs: for drivers that may block (tests, tools).
+    /// Runs the store's work on this thread until none is left, the commits, resend reads and
+    /// opening it returns as jobs: for drivers that may block (tests, tools).
     pub fn commit_blocking(&mut self, now: Instant) {
         loop {
             if let Some(commit) = self.take_commit(now) {
                 self.on_committed(commit.run(), now);
             } else if let Some(fetch) = self.take_fetch() {
                 self.on_fetched(fetch.run(), now);
+            } else if let Some(open) = self.take_open() {
+                self.on_opened(open.run(), now);
             } else {
                 break;
             }
@@ -862,6 +925,13 @@ impl Session {
     /// A message was decoded from the transport.
     pub fn on_message(&mut self, msg: &Message, now: Instant) {
         self.wall_clock.set(None);
+        if self.opening_log.is_some() {
+            // Logon can't go on until the log is open, and `ready_for_input` holds input meanwhile,
+            // so this is a driver's mistake.
+            debug_assert!(false, "a message was fed while the session's log was opening");
+            warn!(msg_type = %msg.msg_type(), "dropping a message received while the session's log is opening");
+            return;
+        }
         self.last_received = now;
         self.test_request_sent = None;
         if self.receiving() && !self.committing && !self.covers(self.peer().log.next_incoming()) {
@@ -1157,9 +1227,12 @@ impl Session {
             warn!(session = %id, "not logging on: {reason}");
             return self.close();
         }
-        if !self.bind(id, heartbeat) {
-            return;
-        }
+        self.bind(id, heartbeat, AfterOpen::SendLogon { reset }, now);
+    }
+
+    /// Initiator, bound: send Logon.
+    fn send_logon(&mut self, reset: bool, now: Instant) {
+        let Role::Initiator { heartbeat, .. } = self.role else { unreachable!("only initiators send Logon first") };
         if reset && let Err(e) = self.reset_store() {
             return self.storage_failed(e);
         }
@@ -1206,10 +1279,12 @@ impl Session {
             return self.close();
         }
         self.appl_version = appl_version;
-        if !self.bind(id, heartbeat) {
-            return;
-        }
         let reset = msg.flag(tags::RESET_SEQ_NUM_FLAG);
+        self.bind(id, heartbeat, AfterOpen::AnswerLogon { reset, seq_num, their_next, heartbeat }, now);
+    }
+
+    /// Acceptor, bound: reply to the counterparty's Logon.
+    fn answer_logon(&mut self, reset: bool, seq_num: u64, their_next: Option<u64>, heartbeat: Duration, now: Instant) {
         if reset && let Err(e) = self.reset_store() {
             return self.storage_failed(e);
         }
@@ -1420,30 +1495,42 @@ impl Session {
         self.config.appl_versions.iter().find(|v| v.id.code() == code)
     }
 
-    /// Claims the session in the registry and opens its log. Closes on failure.
-    fn bind(&mut self, id: SessionId, heartbeat: Duration) -> bool {
+    /// Claims the session in the registry and opens its log, then does the rest of logon,
+    /// `then`; if the store opens the log with a job, that waits for it (see
+    /// [`take_open`](Self::take_open)). Closes on failure.
+    fn bind(&mut self, id: SessionId, heartbeat: Duration, then: AfterOpen, now: Instant) {
         match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id()) {
-            Ok(log) => {
-                // Label the driver's span (see `connection::run`), so every later log line, from
-                // the engine or the application, carries the session ID.
-                tracing::Span::current().record("id", tracing::field::display(&id));
-                let metrics = SessionMetrics::new(&id);
-                self.peer = Some(Peer { id, log, heartbeat, metrics });
-                if let Err(e) = self.start_period() {
-                    self.storage_failed(e);
-                    return false;
-                }
-                self.recovered = self.peer().log.in_flight();
-                if let Some(start) = self.recovered {
-                    info!(start, "messages from this one on may have been handled before a restart");
-                }
-                self.update_sequence_gauges();
-                true
+            Ok(Opened::Ready(log)) => self.bound(id, heartbeat, log, then, now),
+            Ok(Opened::Pending(job)) => {
+                debug!(session = %id, "waiting for the store to open the session's log");
+                self.opening_log = Some(OpeningLog { id, heartbeat, then, job: Some(job) });
             }
             Err(reason) => {
                 warn!("refusing logon: {reason}");
                 self.close();
-                false
+            }
+        }
+    }
+
+    /// The session's log is open: the session is bound, and logon goes on with `then`.
+    fn bound(&mut self, id: SessionId, heartbeat: Duration, log: Box<dyn SessionLog>, then: AfterOpen, now: Instant) {
+        // Label the driver's span (see `connection::run`), so every later log line, from the
+        // engine or the application, carries the session ID.
+        tracing::Span::current().record("id", tracing::field::display(&id));
+        let metrics = SessionMetrics::new(&id);
+        self.peer = Some(Peer { id, log, heartbeat, metrics });
+        if let Err(e) = self.start_period() {
+            return self.storage_failed(e);
+        }
+        self.recovered = self.peer().log.in_flight();
+        if let Some(start) = self.recovered {
+            info!(start, "messages from this one on may have been handled before a restart");
+        }
+        self.update_sequence_gauges();
+        match then {
+            AfterOpen::SendLogon { reset } => self.send_logon(reset, now),
+            AfterOpen::AnswerLogon { reset, seq_num, their_next, heartbeat } => {
+                self.answer_logon(reset, seq_num, their_next, heartbeat, now);
             }
         }
     }
@@ -2681,6 +2768,11 @@ impl Drop for Session {
         self.fail_receipts();
         self.discard_pending();
         self.notify_logout();
+        // Dropped while the store opened its log (the connection failed): the log, if the job
+        // still opens it, is closed when the job's result is dropped.
+        if let Some(opening) = self.opening_log.take() {
+            self.registry.release(&opening.id);
+        }
         if let Some(peer) = self.peer.take() {
             peer.metrics.disconnected();
             // Close the log (releasing any file lock) before another connection can acquire it.

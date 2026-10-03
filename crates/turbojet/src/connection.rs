@@ -13,7 +13,7 @@ use crate::message::Message;
 use crate::registry::{Command, CommandReceiver, Next, Sends};
 use crate::session::Session;
 use crate::shutdown::Signal;
-use crate::store::SentMessages;
+use crate::store::{SentMessages, SessionLog};
 use crate::telemetry;
 
 // The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
@@ -199,13 +199,16 @@ where
                 }
             }
             // Whatever the session did since the last commit is committed before it's written; a
-            // resend step the store reads with a job waits for it.
+            // resend step the store reads with a job, or a logon whose log it opens with one,
+            // waits for it.
             if store.is_none() {
                 if let Some(job) = session.take_commit(Instant::now().into_std()) {
                     store = Some(StoreTask::Commit(job.spawn()));
                     commits_wait = true;
                 } else if let Some(job) = session.take_fetch() {
                     store = Some(StoreTask::Fetch(job.spawn()));
+                } else if let Some(job) = session.take_open() {
+                    store = Some(StoreTask::Open(job.spawn()));
                 }
             }
             // Input that stopped for a commit made at once goes on: each time round, the commit
@@ -394,12 +397,14 @@ where
 enum StoreTask {
     Commit(JoinHandle<io::Result<()>>),
     Fetch(JoinHandle<io::Result<SentMessages>>),
+    Open(JoinHandle<io::Result<Box<dyn SessionLog>>>),
 }
 
 /// The result of a [`StoreTask`], for the session.
 enum StoreDone {
     Committed(io::Result<()>),
     Fetched(io::Result<SentMessages>),
+    Opened(io::Result<Box<dyn SessionLog>>),
 }
 
 impl StoreTask {
@@ -408,6 +413,7 @@ impl StoreTask {
         match self {
             Self::Commit(task) => StoreDone::Committed(joined(task.await)),
             Self::Fetch(task) => StoreDone::Fetched(joined(task.await)),
+            Self::Open(task) => StoreDone::Opened(joined(task.await)),
         }
     }
 }
@@ -417,6 +423,7 @@ impl StoreDone {
         match self {
             Self::Committed(result) => session.on_committed(result, now),
             Self::Fetched(result) => session.on_fetched(result, now),
+            Self::Opened(result) => session.on_opened(result, now),
         }
     }
 }
@@ -1223,12 +1230,13 @@ mod tests {
         assert_eq!(last.get(tags::MSG_SEQ_NUM), Some((ORDERS + 2).to_string().as_str()));
     }
 
-    /// A resend over a store that reads each step with a job goes out in order, step by step as
-    /// each read ends, and an order that arrives meanwhile is answered after it.
+    /// Over a store that opens, commits and reads with jobs: logon waits for the log to open, a
+    /// resend goes out in order, step by step as each read ends, and an order that arrives
+    /// meanwhile is answered after it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_resend_waits_for_the_stores_reads() {
+    async fn logon_and_resends_wait_for_the_stores_jobs() {
         const ORDERS: u64 = 600;
-        let storage = crate::store::deferring::DeferringStorage::deferring_reads();
+        let storage = crate::store::deferring::DeferringStorage::deferring_all();
         // Every commit and read takes a while, so the driver must wait for it.
         *storage.job.lock().unwrap() = Arc::new(|| {
             std::thread::sleep(Duration::from_millis(1));

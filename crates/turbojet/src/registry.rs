@@ -12,7 +12,7 @@ use tracing::info;
 use crate::fields::ApplVerId;
 use crate::message::Message;
 use crate::schedule::Clock;
-use crate::store::{MemoryStorage, SessionId, SessionLog, SessionStorage, commit_now};
+use crate::store::{MemoryStorage, Opened, SessionId, SessionLog, SessionStorage};
 
 /// A request to a session's connection task.
 #[derive(Debug)]
@@ -184,6 +184,18 @@ pub(crate) fn apply_sequence_command(
 pub(crate) enum AcquireError {
     AlreadyConnected(SessionId),
     Storage(SessionId, io::Error),
+}
+
+/// A session claimed in the registry for an operator change, released when dropped.
+struct Claim<'a> {
+    registry: &'a SessionRegistry,
+    id: &'a SessionId,
+}
+
+impl Drop for Claim<'_> {
+    fn drop(&mut self) {
+        self.registry.release(self.id);
+    }
 }
 
 impl fmt::Display for AcquireError {
@@ -426,14 +438,15 @@ impl SessionRegistry {
         self.lock().keys().cloned().collect()
     }
 
-    /// Binds `id` to a connection and opens its log. Fails if it is already bound elsewhere or
-    /// storage cannot be opened.
+    /// Binds `id` to a connection and opens its log, at once or by a job (see
+    /// [`SessionStorage::begin_open`]); if the job fails, the caller releases `id`. Fails if it is
+    /// already bound elsewhere or storage cannot be opened.
     pub(crate) fn acquire(
         &self,
         id: &SessionId,
         commands: CommandSender,
         appl_ver_id: Option<ApplVerId>,
-    ) -> Result<Box<dyn SessionLog>, AcquireError> {
+    ) -> Result<Opened, AcquireError> {
         {
             let mut sessions = self.lock();
             if sessions.contains_key(id) {
@@ -441,7 +454,7 @@ impl SessionRegistry {
             }
             sessions.insert(id.clone(), Entry { commands, appl_ver_id });
         }
-        self.storage.open(id).map_err(|e| {
+        self.storage.begin_open(id).map_err(|e| {
             self.release(id);
             AcquireError::Storage(id.clone(), e)
         })
@@ -449,17 +462,28 @@ impl SessionRegistry {
 
     /// Applies an operator command to a session that isn't connected, holding its registration
     /// meanwhile so it can't log on half-way through.
-    fn apply_offline(&self, id: &SessionId, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
+    async fn apply_offline(&self, id: &SessionId, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
         // No receiver: a send through a handle during the change fails as not connected.
         let (placeholder, _) = command_queues(1);
-        let mut log = self.acquire(id, placeholder, None).map_err(|e| match e {
+        let opened = self.acquire(id, placeholder, None).map_err(|e| match e {
             AcquireError::AlreadyConnected(_) => SequenceError::Connected,
             AcquireError::Storage(_, e) => SequenceError::Storage(e),
         })?;
-        let result = apply_sequence_command(log.as_mut(), command, &self.clock)
-            .and_then(|numbers| commit_now(log.as_mut()).map(|()| numbers).map_err(SequenceError::Storage));
-        drop(log);
-        self.release(id);
+        // Declared before the log, so dropped after it: the log is closed (its lock released)
+        // before the session can be claimed again, even if the caller gives up on this future.
+        let _claim = Claim { registry: self, id };
+        let mut log = match opened {
+            Opened::Ready(log) => log,
+            Opened::Pending(job) => job.run_here().await.map_err(SequenceError::Storage)?,
+        };
+        let result = match apply_sequence_command(log.as_mut(), command, &self.clock) {
+            Ok(numbers) => match log.commit() {
+                Ok(None) => Ok(numbers),
+                Ok(Some(commit)) => commit.run_here().await.map(|()| numbers).map_err(SequenceError::Storage),
+                Err(e) => Err(SequenceError::Storage(e)),
+            },
+            Err(e) => Err(e),
+        };
         if let (Ok(numbers), false) = (&result, command == SequenceCommand::Get) {
             info!(session = %id, ?command, ?numbers, "sequence numbers changed by operator (session disconnected)");
         }
@@ -617,7 +641,7 @@ impl SessionHandle {
             }
             // The connection ended in the meantime: fall back to the stored state.
         }
-        self.registry.apply_offline(&self.id, command)
+        self.registry.apply_offline(&self.id, command).await
     }
 }
 
@@ -779,5 +803,24 @@ mod tests {
         assert!(matches!(receiver.next_with(Sends::Notice).await, Some(Next::Noticed)));
         drop(receiver);
         assert_eq!(receipt.await, Err(Dropped::Disconnected));
+    }
+
+    /// An operator's change to a disconnected session waits for the store to open the log and
+    /// commit the change, and releases the session after.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_offline_change_waits_for_the_stores_jobs() {
+        let storage = Arc::new(crate::store::deferring::DeferringStorage::deferring_all());
+        let calls = storage.calls.clone();
+        let registry = Arc::new(SessionRegistry::new(storage.clone()));
+        let id = SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "A".into(), target_comp_id: "B".into() };
+        let handle = registry.handle(id.clone());
+        let numbers = handle.set_next_outgoing(9).await.unwrap();
+        assert_eq!(numbers.next_outgoing, 9);
+        assert_eq!(*calls.lock().unwrap(), [format!("open {id}"), "outgoing 8".into(), "commit".into()]);
+        assert!(registry.sessions().is_empty(), "released");
+
+        *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("connection refused")));
+        assert!(matches!(handle.set_next_outgoing(10).await, Err(SequenceError::Storage(_))));
+        assert!(registry.sessions().is_empty(), "released after a failed opening");
     }
 }

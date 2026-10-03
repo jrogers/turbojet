@@ -32,10 +32,40 @@ impl fmt::Display for SessionId {
 }
 
 /// Opens per-session logs. Shared by all connections.
+///
+/// Implement [`open`](SessionStorage::open) for a store that opens at once (memory, local
+/// files), or [`begin_open`](SessionStorage::begin_open) for one that waits for a network.
 pub trait SessionStorage: Send + Sync {
     /// Opens the log for `id`, creating it with both sequence numbers at 1 if it does not exist.
-    /// The gateway holds at most one open log per session.
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>>;
+    /// The gateway holds at most one open log per session. The default fails, for stores that
+    /// open only with [`begin_open`](SessionStorage::begin_open).
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, format!("{id}: this store opens only with begin_open")))
+    }
+
+    /// Opens the log for `id` as [`open`](SessionStorage::open) does: at once, or by a [`Job`]
+    /// the session's driver runs off the async runtime while the logon waits. The session calls
+    /// this when it learns its ID, at logon. The default opens at once with `open`.
+    fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
+        self.open(id).map(Opened::Ready)
+    }
+}
+
+/// A [`SessionLog`] being opened: see [`SessionStorage::begin_open`].
+pub enum Opened {
+    /// Opened at once.
+    Ready(Box<dyn SessionLog>),
+    /// To be opened by running the job, which the session's driver does off the async runtime.
+    Pending(Job<Box<dyn SessionLog>>),
+}
+
+impl fmt::Debug for Opened {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Ready(_) => f.write_str("Opened::Ready"),
+            Self::Pending(job) => write!(f, "Opened::Pending({job:?})"),
+        }
+    }
 }
 
 /// Persistent state of one session.
@@ -194,6 +224,16 @@ impl<T: Send + 'static> Job<T> {
         self.spawn().await.unwrap_or_else(|e| Err(io::Error::other(format!("the store's job failed: {e}"))))
     }
 
+    /// Runs the job in this task: a blocking job on this thread, which it blocks, and a future
+    /// awaited here. For rare work outside a connection (operator changes to a disconnected
+    /// session), which mustn't depend on a tokio runtime to spawn on.
+    pub(crate) async fn run_here(self) -> io::Result<T> {
+        match self.0 {
+            Work::Blocking(job) => job(),
+            Work::Future(job) => job.await,
+        }
+    }
+
     /// Starts the job on the current runtime.
     pub(crate) fn spawn(self) -> tokio::task::JoinHandle<io::Result<T>> {
         match self.0 {
@@ -214,14 +254,15 @@ impl<T> fmt::Debug for Job<T> {
 
 /// Commits `log`'s mutations, running any [`Commit`] on this thread: for changes made outside a
 /// connected session (operator commands on a disconnected one), which are rare.
+#[cfg(test)]
 pub(crate) fn commit_now(log: &mut dyn SessionLog) -> io::Result<()> {
     log.commit()?.map_or(Ok(()), Commit::run)
 }
 
 /// A store over [`MemoryStorage`] whose commits run a job the test chooses, recording the
 /// mutations and commits made of it: the session must wait for each commit before writing what it
-/// covers. With [`deferring_reads`](deferring::DeferringStorage::deferring_reads), its resend reads
-/// are jobs too, which run the same job before returning what was read.
+/// covers. With [`deferring_all`](deferring::DeferringStorage::deferring_all), its resend reads
+/// and openings are jobs too, which run the same job before returning what was read or opened.
 #[cfg(test)]
 pub(crate) mod deferring {
     use std::sync::{Arc, Mutex};
@@ -235,20 +276,20 @@ pub(crate) mod deferring {
         inner: MemoryStorage,
         pub calls: Arc<Mutex<Vec<String>>>,
         pub job: Arc<Mutex<Job>>,
-        reads: bool,
+        deferred: bool,
     }
 
     impl DeferringStorage {
-        /// Returns resend reads as jobs as well as commits.
-        pub fn deferring_reads() -> Self {
-            Self { reads: true, ..Self::default() }
+        /// Returns resend reads and openings as jobs as well as commits.
+        pub fn deferring_all() -> Self {
+            Self { deferred: true, ..Self::default() }
         }
     }
 
     impl Default for DeferringStorage {
         fn default() -> Self {
             let job: Job = Arc::new(|| Ok(()));
-            Self { inner: MemoryStorage::new(), calls: Arc::default(), job: Arc::new(Mutex::new(job)), reads: false }
+            Self { inner: MemoryStorage::new(), calls: Arc::default(), job: Arc::new(Mutex::new(job)), deferred: false }
         }
     }
 
@@ -258,13 +299,24 @@ pub(crate) mod deferring {
         job: Arc<Mutex<Job>>,
         /// Mutations since the last commit.
         dirty: bool,
-        reads: bool,
+        deferred: bool,
     }
 
     impl SessionStorage for DeferringStorage {
         fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
             let (calls, job) = (self.calls.clone(), self.job.clone());
-            Ok(Box::new(DeferringLog { inner: self.inner.open(id)?, calls, job, dirty: false, reads: self.reads }))
+            let inner = self.inner.open(id)?;
+            Ok(Box::new(DeferringLog { inner, calls, job, dirty: false, deferred: self.deferred }))
+        }
+
+        fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
+            let log = self.open(id)?;
+            if !self.deferred {
+                return Ok(Opened::Ready(log));
+            }
+            self.calls.lock().unwrap().push(format!("open {id}"));
+            let job = self.job.clone();
+            Ok(Opened::Pending(super::Job::blocking(move || (job.lock().unwrap().clone())().map(|()| log))))
         }
     }
 
@@ -295,7 +347,7 @@ pub(crate) mod deferring {
         }
         fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {
             let read = self.inner.sent_messages(begin, end)?;
-            if !self.reads {
+            if !self.deferred {
                 return Ok(Fetched::Ready(read));
             }
             self.calls.lock().unwrap().push(format!("fetch {begin}..={end}"));
