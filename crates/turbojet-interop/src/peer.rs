@@ -137,6 +137,8 @@ pub struct PeerConfig {
     pub heartbeat_secs: u32,
     pub reset_on_logon: bool,
     pub reconnect_secs: u32,
+    /// How far SendingTime may be from QuickFIX/J's clock (MaxLatency, with CheckLatency=Y).
+    pub max_latency_secs: u32,
 }
 
 /// A running QuickFIX/J peer. Killed on drop.
@@ -182,6 +184,7 @@ impl Peer {
             .arg(format!("heartbeat={}", config.heartbeat_secs))
             .arg(format!("reset-on-logon={}", if config.reset_on_logon { "Y" } else { "N" }))
             .arg(format!("reconnect={}", config.reconnect_secs))
+            .arg(format!("max-latency={}", config.max_latency_secs))
             .arg(format!("log-dir={}", dir.path().join("qfj").display()));
         if let Some(port) = config.port {
             command.arg(format!("port={port}"));

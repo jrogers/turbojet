@@ -16,7 +16,8 @@ use turbojet::{
 };
 
 use crate::mailbox::{Mailbox, Missing};
-use crate::{EVENT_TIMEOUT, Peer, PeerConfig, PeerEvent, Proxy, QFJ, TJ};
+use crate::orders::{peer_order, tj_order};
+use crate::{EVENT_TIMEOUT, FixMsg, Peer, PeerConfig, PeerEvent, Proxy, ProxyEvent, QFJ, TJ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -62,11 +63,14 @@ pub struct Options {
     pub reconnect_secs: u32,
     /// Puts a [`Proxy`] between the two, as [`Pair::proxy`], to inject faults.
     pub proxy: bool,
+    /// How far an inbound SendingTime may be from the receiver's clock before it is rejected:
+    /// Turbojet's `max_latency`, QuickFIX/J's MaxLatency. 120 s, both engines' default.
+    pub max_latency_secs: u32,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 1, proxy: false }
+        Self { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 1, proxy: false, max_latency_secs: 120 }
     }
 }
 
@@ -131,6 +135,7 @@ impl Setup {
         if self.version == Version::Fixt {
             session = session.with_appl_ver_id(ApplVerId::Fix50Sp2);
         }
+        session.max_latency = Some(Duration::from_secs(options.max_latency_secs.into()));
         let mut peer_config = PeerConfig {
             acceptor: self.role == Role::TjInitiator,
             begin_string,
@@ -138,6 +143,7 @@ impl Setup {
             heartbeat_secs: options.heartbeat_secs,
             reset_on_logon: options.reset_on_logon && self.role == Role::TjAcceptor,
             reconnect_secs: options.reconnect_secs,
+            max_latency_secs: options.max_latency_secs,
         };
         let mut proxy = None;
         let (peer, handle, task) = match self.role {
@@ -243,6 +249,37 @@ impl Pair {
     pub async fn peer_delivers_no_more(&mut self, id: &str) {
         let order = |e: &PeerEvent| e.received().is_some_and(|m| m.msg_type() == "D" && m.get(11) == Some(id));
         self.peer.expect_none(&format!("order {id} at QuickFIX/J"), order, Duration::ZERO).await;
+    }
+
+    /// Fails unless neither side logged out or disconnected: no logout reported by either, no
+    /// Logout on the wire, and no close seen by the proxy, if there is one. Call after
+    /// [`Pair::barrier`].
+    pub async fn stayed_up(&mut self) {
+        self.tj_expect_none("logout", |e| matches!(e, TjEvent::LoggedOut), Duration::ZERO).await;
+        self.peer.expect_none("logout", |e| matches!(e, PeerEvent::Logout), Duration::ZERO).await;
+        let logout = |e: &PeerEvent| match e {
+            PeerEvent::In(raw) | PeerEvent::Out(raw) => FixMsg::parse(raw).msg_type() == "5",
+            _ => false,
+        };
+        self.peer.expect_none("Logout message", logout, Duration::ZERO).await;
+        if let Some(proxy) = self.proxy.as_mut() {
+            let close = |e: &ProxyEvent| matches!(e, ProxyEvent::Ended { .. } | ProxyEvent::Disconnected);
+            proxy.expect_none("close", close, Duration::ZERO).await;
+        }
+    }
+
+    /// Order `ours` from Turbojet and `theirs` from QuickFIX/J, each delivered once and not as a
+    /// resend.
+    pub async fn orders_each_way(&mut self, ours: &str, theirs: &str) {
+        self.handle.send(tj_order(ours)).unwrap();
+        let order = self.peer.received_with("D", |m| m.get(11) == Some(ours)).await;
+        assert_eq!(order.get(43), None, "{}", order.raw());
+        self.peer.send(&peer_order(theirs)).await;
+        let order = self.tj_received_with("D", |m| m.get(tags::CL_ORD_ID) == Some(theirs)).await;
+        assert_eq!(order.get(tags::POSS_DUP_FLAG), None);
+        self.barrier().await;
+        self.peer_delivers_no_more(ours).await;
+        self.tj_delivers_no_more(theirs).await;
     }
 
     /// Fails on anything unexpected either side saw: see [`Peer::finish`]. Turbojet delivers

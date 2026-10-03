@@ -6,7 +6,7 @@ use tokio::time::Instant;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, TjEvent, matrix};
+use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, matrix};
 
 matrix!(lost_order_to_peer, lost_order_to_tj, garbled_order_to_peer, garbled_order_to_tj);
 matrix!(silent_peer, silent_tj, cut_order_to_peer, cut_order_to_tj);
@@ -93,7 +93,7 @@ async fn order_recovered_at_peer(setup: Setup, fault: Fault) {
     pair.barrier().await;
     pair.peer_delivers_no_more("ORD1").await;
     pair.peer_delivers_no_more("ORD2").await;
-    stayed_up(&mut pair).await;
+    pair.stayed_up().await;
     pair.finish().await;
 }
 
@@ -130,22 +130,8 @@ async fn order_recovered_at_tj(setup: Setup, fault: Fault) {
     pair.barrier().await;
     pair.tj_delivers_no_more("ORD1").await;
     pair.tj_delivers_no_more("ORD2").await;
-    stayed_up(&mut pair).await;
+    pair.stayed_up().await;
     pair.finish().await;
-}
-
-/// Whether `event` is a `msg_type` message on the wire, either way.
-fn on_wire(event: &PeerEvent, msg_type: &str) -> bool {
-    matches!(event, PeerEvent::In(raw) | PeerEvent::Out(raw) if FixMsg::parse(raw).msg_type() == msg_type)
-}
-
-/// Neither side logged out or disconnected. Call after [`Pair::barrier`].
-async fn stayed_up(pair: &mut Pair) {
-    pair.tj_expect_none("logout", |e| matches!(e, TjEvent::LoggedOut), Duration::ZERO).await;
-    pair.peer.expect_none("logout", |e| matches!(e, PeerEvent::Logout), Duration::ZERO).await;
-    pair.peer.expect_none("Logout message", |e| on_wire(e, "5"), Duration::ZERO).await;
-    let close = |e: &ProxyEvent| matches!(e, ProxyEvent::Ended { .. } | ProxyEvent::Disconnected);
-    pair.proxy().expect_none("close", close, Duration::ZERO).await;
 }
 
 /// QuickFIX/J goes silent: everything it sends is lost, but the connection stays up.
@@ -256,21 +242,8 @@ async fn resume(mut pair: Pair, silent: Dir) {
     };
     assert_eq!(fill.get(123), Some("Y"), "only admin messages were lost: {}", fill.raw());
     assert_eq!(fill.seq().to_string(), request.get(7).unwrap_or_default(), "{} {}", request.raw(), fill.raw());
-    orders_each_way(&mut pair).await;
+    pair.orders_each_way("ORD1", "ORD2").await;
     pair.finish().await;
-}
-
-/// ORD1 from Turbojet and ORD2 from QuickFIX/J, each delivered once and not as a resend.
-async fn orders_each_way(pair: &mut Pair) {
-    pair.handle.send(tj_order("ORD1")).unwrap();
-    let theirs = pair.peer.received_with("D", |m| m.get(11) == Some("ORD1")).await;
-    assert_eq!(theirs.get(43), None, "{}", theirs.raw());
-    pair.peer.send(&peer_order("ORD2")).await;
-    let ours = pair.tj_received_with("D", |m| m.get(tags::CL_ORD_ID) == Some("ORD2")).await;
-    assert_eq!(ours.get(tags::POSS_DUP_FLAG), None);
-    pair.barrier().await;
-    pair.peer_delivers_no_more("ORD1").await;
-    pair.tj_delivers_no_more("ORD2").await;
 }
 
 async fn cut_order_to_peer(setup: Setup) {

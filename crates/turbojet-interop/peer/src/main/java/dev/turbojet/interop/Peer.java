@@ -28,7 +28,8 @@ import quickfix.field.MsgSeqNum;
  *
  * <p>Arguments are {@code key=value}: role (acceptor|initiator), begin (FIX.4.2|FIX.4.3|FIX.4.4|FIXT.1.1),
  * port (initiator only; the acceptor picks a free one and reports it), sender, target,
- * heartbeat (seconds), reset-on-logon (Y|N), reconnect (seconds), log-dir.
+ * heartbeat (seconds), reset-on-logon (Y|N), reconnect (seconds), max-latency (seconds: how far
+ * SendingTime may be from the clock, with CheckLatency=Y), log-dir.
  *
  * <p>Commands, one per line on stdin, each answered with {@code ok} or {@code error}:
  * <ul>
@@ -103,6 +104,8 @@ public final class Peer implements Application {
         settings.setString(id, "HeartBtInt", opts.getOrDefault("heartbeat", "30"));
         settings.setString(id, "ResetOnLogon", opts.getOrDefault("reset-on-logon", "N"));
         settings.setString(id, "ReconnectInterval", opts.getOrDefault("reconnect", "1"));
+        settings.setString(id, "CheckLatency", "Y");
+        settings.setString(id, "MaxLatency", opts.getOrDefault("max-latency", "120"));
         settings.setString(id, "FileLogPath", opts.get("log-dir"));
         settings.setString(id, "UseDataDictionary", "Y");
         if (begin.equals("FIXT.1.1")) {
