@@ -307,14 +307,11 @@ From the benchmarks.
 - **TLS certificate revocation** (S). Client and server certificates are checked against their
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
-- **Connect-timeout test** (S). Initiator failover on a connect timeout is implemented but
-  untested; simulating a host that silently drops packets needs a test harness.
 - **More interop tests** (M). Against QuickFIX/J, only what it does on request is tested. Still
   to do:
   - a fault-injecting proxy between the engines (delays, dropped or garbled bytes, a
     counterparty that goes silent). Among other things it would test a TestRequest sent by
-    Turbojet, which QuickFIX/J never goes quiet long enough to prompt, and could serve the
-    connect-timeout test above;
+    Turbojet, which QuickFIX/J never goes quiet long enough to prompt;
   - QuickFIX/n as a second peer;
   - sessions over TLS.
 
