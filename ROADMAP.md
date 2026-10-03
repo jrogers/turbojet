@@ -241,8 +241,8 @@ From the benchmarks.
   1,144 bytes, parsing it took about 237 ns against 202 ns). Lookup and conversion cost the same;
   the gap is initialising, copying and dropping the larger struct, and it grows with FIX 4.4 and
   5.0 (1,976 bytes for FIX 4.4's). The borrowed forms are about 15% smaller (840 and 1,680 bytes)
-  and allocate nothing: a FIX 4.2 NewOrderSingle parses in about 98 ns borrowed against 163 ns
-  owned, and a FIX 4.4 one with nested groups in 448 ns against 1.03 µs. They are still mostly
+  and allocate nothing: a FIX 4.2 NewOrderSingle parses in about 98 ns borrowed against 148 ns
+  owned, and a FIX 4.4 one with nested groups in 448 ns against 692 ns. They are still mostly
   empty `Option`s. Options, cheapest first:
   - Build the struct in place (`MaybeUninit`) instead of copying it into the return slot. No API
     change; an estimated 15-35 ns, not yet measured. Needs `unsafe` in an exported macro, with
@@ -252,11 +252,6 @@ From the benchmarks.
     API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
-- **Owned typed parsing** (M). Parsing an owned typed message is a borrowed parse followed by
-  `into_owned()`, which parses each group entry again at every level of nesting. Against the
-  parser it replaced, a FIX 4.2 NewOrderSingle is about 17% slower (34% with three allocations)
-  and a FIX 4.4 one with nested groups about 63%. Reading with the borrowed form avoids the cost;
-  converting fields straight into the owned form, without the borrowed step, would recover it.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
   processing is only a few µs; the rest is task scheduling and system calls. Worth exploring:
   a current-thread runtime per session, avoiding channel hops, busy-polling, and CPU pinning.

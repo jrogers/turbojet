@@ -656,8 +656,8 @@ to partition the crate.
 | Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 221 ns / 186 ns | 729 / 866 MiB/s |
 | Encode ExecutionReport (209 B) | 118 ns | 1.6 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations)² | 98 ns / 173 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations)² | 163 ns / 334 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² | 448 ns / 722 ns / 1.03 µs | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations)⁶ | 148 ns / 273 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² ⁶ | 448 ns / 722 ns / 692 ns | |
 | Typed build ExecutionReport¹ | 158 ns | |
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store)⁵ | 878 ns | 1.14M msg/s |
@@ -693,7 +693,8 @@ The FIX 4.4 order has three parties with two sub-IDs each. ⁴ Measured 2026-10-
 (`cargo bench -p turbojet-sql --all-features`), PostgreSQL 14 on the same machine over TCP; SQLite
 synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. ⁵ Re-measured
 2026-10-03, after the application's replies were built in messages the session reuses: 945 ns and
-1.20 µs just before, on the same day.
+1.20 µs just before, on the same day. ⁶ Owned re-measured 2026-10-03, after owned messages were
+parsed straight into their owned form: 166 ns, 335 ns and 1.04 µs just before, on the same day.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:

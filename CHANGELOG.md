@@ -6,6 +6,12 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Owned typed messages (`FixMessage::from_message`, `Message::parse::<NewOrderSingle>()`) are
+  parsed straight into their owned form, rather than borrowed and then made owned, so each group
+  entry is parsed once: a FIX 4.2 NewOrderSingle about 11% faster (18% with three allocated
+  strings), a FIX 4.4 one with nested groups about 34%. They fail exactly as the borrowed forms do.
+  The generated crates hold a second parser per message, so they take about twice as long to
+  build in release (`turbojet-fix50sp2` 39 s to 79 s on an M3) and half as long again in debug.
 - `DiskStorage` commits with one `fsync` instead of two. A commit that stores messages appends
   them and a checksummed record of the session's state to the newest segment, in one write, as a
   journal; one that stores none writes the record to the `.seqnums` file's slots, as before, so
