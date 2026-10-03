@@ -1,7 +1,7 @@
 //! The interface between the engine and the code using it.
 
 use crate::fields::{BusinessRejectReason, SessionRejectReason};
-use crate::message::{FieldError, Message};
+use crate::message::{FieldError, FixMessage, Message};
 use crate::peer::ConnectionInfo;
 use crate::registry::SessionHandle;
 use crate::store::SessionId;
@@ -91,9 +91,7 @@ pub trait Application: Send + Sync + 'static {
 /// Passed to [`Application::on_message`] to reply on the same session.
 pub struct Context<'a> {
     session: &'a SessionId,
-    /// What the application sent in this call. Only the application decides how many, so it has
-    /// no limit here.
-    pub(crate) replies: Vec<Message>,
+    outbox: Outbox,
     redelivered: bool,
 }
 
@@ -101,7 +99,19 @@ impl<'a> Context<'a> {
     /// A context for `session`. The engine creates these; construct one yourself to unit-test an
     /// [`Application`], then inspect what it sent with [`Context::replies`].
     pub fn new(session: &'a SessionId) -> Self {
-        Self { session, replies: Vec::new(), redelivered: false }
+        Self::with_outbox(session, Outbox::default())
+    }
+
+    /// A context whose replies go into `outbox`, which the session keeps between calls to reuse
+    /// its allocations.
+    pub(crate) fn with_outbox(session: &'a SessionId, outbox: Outbox) -> Self {
+        debug_assert!(outbox.sent.is_empty(), "the session sends every reply before the next call");
+        Self { session, outbox, redelivered: false }
+    }
+
+    /// The outbox, holding what the application sent, for the session to send and keep.
+    pub(crate) fn into_outbox(self) -> Outbox {
+        self.outbox
     }
 
     /// The same context, for a message that [may have been handled](Context::maybe_redelivered)
@@ -124,7 +134,7 @@ impl<'a> Context<'a> {
 
     /// Messages sent so far through this context, in order.
     pub fn replies(&self) -> &[Message] {
-        &self.replies
+        &self.outbox.sent
     }
 
     /// The session the message arrived on.
@@ -137,8 +147,74 @@ impl<'a> Context<'a> {
     /// sessions, ApplVerID(1128) may name any version the session supports (the default goes
     /// unstated), and a message naming another is dropped (and logged); CstmApplVerID(1129) and
     /// ApplExtID(1156) pass through. On FIX 4.x sessions, ApplVerID(1128) is dropped.
-    pub fn send(&mut self, msg: impl Into<Message>) {
-        self.replies.push(msg.into());
+    ///
+    /// A typed message is written into a message the session reuses, so in steady state sending
+    /// one allocates nothing beyond what the typed message itself holds.
+    pub fn send(&mut self, msg: impl Reply) {
+        msg.send_to(self);
+    }
+}
+
+/// What [`Context::send`] takes: a [`Message`], or any typed [`FixMessage`].
+pub trait Reply: sealed::Sealed {}
+
+impl Reply for Message {}
+impl<T: FixMessage> Reply for T {}
+
+mod sealed {
+    use super::{Context, FixMessage, Message};
+
+    pub trait Sealed {
+        /// Adds the message to what the application sent through `ctx`.
+        fn send_to(self, ctx: &mut Context<'_>);
+    }
+
+    impl Sealed for Message {
+        fn send_to(self, ctx: &mut Context<'_>) {
+            ctx.outbox.sent.push(self);
+        }
+    }
+
+    impl<T: FixMessage> Sealed for T {
+        fn send_to(self, ctx: &mut Context<'_>) {
+            let mut msg = ctx.outbox.spare.pop().unwrap_or_default();
+            self.write_into(&mut msg);
+            ctx.outbox.sent.push(msg);
+        }
+    }
+}
+
+/// Spare messages kept to build replies in. Replies to one message are usually one or two, so a
+/// few cover a burst without holding much memory.
+const MAX_SPARE_MESSAGES: usize = 8;
+
+/// The most a spare message may hold allocated (64 KiB), so one unusually large reply doesn't stay
+/// allocated for the life of the session. Typed messages reserve about 32 bytes per field they
+/// define, a few KiB for the largest.
+const MAX_SPARE_MESSAGE_BYTES: usize = 64 * 1024;
+
+/// The messages an application sends from a callback, and spare ones to build typed replies in.
+/// The session keeps one between calls, so neither list, nor the replies built in the spares,
+/// allocate once they've grown.
+#[derive(Default)]
+pub(crate) struct Outbox {
+    /// What the application sent in this call. Only the application decides how many, so it has
+    /// no limit here.
+    pub(crate) sent: Vec<Message>,
+    /// Emptied messages, at most `MAX_SPARE_MESSAGES`.
+    spare: Vec<Message>,
+}
+
+impl Outbox {
+    /// Keeps `msg`, sent or abandoned, to build a later reply in, unless enough are kept already
+    /// or it holds too much memory to keep.
+    pub(crate) fn recycle(&mut self, mut msg: Message) {
+        debug_assert!(self.spare.len() <= MAX_SPARE_MESSAGES);
+        if self.spare.len() < MAX_SPARE_MESSAGES && msg.capacity_bytes() <= MAX_SPARE_MESSAGE_BYTES {
+            // Emptied, so a spare holds no stale content, only its allocations.
+            msg.clear();
+            self.spare.push(msg);
+        }
     }
 }
 
@@ -197,5 +273,53 @@ impl MessageReject {
 impl From<FieldError> for MessageReject {
     fn from(e: FieldError) -> Self {
         Self::Session { ref_tag: Some(e.tag), reason: e.reject_reason(), text: e.to_string() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MsgType;
+    use crate::admin::Heartbeat;
+    use crate::message::tags;
+
+    fn session_id() -> SessionId {
+        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() }
+    }
+
+    /// A typed reply is built in a spare message, which `send` takes from the outbox; a message
+    /// sent as it is leaves the spares alone.
+    #[test]
+    fn typed_replies_are_built_in_spare_messages() {
+        let id = session_id();
+        let mut outbox = Outbox::default();
+        outbox.recycle(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "old"));
+        let mut ctx = Context::with_outbox(&id, outbox);
+        ctx.send(Message::new(MsgType::OrderCancelReject));
+        assert_eq!(ctx.outbox.spare.len(), 1);
+        ctx.send(Heartbeat { test_req_id: Some("T".into()) });
+        assert!(ctx.outbox.spare.is_empty(), "the typed reply took the spare");
+        assert_eq!(
+            ctx.replies(),
+            [Message::new(MsgType::OrderCancelReject), Heartbeat { test_req_id: Some("T".into()) }.into()]
+        );
+        // With no spare left, a typed reply is built in a new message.
+        ctx.send(Heartbeat { test_req_id: None });
+        assert_eq!(ctx.replies().len(), 3);
+    }
+
+    #[test]
+    fn spares_are_emptied_and_bounded_in_number_and_size() {
+        let mut outbox = Outbox::default();
+        for _ in 0..MAX_SPARE_MESSAGES + 3 {
+            outbox.recycle(Message::new(MsgType::OrderCancelReject).with(tags::TEXT, "headline"));
+        }
+        assert_eq!(outbox.spare.len(), MAX_SPARE_MESSAGES);
+        assert!(outbox.spare.iter().all(|msg| msg.fields_bytes().next().is_none()), "spares hold no fields");
+
+        let mut outbox = Outbox::default();
+        let large = Message::new(MsgType::OrderCancelReject).with(tags::TEXT, "x".repeat(MAX_SPARE_MESSAGE_BYTES));
+        outbox.recycle(large);
+        assert!(outbox.spare.is_empty(), "a message holding more than the limit isn't kept");
     }
 }

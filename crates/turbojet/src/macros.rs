@@ -337,11 +337,17 @@ macro_rules! fix_message {
             }
 
             fn to_message(&self) -> $crate::message::Message {
+                let mut msg = $crate::message::Message::default();
+                $crate::message::FixMessage::write_into(self, &mut msg);
+                msg
+            }
+
+            #[allow(unused_mut)]
+            fn write_into(&self, mut msg: &mut $crate::message::Message) {
                 // Room for MsgType, every field, and typical value lengths.
                 const FIELDS: usize = 1 $( + $crate::fix_message!(@one $field) )+;
-                let mut msg = $crate::message::Message::with_capacity(Self::MSG_TYPE, 16 * FIELDS, FIELDS);
+                msg.reset_with_capacity(Self::MSG_TYPE, 16 * FIELDS, FIELDS);
                 $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )+
-                msg
             }
         }
 
@@ -991,6 +997,26 @@ mod tests {
                 (SYMBOL, b"IBM"),
             ]
         );
+    }
+
+    /// A message reused for each one is written as a new one would be: what it held before, a
+    /// longer message with binary data, leaves nothing behind. Writing the same message again keeps
+    /// its allocations.
+    #[test]
+    fn write_into_replaces_what_the_message_held() {
+        let order = TestOrder { legs: vec![], symbol: "IBM".into(), text: None };
+        let mut msg = data_order().to_message();
+        order.write_into(&mut msg);
+        assert_eq!(msg, order.to_message());
+        assert_eq!(msg.to_string(), "35=D|55=IBM|");
+        assert_eq!(msg.get_bytes(RAW_DATA), None, "the binary value is gone");
+
+        data_order().write_into(&mut msg);
+        assert_eq!(msg, data_order().to_message());
+        let capacity = msg.capacity_bytes();
+        data_order().write_into(&mut msg);
+        assert_eq!(msg, data_order().to_message());
+        assert_eq!(msg.capacity_bytes(), capacity, "written in place");
     }
 
     #[test]

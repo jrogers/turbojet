@@ -24,8 +24,9 @@ use turbojet_fix42::{NewOrderSingle, NewOrderSingleRef, PreAllocGrp};
 static ALLOCATOR: counting::Counting = counting::Counting;
 
 /// The benchmarks' application, its allocations attributed to the application stage. That includes
-/// one of the engine's: the first `Context::send` grows the context's reply `Vec`. `Acker` overrides
-/// only `on_message`; the other callbacks run at logon and logout, outside the counted orders.
+/// `Context::send` writing the typed ack into a message the session reuses, which allocates nothing
+/// once warmed up. `Acker` overrides only `on_message`; the other callbacks run at logon and
+/// logout, outside the counted orders.
 #[derive(Default)]
 struct StagedApp(common::Acker);
 
@@ -302,9 +303,9 @@ type Budget = [(Stage, u64, u64); Stage::ALL.len()];
 /// BTreeMap node size), so a toolchain or dependency update can move them without a change to
 /// Turbojet.
 const MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 1166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 5000, 2000), (Stage::Store, 1166, 0)];
 const DISK_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 8000, 2000), (Stage::Store, 166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 5000, 2000), (Stage::Store, 166, 0)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {

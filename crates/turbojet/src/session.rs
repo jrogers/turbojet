@@ -22,7 +22,7 @@ use tracing::{debug, error, info, warn};
 use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
-use crate::application::{Application, Context, MessageReject};
+use crate::application::{Application, Context, MessageReject, Outbox};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
@@ -519,6 +519,9 @@ pub struct Session {
     header: String,
     /// Scratch space for the stored copy of a message, when it differs from the one sent.
     stored: Vec<u8>,
+    /// What the application sends from `on_message`, and spare messages to build its replies in,
+    /// kept to reuse their allocations.
+    outbox: Outbox,
     /// `config.clock`'s time, read at most once per call into the session (see
     /// [`wall_clock`](Self::wall_clock)).
     wall_clock: Cell<Option<DateTime<Utc>>>,
@@ -618,6 +621,7 @@ impl Session {
             header: String::new(),
             wall_clock: Cell::new(None),
             stored: Vec::new(),
+            outbox: Outbox::default(),
         };
         (session, receiver)
     }
@@ -1009,9 +1013,9 @@ impl Session {
 
     fn apply_command(&mut self, command: Command, now: Instant) {
         match command {
-            Command::Send(msg, receipt) => {
+            Command::Send(mut msg, receipt) => {
                 let outcome = if self.status == Status::Active {
-                    self.send_app(msg, now)
+                    self.send_app(&mut msg, now)
                 } else {
                     warn!(msg_type = %msg.msg_type(), "dropping message: session is logging out");
                     Err(Dropped::LoggingOut)
@@ -1933,20 +1937,28 @@ impl Session {
         // Borrows the peer field alone (not `self.peer()`), so the application can be called
         // without cloning the SessionId for every message.
         let id = &self.peer.as_ref().expect("session is not bound before logon").id;
-        let mut ctx = Context::new(id);
+        let mut ctx = Context::with_outbox(id, std::mem::take(&mut self.outbox));
         if redelivered {
             ctx = ctx.redelivery();
         }
-        let Some(result) = guarded("on_message", || self.app.on_message(&mut ctx, msg)) else {
-            // The message counts as received, so say it wasn't processed. Replies queued before
-            // the panic may be half-done, so they're dropped.
+        let result = guarded("on_message", || self.app.on_message(&mut ctx, msg));
+        let mut outbox = ctx.into_outbox();
+        let mut sent = std::mem::take(&mut outbox.sent);
+        for mut reply in sent.drain(..) {
+            // Replies queued before a panic may be half-done, so they're dropped, not sent.
+            // Replies have no receipt: anything wrong with one is logged.
+            if result.is_some() {
+                let _ = self.send_app(&mut reply, now);
+            }
+            outbox.recycle(reply);
+        }
+        outbox.sent = sent;
+        self.outbox = outbox;
+        let Some(result) = result else {
+            // The message counts as received, so say it wasn't processed.
             let reason = BusinessRejectReason::ApplicationNotAvailable;
             return self.business_reject(msg, seq_num, reason, "Application error".into(), now);
         };
-        for reply in ctx.replies {
-            // Replies have no receipt: anything wrong with one is logged.
-            let _ = self.send_app(reply, now);
-        }
         match result {
             Ok(()) => {}
             Err(MessageReject::Session { ref_tag, reason, text }) => {
@@ -2323,7 +2335,7 @@ impl Session {
     ///
     /// Sends from the queue and replies alike count against the outbound limit: only messages
     /// stored count, as only they go out. Resends don't come this way, and don't count.
-    fn send_app(&mut self, msg: Message, now: Instant) -> Result<u64, Dropped> {
+    fn send_app(&mut self, msg: &mut Message, now: Instant) -> Result<u64, Dropped> {
         if msg.msg_type().is_admin() {
             warn!(msg_type = %msg.msg_type(), "applications cannot send session-level messages; dropping");
             return Err(Dropped::Rejected(format!("{} is a session-level message type", msg.msg_type())));
@@ -2346,19 +2358,19 @@ impl Session {
 
     /// Assigns the next outgoing MsgSeqNum, adds the standard header, persists it and queues the
     /// message. Does nothing once the session is closed.
-    fn send(&mut self, body: Message, now: Instant) {
+    fn send(&mut self, mut body: Message, now: Instant) {
         // Session messages and replies have no one waiting to hear; anything wrong is logged.
-        let _ = self.send_outcome(body, now);
+        let _ = self.send_outcome(&mut body, now);
     }
 
     /// [`send`](Self::send), returning the MsgSeqNum once stored, or why the message was dropped.
-    fn send_outcome(&mut self, mut body: Message, now: Instant) -> Result<u64, Dropped> {
+    fn send_outcome(&mut self, body: &mut Message, now: Instant) -> Result<u64, Dropped> {
         if self.status == Status::Closed {
             return Err(Dropped::Disconnected);
         }
         let admin = body.msg_type().is_admin();
         // A panic may have left the message half-modified: disconnect rather than send it.
-        if admin && guarded("to_admin", || self.app.to_admin(&self.peer().id, &mut body)).is_none() {
+        if admin && guarded("to_admin", || self.app.to_admin(&self.peer().id, body)).is_none() {
             self.close();
             return Err(Dropped::Disconnected);
         }
@@ -2380,7 +2392,7 @@ impl Session {
         let holding = self.replay.is_some();
         let mut output = std::mem::take(if holding { &mut self.held } else { &mut self.output });
         let start = output.len();
-        self.frame_into(&body, seq, sending_time, None, false, &mut output);
+        self.frame_into(body, seq, sending_time, None, false, &mut output);
         // With more than one version, the default may differ on a later connection, so the stored
         // copy states its version for resends to keep.
         let mut stored = std::mem::take(&mut self.stored);
@@ -2393,7 +2405,7 @@ impl Session {
             None
         } else if self.config.appl_versions.len() > 1 && unstated {
             stored.clear();
-            self.frame_into(&body, seq, sending_time, None, true, &mut stored);
+            self.frame_into(body, seq, sending_time, None, true, &mut stored);
             Some(stored.as_slice())
         } else {
             Some(&output[start..])
