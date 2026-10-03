@@ -882,10 +882,33 @@ pub fn take_value_ref<'a, T: FieldRef<'a>>(
     }
 }
 
-/// Reads the repeating group whose NumInGroup field is at `index` into its slot, owned, and
-/// returns the index after it; what [`take_group_ref`] is checked against.
-#[cfg(test)]
-fn take_group<G: FixGroup>(
+/// [`take_value_ref`], keeping the value owned: converted as the borrowed form's is, so it fails
+/// alike, and then made owned.
+#[doc(hidden)]
+#[inline(never)]
+pub fn take_value<'a, T: FieldRef<'a>>(
+    slot: &mut Option<T>,
+    failed: &mut Option<FieldError>,
+    tags: &[u32],
+    tag: u32,
+    raw: Option<&'a str>,
+) {
+    // Its own copy of take_value_ref's body rather than a call to it: one call per field, not two.
+    if slot.is_none() {
+        match raw.map(T::parse_ref) {
+            Some(Ok(value)) => *slot = Some(T::into_owned(value)),
+            Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
+            None => conversion_failed(failed, tags, tag, "", ValueError::Format),
+        }
+    }
+}
+
+/// [`take_group_ref`], parsing each entry straight into its owned form, once: the group is
+/// checked whole first, so a structural error anywhere in it wins over an earlier entry's
+/// conversion error, as it does borrowed.
+#[doc(hidden)]
+#[inline(never)]
+pub fn take_group<G: FixGroup>(
     slot: &mut Option<Vec<G>>,
     fields: &Fields<'_>,
     index: usize,
@@ -894,9 +917,17 @@ fn take_group<G: FixGroup>(
     if slot.is_some() {
         return Ok(index + 1);
     }
-    let (entries, next) = fields.group_at(index, tag, &G::SPEC)?;
-    *slot = Some(entries.into_iter().map(G::from_fields).collect::<Result<Vec<_>, _>>()?);
-    Ok(next)
+    // Within the view, as `Fields::group` scans.
+    let (count, end) = check_group(fields.msg, index, fields.end, tag, &G::SPEC)?;
+    let group: Group<'_, G::Ref<'_>> = Group::new(fields.msg, index + 1, end, count);
+    // At most one entry per field checked, so the message's size bounds it.
+    let mut entries = Vec::with_capacity(group.len());
+    for entry in group.entries() {
+        entries.push(G::from_fields(entry)?);
+    }
+    debug_assert_eq!(entries.len(), group.len());
+    *slot = Some(entries);
+    Ok(end)
 }
 
 /// Checks the repeating group whose NumInGroup field is at `index` and stores it in its slot,
@@ -985,6 +1016,12 @@ pub fn declared_at(tags: &[u32], tag: u32) -> usize {
 #[inline(never)]
 pub fn required_group_ref<G>(tag: u32, group: Option<Group<'_, G>>) -> Result<Group<'_, G>, FieldError> {
     group.filter(|group| !group.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
+}
+
+/// [`required_group_ref`] for a group parsed owned.
+#[doc(hidden)]
+pub fn required_group<G>(tag: u32, entries: Option<Vec<G>>) -> Result<Vec<G>, FieldError> {
+    entries.filter(|entries| !entries.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
 }
 
 /// Defines a repeating group: its fields in order, the first being the *delimiter* that starts
@@ -1104,15 +1141,6 @@ impl<'a> Fields<'a> {
     #[doc(hidden)]
     pub fn bytes_at(&self, index: usize) -> &'a [u8] {
         self.msg.bytes(&self.msg.fields[index])
-    }
-
-    /// Scans the group whose NumInGroup field is at `index`, returning its entries and the index
-    /// just past it.
-    #[cfg(test)]
-    fn group_at(&self, index: usize, count_tag: u32, spec: &GroupSpec) -> Result<(Vec<Fields<'a>>, usize), FieldError> {
-        let (entries, end) = scan_group(self.msg, index, self.end, count_tag, spec)?;
-        let msg = self.msg;
-        Ok((entries.into_iter().map(|(start, end)| Fields { msg, start, end, excluded: Vec::new() }).collect(), end))
     }
 
     /// The index of the first visible occurrence of `tag`.
