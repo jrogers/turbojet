@@ -34,7 +34,8 @@ every FIX 4.2, 4.3, 4.4 and 5.0 SP2 application message, generated from the FIX 
 Community's official data and checked in.
 
 CI runs Turbojet's sessions against QuickFIX/J, in both roles, on FIX 4.2, 4.3 and 4.4 and on
-FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), and through QuickFIX's
+FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
+loses, garbles and cuts messages and silences either side, and through QuickFIX's
 235 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
 
 ```sh

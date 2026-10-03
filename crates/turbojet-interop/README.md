@@ -3,7 +3,7 @@
 Tests Turbojet's session layer against another FIX engine,
 [QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2. Each scenario runs in eight cells:
 Turbojet as initiator and as acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2.
-There are 16 scenarios (128 tests, plus a check on the harness itself):
+There are 26 scenarios (208 tests, plus checks on the harness itself):
 
 - logon; Logout from either side; a dropped connection that resumes its sequence numbers, and
   one that starts again at 1 because the initiator logs on with ResetSeqNumFlag
@@ -12,7 +12,10 @@ There are 16 scenarios (128 tests, plus a check on the harness itself):
 - a NewOrderSingle each way, field for field, and one with XmlData containing SOH (`app.rs`);
 - gap fills and resends in each direction (`gap_recovery.rs`);
 - a SequenceReset from either side (reset mode from QuickFIX/J; gap-fill mode from Turbojet's
-  operator skipping ahead), and MsgSeqNum too low at either side (`seq_reset.rs`).
+  operator skipping ahead), and MsgSeqNum too low at either side (`seq_reset.rs`);
+- through a fault-injecting proxy (`faults.rs`): an order lost or garbled in either direction,
+  recovered by resend; a counterparty that goes silent, either side, so the other probes it with
+  a TestRequest, gives up and reconnects; and a connection cut halfway through an order.
 
 The QuickFIX/J side is a small Java program (`peer/`) that runs one session and is driven over
 stdin and stdout. The crate isn't published.
@@ -84,9 +87,20 @@ printed. Each expect times out after 10 s and each scenario after 120 s.
   spec; Turbojet now queues too, and the gap recovery scenarios check that both engines deliver
   the original.
 
+## The fault-injecting proxy
+
+With `Options { proxy: true, .. }`, the initiator connects through a proxy (`src/proxy.rs`) that
+forwards whole FIX frames and, per direction (`Dir::ToPeer` or `Dir::ToTj`), can:
+
+- `drop_next` or `garble_next` (a wrong CheckSum, same length) the next frame of a MsgType;
+- `cut_mid` it: forward half, then close both sides;
+- `blackhole` the direction, discarding everything, as a dead link would. While a direction is
+  blackholed a close isn't passed on, so each side has to notice on its own heartbeat timeout.
+
+Each new connection starts without faults. `pair.proxy()` sets them, and `applied`,
+`disconnected` and the other waits say when they've happened.
+
 ## Not covered
 
-- Faults a peer can't produce on request, such as a counterparty that goes silent, garbled or
-  truncated frames, or dropped bytes; these need a fault-injecting proxy between the two. Among
-  them is a TestRequest sent by Turbojet: QuickFIX/J never goes quiet for long enough.
+- Delays and slow links: the proxy doesn't hold data back yet.
 - QuickFIX/n, and TLS.

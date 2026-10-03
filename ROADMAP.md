@@ -307,11 +307,9 @@ From the benchmarks.
 - **TLS certificate revocation** (S). Client and server certificates are checked against their
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
-- **More interop tests** (M). Against QuickFIX/J, only what it does on request is tested. Still
-  to do:
-  - a fault-injecting proxy between the engines (delays, dropped or garbled bytes, a
-    counterparty that goes silent). Among other things it would test a TestRequest sent by
-    Turbojet, which QuickFIX/J never goes quiet long enough to prompt;
+- **More interop tests** (M). QuickFIX/J is tested on request and through a fault-injecting
+  proxy (lost, garbled and cut messages, a silent counterparty). Still to do:
+  - delays and slow links through the proxy;
   - QuickFIX/n as a second peer;
   - sessions over TLS.
 
