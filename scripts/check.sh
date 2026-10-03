@@ -6,17 +6,21 @@
 #   scripts/check.sh            # what most changes need
 #   scripts/check.sh --interop  # also the QuickFIX/J interop tests (needs a JDK, 21 or later)
 #   scripts/check.sh --msrv     # also the tests on the minimum supported Rust (rustup toolchain 1.89)
-#   scripts/check.sh --all      # both
+#   scripts/check.sh --postgres # also the SQL stores on PostgreSQL, at TURBOJET_POSTGRES_URL (a
+#                               # database the tests may clear)
+#   scripts/check.sh --all      # interop and msrv
 # cargo-deny and benchmark compilation are left to CI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 interop=false
 msrv=false
+postgres=false
 for arg in "$@"; do
     case $arg in
         --interop) interop=true ;;
         --msrv) msrv=true ;;
+        --postgres) postgres=true ;;
         --all) interop=true; msrv=true ;;
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
@@ -56,6 +60,15 @@ fi
 if $interop; then
     step interop
     scripts/interop.sh
+fi
+if $postgres; then
+    step postgres
+    if [ -z "${TURBOJET_POSTGRES_URL:-}" ]; then
+        echo "--postgres needs TURBOJET_POSTGRES_URL, e.g. postgres://user@localhost/turbojet_test" >&2
+        exit 2
+    fi
+    cargo clippy -p turbojet-sql --all-targets --no-default-features --features postgres --locked --quiet -- -D warnings
+    cargo test -p turbojet-sql --all-features --locked --quiet
 fi
 if $msrv; then
     step msrv
