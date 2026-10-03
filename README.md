@@ -555,17 +555,20 @@ aren't.
   up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts
   it in `turbojet_resend_requests_evicted_total`. It keeps at most 1,024 sessions
   (`with_max_sessions`) and never forgets one: a new session's Logon past that is refused.
-- `DiskStorage`: per session, `<id>.seqnums` (both sequence numbers and the message in flight,
-  as a fixed-width record rewritten in place and locked while the session is connected),
-  `<id>.body`, `<id>.body.1` and so on (sent messages appended in wire format, in segments of
-  64 MiB, indexed on open and read back for resends) and, once recorded, `<id>.created` (when the
-  state was created or last reset, for session schedules). A commit appends the batch's messages
-  to the newest segment in one write, then rewrites the record once. Each session keeps its
-  newest 1 GiB of messages (`with_max_session_bytes`, `with_segment_bytes`): past it the oldest
-  segments are deleted, and a resend gap-fills their messages, as with `MemoryStorage`. On open it
-  truncates a torn trailing write and advances the outgoing sequence number past the last stored
-  message. Without `fsync`, commits are written in the call and survive a process
-  crash but not an OS crash; with it, a batch costs one `fsync` of each file.
+- `DiskStorage`: per session, a journal in `<id>.body`, `<id>.body.1` and so on (segments of
+  64 MiB holding sent messages in wire format, each commit's followed by a checksummed record of
+  both sequence numbers and the message in flight; indexed on open and read back for resends),
+  `<id>.seqnums` (two checksummed slots, written alternately, for the records of commits that
+  store no messages; locked while the session is connected) and, once recorded, `<id>.created`
+  (when the state was created or last reset, for session schedules). A commit appends the batch's
+  messages and their record to the newest segment in one write, or, with no messages, writes the
+  record to a slot. Each session keeps its newest 1 GiB of journal (`with_max_session_bytes`,
+  `with_segment_bytes`): past it the oldest segments are deleted, and a resend gap-fills their
+  messages, as with `MemoryStorage`. On open it truncates a torn trailing write, takes the latest
+  whole record from either file, and advances the outgoing sequence number past the last stored
+  message. Without `fsync`, commits are written in the call and survive a process crash but not an
+  OS crash; with it, each commit costs one `fsync`. Stores from Turbojet 0.1 open as they were; 0.1
+  can't open a store once it has a journal record.
 - `SqlStorage` (`turbojet-sql`): a row per session in `turbojet_sessions` and its messages in
   `turbojet_messages`, in SQLite (bundled, with `synchronous` FULL or NORMAL) or PostgreSQL. A
   commit is one transaction, so sequence numbers and messages can't tear apart. Each session
@@ -659,8 +662,8 @@ to partition the crate.
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store)⁵ | 878 ns | 1.14M msg/s |
 | Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 1.11 µs | 899k msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync³ | 49 ns / 3.3 µs / 8.2 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync³ | 88 ns / 82 µs | |
+| Store a sent message and commit it: memory / disk / disk + fsync³ | 48 ns / 1.7 µs / 4.0 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync³ | 70 ns / 41 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL⁴ | 3.0 µs / 55 µs / 7.1 µs | |
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
@@ -668,8 +671,8 @@ to partition the crate.
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
 | Round trip over localhost TLS, 1,000 in flight | | 508k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 32.9 µs | 695k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 8.1 ms | 9.1k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 31.3 µs | 715k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 4.1 ms | 13.4k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor
@@ -682,7 +685,10 @@ messages gained borrowed forms (`NewOrderSingleRef`); the owned form is now pars
 one and then made owned, so it costs more than it did. ³ Measured 2026-10-02, with group commit:
 before it, storing 100 messages with fsync took 837 ms, and the disk + fsync round trip managed 62
 messages a second with 100 in flight; and with each commit recording the next in-flight window
-(before that, 12.2 ms one at a time with fsync). The other rows are the 2026-09-27 snapshot.
+(before that, 12.2 ms one at a time with fsync); re-measured 2026-10-03, after a commit took one
+write and one `fsync` rather than one of each file (just before, on the same day: 3.2 µs and
+8.0 ms one per commit, 84 ns and 81 µs at 100 per commit, and round trips of 33.2 µs, 689k msg/s,
+8.1 ms and 9.5k msg/s). The other rows are the 2026-09-27 snapshot.
 The FIX 4.4 order has three parties with two sub-IDs each. ⁴ Measured 2026-10-03
 (`cargo bench -p turbojet-sql --all-features`), PostgreSQL 14 on the same machine over TCP; SQLite
 synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. ⁵ Re-measured

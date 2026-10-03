@@ -6,6 +6,13 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `DiskStorage` commits with one `fsync` instead of two. A commit that stores messages appends
+  them and a checksummed record of the session's state to the newest segment, in one write, as a
+  journal; one that stores none writes the record to the `.seqnums` file's slots, as before, so
+  records don't fill the byte budget in place of messages. Opening takes the record with the
+  highest generation from either file; a commit torn by a power loss reads as before it, its
+  messages kept as far as they reached. Stores written by 0.1 open as they were; 0.1 can't open a
+  store once a segment holds a journal record, and reports the segment as corrupt.
 - Latency histograms, opt-in per session with `SessionConfig::latency_metrics` (feature
   `metrics`): `turbojet_inbound_message_seconds` (decoding, the session and `on_message`, per
   inbound message), `turbojet_commit_seconds` (store commits run off the connection's task) and

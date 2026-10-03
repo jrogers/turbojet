@@ -257,9 +257,6 @@ From the benchmarks.
   parser it replaced, a FIX 4.2 NewOrderSingle is about 17% slower (34% with three allocations)
   and a FIX 4.4 one with nested groups about 63%. Reading with the borrowed form avoids the cost;
   converting fields straight into the owned form, without the borrowed step, would recover it.
-- **One fsync per commit** (M). With fsync, a commit syncs the body file, then the sequence
-  numbers file: about 8.1 ms a round trip one at a time. Keeping both in one journal file would
-  make it one fsync (about 4 ms), at the cost of a new disk format and recovery path.
 - **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
   processing is only a few µs; the rest is task scheduling and system calls. Worth exploring:
   a current-thread runtime per session, avoiding channel hops, busy-polling, and CPU pinning.
