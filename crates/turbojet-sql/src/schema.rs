@@ -76,9 +76,14 @@ pub async fn migrate(pool: &AnyPool, backend: Backend) -> io::Result<()> {
 
 /// Write-ahead logging, so readers don't wait for a commit; `synchronous` as configured; and a
 /// wait for a busy database (another connection's commit) rather than an error.
+///
+/// With `sync`, also `fullfsync`: on macOS a plain fsync leaves writes in the drive's cache,
+/// where a power loss takes them, and only F_FULLFSYNC (as Rust's `File::sync_all` uses, and so
+/// `DiskStorage`) waits for the device. Other systems ignore it.
 pub async fn configure_sqlite(connection: &mut AnyConnection, sync: bool) -> Result<(), sqlx::Error> {
     connection.execute("PRAGMA journal_mode = WAL").await?;
     connection.execute(if sync { "PRAGMA synchronous = FULL" } else { "PRAGMA synchronous = NORMAL" }).await?;
+    connection.execute(if sync { "PRAGMA fullfsync = ON" } else { "PRAGMA fullfsync = OFF" }).await?;
     connection.execute("PRAGMA busy_timeout = 5000").await?;
     Ok(())
 }
