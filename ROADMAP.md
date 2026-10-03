@@ -308,8 +308,8 @@ From the benchmarks.
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
 - **More interop tests** (M). QuickFIX/J is tested on request and through a fault-injecting
-  proxy (lost, garbled and cut messages, a silent counterparty). Still to do:
-  - delays and slow links through the proxy;
+  proxy (lost, garbled, cut and delayed messages, a silent counterparty, a slow link and a
+  stalled reader). Still to do:
   - QuickFIX/n as a second peer;
   - sessions over TLS.
 

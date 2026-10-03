@@ -3,7 +3,7 @@
 Tests Turbojet's session layer against another FIX engine,
 [QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2. Each scenario runs in eight cells:
 Turbojet as initiator and as acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2.
-There are 26 scenarios (208 tests, plus checks on the harness itself):
+There are 33 scenarios (264 tests, plus checks on the harness itself):
 
 - logon; Logout from either side; a dropped connection that resumes its sequence numbers, and
   one that starts again at 1 because the initiator logs on with ResetSeqNumFlag
@@ -15,7 +15,11 @@ There are 26 scenarios (208 tests, plus checks on the harness itself):
   operator skipping ahead), and MsgSeqNum too low at either side (`seq_reset.rs`);
 - through a fault-injecting proxy (`faults.rs`): an order lost or garbled in either direction,
   recovered by resend; a counterparty that goes silent, either side, so the other probes it with
-  a TestRequest, gives up and reconnects; and a connection cut halfway through an order.
+  a TestRequest, gives up and reconnects; and a connection cut halfway through an order;
+- through the proxy, slowed down (`delays.rs`): a latency spike either way that the receiver
+  probes and survives; an order delayed past a short MaxLatency, rejected (SessionRejectReason 10)
+  and followed by a Logout; a link capped at 20 KB/s carrying hundreds of orders each way; and a
+  side whose reads stall while it keeps receiving, then catches up.
 
 The QuickFIX/J side is a small Java program (`peer/`) that runs one session and is driven over
 stdin and stdout. The crate isn't published.
@@ -95,12 +99,15 @@ forwards whole FIX frames and, per direction (`Dir::ToPeer` or `Dir::ToTj`), can
 - `drop_next` or `garble_next` (a wrong CheckSum, same length) the next frame of a MsgType;
 - `cut_mid` it: forward half, then close both sides;
 - `blackhole` the direction, discarding everything, as a dead link would. While a direction is
-  blackholed a close isn't passed on, so each side has to notice on its own heartbeat timeout.
+  blackholed a close isn't passed on, so each side has to notice on its own heartbeat timeout;
+- `hold` the direction (keep reading, forward nothing) until `release`, or `delay_next` one frame
+  with what follows queued behind it;
+- cap its `bandwidth` in bytes a second;
+- `stall` it: stop reading from the sender, so TCP pushes back, until `unstall`.
 
 Each new connection starts without faults. `pair.proxy()` sets them, and `applied`,
 `disconnected` and the other waits say when they've happened.
 
 ## Not covered
 
-- Delays and slow links: the proxy doesn't hold data back yet.
 - QuickFIX/n, and TLS.
