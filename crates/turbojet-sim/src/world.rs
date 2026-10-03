@@ -13,8 +13,8 @@ use turbojet::message::tags;
 use turbojet::store::SessionStorage;
 
 use turbojet::{
-    DiskStorage, HolidayCalendar, InitiatorConfig, MemoryStorage, ReconnectPolicy, SequenceError, SequenceNumbers,
-    SessionConfig, SessionHandle, SessionId, SessionRegistry, SessionSchedule,
+    DiskStorage, HolidayCalendar, InboundLimit, InitiatorConfig, MemoryStorage, RateLimit, ReconnectPolicy,
+    SequenceError, SequenceNumbers, SessionConfig, SessionHandle, SessionId, SessionRegistry, SessionSchedule,
 };
 
 use crate::Side;
@@ -409,6 +409,31 @@ fn segment_sizes(seed: u64) -> Option<(u64, u64)> {
     })
 }
 
+/// The rate limits a seed's sessions run with: on about a quarter of seeds each, the initiator's
+/// outbound limit and the acceptor's inbound limit, which delays. Low enough that bursts of orders
+/// (a few hundred at once) wait on them, and the steady flow (an order every 100 ms or so) now and
+/// then, but high enough that a busy phase's orders get through in well under the time the
+/// sessions have to settle. Drawn apart from the world's random stream so that seeds keep the
+/// faults they had before.
+fn limits(seed: u64) -> (Option<RateLimit>, Option<InboundLimit>) {
+    let mut rng = Rng::new(seed ^ 0x7407_7e1e);
+    let draw = |rng: &mut Rng| {
+        let (messages, per) = rng.pick(&[(2, 50), (5, 100), (20, 250), (100, 1_000)]);
+        RateLimit::new(messages, Duration::from_millis(per))
+    };
+    let outbound = rng.chance(250_000).then(|| draw(&mut rng));
+    let inbound = rng.chance(250_000).then(|| InboundLimit::Delay(draw(&mut rng)));
+    (outbound, inbound)
+}
+
+/// The two nodes' roles, with the seed's rate limits.
+fn roles(mut initiator: InitiatorConfig, mut acceptor: SessionConfig, seed: u64) -> [Role; 2] {
+    let (outbound, inbound) = limits(seed);
+    initiator.session.outbound_limit = outbound;
+    acceptor.inbound_limit = inbound;
+    [Role::Initiator(initiator), Role::Acceptor(acceptor)]
+}
+
 /// Each side's store, of `kind`, wrapped to keep a ledger, slow to commit if `slow`, the acceptor's
 /// with the planted bug of committing early if `early`; disk stores in segments of `segments`
 /// bytes, keeping `segments.1`, if given; and for disk stores, their directory.
@@ -537,7 +562,7 @@ impl World {
         if options.plant == Some(Plant::ForgetMessages) {
             storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
         }
-        let roles = [Role::Initiator(initiator), Role::Acceptor(config("GATEWAY"))];
+        let roles = roles(initiator, config("GATEWAY"), options.seed);
         let nodes = nodes(roles, &storage, &clocks, &faults, options.plant);
         let net = Net::new(faults.net.clone(), rng.fork());
         let proxy = faults.hostile.map(|rate| Proxy::new(rate, rng.fork()));
@@ -598,6 +623,14 @@ impl World {
         // Only when there is one, so the headers (and digests) of other seeds stay as they were.
         if let Some(holiday) = self.schedule.as_ref().and_then(|s| s.holidays().last()) {
             header.push_str(&format!(", holiday {holiday}"));
+        }
+        // Likewise the limits.
+        let (outbound, inbound) = limits(self.options.seed);
+        if let Some(limit) = outbound {
+            header.push_str(&format!(", initiator outbound limit {limit}"));
+        }
+        if let Some(InboundLimit::Delay(limit)) = inbound {
+            header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
         }
         self.record(&header);
         self.queue.push(SimTime(0), Event::Connect(0));
