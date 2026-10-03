@@ -34,6 +34,7 @@ cast_lossless = "warn"
 
 [workspace.dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+compact_str = { version = "0.10", default-features = false, features = ["std"] }
 chrono-tz = "0.10"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 metrics = "0.24"

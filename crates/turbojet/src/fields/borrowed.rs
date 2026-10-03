@@ -5,8 +5,8 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use super::{
-    Code, Decimal, FixEnum, MonthYear, MsgType, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
-    ValueError,
+    Code, CompactString, Decimal, FixEnum, MonthYear, MsgType, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly,
+    UtcTimestamp, ValueError,
 };
 
 /// A field type's borrowed form, for the `…Ref` types `fix_message!` generates: what a field of
@@ -51,6 +51,18 @@ impl<'a> FieldRef<'a> for String {
 
     fn into_owned(value: &'a str) -> Self {
         value.to_owned()
+    }
+}
+
+impl<'a> FieldRef<'a> for CompactString {
+    type Ref = &'a str;
+
+    fn parse_ref(s: &'a str) -> Result<&'a str, ValueError> {
+        Ok(s)
+    }
+
+    fn into_owned(value: &'a str) -> Self {
+        Self::from(value)
     }
 }
 

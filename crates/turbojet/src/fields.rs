@@ -7,6 +7,10 @@ use std::str::FromStr;
 
 use std::borrow::Cow;
 
+/// The type of string fields in typed messages: values up to 24 bytes are kept inline, so most
+/// IDs and symbols are parsed and built without allocating. Build one with `.into()` from a
+/// `&str` or `String`, or [`format_compact!`] in place of `format!`.
+pub use compact_str::{CompactString, ToCompactString, format_compact};
 pub use rust_decimal::Decimal;
 
 mod borrowed;
@@ -192,6 +196,12 @@ impl ToFix for String {
     }
 }
 
+impl ToFix for CompactString {
+    fn write_fix(&self, out: &mut String) {
+        out.push_str(self)
+    }
+}
+
 /// Appends `ascii`, which the caller has just written as ASCII (digits, punctuation), without
 /// the UTF-8 check `str::from_utf8` would make. Faster for the short runs of an integer or a
 /// decimal; for a timestamp's 20 or so bytes, the check and one copy are faster (measured).
@@ -218,6 +228,12 @@ fn write_unsigned(out: &mut String, mut n: u64) {
 impl FromFix for String {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
         Ok(s.to_string())
+    }
+}
+
+impl FromFix for CompactString {
+    fn from_fix(s: &str) -> Result<Self, ValueError> {
+        Ok(Self::from(s))
     }
 }
 

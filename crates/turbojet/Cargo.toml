@@ -21,6 +21,7 @@ all-features = true
 chrono.workspace = true
 chrono-tz = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
+compact_str.workspace = true
 rust_decimal.workspace = true
 tokio.workspace = true
 tokio-rustls = { workspace = true, optional = true }
