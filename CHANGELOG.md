@@ -6,6 +6,13 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Latency histograms, opt-in per session with `SessionConfig::latency_metrics` (feature
+  `metrics`): `turbojet_inbound_message_seconds` (decoding, the session and `on_message`, per
+  inbound message), `turbojet_commit_seconds` (store commits run off the connection's task) and
+  `turbojet_read_to_write_seconds` (from reading input to everything it caused being committed and
+  ready to write), labelled by `session`. They cost a clock read per inbound message, and a few per
+  batch. The example gateway records them with `--latency-metrics`. Breaking for a `SessionConfig`
+  built as a struct literal with the `metrics` feature: it has the new field.
 - Application replies are built in messages the session reuses: the session keeps the list
   `Context::send` adds to, and writes a typed reply into a spare message (at most 8 kept per
   session, none over 64 KiB) with the new `FixMessage::write_into`, which `fix_message!` implements

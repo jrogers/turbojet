@@ -62,7 +62,8 @@ later, with:
 - optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
   outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
   read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
-- structured logging and Prometheus-compatible metrics;
+- structured logging and Prometheus-compatible metrics, with opt-in latency histograms (handling
+  each inbound message, store commits, and reading input to its replies being ready to write);
 - criterion benchmarks (about 0.9 µs per order → ack of session processing, and 490k msg/s
   pipelined over localhost TCP);
 - a count of heap allocations, reallocs and bytes per order → ack, by stage (decode, session,
@@ -266,8 +267,6 @@ From the benchmarks.
   latencies come from bypassing the kernel's network stack (OpenOnload or ef_vi on Solarflare
   cards, DPDK) and from network cards that timestamp packets in hardware. It needs a transport
   that isn't a tokio `TcpStream`, so it follows the zero-copy work.
-- **Latency histograms** (S). Opt-in timing metrics (for example, time to process each inbound
-  message), kept separate because they cost a clock read per message.
 
 ## 7. Operations and deployment
 

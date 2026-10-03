@@ -49,7 +49,7 @@ cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --
       [--tls-client-ca ca.pem [--tls-client-auth optional] [--tls-match-comp-id]]] \
     [--schedule "daily 08:00-17:00 mon-fri America/New_York" [--holidays holidays.txt]] \
     [--inbound-limit 100/1s [--over-limit reject]] \
-    [--metrics-listen 127.0.0.1:9000] [--log-format json]
+    [--metrics-listen 127.0.0.1:9000 [--latency-metrics]] [--log-format json]
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
 cargo run --example client --features tls -- primary:9876 --failover backup:9876
@@ -617,6 +617,7 @@ metric is labelled with `session`:
 | `turbojet_resend_requests_evicted_total` (reaching messages the store evicted) | counter |
 | `turbojet_throttled_total` (`direction` = `inbound`/`outbound`; see Throttling) | counter |
 | `turbojet_session_logged_on`, `turbojet_next_incoming_seq`, `turbojet_next_outgoing_seq` | gauge |
+| `turbojet_inbound_message_seconds`, `turbojet_commit_seconds`, `turbojet_read_to_write_seconds` (opt-in) | histogram |
 
 plus an unlabelled `turbojet_garbled_messages_total`, `turbojet_connections_refused_total` by
 `reason` (`total` or `per_ip`), and `turbojet_application_panics_total` by
@@ -625,6 +626,14 @@ per session, so recording is a counter increment: measured A/B, order → ack co
 with no recorder installed, and about 2% (≈25 ns) with a Prometheus recorder. The gateway serves
 them, along with `gateway_orders_total` and `gateway_cancels_total` by `result`, at
 `--metrics-listen ADDR` (`/metrics`).
+
+The latency histograms are recorded only for sessions with `SessionConfig::latency_metrics` set
+(the gateway's `--latency-metrics`), since they cost a clock read per inbound message. They time
+handling each inbound message (decoding, the session and the application), each store commit run
+off the connection's task (an fsync or a database transaction), and the time from reading input to
+everything it caused being committed and ready to write. The `telemetry` module docs say exactly
+what each covers. Over localhost TCP, with a Prometheus recorder and both ends recording, they add
+about 0.35 µs to a 27.4 µs round trip, and nothing measurable to pipelined throughput.
 
 ## Benchmarks
 
