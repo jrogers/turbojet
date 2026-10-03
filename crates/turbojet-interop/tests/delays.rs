@@ -4,10 +4,12 @@
 use std::time::Duration;
 
 use tokio::time::{Instant, sleep_until};
+use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, matrix};
+use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, TjEvent, matrix};
 
 matrix!(latency_spike_to_tj, latency_spike_to_peer, stale_sending_time_to_tj, stale_sending_time_to_peer);
+matrix!(slow_link, stalled_reader_at_tj, stalled_reader_at_peer);
 
 /// HeartBtInt in the latency-spike scenarios, so the timers run in a second or two.
 const HEARTBEAT: Duration = Duration::from_secs(1);
@@ -169,4 +171,138 @@ async fn reconnected_without_resend(mut pair: Pair, stale: &str) {
     pair.peer_delivers_no_more(stale).await;
     pair.orders_each_way("ORD2", "ORD3").await;
     pair.finish().await;
+}
+
+/// The slow link's rate each way, and how many orders cross it each way: about 40 KB, 2 s.
+const SLOW_LINK_RATE: u32 = 20_000;
+const SLOW_LINK_ORDERS: usize = 300;
+
+/// A 20 KB/s link both ways at HeartBtInt=1, with a few hundred orders sent each way at once.
+/// Heartbeats queue behind them, but neither side is ever silent for long, so neither probes or
+/// gives up; every order is delivered once, in order.
+async fn slow_link(setup: Setup) {
+    let mut pair = start(setup, heartbeat_options()).await;
+    pair.proxy().bandwidth(Dir::ToPeer, SLOW_LINK_RATE);
+    pair.proxy().bandwidth(Dir::ToTj, SLOW_LINK_RATE);
+    let started = Instant::now();
+    for i in 0..SLOW_LINK_ORDERS {
+        pair.handle.send_when_ready(tj_order(&format!("T{i}"))).await.unwrap();
+    }
+    pair.peer.cmd(&format!("send-many {SLOW_LINK_ORDERS} {}", peer_order("P{i}"))).await;
+    peer_receives_in_order(&mut pair, "T", SLOW_LINK_ORDERS).await;
+    tj_receives_in_order(&mut pair, "P", SLOW_LINK_ORDERS).await;
+    // An order is over 100 bytes on the wire, so the link really was slow.
+    let floor = Duration::from_secs(1) * u32::try_from(SLOW_LINK_ORDERS * 100).unwrap() / SLOW_LINK_RATE;
+    assert!(started.elapsed() >= floor, "{SLOW_LINK_ORDERS} orders crossed in {:?}", started.elapsed());
+
+    pair.barrier().await;
+    no_more_orders(&mut pair).await;
+    pair.stayed_up().await;
+    pair.finish().await;
+}
+
+/// How long Turbojet's send queue must stay full before its writes count as blocked.
+const BLOCKED_FOR: Duration = Duration::from_millis(500);
+/// More orders than any socket buffers plus Turbojet's send queue hold; reaching it means the stall
+/// never pushed back.
+const STALL_LIMIT: usize = 200_000;
+/// Orders sent to the stalled side while it can't write.
+const ORDERS_TO_STALLED: usize = 200;
+
+/// The proxy stops reading what Turbojet sends. Turbojet sends until its writes block: its socket
+/// fills, then its send queue, which `send` reports as full. Meanwhile QuickFIX/J sends to
+/// Turbojet, which must keep reading and delivering while its writes are blocked (the write
+/// deadlock). Then the proxy reads again, and every order is delivered once, in order.
+async fn stalled_reader_at_tj(setup: Setup) {
+    let mut pair = start(setup, Options::default()).await;
+    pair.proxy().stall(Dir::ToPeer);
+    let sent = send_until_blocked(&pair).await;
+    eprintln!("Turbojet's writes blocked after {sent} orders");
+
+    pair.peer.cmd(&format!("send-many {ORDERS_TO_STALLED} {}", peer_order("P{i}"))).await;
+    tj_receives_in_order(&mut pair, "P", ORDERS_TO_STALLED).await;
+    assert!(pair.handle.send(tj_order("EXTRA")).is_err(), "Turbojet's writes unblocked during the stall");
+
+    pair.proxy().unstall(Dir::ToPeer);
+    peer_receives_in_order(&mut pair, "T", sent).await;
+    pair.barrier().await;
+    no_more_orders(&mut pair).await;
+    pair.stayed_up().await;
+    pair.finish().await;
+}
+
+/// Sends orders `T0`, `T1`, ... until Turbojet's send queue has stayed full for [`BLOCKED_FOR`],
+/// and returns how many were queued.
+async fn send_until_blocked(pair: &Pair) -> usize {
+    let mut sent = 0;
+    let mut full_since: Option<Instant> = None;
+    loop {
+        assert!(sent < STALL_LIMIT, "sent {sent} orders into a stalled proxy without blocking");
+        match pair.handle.send(tj_order(&format!("T{sent}"))) {
+            Ok(_) => {
+                sent += 1;
+                full_since = None;
+                // The connection runs on this thread too: let it write.
+                tokio::task::yield_now().await;
+            }
+            Err(turbojet::SendError::Full(_)) => {
+                if full_since.get_or_insert_with(Instant::now).elapsed() >= BLOCKED_FOR {
+                    return sent;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Err(e) => panic!("send failed: {e:?}"),
+        }
+    }
+}
+
+/// How many orders QuickFIX/J sends into a stall: about 4 MB, twice what blocked a plain socket on
+/// macOS loopback (see the proxy's `stall_backs_up_the_sender`). QuickFIX/J writes asynchronously
+/// and never reports that it is blocked, so this can't be measured as it is for Turbojet.
+const PEER_ORDERS_INTO_STALL: usize = 30_000;
+
+/// The mirror image: the proxy stops reading what QuickFIX/J sends, QuickFIX/J sends more than the
+/// sockets hold, and Turbojet sends to QuickFIX/J meanwhile, which must keep reading and delivering.
+async fn stalled_reader_at_peer(setup: Setup) {
+    let mut pair = start(setup, Options::default()).await;
+    pair.proxy().stall(Dir::ToTj);
+    pair.peer.cmd(&format!("send-many {PEER_ORDERS_INTO_STALL} {}", peer_order("P{i}"))).await;
+
+    for i in 0..ORDERS_TO_STALLED {
+        pair.handle.send_when_ready(tj_order(&format!("T{i}"))).await.unwrap();
+    }
+    peer_receives_in_order(&mut pair, "T", ORDERS_TO_STALLED).await;
+    pair.tj_expect_none("order during the stall", |e| matches!(e, TjEvent::Message(_)), Duration::ZERO).await;
+
+    pair.proxy().unstall(Dir::ToTj);
+    tj_receives_in_order(&mut pair, "P", PEER_ORDERS_INTO_STALL).await;
+    pair.barrier().await;
+    no_more_orders(&mut pair).await;
+    pair.stayed_up().await;
+    pair.finish().await;
+}
+
+/// QuickFIX/J delivers orders `{prefix}0` to `{prefix}{count - 1}`, in that order.
+async fn peer_receives_in_order(pair: &mut Pair, prefix: &str, count: usize) {
+    for i in 0..count {
+        let order = pair.peer.received("D").await;
+        assert_eq!(order.get(11), Some(format!("{prefix}{i}").as_str()), "{}", order.raw());
+        assert_eq!(order.get(43), None, "{}", order.raw());
+    }
+}
+
+/// Turbojet delivers orders `{prefix}0` to `{prefix}{count - 1}`, in that order.
+async fn tj_receives_in_order(pair: &mut Pair, prefix: &str, count: usize) {
+    for i in 0..count {
+        let order = pair.tj_received("D").await;
+        assert_eq!(order.get(tags::CL_ORD_ID), Some(format!("{prefix}{i}").as_str()));
+        assert_eq!(order.get(tags::POSS_DUP_FLAG), None);
+    }
+}
+
+/// Neither side delivers another order. Call after [`Pair::barrier`].
+async fn no_more_orders(pair: &mut Pair) {
+    pair.tj_expect_none("order", |e| matches!(e, TjEvent::Message(m) if m.msg_type().code() == "D"), Duration::ZERO)
+        .await;
+    pair.peer.expect_none("order", |e| e.received().is_some_and(|m| m.msg_type() == "D"), Duration::ZERO).await;
 }

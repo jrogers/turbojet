@@ -36,6 +36,8 @@ import quickfix.field.MsgSeqNum;
  *   <li>{@code send <fields>}: sends a message; fields are {@code tag=value} separated by
  *       {@code |}, including 35; QuickFIX/J adds the rest of the header. SOH inside a value is
  *       written {@code \x01}.</li>
+ *   <li>{@code send-many N <fields>}: sends N messages, each with {@code {i}} in the fields
+ *       replaced by its index from 0, without waiting for the counterparty.</li>
  *   <li>{@code set-next-sender-seq N}, {@code set-next-target-seq N}: change sequence numbers
  *       without telling the counterparty.</li>
  *   <li>{@code sequence-reset N}: sends SequenceReset-Reset with NewSeqNo N, then sends from N.</li>
@@ -164,6 +166,14 @@ public final class Peer implements Application {
     private static void run(Session session, String command, String arg) throws Exception {
         switch (command) {
             case "send" -> send(session, build(arg));
+            case "send-many" -> {
+                int space = arg.indexOf(' ');
+                int count = Integer.parseInt(arg.substring(0, space));
+                String fields = arg.substring(space + 1);
+                for (int i = 0; i < count; i++) {
+                    send(session, build(fields.replace("{i}", Integer.toString(i))));
+                }
+            }
             case "set-next-sender-seq" -> session.setNextSenderMsgSeqNum(Integer.parseInt(arg));
             case "set-next-target-seq" -> {
                 awaitProcessed(session);
