@@ -1566,7 +1566,8 @@ fn a_resend_gap_fills_messages_the_store_evicted() {
 #[test]
 fn a_resend_gap_fills_messages_the_disk_store_evicted() {
     let dir = tempfile::tempdir().unwrap();
-    let len = u64::try_from(report_len()).unwrap();
+    // A report and the record of the commit that stores it.
+    let len = u64::try_from(report_len() + crate::store::disk::JOURNAL_RECORD).unwrap();
     let disk =
         crate::DiskStorage::new(dir.path(), false).unwrap().with_max_session_bytes(2 * len).with_segment_bytes(len);
     let h = Harness::with_storage(Arc::new(disk));

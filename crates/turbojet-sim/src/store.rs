@@ -272,11 +272,11 @@ impl LedgerLog {
     fn trapped_commit(&mut self, trap: Trap) -> io::Result<Option<Commit>> {
         match (trap.tear, self.files.clone()) {
             (Some(tear), Some(files)) => {
-                let before = files.snapshot();
-                // A disk store without fsync, as the simulator's are, writes in the call.
+                let (before, backup) = (files.snapshot(), files.backup());
+                // A disk store without fsync, as the simulator's are, writes in the call. What it
+                // evicted comes back with the tear, so isn't noted.
                 assert!(self.inner.commit()?.is_none(), "the simulator's disk stores commit at once");
-                self.note_evictions();
-                files.tear(&before, tear);
+                files.tear(&before, &backup, tear);
                 let changes = std::mem::take(&mut self.pending);
                 self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
                 Err(io::Error::other("power lost in Commit"))

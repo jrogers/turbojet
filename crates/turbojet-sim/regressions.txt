@@ -8,3 +8,5 @@
 1790955759652646357 an operator's skip reported as made after the session's store failed, in the skip's own SequenceReset
 1790968969936533048 a resend read a message its commit then evicted (simulator bug)
 1790969038891153520 a receipt for a message evicted before the receipt was checked (simulator bug)
+1791059174727075802 a torn commit's evictions left in place, deleting the journal's latest record with its segment (simulator bug)
+1791059372245236621 journal records of commits storing no messages filled a small budget and evicted the messages a resend needed

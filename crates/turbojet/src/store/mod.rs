@@ -3,7 +3,7 @@
 
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
-mod disk;
+pub(crate) mod disk;
 mod memory;
 
 use std::fmt;

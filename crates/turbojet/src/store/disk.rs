@@ -16,36 +16,43 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 ///
 /// Each session has these files in the store directory, named after its [`SessionId`]:
 ///
-/// - `<name>.seqnums`: the next outgoing and incoming sequence numbers and the incoming message in
-///   flight to the application (0 for none), in two fixed-size slots written alternately, each
-///   with a generation and a checksum; opening reads the valid one with the higher generation. A
-///   write that a crash or power loss tears damages only the slot it was writing, so the store
-///   reopens with the record before it. A file from before slots (one record, of two or three
-///   numbers) still reads, and the first write after it goes to the other slot. The file is
-///   locked while the session is open, so two gateway processes cannot share a session.
+/// - `<name>.body`, `<name>.body.1`, `<name>.body.2` and so on: a journal, in segments, of sent
+///   application messages (see [`SessionLog::record_outgoing`]), whatever their size, each
+///   commit's followed by a record of the session's state: the next outgoing and incoming
+///   sequence numbers and the incoming message in flight to the application (0 for none), with a
+///   generation and a checksum. A segment that has reached [`with_segment_bytes`] (64 MiB by
+///   default) is full, and the next commit that stores messages starts another. Opening the log
+///   scans the segments to index sequence numbers by where they are; resends then read messages
+///   back from disk.
+/// - `<name>.seqnums`: the records of commits that store no messages, in two fixed-size slots
+///   written alternately, so a write that a crash or power loss tears damages only the slot it
+///   was writing. Kept apart so that sessions that commit often without sending (heartbeats,
+///   inbound flow) don't fill the budget with records. A file from before slots (one record, of
+///   two or three numbers) still reads. The file is locked while the session is open, so two
+///   gateway processes cannot share a session.
 /// - `<name>.created`: when the state was created or last reset, as a FIX UTCTimestamp, once
 ///   recorded; used by session schedules. Replaced atomically.
-/// - `<name>.body`, `<name>.body.1`, `<name>.body.2` and so on: sent application messages, in
-///   segments, appended as the session stores them (see [`SessionLog::record_outgoing`]),
-///   whatever their size. A segment that has reached [`with_segment_bytes`] (64 MiB by default)
-///   is full, and the next batch starts another. Opening the log scans the segments to index
-///   sequence numbers by where they are; resends then read messages back from disk.
 ///
-/// Each session keeps at most [`with_max_session_bytes`] of messages (1 GiB by default): past it,
-/// the oldest whole segments are deleted, and a resend that reaches back to their messages
-/// gap-fills them, so the counterparty never receives them again (the session logs a warning and
-/// counts it in `turbojet_resend_requests_evicted_total`).
+/// Opening takes the valid record with the highest generation, in the journal or the seqnums
+/// file. Turbojet 0.1 kept every record in the seqnums file: its stores open as they were, and
+/// gain journal records as they store messages. 0.1 can't open a store with a journal record: it
+/// reports the segment as corrupt.
+///
+/// Each session keeps at most [`with_max_session_bytes`] of journal (1 GiB by default): past it,
+/// the oldest segments are deleted, and a resend that reaches back to their messages gap-fills
+/// them, so the counterparty never receives them again (the session logs a warning and counts it
+/// in `turbojet_resend_requests_evicted_total`).
 ///
 /// Changes are kept in memory until the session commits them, once per batch of work: then the
-/// messages stored since are appended to a segment in one write, and the sequence numbers written
-/// once. Without `sync` that's done at once; with it the commit is handed to the connection
-/// driver, which runs the writes and their `fsync`s on a blocking thread, so a batch of messages
-/// costs one `fsync` of each file rather than two per message.
+/// messages stored since and their record are appended to a segment in one write, or, if there
+/// are none, the record is written to a slot. Without `sync` that's done at once; with it the
+/// commit is handed to the connection driver, which runs the write and its `fsync` on a blocking
+/// thread, so a commit costs one `fsync`, whatever it holds.
 ///
-/// Recovery on open: a partially written message at the end of a segment (from a crash
+/// Recovery on open: a partially written message or record at the end of a segment (from a crash
 /// mid-append) is truncated, and the next outgoing sequence number is advanced past the last
-/// stored message in case the crash landed between the body append and the seqnums update. A
-/// crash before a commit loses what it would have written, none of which has been sent.
+/// stored message, in case the crash kept a commit's messages but not its record. A crash before
+/// a commit loses what it would have written, none of which has been sent.
 ///
 /// [`with_segment_bytes`]: DiskStorage::with_segment_bytes
 /// [`with_max_session_bytes`]: DiskStorage::with_max_session_bytes
@@ -152,7 +159,8 @@ struct DiskLog {
     dir: PathBuf,
     stem: String,
     sizes: Sizes,
-    /// Shared with a commit under way on another thread.
+    /// The seqnums file, which holds the records of commits that store no messages. Shared with a
+    /// commit under way on another thread.
     seqnums: Arc<File>,
     /// The segments kept, oldest first; empty until a message is stored. At most
     /// `sizes.max / sizes.segment` full ones and the one being written (two more while a commit
@@ -176,8 +184,9 @@ struct DiskLog {
     next_outgoing: u64,
     next_incoming: u64,
     in_flight: Option<u64>,
-    /// The seqnums record's generation, and the slot holding it (none in a fresh file).
+    /// The latest record's generation, in the journal or the seqnums file: 0 if there's none.
     generation: u64,
+    /// The seqnums file's slot holding its latest record (none in a fresh file).
     slot: Option<usize>,
     created_path: PathBuf,
     created_at: Option<UtcTimestamp>,
@@ -187,21 +196,16 @@ struct DiskLog {
 impl DiskLog {
     fn open(dir: &Path, id: &SessionId, sync: bool, sizes: Sizes) -> io::Result<Self> {
         let stem = file_stem(id);
-        let seqnums_path = dir.join(format!("{stem}.seqnums"));
         let created_path = dir.join(format!("{stem}.created"));
-
+        let seqnums_path = dir.join(format!("{stem}.seqnums"));
         let mut seqnums = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&seqnums_path)?;
-        seqnums.try_lock().map_err(|e| match e {
-            TryLockError::WouldBlock => io::Error::new(
-                io::ErrorKind::WouldBlock,
-                format!("{} is locked by another process", seqnums_path.display()),
-            ),
-            TryLockError::Error(e) => e,
-        })?;
-        let Record { mut next_outgoing, next_incoming, in_flight, generation, slot } =
-            read_seqnums(&mut seqnums, &seqnums_path)?;
-
-        let (segments, index) = open_segments(dir, &stem)?;
+        try_lock(&seqnums, &seqnums_path)?;
+        let (slotted, slot) = read_seqnums(&mut seqnums, &seqnums_path)?;
+        let (segments, index, journal) = open_segments(dir, &stem)?;
+        // The latest record is in the journal or the seqnums file, whichever has the higher
+        // generation; a 0.1 store's is in the seqnums file until it first stores a message.
+        let Record { mut next_outgoing, next_incoming, in_flight, generation } =
+            journal.into_iter().chain([slotted]).max_by_key(|r| r.generation).expect("the seqnums file has one");
         if let Some((&last, _)) = index.last_key_value() {
             next_outgoing = next_outgoing.max(last + 1);
         }
@@ -239,25 +243,60 @@ impl DiskLog {
         })
     }
 
-    /// The next seqnums record and where it goes: the slot not holding the current one, so a torn
-    /// write leaves that one whole. Counted as written: a failed write ends the session, and the
-    /// next connection reads the file afresh.
-    fn next_record(&mut self) -> ([u8; SLOT], u64) {
-        let generation = self.generation + 1;
+    /// Adds the next record to `pending`, after the messages stored since the last commit, or
+    /// alone for a reset. Counted as written: a failed write ends the session, and the next
+    /// connection reads the files afresh.
+    fn push_record(&mut self) {
+        self.generation += 1;
+        let record = journal_record(self.generation, self.next_outgoing, self.next_incoming, self.in_flight);
+        if self.pending_at.is_none() {
+            self.pending_at = Some(self.next_place());
+        }
+        self.pending.extend_from_slice(&record);
+        self.dirty = false;
+    }
+
+    /// The next seqnums record, for a commit that stores no messages, and where it goes: the slot
+    /// not holding the file's latest, so a torn write leaves that one whole. Counted as written,
+    /// as [`push_record`](Self::push_record)'s is.
+    fn next_slot_record(&mut self) -> ([u8; SLOT], u64) {
+        self.generation += 1;
         let slot = self.slot.map_or(0, |current| 1 - current);
-        let record = slot_record(generation, self.next_outgoing, self.next_incoming, self.in_flight.unwrap_or(0));
-        (self.generation, self.slot) = (generation, Some(slot));
+        let record = slot_record(self.generation, self.next_outgoing, self.next_incoming, self.in_flight.unwrap_or(0));
+        self.slot = Some(slot);
         self.dirty = false;
         (record, (slot * SLOT) as u64)
     }
 
-    /// Writes the seqnums record now (a reset), syncing it if the store syncs.
-    fn write_seqnums(&mut self) -> io::Result<()> {
-        let (record, offset) = self.next_record();
-        write_record(&self.seqnums, &record, offset)?;
-        if self.sync {
-            self.seqnums.sync_data()?;
+    /// Commits a record alone to the seqnums file: a commit that stores no messages leaves the
+    /// segments be, so its record doesn't take messages' place in the budget.
+    fn commit_slot(&mut self) -> io::Result<Option<Commit>> {
+        let (record, offset) = self.next_slot_record();
+        if !self.sync {
+            write_record(&self.seqnums, &record, offset)?;
+            return Ok(None);
         }
+        let seqnums = self.seqnums.clone();
+        Ok(Some(Commit::blocking(move || {
+            write_record(&seqnums, &record, offset)?;
+            seqnums.sync_data()
+        })))
+    }
+
+    /// Appends a record to the newest segment now (a reset), syncing it if the store syncs.
+    fn write_record_now(&mut self) -> io::Result<()> {
+        debug_assert!(self.pending.is_empty(), "nothing else is pending");
+        self.push_record();
+        let (file, mut bytes, created) = self.place_pending()?.expect("a record is pending");
+        (&*file).write_all(&bytes)?;
+        if self.sync {
+            file.sync_data()?;
+            if created {
+                sync_dir(&self.dir)?;
+            }
+        }
+        bytes.clear();
+        self.pending = bytes;
         Ok(())
     }
 
@@ -349,32 +388,29 @@ impl SessionLog for DiskLog {
         if !self.dirty && self.pending.is_empty() {
             return Ok(None);
         }
-        let (record, offset) = self.next_record();
-        let write = self.place_pending()?;
+        if self.pending.is_empty() {
+            return self.commit_slot();
+        }
+        self.push_record();
+        let (file, mut bytes, created) = self.place_pending()?.expect("a record is pending");
         let removed = self.evict();
         if !self.sync {
-            // A few cheap system calls: no reason to leave the connection's task. Messages first,
-            // so a crash before the record leaves messages the next open finds (see `open`).
-            if let Some((file, mut bytes, _)) = write {
-                (&*file).write_all(&bytes)?;
-                bytes.clear();
-                self.pending = bytes;
-            }
-            write_record(&self.seqnums, &record, offset)?;
+            // A few cheap system calls: no reason to leave the connection's task.
+            (&*file).write_all(&bytes)?;
+            bytes.clear();
+            self.pending = bytes;
             return remove_files(&removed).map(|()| None);
         }
-        let (seqnums, dir) = (self.seqnums.clone(), self.dir.clone());
+        let dir = self.dir.clone();
         Ok(Some(Commit::blocking(move || {
-            if let Some((file, bytes, created)) = write {
-                (&*file).write_all(&bytes)?;
-                file.sync_data()?;
-                if created {
-                    // The new segment's name, so it survives a power loss too.
-                    sync_dir(&dir)?;
-                }
+            // The messages, then the record that covers them, in one write: a crash keeps a
+            // prefix of it, so never a record without its messages (see `open`).
+            (&*file).write_all(&bytes)?;
+            file.sync_data()?;
+            if created {
+                // The new segment's name, so it survives a power loss too.
+                sync_dir(&dir)?;
             }
-            write_record(&seqnums, &record, offset)?;
-            seqnums.sync_data()?;
             // A deleted segment a power loss brings back only means more is kept: no sync.
             remove_files(&removed)
         })))
@@ -439,7 +475,7 @@ impl SessionLog for DiskLog {
         self.next_outgoing = 1;
         self.next_incoming = 1;
         self.in_flight = None;
-        self.write_seqnums()?;
+        self.write_record_now()?;
         match fs::remove_file(&self.created_path) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -487,9 +523,20 @@ fn segment_path(dir: &Path, stem: &str, number: u32) -> PathBuf {
     if number == 0 { dir.join(format!("{stem}.body")) } else { dir.join(format!("{stem}.body.{number}")) }
 }
 
+/// A session's journal as opened: its segments, oldest first, the index of their messages, and
+/// the latest record in any.
+type Journal = (VecDeque<Segment>, BTreeMap<u64, Location>, Option<Record>);
+
 /// The segments of the session whose files start `stem`, oldest first, each scanned: a torn
-/// message at the end of one is truncated. Returns them and the index of their messages.
-fn open_segments(dir: &Path, stem: &str) -> io::Result<(VecDeque<Segment>, BTreeMap<u64, Location>)> {
+/// message or record at the end of one is truncated. Returns them, the index of their messages,
+/// and the latest record in any.
+///
+/// The latest record is the one with the highest generation, wherever it is. It's in the newest
+/// segment holding one, except after a reset, which starts again in segment 0: a later segment
+/// that a power loss brought back after the reset deleted it holds older records, and is deleted
+/// again here. A later segment without a record holds the messages of a commit torn before its
+/// record, which are kept.
+fn open_segments(dir: &Path, stem: &str) -> io::Result<Journal> {
     let mut numbers = Vec::new();
     let segment_prefix = format!("{stem}.body.");
     for entry in fs::read_dir(dir)? {
@@ -502,20 +549,37 @@ fn open_segments(dir: &Path, stem: &str) -> io::Result<(VecDeque<Segment>, BTree
         }
     }
     numbers.sort_unstable();
-    let mut segments = VecDeque::with_capacity(numbers.len());
-    let mut index = BTreeMap::new();
+    let mut scanned = Vec::with_capacity(numbers.len());
     for number in numbers {
         let path = segment_path(dir, stem, number);
         let mut file = OpenOptions::new().read(true).append(true).open(&path)?;
-        let (found, valid_len) = scan_body(&mut file, &path)?;
+        let (found, record, valid_len) = scan_body(&mut file, &path)?;
         let file_len = file.metadata()?.len();
         if valid_len < file_len {
             warn!(
                 path = %path.display(),
                 discarded = file_len - valid_len,
-                "truncating incomplete message at end of session store"
+                "truncating incomplete write at end of session store"
             );
             file.set_len(valid_len)?;
+        }
+        scanned.push((number, path, file, found, record, valid_len));
+    }
+    let latest = scanned
+        .iter()
+        .filter_map(|(number, _, _, _, record, _)| record.map(|r| (*number, r)))
+        .max_by_key(|(_, r)| r.generation);
+    let mut segments = VecDeque::with_capacity(scanned.len());
+    let mut index = BTreeMap::new();
+    for (number, path, file, found, record, valid_len) in scanned {
+        if let Some((holder, _)) = latest
+            && number > holder
+            && record.is_some()
+        {
+            warn!(path = %path.display(), "deleting a segment from before the session store was reset");
+            drop(file);
+            remove_files(&[path])?;
+            continue;
         }
         let seqs = found.first_key_value().zip(found.last_key_value()).map(|((&first, _), (&last, _))| (first, last));
         for (seq, (offset, len)) in found {
@@ -525,7 +589,7 @@ fn open_segments(dir: &Path, stem: &str) -> io::Result<(VecDeque<Segment>, BTree
         }
         segments.push_back(Segment { number, file: Arc::new(file), len: valid_len, seqs });
     }
-    Ok((segments, index))
+    Ok((segments, index, latest.map(|(_, record)| record)))
 }
 
 /// The first and last of two ranges of MsgSeqNum, either of which may be empty.
@@ -570,6 +634,16 @@ fn write_record(file: &File, record: &[u8; SLOT], offset: u64) -> io::Result<()>
     Ok(())
 }
 
+/// Locks `file` for this process, or fails if another holds it.
+fn try_lock(file: &File, path: &Path) -> io::Result<()> {
+    file.try_lock().map_err(|e| match e {
+        TryLockError::WouldBlock => {
+            io::Error::new(io::ErrorKind::WouldBlock, format!("{} is locked by another process", path.display()))
+        }
+        TryLockError::Error(e) => e,
+    })
+}
+
 fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
     match fs::read_to_string(path) {
         Ok(text) => UtcTimestamp::from_fix(text.trim())
@@ -584,26 +658,49 @@ fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
 const SLOT: usize = 128;
 /// What starts a slot's record, setting it apart from a record from before slots.
 const SLOT_MARK: &str = "S2";
+/// What starts a journal record. A stored message starts `8=`, so the two can't be mistaken.
+const JOURNAL_MARK: &str = "J1";
+/// Bytes in a journal record: its mark, the four numbers of 20 digits, a checksum of 16 hex
+/// digits, each after a space, and a newline.
+pub(crate) const JOURNAL_RECORD: usize = JOURNAL_MARK.len() + 4 * 21 + 17 + 1;
 
-/// The seqnums file's latest record.
+/// The session's state as a record holds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Record {
     next_outgoing: u64,
     next_incoming: u64,
     in_flight: Option<u64>,
+    /// Higher in each record written: the latest is the valid one with the highest.
     generation: u64,
-    /// The slot it's in: `None` for a fresh file, and 0 for a record from before slots, which
-    /// sits where slot 0 is, so the next write goes to slot 1 and leaves it whole.
-    slot: Option<usize>,
 }
 
 /// A slot's record: mark, generation, the three numbers and a checksum of them, padded with
-/// spaces to a newline. Written digit by digit on the stack: it's written for every message.
+/// spaces to a newline. Written digit by digit on the stack: it's written for every commit that
+/// stores no messages.
 fn slot_record(generation: u64, next_outgoing: u64, next_incoming: u64, in_flight: u64) -> [u8; SLOT] {
     let mut record = [b' '; SLOT];
+    let line = journal_record(generation, next_outgoing, next_incoming, (in_flight > 0).then_some(in_flight));
+    // The same fields as a journal record's, after the slot's mark: the journal's is as long.
+    debug_assert_eq!(SLOT_MARK.len(), JOURNAL_MARK.len());
     record[..SLOT_MARK.len()].copy_from_slice(SLOT_MARK.as_bytes());
+    record[SLOT_MARK.len()..JOURNAL_RECORD - 1].copy_from_slice(&line[JOURNAL_MARK.len()..JOURNAL_RECORD - 1]);
+    record[SLOT - 1] = b'\n';
+    record
+}
+
+/// A journal record: mark, generation, the three numbers and a checksum of them, each after a
+/// space, and a newline. Written digit by digit on the stack: it's written for every commit.
+fn journal_record(
+    generation: u64,
+    next_outgoing: u64,
+    next_incoming: u64,
+    in_flight: Option<u64>,
+) -> [u8; JOURNAL_RECORD] {
+    let mut record = [b' '; JOURNAL_RECORD];
+    record[..JOURNAL_MARK.len()].copy_from_slice(JOURNAL_MARK.as_bytes());
     // The numbers, each 20 digits (a u64 has at most 20) and a space apart, after the mark.
-    let start = SLOT_MARK.len() + 1;
-    for (i, n) in [generation, next_outgoing, next_incoming, in_flight].into_iter().enumerate() {
+    let start = JOURNAL_MARK.len() + 1;
+    for (i, n) in [generation, next_outgoing, next_incoming, in_flight.unwrap_or(0)].into_iter().enumerate() {
         put_digits(&mut record[start + i * 21..start + i * 21 + 20], n);
     }
     let end = start + 4 * 21 - 1;
@@ -611,7 +708,7 @@ fn slot_record(generation: u64, next_outgoing: u64, next_incoming: u64, in_fligh
     for (i, byte) in record[end + 1..end + 17].iter_mut().enumerate() {
         *byte = b"0123456789abcdef"[usize::try_from((sum >> (60 - 4 * i)) & 0xf).expect("a nibble")];
     }
-    record[SLOT - 1] = b'\n';
+    record[JOURNAL_RECORD - 1] = b'\n';
     record
 }
 
@@ -631,9 +728,14 @@ fn record_checksum(numbers: &[u8]) -> u64 {
 
 /// A slot's record, if it's whole: generation, next outgoing, next incoming, in flight.
 fn parse_slot(bytes: &[u8]) -> Option<[u64; 4]> {
-    let text = std::str::from_utf8(bytes.get(..SLOT)?).ok()?;
+    parse_record(bytes.get(..SLOT)?, SLOT_MARK)
+}
+
+/// A record starting `mark`, if it's whole: generation, next outgoing, next incoming, in flight.
+fn parse_record(bytes: &[u8], mark: &str) -> Option<[u64; 4]> {
+    let text = std::str::from_utf8(bytes).ok()?;
     let mut fields = text.split_whitespace();
-    if fields.next()? != SLOT_MARK {
+    if fields.next()? != mark {
         return None;
     }
     let numbers: Vec<&str> = fields.by_ref().take(4).collect();
@@ -647,53 +749,80 @@ fn parse_slot(bytes: &[u8]) -> Option<[u64; 4]> {
     (out > 0 && inc > 0).then_some([generation, out, inc, in_flight])
 }
 
-/// The latest record in the seqnums file: the valid slot with the higher generation; or a record
+/// A parsed record's numbers (generation, next outgoing, next incoming, in flight) as a [`Record`].
+fn record_of([generation, next_outgoing, next_incoming, in_flight]: [u64; 4]) -> Record {
+    Record { next_outgoing, next_incoming, in_flight: (in_flight > 0).then_some(in_flight), generation }
+}
+
+/// The latest record in a 0.1 store's seqnums file: the valid slot with the higher generation; or a record
 /// from before slots, of two numbers (from before the in-flight field) or three; or, for a
 /// fresh file or one whose first write was torn, both numbers at 1.
-fn read_seqnums(file: &mut File, path: &Path) -> io::Result<Record> {
+fn read_seqnums(file: &mut File, path: &Path) -> io::Result<(Record, Option<usize>)> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     let slots = [0, 1].map(|slot| bytes.get(slot * SLOT..).and_then(parse_slot).map(|numbers| (slot, numbers)));
-    if let Some((slot, [generation, out, inc, in_flight])) = slots.into_iter().flatten().max_by_key(|(_, n)| n[0]) {
-        let in_flight = (in_flight > 0).then_some(in_flight);
-        return Ok(Record { next_outgoing: out, next_incoming: inc, in_flight, generation, slot: Some(slot) });
+    if let Some((slot, numbers)) = slots.into_iter().flatten().max_by_key(|(_, n)| n[0]) {
+        return Ok((record_of(numbers), Some(slot)));
     }
     // No slot is whole. A record from before slots ends at its newline; slot 1 may hold a torn
     // write made after it.
     let old = bytes.iter().position(|&b| b == b'\n').map(|end| &bytes[..end]);
     let old = old.and_then(|line| std::str::from_utf8(line).ok());
     let numbers: Option<Vec<u64>> = old.and_then(|line| line.split_whitespace().map(|n| n.parse().ok()).collect());
-    let fresh = Record { next_outgoing: 1, next_incoming: 1, in_flight: None, generation: 0, slot: None };
-    let old = |next_outgoing, next_incoming, in_flight| Record {
-        next_outgoing,
-        next_incoming,
-        in_flight,
-        slot: Some(0),
-        ..fresh
-    };
+    let fresh = Record { next_outgoing: 1, next_incoming: 1, in_flight: None, generation: 0 };
+    let old =
+        |next_outgoing, next_incoming, in_flight| Record { next_outgoing, next_incoming, in_flight, generation: 0 };
     match numbers.as_deref() {
-        Some(&[out, inc]) if out > 0 && inc > 0 => Ok(old(out, inc, None)),
-        Some(&[out, inc, in_flight]) if out > 0 && inc > 0 => Ok(old(out, inc, (in_flight > 0).then_some(in_flight))),
+        // It sits where slot 0 is, so the next write goes to slot 1 and leaves it whole.
+        Some(&[out, inc]) if out > 0 && inc > 0 => Ok((old(out, inc, None), Some(0))),
+        Some(&[out, inc, in_flight]) if out > 0 && inc > 0 => {
+            Ok((old(out, inc, (in_flight > 0).then_some(in_flight)), Some(0)))
+        }
         // Nothing past where slot 0 would end: at most a torn first write, so nothing was recorded.
-        _ if bytes.len() <= SLOT => Ok(fresh),
+        _ if bytes.len() <= SLOT => Ok((fresh, None)),
         _ => Err(invalid_data(format!("{} is corrupt: {:?}", path.display(), String::from_utf8_lossy(&bytes)))),
     }
 }
 
-/// Indexes every complete message in the body file. Returns the index and the length of the
-/// valid prefix; anything after it is an incomplete trailing write.
-fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>, u64)> {
+/// What a segment holds: its messages' places by MsgSeqNum, its latest record, and the length
+/// of its valid prefix.
+type Scanned = (BTreeMap<u64, Extent>, Option<Record>, u64);
+
+/// Indexes every complete message in a segment, and finds its latest record. Anything after the
+/// valid prefix is an incomplete trailing write: part of a message, or of a record, or a whole
+/// record that doesn't check, last in the file (a write torn below a sector).
+fn scan_body(file: &mut File, path: &Path) -> io::Result<Scanned> {
+    let file_len = file.metadata()?.len();
     file.seek(SeekFrom::Start(0))?;
     let mut index = BTreeMap::new();
+    let mut record: Option<Record> = None;
     // Holds one message and a chunk. Stored messages aren't held to the codec's MAX_BODY_LENGTH,
     // but the store wrote this file itself, so the longest is the longest the session sent.
     let mut buf = Vec::new();
     let mut chunk = vec![0; 64 * 1024];
     let mut offset = 0u64;
-    // Bytes of `buf` already indexed. Dropped once per read rather than once per message, which
-    // would shift the rest of the buffer every time.
+    // Bytes of `buf` already scanned, dropped by `read_chunk`.
     let mut consumed = 0;
     loop {
+        if buf.get(consumed) == Some(&JOURNAL_MARK.as_bytes()[0]) {
+            if buf.len() - consumed < JOURNAL_RECORD {
+                if read_chunk(file, &mut buf, &mut consumed, &mut chunk)? {
+                    continue;
+                }
+                return Ok((index, record, offset));
+            }
+            match parse_record(&buf[consumed..consumed + JOURNAL_RECORD], JOURNAL_MARK) {
+                Some(numbers) => {
+                    let found = record_of(numbers);
+                    record = record.into_iter().chain([found]).max_by_key(|r| r.generation);
+                    consumed += JOURNAL_RECORD;
+                    offset += JOURNAL_RECORD as u64;
+                }
+                None if offset + JOURNAL_RECORD as u64 >= file_len => return Ok((index, record, offset)),
+                None => return Err(invalid_data(format!("{}: corrupt record at offset {offset}", path.display()))),
+            }
+            continue;
+        }
         // Only the framing and MsgSeqNum are checked: the store never parses the body, which
         // takes the session's data fields. The session parses a message when it resends it.
         match frame_stored(&buf[consumed..]) {
@@ -706,13 +835,9 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>,
                 offset += len as u64;
             }
             Err(Decoded::Incomplete) => {
-                let n = file.read(&mut chunk)?;
-                if n == 0 {
-                    return Ok((index, offset));
+                if !read_chunk(file, &mut buf, &mut consumed, &mut chunk)? {
+                    return Ok((index, record, offset));
                 }
-                buf.drain(..consumed);
-                consumed = 0;
-                buf.extend_from_slice(&chunk[..n]);
             }
             Err(Decoded::Garbled { reason, .. }) => {
                 return Err(invalid_data(format!("{}: corrupt message at offset {offset}: {reason}", path.display())));
@@ -720,6 +845,20 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<(BTreeMap<u64, Extent>,
             Err(Decoded::Message(..)) => unreachable!("frame doesn't decode"),
         }
     }
+}
+
+/// Reads the next chunk of `file` onto `buf`, first dropping the `consumed` bytes before it: once
+/// per read rather than once per message, which would shift the rest of the buffer every time.
+/// False at the end of the file.
+fn read_chunk(file: &mut File, buf: &mut Vec<u8>, consumed: &mut usize, chunk: &mut [u8]) -> io::Result<bool> {
+    let n = file.read(chunk)?;
+    if n == 0 {
+        return Ok(false);
+    }
+    buf.drain(..*consumed);
+    *consumed = 0;
+    buf.extend_from_slice(&chunk[..n]);
+    Ok(true)
 }
 
 /// MsgSeqNum(34) of a framed message the session stored, whose standard header, with MsgSeqNum,
@@ -812,18 +951,55 @@ mod tests {
         (log.next_outgoing(), log.next_incoming(), log.in_flight())
     }
 
-    /// Runs `change` on the store for "A", then puts back the seqnums file as a power loss part-way
-    /// through that write could leave it: for each length of what reached the device, the new
-    /// bytes up to there over the old ones. Returns each reopened store's numbers.
-    fn torn(dir: &tempfile::TempDir, change: impl Fn(&mut dyn SessionLog)) -> Vec<(u64, u64, Option<u64>)> {
-        let path = seqnums_path(dir);
-        let before = std::fs::read(&path).unwrap_or_default();
+    /// What reopening a store finds: its numbers and the messages stored.
+    type Reopened = ((u64, u64, Option<u64>), Vec<u64>);
+
+    /// What reopening "A" finds.
+    fn reopened(dir: &tempfile::TempDir) -> Reopened {
+        let mut log = storage(dir).open(&id("A")).unwrap();
+        ((log.next_outgoing(), log.next_incoming(), log.in_flight()), stored(log.as_mut()))
+    }
+
+    /// Runs `change` on the store for "A" and commits it, then cuts the commit's append to the
+    /// journal short at each length a power loss could leave. Returns what each reopened store
+    /// finds, shortest cut first.
+    fn torn_journal(dir: &tempfile::TempDir, change: impl Fn(&mut dyn SessionLog)) -> Vec<Reopened> {
+        let path = body_path(dir, "A");
+        let before = fs::metadata(&path).map_or(0, |m| m.len());
+        let seqnums = fs::read(seqnums_path(dir)).unwrap_or_default();
         {
             let mut log = storage(dir).open(&id("A")).unwrap();
             change(log.as_mut());
             commit_now(log.as_mut()).unwrap();
         }
-        let after = std::fs::read(&path).unwrap();
+        assert_eq!(
+            fs::read(seqnums_path(dir)).unwrap_or_default(),
+            seqnums,
+            "a commit with messages writes only the journal"
+        );
+        let after = fs::read(&path).unwrap();
+        let opened = (before..=after.len() as u64)
+            .map(|cut| {
+                fs::write(&path, &after[..usize::try_from(cut).unwrap()]).unwrap();
+                reopened(dir)
+            })
+            .collect();
+        fs::write(&path, &after).unwrap();
+        opened
+    }
+
+    /// Runs `change` on the store for "A" and commits it, then puts back the seqnums file as a power
+    /// loss part-way through that write could leave it: for each length of what reached the device,
+    /// the new bytes up to there over the old ones. Returns each reopened store's numbers.
+    fn torn_slot(dir: &tempfile::TempDir, change: impl Fn(&mut dyn SessionLog)) -> Vec<(u64, u64, Option<u64>)> {
+        let path = seqnums_path(dir);
+        let before = fs::read(&path).unwrap_or_default();
+        {
+            let mut log = storage(dir).open(&id("A")).unwrap();
+            change(log.as_mut());
+            commit_now(log.as_mut()).unwrap();
+        }
+        let after = fs::read(&path).unwrap();
         // The bytes the write changed, which a tear leaves partly new.
         let start = (0..after.len()).find(|&i| before.get(i) != Some(&after[i])).unwrap();
         let end = (0..after.len()).rev().find(|&i| before.get(i) != Some(&after[i])).unwrap() + 1;
@@ -831,9 +1007,9 @@ mod tests {
             .map(|cut| {
                 let mut bytes = after[..cut].to_vec();
                 bytes.extend(before.iter().skip(cut));
-                std::fs::write(&path, &bytes).unwrap();
+                fs::write(&path, &bytes).unwrap();
                 let opened = numbers(dir);
-                std::fs::write(&path, &after).unwrap();
+                fs::write(&path, &after).unwrap();
                 opened
             })
             .collect()
@@ -843,7 +1019,7 @@ mod tests {
     #[test]
     fn a_torn_first_record_reads_as_before_it() {
         let dir = tempfile::tempdir().unwrap();
-        let opened = torn(&dir, |log| log.set_next_incoming(2).unwrap());
+        let opened = torn_slot(&dir, |log| log.set_next_incoming(2).unwrap());
         assert!(opened.iter().all(|n| [(1, 1, None), (1, 2, None)].contains(n)), "{opened:?}");
         assert_eq!(opened.first(), Some(&(1, 1, None)));
     }
@@ -862,7 +1038,7 @@ mod tests {
         }
         for (change, new) in [(20, (1, 20, None)), (99, (1, 99, None))] {
             let old = numbers(&dir);
-            let opened = torn(&dir, |log| log.set_next_incoming(change).unwrap());
+            let opened = torn_slot(&dir, |log| log.set_next_incoming(change).unwrap());
             assert!(opened.iter().all(|n| *n == old || *n == new), "{old:?} to {new:?}: {opened:?}");
             assert_eq!(numbers(&dir), new);
         }
@@ -872,9 +1048,79 @@ mod tests {
     #[test]
     fn a_torn_first_write_over_an_old_record_keeps_it() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(seqnums_path(&dir), format!("{:020} {:020} {:020}\n", 5, 9, 0)).unwrap();
-        let opened = torn(&dir, |log| log.set_next_incoming(10).unwrap());
+        fs::write(seqnums_path(&dir), format!("{:020} {:020} {:020}\n", 5, 9, 0)).unwrap();
+        let opened = torn_slot(&dir, |log| log.set_next_incoming(10).unwrap());
         assert!(opened.iter().all(|n| [(5, 9, None), (5, 10, None)].contains(n)), "{opened:?}");
+    }
+
+    /// A commit that stores messages, cut anywhere, reopens as before it or after it: never numbers
+    /// that weren't recorded. Its messages are kept as far as they reached, and the next outgoing
+    /// number is past them, so none is sent again under its number.
+    #[test]
+    fn a_torn_commit_reads_as_before_or_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            store_each(log.as_mut(), 1..=2);
+            log.set_next_incoming(19).unwrap();
+            commit_now(log.as_mut()).unwrap();
+        }
+        let opened = torn_journal(&dir, |log| {
+            for seq in 3..=4 {
+                log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
+            }
+            log.set_next_incoming(20).unwrap();
+            log.set_in_flight(20).unwrap();
+        });
+        let expected = [
+            ((3, 19, None), vec![1, 2]),
+            ((4, 19, None), vec![1, 2, 3]),
+            ((5, 19, None), vec![1, 2, 3, 4]),
+            ((5, 20, Some(20)), vec![1, 2, 3, 4]),
+        ];
+        assert!(opened.iter().all(|found| expected.contains(found)), "{opened:?}");
+        assert_eq!(opened.first(), Some(&expected[0]));
+        assert_eq!(opened.last(), Some(&expected[3]));
+        assert!(expected.iter().all(|e| opened.contains(e)), "every prefix is seen: {opened:?}");
+    }
+
+    /// Records go wherever the commit writes: with its messages in the journal, or alone in the
+    /// seqnums file. The latest, by generation, wins, whichever file it's in.
+    #[test]
+    fn the_latest_record_wins_wherever_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut log = storage(&dir).open(&id("A")).unwrap();
+        store_each(log.as_mut(), 1..=1);
+        assert_eq!(fs::metadata(seqnums_path(&dir)).unwrap().len(), 0, "the record went with the message");
+        log.set_next_incoming(7).unwrap();
+        commit_now(log.as_mut()).unwrap();
+        let journal_len = fs::metadata(body_path(&dir, "A")).unwrap().len();
+        drop(log);
+        assert_eq!(numbers(&dir), (2, 7, None), "the seqnums file's record is later");
+        let mut log = storage(&dir).open(&id("A")).unwrap();
+        store_each(log.as_mut(), 2..=2);
+        assert!(fs::metadata(body_path(&dir, "A")).unwrap().len() > journal_len);
+        drop(log);
+        assert_eq!(numbers(&dir), (3, 7, None), "the journal's record is later");
+    }
+
+    /// A store from 0.1, whose records are all in a slotted seqnums file, opens as it was, and its
+    /// generations go on: a journal record written later is the latest.
+    #[test]
+    fn a_store_from_0_1_opens_and_carries_on() {
+        let dir = tempfile::tempdir().unwrap();
+        // Generation 41, in slot 1; slot 0 holds an older one.
+        let mut old = vec![b' '; 2 * SLOT];
+        old[..SLOT].copy_from_slice(&slot_record(40, 6, 8, 0));
+        old[SLOT..].copy_from_slice(&slot_record(41, 7, 8, 0));
+        fs::write(seqnums_path(&dir), &old).unwrap();
+        assert_eq!(numbers(&dir), (7, 8, None));
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            store_each(log.as_mut(), 7..=7);
+        }
+        assert_eq!(fs::read(seqnums_path(&dir)).unwrap(), old, "the message's commit didn't touch it");
+        assert_eq!(numbers(&dir), (8, 8, None), "generation 42 is later than 41");
     }
 
     /// Nothing reaches the files until a commit, and a crash before one loses what it would have
@@ -916,9 +1162,10 @@ mod tests {
     }
 
     /// A store whose segments hold `per_segment` messages of [`app_message`]'s size (seq 1 to 9),
-    /// keeping at most `kept` messages' worth.
+    /// each committed alone, keeping at most `kept` messages' worth.
     fn rotating(dir: &tempfile::TempDir, per_segment: u64, kept: u64) -> DiskStorage {
-        let len = app_message(1).len() as u64;
+        // Each committed alone, with its record.
+        let len = (app_message(1).len() + JOURNAL_RECORD) as u64;
         storage(dir).with_segment_bytes(per_segment * len).with_max_session_bytes(kept * len)
     }
 
@@ -948,7 +1195,7 @@ mod tests {
             store_each(log.as_mut(), 1..=5);
             assert_eq!(stored(log.as_mut()), [1, 2, 3, 4, 5]);
         }
-        let len = app_message(1).len() as u64;
+        let len = (app_message(1).len() + JOURNAL_RECORD) as u64;
         let lens: Vec<u64> = (0..3).map(|n| fs::metadata(segment_path(&dir, n)).unwrap().len()).collect();
         assert_eq!(lens, [2 * len, 2 * len, len]);
         let mut log = storage.open(&id("A")).unwrap();
@@ -996,12 +1243,30 @@ mod tests {
         let mut log = storage.open(&id("A")).unwrap();
         store_each(log.as_mut(), 1..=7);
         log.reset().unwrap();
-        assert!(
-            (0..4).all(|n| !segment_path(&dir, n).exists() || fs::metadata(segment_path(&dir, n)).unwrap().len() == 0)
-        );
+        assert!((1..4).all(|n| !segment_path(&dir, n).exists()));
+        assert_eq!(fs::metadata(segment_path(&dir, 0)).unwrap().len(), JOURNAL_RECORD as u64, "the reset's record");
         assert_eq!((stored(log.as_mut()), log.evicted_through()), (vec![], None));
         store_each(log.as_mut(), 1..=1);
-        assert_eq!(fs::metadata(segment_path(&dir, 0)).unwrap().len(), app_message(1).len() as u64);
+        let len = (app_message(1).len() + 2 * JOURNAL_RECORD) as u64;
+        assert_eq!(fs::metadata(segment_path(&dir, 0)).unwrap().len(), len);
+    }
+
+    /// A segment a reset deleted that a power loss brings back holds records older than the
+    /// reset's: it's deleted again, so neither its numbers nor its messages come back.
+    #[test]
+    fn a_segment_from_before_a_reset_is_deleted_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 100);
+        let mut log = storage.open(&id("A")).unwrap();
+        store_each(log.as_mut(), 1..=5);
+        let resurrected = fs::read(segment_path(&dir, 2)).unwrap();
+        log.reset().unwrap();
+        store_each(log.as_mut(), 1..=1);
+        drop(log);
+        fs::write(segment_path(&dir, 2), &resurrected).unwrap();
+        let mut log = storage.open(&id("A")).unwrap();
+        assert_eq!((log.next_outgoing(), log.next_incoming(), stored(log.as_mut())), (2, 1, vec![1]));
+        assert!(!segment_path(&dir, 2).exists());
     }
 
     #[test]
@@ -1065,6 +1330,36 @@ mod tests {
         assert_eq!(log.next_outgoing(), 3);
     }
 
+    /// A record that doesn't check is a torn write if it's the last thing in its segment, and
+    /// corruption anywhere else.
+    #[test]
+    fn a_damaged_record_is_torn_at_the_end_and_corrupt_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            store_each(log.as_mut(), 1..=2);
+        }
+        let path = body_path(&dir, "A");
+        let whole = fs::read(&path).unwrap();
+        let first_record = app_message(1).len() + JOURNAL_RECORD - 2;
+        for (at, opens) in [(whole.len() - 2, true), (first_record, false)] {
+            let mut bytes = whole.clone();
+            bytes[at] = b'x';
+            fs::write(&path, &bytes).unwrap();
+            match storage(&dir).open(&id("A")) {
+                Ok(mut log) => {
+                    assert!(opens, "damage at {at} should fail");
+                    assert_eq!((log.next_outgoing(), stored(log.as_mut())), (3, vec![1, 2]));
+                    assert_eq!(fs::metadata(&path).unwrap().len(), (whole.len() - JOURNAL_RECORD) as u64);
+                }
+                Err(e) => {
+                    assert!(!opens, "damage at {at} should be truncated: {e}");
+                    assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+                }
+            }
+        }
+    }
+
     #[test]
     fn corrupt_body_fails_to_open() {
         let dir = tempfile::tempdir().unwrap();
@@ -1108,13 +1403,15 @@ mod tests {
         commit_now(log.as_mut()).unwrap();
         // Make ExecID(17) non-UTF-8, with a valid CheckSum so only the field is at fault.
         let path = body_path(&dir, "A");
-        let mut bytes = fs::read(&path).unwrap();
+        let mut segment = fs::read(&path).unwrap();
+        let bytes = &mut segment[..app_message(1).len()];
         let at = bytes.windows(5).position(|w| w == b"\x0117=E").unwrap() + 4;
         bytes[at] = 0xff;
         let trailer = bytes.len() - 7;
         let sum = crate::codec::checksum(&bytes[..trailer]);
         bytes[trailer..].copy_from_slice(format!("10={sum:03}\x01").as_bytes());
-        fs::write(&path, &bytes).unwrap();
+        let bytes = bytes.to_vec();
+        fs::write(&path, &segment).unwrap();
 
         assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, bytes.clone())]);
         drop(log);
