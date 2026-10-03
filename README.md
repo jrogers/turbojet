@@ -196,6 +196,7 @@ which Turbojet uses for its own types and applications can use for theirs, inclu
 and venue-specific message types:
 
 ```rust
+use turbojet::fields::CompactString;
 use turbojet::{fix_enum, fix_group, fix_message};
 
 mod venue_tags {
@@ -207,11 +208,11 @@ mod venue_tags {
 use venue_tags::*;
 
 fix_enum! { Priority { Normal = "N", Urgent = "U", } }
-fix_group! { Leg / LegRef { symbol: req String = LEG_SYMBOL } }
+fix_group! { Leg / LegRef { symbol: req CompactString = LEG_SYMBOL } }
 fix_message! {
     /// A venue-specific spread order.
     SpreadOrder / SpreadOrderRef = "U1" { // or a MsgType variant, e.g. = NewOrderSingle
-        cl_ord_id: req String = CL_ORD_ID,
+        cl_ord_id: req CompactString = CL_ORD_ID,
         priority: opt Priority = PRIORITY,
         legs: req_group Leg = NO_LEGS,    // at least one entry; `group` allows none
     }
@@ -230,6 +231,11 @@ for leg in &order.legs {
 }
 let kept: SpreadOrder = order.into_owned(); // or msg.parse::<SpreadOrder>()?
 ```
+
+Text fields in the generated messages are `CompactString`s (re-exported as
+`turbojet::fields::CompactString`), which keep values of up to 24 bytes inline, so typical IDs and
+symbols are parsed and sent without allocating. Build one with `.into()` from a `&str` or `String`,
+or `format_compact!` in place of `format!`. `String` works as a field type too.
 
 Tags are paths to `u32` constants and are matched as patterns, so a misspelt tag is a compile
 error. Parsing is strict: an unknown enum code is *value incorrect* (373=5), a malformed number or
@@ -707,7 +713,7 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 |---|---|---|---|
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
-| Application (typed parse and ack)³ | 5 | 2 | 34 |
+| Application (typed parse and ack)³ | 0 | 0 | 0 |
 | Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 | Engine (all but the application): memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 
@@ -715,19 +721,20 @@ Means of 1,000 orders after 100 warm-up, 2026-09-30, with each store (the disk s
 fsync). Store allocations are fractional because the stores' maps allocate a node every few
 messages; the memory store also copies each message it keeps. Debug and release builds count the
 same. ³ Measured 2026-10-03. The application parses the order borrowed, without allocating, and
-copies the strings it needs into its owned ExecutionReport; those are its 5 allocations.
-`Context::send` writes the ExecutionReport into a message the session reuses, which allocates
-nothing once warmed up (before 2026-10-03 the reply list and the message cost 3 allocations).
+copies the strings it needs into its owned ExecutionReport, whose `CompactString`s keep them
+inline (as `String`s, they cost 5 allocations). `Context::send` writes the ExecutionReport into a
+message the session reuses, which allocates nothing once warmed up (before 2026-10-03 the reply
+list and the message cost 3 allocations more).
 
 Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
 
 | Parse | Allocations | Reallocs | Bytes |
 |---|---|---|---|
 | `NewOrderSingleRef`: no groups / 3 allocations, every entry read | 0 / 0 | 0 | 0 / 0 |
-| `NewOrderSingle`: no groups / 3 allocations | 3 / 7 | 0 | 16 / 226 |
+| `NewOrderSingle`: no groups / 3 allocations | 0 / 1 | 0 | 0 / 144 |
 
-The owned form allocates a `String` for each text field it holds (ClOrdID, Symbol and Account
-here) and a `Vec` for each group, with its entries' strings.
+The owned form allocates a `Vec` for each group, and a text value only if it's longer than 24
+bytes; ClOrdID, Symbol and Account here are kept inline.
 
 ## Limitations
 

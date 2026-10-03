@@ -6,6 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: text fields in typed messages are `CompactString`s rather than `String`s (in the
+  generated crates, and Text, TestReqID and Username in the admin messages), re-exported with
+  `format_compact!` and `ToCompactString` from `turbojet::fields`. Values of up to 24 bytes are
+  kept inline, so typical IDs and symbols are parsed and sent without allocating: an owned FIX 4.2
+  NewOrderSingle parses about 25% faster, and the example acknowledgement allocates nothing. Build
+  one with `.into()` from a `&str` or `String`, or `format_compact!`; code that needs a `String`
+  converts with `.to_string()`. `Secret`, `Code::Unknown` and `String` itself are unchanged, so
+  custom messages may keep `String` fields.
 - Owned typed messages (`FixMessage::from_message`, `Message::parse::<NewOrderSingle>()`) are
   parsed straight into their owned form, rather than borrowed and then made owned, so each group
   entry is parsed once: a FIX 4.2 NewOrderSingle about 11% faster (18% with three allocated
@@ -260,6 +268,8 @@ Notable changes to the published crates.
   or one with no body fields, is an error. No generated name in the version crates changed.
 - Debug builds of the version crates take about a third longer; a release build of
   `turbojet-fix44` takes about a fifth less time.
+- Breaking: text fields are generated as `CompactString` (lists of them as `Vec<CompactString>`);
+  required ones are still taken by `new` as `impl Into<…>`. See `turbojet` above.
 
 ## `turbojet` 0.1.1 (2026-09-29)
 

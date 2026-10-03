@@ -218,13 +218,10 @@ has grown. The session encodes what it sends once, straight into one reused outp
 stores keep those bytes. The application's replies go into a list the session keeps, and a typed
 reply is written into a message the session reuses (`FixMessage::write_into`). As of 2026-10-03 the
 engine makes about 1 allocation per order with the memory store and 0.2 with the disk store (the
-store's copy or index node), and the example application 5 (typed parsing allocates nothing, but its
-acknowledgement copies the strings it parsed into an owned ExecutionReport). What remains, per
-message:
-- **Write borrowed replies** (M). An application's owned reply copies the strings it takes from
-  the order (5 allocations in the example). Letting it build a reply from borrowed values (the
-  `…Ref` forms, or a builder writing straight into the reused message) would avoid them; groups
-  in the `…Ref` forms point into a parsed message, so they'd need a form of their own.
+store's copy or index node), and the example application none: typed parsing allocates nothing,
+and the strings its acknowledgement copies into an owned ExecutionReport are `CompactString`s,
+kept inline up to 24 bytes. Longer values, and groups' entry lists, still allocate. What remains,
+per message:
 - **Inbound without the copy** (M). Decoding still copies each frame, once, out of the read
   buffer into the reused message. A view borrowing the read buffer would avoid that, at the cost
   of a second message type through `Fields`, the typed-message macros and the generated crates;
