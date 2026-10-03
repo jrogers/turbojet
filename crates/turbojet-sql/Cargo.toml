@@ -1,0 +1,38 @@
+[package]
+name = "turbojet-sql"
+description = "SQL session storage for Turbojet: SQLite and PostgreSQL through sqlx, with leases so one gateway runs each session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "sqlite", "postgres"]
+categories = ["database", "finance"]
+
+# Document every backend on docs.rs.
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+sqlx = { workspace = true, features = ["any"] }
+tokio.workspace = true
+tracing.workspace = true
+turbojet.workspace = true
+
+[features]
+default = ["sqlite"]
+# SQLite, bundled: a file per gateway, or one shared by gateways on one host.
+sqlite = ["sqlx/sqlite"]
+# PostgreSQL.
+postgres = ["sqlx/postgres"]
+# TLS for PostgreSQL connections (rustls with the ring crypto provider), trusting the operating
+# system's certificate store.
+tls = ["sqlx/tls-rustls-ring-native-roots"]
+
+[dev-dependencies]
+tempfile.workspace = true
+turbojet = { workspace = true, features = ["conformance"] }
+
+[lints]
+workspace = true

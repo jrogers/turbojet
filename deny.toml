@@ -14,7 +14,8 @@ ignore = []
 [licenses]
 # Turbojet is Apache-2.0, so dependencies must be compatible with it. An expression with OR passes
 # if any choice is allowed.
-allow = ["Apache-2.0", "BSD-3-Clause", "ISC", "MIT", "Unicode-3.0"]
+# Zlib: foldhash, which sqlx (turbojet-sql) uses through hashbrown.
+allow = ["Apache-2.0", "BSD-3-Clause", "ISC", "MIT", "Unicode-3.0", "Zlib"]
 confidence-threshold = 0.9
 
 # The unpublished test crates (turbojet-acceptance, turbojet-interop) aren't distributed.
