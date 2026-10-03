@@ -88,13 +88,13 @@ pub mod groups {
 //! Repeating-group entries.
 
 use super::tags::*;
-use turbojet::fields::Decimal;
+use turbojet::fields::{CompactString, Decimal};
 
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
     PreAllocGrp / PreAllocGrpRef {
         /// AllocAccount(79).
-        alloc_account: req String = ALLOC_ACCOUNT,
+        alloc_account: req CompactString = ALLOC_ACCOUNT,
         /// AllocShares(80).
         alloc_shares: opt Decimal = ALLOC_SHARES,
     }
@@ -103,7 +103,7 @@ turbojet::fix_group! {
 impl PreAllocGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_account: impl Into<String>) -> Self {
+    pub fn new(alloc_account: impl Into<CompactString>) -> Self {
         Self { alloc_account: alloc_account.into(), alloc_shares: None }
     }
 }
@@ -112,7 +112,7 @@ turbojet::fix_group! {
     /// An entry of NoAllocs(78).
     AllocGrp / AllocGrpRef {
         /// AllocAccount(79).
-        alloc_account: req String = ALLOC_ACCOUNT,
+        alloc_account: req CompactString = ALLOC_ACCOUNT,
         /// AllocShares(80).
         alloc_shares: req Decimal = ALLOC_SHARES,
         /// NoMiscFees(136).
@@ -123,7 +123,7 @@ turbojet::fix_group! {
 impl AllocGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_account: impl Into<String>, alloc_shares: Decimal) -> Self {
+    pub fn new(alloc_account: impl Into<CompactString>, alloc_shares: Decimal) -> Self {
         Self { alloc_account: alloc_account.into(), alloc_shares, misc_fees: Vec::new() }
     }
 }
@@ -156,7 +156,7 @@ pub mod messages {
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{Decimal, UtcTimestamp};
+use turbojet::fields::{CompactString, Decimal, UtcTimestamp};
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
@@ -167,7 +167,7 @@ turbojet::fix_message! {
         /// ClOrdID(11).
         ///
         /// Unique identifier for Order as assigned by institution. Uniqueness must be guaranteed within a single trading day.
-        cl_ord_id: req String = CL_ORD_ID,
+        cl_ord_id: req CompactString = CL_ORD_ID,
         /// NoAllocs(78).
         ///
         /// Number of repeating AllocAccount/AllocPrice entries.
@@ -179,9 +179,9 @@ turbojet::fix_message! {
         /// Symbol(55).
         ///
         /// Ticker symbol. Use "\[N/A\]" for products which do not have a symbol.
-        symbol: req String = SYMBOL,
+        symbol: req CompactString = SYMBOL,
         /// SecurityID(48).
-        security_id: opt String = SECURITY_ID,
+        security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
         ///
         /// Identifies class of alternative SecurityID
@@ -204,14 +204,14 @@ turbojet::fix_message! {
         ///
         /// \*\*\* DEPRECATED FIELD - See "Deprecated (Phased-out) Features and Supported Approach"\
         /// No longer used. Included here for reference to prior versions.
-        sending_date: opt String = SENDING_DATE,
+        sending_date: opt CompactString = SENDING_DATE,
     }
 }
 
 impl NewOrderSingle {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(cl_ord_id: impl Into<String>, handl_inst: HandlInst, symbol: impl Into<String>, side: Side, transact_time: UtcTimestamp) -> Self {
+    pub fn new(cl_ord_id: impl Into<CompactString>, handl_inst: HandlInst, symbol: impl Into<CompactString>, side: Side, transact_time: UtcTimestamp) -> Self {
         Self { cl_ord_id: cl_ord_id.into(), allocs: Vec::new(), handl_inst, symbol: symbol.into(), security_id: None, id_source: None, side, transact_time, order_qty: None, sending_date: None }
     }
 }
@@ -222,7 +222,7 @@ turbojet::fix_message! {
     /// The Allocation message provides the ability to specify how an order or set of orders should be subdivided amongst one or more accounts.
     Allocation / AllocationRef = "J" {
         /// AllocID(70).
-        alloc_id: req String = ALLOC_ID,
+        alloc_id: req CompactString = ALLOC_ID,
         /// Side(54).
         ///
         /// Side of order
@@ -232,14 +232,14 @@ turbojet::fix_message! {
         /// Number of repeating AllocAccount/AllocPrice entries.
         allocs: req_group AllocGrp = NO_ALLOCS,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
     }
 }
 
 impl Allocation {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_id: impl Into<String>, side: Side, allocs: Vec<AllocGrp>) -> Self {
+    pub fn new(alloc_id: impl Into<CompactString>, side: Side, allocs: Vec<AllocGrp>) -> Self {
         Self { alloc_id: alloc_id.into(), side, allocs, text: None }
     }
 }

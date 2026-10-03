@@ -26,7 +26,10 @@ fn documentation_is_left_out_by_default() {
     let synopsis = "Unique identifier for Order as assigned by institution";
     assert!(with.contains(synopsis));
     assert!(!without.contains(synopsis));
-    assert!(without.contains("        /// ClOrdID(11).\n        cl_ord_id: req String = CL_ORD_ID,"), "{without}");
+    assert!(
+        without.contains("        /// ClOrdID(11).\n        cl_ord_id: req CompactString = CL_ORD_ID,"),
+        "{without}"
+    );
 }
 
 /// The `fix_message!` for the message named `name`.
@@ -52,7 +55,7 @@ fn a_relisted_message_keeps_the_official_groups() {
     let (base, merged) = (modules(&base), modules(&merged));
     assert!(merged.groups == base.groups, "the venue's groups are generated alongside the official ones");
     let order = message(&merged.messages, "NewOrderSingle");
-    for slot in ["allocs: group PreAllocGrp", "trading_sessions: group TrdgSesGrp", "venue_tag: opt String"] {
+    for slot in ["allocs: group PreAllocGrp", "trading_sessions: group TrdgSesGrp", "venue_tag: opt CompactString"] {
         assert!(order.contains(slot), "{slot}");
     }
 }

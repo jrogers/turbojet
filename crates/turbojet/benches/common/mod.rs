@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use turbojet::fields::Decimal;
 use turbojet::fields::EncryptMethod;
 use turbojet::fields::UtcTimestamp;
+use turbojet::fields::{Decimal, format_compact};
 use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
@@ -36,8 +36,8 @@ pub fn new_order_single(cl_ord_id: u64) -> NewOrderSingle {
 
 /// The acknowledgement an acceptor would send for `order`.
 pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
-    let order_id = format!("O{id}");
-    let exec_id = format!("E{id}");
+    let order_id = format_compact!("O{id}");
+    let exec_id = format_compact!("E{id}");
     let leaves_qty = order.order_qty.unwrap_or_default();
     let cum_qty = Decimal::ZERO;
     let avg_px = Decimal::ZERO;

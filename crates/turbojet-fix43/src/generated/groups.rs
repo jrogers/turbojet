@@ -2,22 +2,22 @@
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::{Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{CompactString, Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp};
 
 turbojet::fix_group! {
     /// An entry of NoSecurityAltID(454).
     SecAltIDGrp / SecAltIDGrpRef {
         /// SecurityAltID(455).
-        security_alt_id: req String = SECURITY_ALT_ID,
+        security_alt_id: req CompactString = SECURITY_ALT_ID,
         /// SecurityAltIDSource(456).
-        security_alt_id_source: opt String = SECURITY_ALT_ID_SOURCE,
+        security_alt_id_source: opt CompactString = SECURITY_ALT_ID_SOURCE,
     }
 }
 
 impl SecAltIDGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(security_alt_id: impl Into<String>) -> Self {
+    pub fn new(security_alt_id: impl Into<CompactString>) -> Self {
         Self { security_alt_id: security_alt_id.into(), security_alt_id_source: None }
     }
 }
@@ -44,7 +44,7 @@ turbojet::fix_group! {
         /// RoutingType(216).
         routing_type: req RoutingType = ROUTING_TYPE,
         /// RoutingID(217).
-        routing_id: opt String = ROUTING_ID,
+        routing_id: opt CompactString = ROUTING_ID,
     }
 }
 
@@ -60,20 +60,20 @@ turbojet::fix_group! {
     /// An entry of NoPartyIDs(453).
     Parties / PartiesRef {
         /// PartyID(448).
-        party_id: req String = PARTY_ID,
+        party_id: req CompactString = PARTY_ID,
         /// PartyIDSource(447).
         party_id_source: opt PartyIDSource = PARTY_ID_SOURCE,
         /// PartyRole(452).
         party_role: opt PartyRole = PARTY_ROLE,
         /// PartySubID(523).
-        party_sub_id: opt String = PARTY_SUB_ID,
+        party_sub_id: opt CompactString = PARTY_SUB_ID,
     }
 }
 
 impl Parties {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(party_id: impl Into<String>) -> Self {
+    pub fn new(party_id: impl Into<CompactString>) -> Self {
         Self { party_id: party_id.into(), party_id_source: None, party_role: None, party_sub_id: None }
     }
 }
@@ -82,22 +82,22 @@ turbojet::fix_group! {
     /// An entry of NoContraBrokers(382).
     ContraGrp / ContraGrpRef {
         /// ContraBroker(375).
-        contra_broker: req String = CONTRA_BROKER,
+        contra_broker: req CompactString = CONTRA_BROKER,
         /// ContraTrader(337).
-        contra_trader: opt String = CONTRA_TRADER,
+        contra_trader: opt CompactString = CONTRA_TRADER,
         /// ContraTradeQty(437).
         contra_trade_qty: opt Decimal = CONTRA_TRADE_QTY,
         /// ContraTradeTime(438).
         contra_trade_time: opt UtcTimestamp = CONTRA_TRADE_TIME,
         /// ContraLegRefID(655).
-        contra_leg_ref_id: opt String = CONTRA_LEG_REF_ID,
+        contra_leg_ref_id: opt CompactString = CONTRA_LEG_REF_ID,
     }
 }
 
 impl ContraGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(contra_broker: impl Into<String>) -> Self {
+    pub fn new(contra_broker: impl Into<CompactString>) -> Self {
         Self {
             contra_broker: contra_broker.into(),
             contra_trader: None,
@@ -114,7 +114,7 @@ turbojet::fix_group! {
         /// StipulationType(233).
         stipulation_type: req StipulationType = STIPULATION_TYPE,
         /// StipulationValue(234).
-        stipulation_value: opt String = STIPULATION_VALUE,
+        stipulation_value: opt CompactString = STIPULATION_VALUE,
     }
 }
 
@@ -134,7 +134,7 @@ turbojet::fix_group! {
         /// ContAmtValue(520).
         cont_amt_value: opt Decimal = CONT_AMT_VALUE,
         /// ContAmtCurr(521).
-        cont_amt_curr: opt String = CONT_AMT_CURR,
+        cont_amt_curr: opt CompactString = CONT_AMT_CURR,
     }
 }
 
@@ -150,21 +150,21 @@ turbojet::fix_group! {
     /// An entry of NoLegs(555).
     SecLstUpdRelSymsLegGrp / SecLstUpdRelSymsLegGrpRef {
         /// LegSymbol(600).
-        leg_symbol: req String = LEG_SYMBOL,
+        leg_symbol: req CompactString = LEG_SYMBOL,
         /// LegSymbolSfx(601).
-        leg_symbol_sfx: opt String = LEG_SYMBOL_SFX,
+        leg_symbol_sfx: opt CompactString = LEG_SYMBOL_SFX,
         /// LegSecurityID(602).
-        leg_security_id: opt String = LEG_SECURITY_ID,
+        leg_security_id: opt CompactString = LEG_SECURITY_ID,
         /// LegSecurityIDSource(603).
-        leg_security_id_source: opt String = LEG_SECURITY_ID_SOURCE,
+        leg_security_id_source: opt CompactString = LEG_SECURITY_ID_SOURCE,
         /// NoLegSecurityAltID(604).
         leg_security_alt_id: group LegSecAltIDGrp = NO_LEG_SECURITY_ALT_ID,
         /// LegProduct(607).
         leg_product: opt i64 = LEG_PRODUCT,
         /// LegCFICode(608).
-        leg_cfi_code: opt String = LEG_CFI_CODE,
+        leg_cfi_code: opt CompactString = LEG_CFI_CODE,
         /// LegSecurityType(609).
-        leg_security_type: opt String = LEG_SECURITY_TYPE,
+        leg_security_type: opt CompactString = LEG_SECURITY_TYPE,
         /// LegMaturityMonthYear(610).
         leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
         /// LegMaturityDate(611).
@@ -174,7 +174,7 @@ turbojet::fix_group! {
         /// LegIssueDate(249).
         leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
         /// LegRepoCollateralSecurityType(250).
-        leg_repo_collateral_security_type: opt String = LEG_REPO_COLLATERAL_SECURITY_TYPE,
+        leg_repo_collateral_security_type: opt CompactString = LEG_REPO_COLLATERAL_SECURITY_TYPE,
         /// LegRepurchaseTerm(251).
         leg_repurchase_term: opt i64 = LEG_REPURCHASE_TERM,
         /// LegRepurchaseRate(252).
@@ -182,15 +182,15 @@ turbojet::fix_group! {
         /// LegFactor(253).
         leg_factor: opt Decimal = LEG_FACTOR,
         /// LegCreditRating(257).
-        leg_credit_rating: opt String = LEG_CREDIT_RATING,
+        leg_credit_rating: opt CompactString = LEG_CREDIT_RATING,
         /// LegInstrRegistry(599).
-        leg_instr_registry: opt String = LEG_INSTR_REGISTRY,
+        leg_instr_registry: opt CompactString = LEG_INSTR_REGISTRY,
         /// LegCountryOfIssue(596).
-        leg_country_of_issue: opt String = LEG_COUNTRY_OF_ISSUE,
+        leg_country_of_issue: opt CompactString = LEG_COUNTRY_OF_ISSUE,
         /// LegStateOrProvinceOfIssue(597).
-        leg_state_or_province_of_issue: opt String = LEG_STATE_OR_PROVINCE_OF_ISSUE,
+        leg_state_or_province_of_issue: opt CompactString = LEG_STATE_OR_PROVINCE_OF_ISSUE,
         /// LegLocaleOfIssue(598).
-        leg_locale_of_issue: opt String = LEG_LOCALE_OF_ISSUE,
+        leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
         /// LegRedemptionDate(254).
         leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
         /// LegStrikePrice(612).
@@ -202,13 +202,13 @@ turbojet::fix_group! {
         /// LegCouponRate(615).
         leg_coupon_rate: opt Decimal = LEG_COUPON_RATE,
         /// LegSecurityExchange(616).
-        leg_security_exchange: opt String = LEG_SECURITY_EXCHANGE,
+        leg_security_exchange: opt CompactString = LEG_SECURITY_EXCHANGE,
         /// LegIssuer(617).
-        leg_issuer: opt String = LEG_ISSUER,
+        leg_issuer: opt CompactString = LEG_ISSUER,
         /// EncodedLegIssuer(619).
         encoded_leg_issuer: opt_data Vec<u8> = ENCODED_LEG_ISSUER_LEN => ENCODED_LEG_ISSUER,
         /// LegSecurityDesc(620).
-        leg_security_desc: opt String = LEG_SECURITY_DESC,
+        leg_security_desc: opt CompactString = LEG_SECURITY_DESC,
         /// EncodedLegSecurityDesc(622).
         encoded_leg_security_desc: opt_data Vec<u8> = ENCODED_LEG_SECURITY_DESC_LEN => ENCODED_LEG_SECURITY_DESC,
         /// LegRatioQty(623).
@@ -222,7 +222,7 @@ turbojet::fix_group! {
         /// NoNestedPartyIDs(539).
         nested_party_ids: group NestedParties = NO_NESTED_PARTY_IDS,
         /// LegRefID(654).
-        leg_ref_id: opt String = LEG_REF_ID,
+        leg_ref_id: opt CompactString = LEG_REF_ID,
         /// LegPrice(566).
         leg_price: opt Decimal = LEG_PRICE,
         /// LegSettlmntTyp(587).
@@ -235,7 +235,7 @@ turbojet::fix_group! {
 impl SecLstUpdRelSymsLegGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(leg_symbol: impl Into<String>) -> Self {
+    pub fn new(leg_symbol: impl Into<CompactString>) -> Self {
         Self {
             leg_symbol: leg_symbol.into(),
             leg_symbol_sfx: None,
@@ -285,16 +285,16 @@ turbojet::fix_group! {
     /// An entry of NoLegSecurityAltID(604).
     LegSecAltIDGrp / LegSecAltIDGrpRef {
         /// LegSecurityAltID(605).
-        leg_security_alt_id: req String = LEG_SECURITY_ALT_ID,
+        leg_security_alt_id: req CompactString = LEG_SECURITY_ALT_ID,
         /// LegSecurityAltIDSource(606).
-        leg_security_alt_id_source: opt String = LEG_SECURITY_ALT_ID_SOURCE,
+        leg_security_alt_id_source: opt CompactString = LEG_SECURITY_ALT_ID_SOURCE,
     }
 }
 
 impl LegSecAltIDGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(leg_security_alt_id: impl Into<String>) -> Self {
+    pub fn new(leg_security_alt_id: impl Into<CompactString>) -> Self {
         Self { leg_security_alt_id: leg_security_alt_id.into(), leg_security_alt_id_source: None }
     }
 }
@@ -303,20 +303,20 @@ turbojet::fix_group! {
     /// An entry of NoNestedPartyIDs(539).
     NestedParties / NestedPartiesRef {
         /// NestedPartyID(524).
-        nested_party_id: req String = NESTED_PARTY_ID,
+        nested_party_id: req CompactString = NESTED_PARTY_ID,
         /// NestedPartyIDSource(525).
         nested_party_id_source: opt char = NESTED_PARTY_ID_SOURCE,
         /// NestedPartyRole(538).
         nested_party_role: opt i64 = NESTED_PARTY_ROLE,
         /// NestedPartySubID(545).
-        nested_party_sub_id: opt String = NESTED_PARTY_SUB_ID,
+        nested_party_sub_id: opt CompactString = NESTED_PARTY_SUB_ID,
     }
 }
 
 impl NestedParties {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(nested_party_id: impl Into<String>) -> Self {
+    pub fn new(nested_party_id: impl Into<CompactString>) -> Self {
         Self {
             nested_party_id: nested_party_id.into(),
             nested_party_id_source: None,
@@ -330,11 +330,11 @@ turbojet::fix_group! {
     /// An entry of NoRelatedSym(146).
     StrmAsgnRptInstrmtGrp / StrmAsgnRptInstrmtGrpRef {
         /// Symbol(55).
-        symbol: req String = SYMBOL,
+        symbol: req CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt String = SYMBOL_SFX,
+        symbol_sfx: opt CompactString = SYMBOL_SFX,
         /// SecurityID(48).
-        security_id: opt String = SECURITY_ID,
+        security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
         security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
@@ -342,7 +342,7 @@ turbojet::fix_group! {
         /// Product(460).
         product: opt Product = PRODUCT,
         /// CFICode(461).
-        cfi_code: opt String = CFI_CODE,
+        cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
@@ -354,7 +354,7 @@ turbojet::fix_group! {
         /// IssueDate(225).
         issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
-        repo_collateral_security_type: opt String = REPO_COLLATERAL_SECURITY_TYPE,
+        repo_collateral_security_type: opt CompactString = REPO_COLLATERAL_SECURITY_TYPE,
         /// RepurchaseTerm(226).
         repurchase_term: opt i64 = REPURCHASE_TERM,
         /// RepurchaseRate(227).
@@ -362,15 +362,15 @@ turbojet::fix_group! {
         /// Factor(228).
         factor: opt Decimal = FACTOR,
         /// CreditRating(255).
-        credit_rating: opt String = CREDIT_RATING,
+        credit_rating: opt CompactString = CREDIT_RATING,
         /// InstrRegistry(543).
-        instr_registry: opt String = INSTR_REGISTRY,
+        instr_registry: opt CompactString = INSTR_REGISTRY,
         /// CountryOfIssue(470).
-        country_of_issue: opt String = COUNTRY_OF_ISSUE,
+        country_of_issue: opt CompactString = COUNTRY_OF_ISSUE,
         /// StateOrProvinceOfIssue(471).
-        state_or_province_of_issue: opt String = STATE_OR_PROVINCE_OF_ISSUE,
+        state_or_province_of_issue: opt CompactString = STATE_OR_PROVINCE_OF_ISSUE,
         /// LocaleOfIssue(472).
-        locale_of_issue: opt String = LOCALE_OF_ISSUE,
+        locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
         /// RedemptionDate(240).
         redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
@@ -382,13 +382,13 @@ turbojet::fix_group! {
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
-        security_exchange: opt String = SECURITY_EXCHANGE,
+        security_exchange: opt CompactString = SECURITY_EXCHANGE,
         /// Issuer(106).
-        issuer: opt String = ISSUER,
+        issuer: opt CompactString = ISSUER,
         /// EncodedIssuer(349).
         encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
-        security_desc: opt String = SECURITY_DESC,
+        security_desc: opt CompactString = SECURITY_DESC,
         /// EncodedSecurityDesc(351).
         encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
@@ -398,16 +398,16 @@ turbojet::fix_group! {
         /// QuoteType(537).
         quote_type: opt QuoteType = QUOTE_TYPE,
         /// TradingSessionID(336).
-        trading_session_id: opt String = TRADING_SESSION_ID,
+        trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
     }
 }
 
 impl StrmAsgnRptInstrmtGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(symbol: impl Into<String>) -> Self {
+    pub fn new(symbol: impl Into<CompactString>) -> Self {
         Self {
             symbol: symbol.into(),
             symbol_sfx: None,
@@ -453,7 +453,7 @@ turbojet::fix_group! {
     /// An entry of LinesOfText(33).
     LinesOfTextGrp / LinesOfTextGrpRef {
         /// Text(58).
-        text: req String = TEXT,
+        text: req CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
@@ -462,7 +462,7 @@ turbojet::fix_group! {
 impl LinesOfTextGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(text: impl Into<String>) -> Self {
+    pub fn new(text: impl Into<CompactString>) -> Self {
         Self { text: text.into(), encoded_text: None }
     }
 }
@@ -471,9 +471,9 @@ turbojet::fix_group! {
     /// An entry of NoAllocs(78).
     TrdAllocGrp / TrdAllocGrpRef {
         /// AllocAccount(79).
-        alloc_account: req String = ALLOC_ACCOUNT,
+        alloc_account: req CompactString = ALLOC_ACCOUNT,
         /// IndividualAllocID(467).
-        individual_alloc_id: opt String = INDIVIDUAL_ALLOC_ID,
+        individual_alloc_id: opt CompactString = INDIVIDUAL_ALLOC_ID,
         /// AllocQty(80).
         alloc_qty: opt Decimal = ALLOC_QTY,
     }
@@ -482,7 +482,7 @@ turbojet::fix_group! {
 impl TrdAllocGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_account: impl Into<String>) -> Self {
+    pub fn new(alloc_account: impl Into<CompactString>) -> Self {
         Self { alloc_account: alloc_account.into(), individual_alloc_id: None, alloc_qty: None }
     }
 }
@@ -491,16 +491,16 @@ turbojet::fix_group! {
     /// An entry of NoTradingSessions(386).
     TrdSessLstGrp / TrdSessLstGrpRef {
         /// TradingSessionID(336).
-        trading_session_id: req String = TRADING_SESSION_ID,
+        trading_session_id: req CompactString = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
     }
 }
 
 impl TrdSessLstGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trading_session_id: impl Into<String>) -> Self {
+    pub fn new(trading_session_id: impl Into<CompactString>) -> Self {
         Self { trading_session_id: trading_session_id.into(), trading_session_sub_id: None }
     }
 }
@@ -509,9 +509,9 @@ turbojet::fix_group! {
     /// An entry of NoOrders(73).
     OrdListStatGrp / OrdListStatGrpRef {
         /// ClOrdID(11).
-        cl_ord_id: req String = CL_ORD_ID,
+        cl_ord_id: req CompactString = CL_ORD_ID,
         /// SecondaryClOrdID(526).
-        secondary_cl_ord_id: opt String = SECONDARY_CL_ORD_ID,
+        secondary_cl_ord_id: opt CompactString = SECONDARY_CL_ORD_ID,
         /// CumQty(14).
         cum_qty: req Decimal = CUM_QTY,
         /// OrdStatus(39).
@@ -527,7 +527,7 @@ turbojet::fix_group! {
         /// OrdRejReason(103).
         ord_rej_reason: opt OrdRejReason = ORD_REJ_REASON,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
@@ -537,7 +537,7 @@ impl OrdListStatGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
-        cl_ord_id: impl Into<String>,
+        cl_ord_id: impl Into<CompactString>,
         cum_qty: Decimal,
         ord_status: OrdStatus,
         leaves_qty: Decimal,
@@ -566,9 +566,9 @@ turbojet::fix_group! {
         /// LastQty(32).
         last_qty: req Decimal = LAST_QTY,
         /// ExecID(17).
-        exec_id: opt String = EXEC_ID,
+        exec_id: opt CompactString = EXEC_ID,
         /// SecondaryExecID(527).
-        secondary_exec_id: opt String = SECONDARY_EXEC_ID,
+        secondary_exec_id: opt CompactString = SECONDARY_EXEC_ID,
         /// LastPx(31).
         last_px: opt Decimal = LAST_PX,
         /// LastCapacity(29).
@@ -610,15 +610,15 @@ turbojet::fix_group! {
         /// MDEntryType(269).
         md_entry_type: opt MDEntryType = MD_ENTRY_TYPE,
         /// MDEntryID(278).
-        md_entry_id: opt String = MD_ENTRY_ID,
+        md_entry_id: opt CompactString = MD_ENTRY_ID,
         /// MDEntryRefID(280).
-        md_entry_ref_id: opt String = MD_ENTRY_REF_ID,
+        md_entry_ref_id: opt CompactString = MD_ENTRY_REF_ID,
         /// Symbol(55).
-        symbol: opt String = SYMBOL,
+        symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt String = SYMBOL_SFX,
+        symbol_sfx: opt CompactString = SYMBOL_SFX,
         /// SecurityID(48).
-        security_id: opt String = SECURITY_ID,
+        security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
         security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
@@ -626,7 +626,7 @@ turbojet::fix_group! {
         /// Product(460).
         product: opt Product = PRODUCT,
         /// CFICode(461).
-        cfi_code: opt String = CFI_CODE,
+        cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
@@ -638,7 +638,7 @@ turbojet::fix_group! {
         /// IssueDate(225).
         issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
-        repo_collateral_security_type: opt String = REPO_COLLATERAL_SECURITY_TYPE,
+        repo_collateral_security_type: opt CompactString = REPO_COLLATERAL_SECURITY_TYPE,
         /// RepurchaseTerm(226).
         repurchase_term: opt i64 = REPURCHASE_TERM,
         /// RepurchaseRate(227).
@@ -646,15 +646,15 @@ turbojet::fix_group! {
         /// Factor(228).
         factor: opt Decimal = FACTOR,
         /// CreditRating(255).
-        credit_rating: opt String = CREDIT_RATING,
+        credit_rating: opt CompactString = CREDIT_RATING,
         /// InstrRegistry(543).
-        instr_registry: opt String = INSTR_REGISTRY,
+        instr_registry: opt CompactString = INSTR_REGISTRY,
         /// CountryOfIssue(470).
-        country_of_issue: opt String = COUNTRY_OF_ISSUE,
+        country_of_issue: opt CompactString = COUNTRY_OF_ISSUE,
         /// StateOrProvinceOfIssue(471).
-        state_or_province_of_issue: opt String = STATE_OR_PROVINCE_OF_ISSUE,
+        state_or_province_of_issue: opt CompactString = STATE_OR_PROVINCE_OF_ISSUE,
         /// LocaleOfIssue(472).
-        locale_of_issue: opt String = LOCALE_OF_ISSUE,
+        locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
         /// RedemptionDate(240).
         redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
@@ -666,13 +666,13 @@ turbojet::fix_group! {
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
-        security_exchange: opt String = SECURITY_EXCHANGE,
+        security_exchange: opt CompactString = SECURITY_EXCHANGE,
         /// Issuer(106).
-        issuer: opt String = ISSUER,
+        issuer: opt CompactString = ISSUER,
         /// EncodedIssuer(349).
         encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
-        security_desc: opt String = SECURITY_DESC,
+        security_desc: opt CompactString = SECURITY_DESC,
         /// EncodedSecurityDesc(351).
         encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// FinancialStatus(291).
@@ -682,7 +682,7 @@ turbojet::fix_group! {
         /// MDEntryPx(270).
         md_entry_px: opt Decimal = MD_ENTRY_PX,
         /// Currency(15).
-        currency: opt String = CURRENCY,
+        currency: opt CompactString = CURRENCY,
         /// MDEntrySize(271).
         md_entry_size: opt Decimal = MD_ENTRY_SIZE,
         /// MDEntryDate(272).
@@ -692,21 +692,21 @@ turbojet::fix_group! {
         /// TickDirection(274).
         tick_direction: opt TickDirection = TICK_DIRECTION,
         /// MDMkt(275).
-        md_mkt: opt String = MD_MKT,
+        md_mkt: opt CompactString = MD_MKT,
         /// TradingSessionID(336).
-        trading_session_id: opt String = TRADING_SESSION_ID,
+        trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
         /// QuoteCondition(276).
         quote_condition: opt Vec<QuoteCondition> = QUOTE_CONDITION,
         /// TradeCondition(277).
         trade_condition: opt Vec<TradeCondition> = TRADE_CONDITION,
         /// MDEntryOriginator(282).
-        md_entry_originator: opt String = MD_ENTRY_ORIGINATOR,
+        md_entry_originator: opt CompactString = MD_ENTRY_ORIGINATOR,
         /// LocationID(283).
-        location_id: opt String = LOCATION_ID,
+        location_id: opt CompactString = LOCATION_ID,
         /// DeskID(284).
-        desk_id: opt String = DESK_ID,
+        desk_id: opt CompactString = DESK_ID,
         /// OpenCloseSettleFlag(286).
         open_close_settle_flag: opt Vec<OpenCloseSettleFlag> = OPEN_CLOSE_SETTLE_FLAG,
         /// TimeInForce(59).
@@ -722,13 +722,13 @@ turbojet::fix_group! {
         /// SellerDays(287).
         seller_days: opt i64 = SELLER_DAYS,
         /// OrderID(37).
-        order_id: opt String = ORDER_ID,
+        order_id: opt CompactString = ORDER_ID,
         /// QuoteEntryID(299).
-        quote_entry_id: opt String = QUOTE_ENTRY_ID,
+        quote_entry_id: opt CompactString = QUOTE_ENTRY_ID,
         /// MDEntryBuyer(288).
-        md_entry_buyer: opt String = MD_ENTRY_BUYER,
+        md_entry_buyer: opt CompactString = MD_ENTRY_BUYER,
         /// MDEntrySeller(289).
-        md_entry_seller: opt String = MD_ENTRY_SELLER,
+        md_entry_seller: opt CompactString = MD_ENTRY_SELLER,
         /// NumberOfOrders(346).
         number_of_orders: opt i64 = NUMBER_OF_ORDERS,
         /// MDEntryPositionNo(290).
@@ -744,7 +744,7 @@ turbojet::fix_group! {
         /// NetChgPrevDay(451).
         net_chg_prev_day: opt Decimal = NET_CHG_PREV_DAY,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
@@ -835,13 +835,13 @@ turbojet::fix_group! {
     /// An entry of NoQuoteEntries(295).
     QuotEntryGrp / QuotEntryGrpRef {
         /// QuoteEntryID(299).
-        quote_entry_id: req String = QUOTE_ENTRY_ID,
+        quote_entry_id: req CompactString = QUOTE_ENTRY_ID,
         /// Symbol(55).
-        symbol: opt String = SYMBOL,
+        symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt String = SYMBOL_SFX,
+        symbol_sfx: opt CompactString = SYMBOL_SFX,
         /// SecurityID(48).
-        security_id: opt String = SECURITY_ID,
+        security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
         security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
@@ -849,7 +849,7 @@ turbojet::fix_group! {
         /// Product(460).
         product: opt Product = PRODUCT,
         /// CFICode(461).
-        cfi_code: opt String = CFI_CODE,
+        cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
@@ -861,7 +861,7 @@ turbojet::fix_group! {
         /// IssueDate(225).
         issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
-        repo_collateral_security_type: opt String = REPO_COLLATERAL_SECURITY_TYPE,
+        repo_collateral_security_type: opt CompactString = REPO_COLLATERAL_SECURITY_TYPE,
         /// RepurchaseTerm(226).
         repurchase_term: opt i64 = REPURCHASE_TERM,
         /// RepurchaseRate(227).
@@ -869,15 +869,15 @@ turbojet::fix_group! {
         /// Factor(228).
         factor: opt Decimal = FACTOR,
         /// CreditRating(255).
-        credit_rating: opt String = CREDIT_RATING,
+        credit_rating: opt CompactString = CREDIT_RATING,
         /// InstrRegistry(543).
-        instr_registry: opt String = INSTR_REGISTRY,
+        instr_registry: opt CompactString = INSTR_REGISTRY,
         /// CountryOfIssue(470).
-        country_of_issue: opt String = COUNTRY_OF_ISSUE,
+        country_of_issue: opt CompactString = COUNTRY_OF_ISSUE,
         /// StateOrProvinceOfIssue(471).
-        state_or_province_of_issue: opt String = STATE_OR_PROVINCE_OF_ISSUE,
+        state_or_province_of_issue: opt CompactString = STATE_OR_PROVINCE_OF_ISSUE,
         /// LocaleOfIssue(472).
-        locale_of_issue: opt String = LOCALE_OF_ISSUE,
+        locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
         /// RedemptionDate(240).
         redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
@@ -889,13 +889,13 @@ turbojet::fix_group! {
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
-        security_exchange: opt String = SECURITY_EXCHANGE,
+        security_exchange: opt CompactString = SECURITY_EXCHANGE,
         /// Issuer(106).
-        issuer: opt String = ISSUER,
+        issuer: opt CompactString = ISSUER,
         /// EncodedIssuer(349).
         encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
-        security_desc: opt String = SECURITY_DESC,
+        security_desc: opt CompactString = SECURITY_DESC,
         /// EncodedSecurityDesc(351).
         encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// BidPx(132).
@@ -927,9 +927,9 @@ turbojet::fix_group! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// TradingSessionID(336).
-        trading_session_id: opt String = TRADING_SESSION_ID,
+        trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// OrdType(40).
@@ -943,14 +943,14 @@ turbojet::fix_group! {
         /// OfferForwardPoints2(643).
         offer_forward_points2: opt Decimal = OFFER_FORWARD_POINTS2,
         /// Currency(15).
-        currency: opt String = CURRENCY,
+        currency: opt CompactString = CURRENCY,
     }
 }
 
 impl QuotEntryGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(quote_entry_id: impl Into<String>) -> Self {
+    pub fn new(quote_entry_id: impl Into<CompactString>) -> Self {
         Self {
             quote_entry_id: quote_entry_id.into(),
             symbol: None,
@@ -1015,23 +1015,23 @@ turbojet::fix_group! {
     /// An entry of NoQuoteSets(296).
     QuotSetGrp / QuotSetGrpRef {
         /// QuoteSetID(302).
-        quote_set_id: req String = QUOTE_SET_ID,
+        quote_set_id: req CompactString = QUOTE_SET_ID,
         /// UnderlyingSymbol(311).
-        underlying_symbol: opt String = UNDERLYING_SYMBOL,
+        underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt String = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt CompactString = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
-        underlying_security_id: opt String = UNDERLYING_SECURITY_ID,
+        underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt String = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt CompactString = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
         underlying_product: opt i64 = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
-        underlying_cfi_code: opt String = UNDERLYING_CFI_CODE,
+        underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt String = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt CompactString = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingMaturityMonthYear(313).
         underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
         /// UnderlyingMaturityDate(542).
@@ -1043,7 +1043,7 @@ turbojet::fix_group! {
         /// UnderlyingIssueDate(242).
         underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
         /// UnderlyingRepoCollateralSecurityType(243).
-        underlying_repo_collateral_security_type: opt String = UNDERLYING_REPO_COLLATERAL_SECURITY_TYPE,
+        underlying_repo_collateral_security_type: opt CompactString = UNDERLYING_REPO_COLLATERAL_SECURITY_TYPE,
         /// UnderlyingRepurchaseTerm(244).
         underlying_repurchase_term: opt i64 = UNDERLYING_REPURCHASE_TERM,
         /// UnderlyingRepurchaseRate(245).
@@ -1051,15 +1051,15 @@ turbojet::fix_group! {
         /// UnderlyingFactor(246).
         underlying_factor: opt Decimal = UNDERLYING_FACTOR,
         /// UnderlyingCreditRating(256).
-        underlying_credit_rating: opt String = UNDERLYING_CREDIT_RATING,
+        underlying_credit_rating: opt CompactString = UNDERLYING_CREDIT_RATING,
         /// UnderlyingInstrRegistry(595).
-        underlying_instr_registry: opt String = UNDERLYING_INSTR_REGISTRY,
+        underlying_instr_registry: opt CompactString = UNDERLYING_INSTR_REGISTRY,
         /// UnderlyingCountryOfIssue(592).
-        underlying_country_of_issue: opt String = UNDERLYING_COUNTRY_OF_ISSUE,
+        underlying_country_of_issue: opt CompactString = UNDERLYING_COUNTRY_OF_ISSUE,
         /// UnderlyingStateOrProvinceOfIssue(593).
-        underlying_state_or_province_of_issue: opt String = UNDERLYING_STATE_OR_PROVINCE_OF_ISSUE,
+        underlying_state_or_province_of_issue: opt CompactString = UNDERLYING_STATE_OR_PROVINCE_OF_ISSUE,
         /// UnderlyingLocaleOfIssue(594).
-        underlying_locale_of_issue: opt String = UNDERLYING_LOCALE_OF_ISSUE,
+        underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
         /// UnderlyingRedemptionDate(247).
         underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
         /// UnderlyingStrikePrice(316).
@@ -1071,13 +1071,13 @@ turbojet::fix_group! {
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
-        underlying_security_exchange: opt String = UNDERLYING_SECURITY_EXCHANGE,
+        underlying_security_exchange: opt CompactString = UNDERLYING_SECURITY_EXCHANGE,
         /// UnderlyingIssuer(306).
-        underlying_issuer: opt String = UNDERLYING_ISSUER,
+        underlying_issuer: opt CompactString = UNDERLYING_ISSUER,
         /// EncodedUnderlyingIssuer(363).
         encoded_underlying_issuer: opt_data Vec<u8> = ENCODED_UNDERLYING_ISSUER_LEN => ENCODED_UNDERLYING_ISSUER,
         /// UnderlyingSecurityDesc(307).
-        underlying_security_desc: opt String = UNDERLYING_SECURITY_DESC,
+        underlying_security_desc: opt CompactString = UNDERLYING_SECURITY_DESC,
         /// EncodedUnderlyingSecurityDesc(365).
         encoded_underlying_security_desc: opt_data Vec<u8> = ENCODED_UNDERLYING_SECURITY_DESC_LEN => ENCODED_UNDERLYING_SECURITY_DESC,
         /// QuoteSetValidUntilTime(367).
@@ -1092,7 +1092,11 @@ turbojet::fix_group! {
 impl QuotSetGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(quote_set_id: impl Into<String>, tot_quote_entries: i64, quote_entries: Vec<QuotEntryGrp>) -> Self {
+    pub fn new(
+        quote_set_id: impl Into<CompactString>,
+        tot_quote_entries: i64,
+        quote_entries: Vec<QuotEntryGrp>,
+    ) -> Self {
         Self {
             quote_set_id: quote_set_id.into(),
             underlying_symbol: None,
@@ -1138,16 +1142,16 @@ turbojet::fix_group! {
     /// An entry of NoUnderlyingSecurityAltID(457).
     UndSecAltIDGrp / UndSecAltIDGrpRef {
         /// UnderlyingSecurityAltID(458).
-        underlying_security_alt_id: req String = UNDERLYING_SECURITY_ALT_ID,
+        underlying_security_alt_id: req CompactString = UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingSecurityAltIDSource(459).
-        underlying_security_alt_id_source: opt String = UNDERLYING_SECURITY_ALT_ID_SOURCE,
+        underlying_security_alt_id_source: opt CompactString = UNDERLYING_SECURITY_ALT_ID_SOURCE,
     }
 }
 
 impl UndSecAltIDGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(underlying_security_alt_id: impl Into<String>) -> Self {
+    pub fn new(underlying_security_alt_id: impl Into<CompactString>) -> Self {
         Self { underlying_security_alt_id: underlying_security_alt_id.into(), underlying_security_alt_id_source: None }
     }
 }
@@ -1158,7 +1162,7 @@ turbojet::fix_group! {
         /// BidDescriptorType(399).
         bid_descriptor_type: req BidDescriptorType = BID_DESCRIPTOR_TYPE,
         /// BidDescriptor(400).
-        bid_descriptor: opt String = BID_DESCRIPTOR,
+        bid_descriptor: opt CompactString = BID_DESCRIPTOR,
         /// SideValueInd(401).
         side_value_ind: opt SideValueInd = SIDE_VALUE_IND,
         /// LiquidityValue(404).
@@ -1208,13 +1212,13 @@ turbojet::fix_group! {
         /// CommType(13).
         comm_type: opt CommType = COMM_TYPE,
         /// CommCurrency(479).
-        comm_currency: opt String = COMM_CURRENCY,
+        comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
         fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
         /// ListID(66).
-        list_id: opt String = LIST_ID,
+        list_id: opt CompactString = LIST_ID,
         /// Country(421).
-        country: opt String = COUNTRY,
+        country: opt CompactString = COUNTRY,
         /// Side(54).
         side: opt Side = SIDE,
         /// Price(44).
@@ -1230,11 +1234,11 @@ turbojet::fix_group! {
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// TradingSessionID(336).
-        trading_session_id: opt String = TRADING_SESSION_ID,
+        trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
@@ -1270,11 +1274,11 @@ turbojet::fix_group! {
     /// An entry of NoStrikes(428).
     InstrmtStrkPxGrp / InstrmtStrkPxGrpRef {
         /// Symbol(55).
-        symbol: req String = SYMBOL,
+        symbol: req CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt String = SYMBOL_SFX,
+        symbol_sfx: opt CompactString = SYMBOL_SFX,
         /// SecurityID(48).
-        security_id: opt String = SECURITY_ID,
+        security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
         security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
@@ -1282,7 +1286,7 @@ turbojet::fix_group! {
         /// Product(460).
         product: opt Product = PRODUCT,
         /// CFICode(461).
-        cfi_code: opt String = CFI_CODE,
+        cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
         security_type: opt SecurityType = SECURITY_TYPE,
         /// MaturityMonthYear(200).
@@ -1294,7 +1298,7 @@ turbojet::fix_group! {
         /// IssueDate(225).
         issue_date: opt NaiveDate = ISSUE_DATE,
         /// RepoCollateralSecurityType(239).
-        repo_collateral_security_type: opt String = REPO_COLLATERAL_SECURITY_TYPE,
+        repo_collateral_security_type: opt CompactString = REPO_COLLATERAL_SECURITY_TYPE,
         /// RepurchaseTerm(226).
         repurchase_term: opt i64 = REPURCHASE_TERM,
         /// RepurchaseRate(227).
@@ -1302,15 +1306,15 @@ turbojet::fix_group! {
         /// Factor(228).
         factor: opt Decimal = FACTOR,
         /// CreditRating(255).
-        credit_rating: opt String = CREDIT_RATING,
+        credit_rating: opt CompactString = CREDIT_RATING,
         /// InstrRegistry(543).
-        instr_registry: opt String = INSTR_REGISTRY,
+        instr_registry: opt CompactString = INSTR_REGISTRY,
         /// CountryOfIssue(470).
-        country_of_issue: opt String = COUNTRY_OF_ISSUE,
+        country_of_issue: opt CompactString = COUNTRY_OF_ISSUE,
         /// StateOrProvinceOfIssue(471).
-        state_or_province_of_issue: opt String = STATE_OR_PROVINCE_OF_ISSUE,
+        state_or_province_of_issue: opt CompactString = STATE_OR_PROVINCE_OF_ISSUE,
         /// LocaleOfIssue(472).
-        locale_of_issue: opt String = LOCALE_OF_ISSUE,
+        locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
         /// RedemptionDate(240).
         redemption_date: opt NaiveDate = REDEMPTION_DATE,
         /// StrikePrice(202).
@@ -1322,29 +1326,29 @@ turbojet::fix_group! {
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
-        security_exchange: opt String = SECURITY_EXCHANGE,
+        security_exchange: opt CompactString = SECURITY_EXCHANGE,
         /// Issuer(106).
-        issuer: opt String = ISSUER,
+        issuer: opt CompactString = ISSUER,
         /// EncodedIssuer(349).
         encoded_issuer: opt_data Vec<u8> = ENCODED_ISSUER_LEN => ENCODED_ISSUER,
         /// SecurityDesc(107).
-        security_desc: opt String = SECURITY_DESC,
+        security_desc: opt CompactString = SECURITY_DESC,
         /// EncodedSecurityDesc(351).
         encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// ClOrdID(11).
-        cl_ord_id: opt String = CL_ORD_ID,
+        cl_ord_id: opt CompactString = CL_ORD_ID,
         /// SecondaryClOrdID(526).
-        secondary_cl_ord_id: opt String = SECONDARY_CL_ORD_ID,
+        secondary_cl_ord_id: opt CompactString = SECONDARY_CL_ORD_ID,
         /// Side(54).
         side: opt Side = SIDE,
         /// Price(44).
         price: req Decimal = PRICE,
         /// Currency(15).
-        currency: opt String = CURRENCY,
+        currency: opt CompactString = CURRENCY,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
     }
@@ -1353,7 +1357,7 @@ turbojet::fix_group! {
 impl InstrmtStrkPxGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(symbol: impl Into<String>, price: Decimal) -> Self {
+    pub fn new(symbol: impl Into<CompactString>, price: Decimal) -> Self {
         Self {
             symbol: symbol.into(),
             symbol_sfx: None,
@@ -1402,13 +1406,13 @@ turbojet::fix_group! {
     /// An entry of NoRegistDtls(473).
     RgstDtlsGrp / RgstDtlsGrpRef {
         /// RegistDetls(509).
-        regist_detls: req String = REGIST_DETLS,
+        regist_detls: req CompactString = REGIST_DETLS,
         /// RegistEmail(511).
-        regist_email: opt String = REGIST_EMAIL,
+        regist_email: opt CompactString = REGIST_EMAIL,
         /// MailingDtls(474).
-        mailing_dtls: opt String = MAILING_DTLS,
+        mailing_dtls: opt CompactString = MAILING_DTLS,
         /// MailingInst(482).
-        mailing_inst: opt String = MAILING_INST,
+        mailing_inst: opt CompactString = MAILING_INST,
         /// NoNestedPartyIDs(539).
         nested_party_ids: group NestedParties = NO_NESTED_PARTY_IDS,
         /// OwnerType(522).
@@ -1416,14 +1420,14 @@ turbojet::fix_group! {
         /// DateOfBirth(486).
         date_of_birth: opt NaiveDate = DATE_OF_BIRTH,
         /// InvestorCountryOfResidence(475).
-        investor_country_of_residence: opt String = INVESTOR_COUNTRY_OF_RESIDENCE,
+        investor_country_of_residence: opt CompactString = INVESTOR_COUNTRY_OF_RESIDENCE,
     }
 }
 
 impl RgstDtlsGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(regist_detls: impl Into<String>) -> Self {
+    pub fn new(regist_detls: impl Into<CompactString>) -> Self {
         Self {
             regist_detls: regist_detls.into(),
             regist_email: None,
@@ -1445,15 +1449,15 @@ turbojet::fix_group! {
         /// DistribPercentage(512).
         distrib_percentage: opt Decimal = DISTRIB_PERCENTAGE,
         /// CashDistribCurr(478).
-        cash_distrib_curr: opt String = CASH_DISTRIB_CURR,
+        cash_distrib_curr: opt CompactString = CASH_DISTRIB_CURR,
         /// CashDistribAgentName(498).
-        cash_distrib_agent_name: opt String = CASH_DISTRIB_AGENT_NAME,
+        cash_distrib_agent_name: opt CompactString = CASH_DISTRIB_AGENT_NAME,
         /// CashDistribAgentCode(499).
-        cash_distrib_agent_code: opt String = CASH_DISTRIB_AGENT_CODE,
+        cash_distrib_agent_code: opt CompactString = CASH_DISTRIB_AGENT_CODE,
         /// CashDistribAgentAcctNumber(500).
-        cash_distrib_agent_acct_number: opt String = CASH_DISTRIB_AGENT_ACCT_NUMBER,
+        cash_distrib_agent_acct_number: opt CompactString = CASH_DISTRIB_AGENT_ACCT_NUMBER,
         /// CashDistribPayRef(501).
-        cash_distrib_pay_ref: opt String = CASH_DISTRIB_PAY_REF,
+        cash_distrib_pay_ref: opt CompactString = CASH_DISTRIB_PAY_REF,
     }
 }
 
@@ -1477,18 +1481,18 @@ turbojet::fix_group! {
     /// An entry of NoAffectedOrders(534).
     AffectedOrdGrp / AffectedOrdGrpRef {
         /// OrigClOrdID(41).
-        orig_cl_ord_id: req String = ORIG_CL_ORD_ID,
+        orig_cl_ord_id: req CompactString = ORIG_CL_ORD_ID,
         /// AffectedOrderID(535).
-        affected_order_id: opt String = AFFECTED_ORDER_ID,
+        affected_order_id: opt CompactString = AFFECTED_ORDER_ID,
         /// AffectedSecondaryOrderID(536).
-        affected_secondary_order_id: opt String = AFFECTED_SECONDARY_ORDER_ID,
+        affected_secondary_order_id: opt CompactString = AFFECTED_SECONDARY_ORDER_ID,
     }
 }
 
 impl AffectedOrdGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(orig_cl_ord_id: impl Into<String>) -> Self {
+    pub fn new(orig_cl_ord_id: impl Into<CompactString>) -> Self {
         Self { orig_cl_ord_id: orig_cl_ord_id.into(), affected_order_id: None, affected_secondary_order_id: None }
     }
 }
@@ -1499,15 +1503,15 @@ turbojet::fix_group! {
         /// Side(54).
         side: req Side = SIDE,
         /// OrderID(37).
-        order_id: req String = ORDER_ID,
+        order_id: req CompactString = ORDER_ID,
         /// SecondaryOrderID(198).
-        secondary_order_id: opt String = SECONDARY_ORDER_ID,
+        secondary_order_id: opt CompactString = SECONDARY_ORDER_ID,
         /// ClOrdID(11).
-        cl_ord_id: opt String = CL_ORD_ID,
+        cl_ord_id: opt CompactString = CL_ORD_ID,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// Account(1).
-        account: opt String = ACCOUNT,
+        account: opt CompactString = ACCOUNT,
         /// AccountType(581).
         account_type: opt AccountType = ACCOUNT_TYPE,
         /// ProcessCode(81).
@@ -1519,13 +1523,13 @@ turbojet::fix_group! {
         /// ClearingFeeIndicator(635).
         clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
         /// TradeInputSource(578).
-        trade_input_source: opt String = TRADE_INPUT_SOURCE,
+        trade_input_source: opt CompactString = TRADE_INPUT_SOURCE,
         /// TradeInputDevice(579).
-        trade_input_device: opt String = TRADE_INPUT_DEVICE,
+        trade_input_device: opt CompactString = TRADE_INPUT_DEVICE,
         /// Currency(15).
-        currency: opt String = CURRENCY,
+        currency: opt CompactString = CURRENCY,
         /// ComplianceID(376).
-        compliance_id: opt String = COMPLIANCE_ID,
+        compliance_id: opt CompactString = COMPLIANCE_ID,
         /// SolicitedFlag(377).
         solicited_flag: opt bool = SOLICITED_FLAG,
         /// OrderCapacity(528).
@@ -1537,15 +1541,15 @@ turbojet::fix_group! {
         /// TransBkdTime(483).
         trans_bkd_time: opt UtcTimestamp = TRANS_BKD_TIME,
         /// TradingSessionID(336).
-        trading_session_id: opt String = TRADING_SESSION_ID,
+        trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt String = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
         comm_type: opt CommType = COMM_TYPE,
         /// CommCurrency(479).
-        comm_currency: opt String = COMM_CURRENCY,
+        comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
         fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
         /// GrossTradeAmt(381).
@@ -1567,7 +1571,7 @@ turbojet::fix_group! {
         /// SettlCurrAmt(119).
         settl_curr_amt: opt Decimal = SETTL_CURR_AMT,
         /// SettlCurrency(120).
-        settl_currency: opt String = SETTL_CURRENCY,
+        settl_currency: opt CompactString = SETTL_CURRENCY,
         /// SettlCurrFxRate(155).
         settl_curr_fx_rate: opt Decimal = SETTL_CURR_FX_RATE,
         /// SettlCurrFxRateCalc(156).
@@ -1575,7 +1579,7 @@ turbojet::fix_group! {
         /// PositionEffect(77).
         position_effect: opt PositionEffect = POSITION_EFFECT,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// MultiLegReportingType(442).
@@ -1590,7 +1594,7 @@ turbojet::fix_group! {
 impl TrdCapRptAckSideGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(side: Side, order_id: impl Into<String>) -> Self {
+    pub fn new(side: Side, order_id: impl Into<CompactString>) -> Self {
         Self {
             side,
             order_id: order_id.into(),
@@ -1662,7 +1666,7 @@ turbojet::fix_group! {
         /// MiscFeeAmt(137).
         misc_fee_amt: req Decimal = MISC_FEE_AMT,
         /// MiscFeeCurr(138).
-        misc_fee_curr: opt String = MISC_FEE_CURR,
+        misc_fee_curr: opt CompactString = MISC_FEE_CURR,
         /// MiscFeeType(139).
         misc_fee_type: opt MiscFeeType = MISC_FEE_TYPE,
     }
@@ -1684,7 +1688,7 @@ turbojet::fix_group! {
         /// Product(460).
         product: opt Product = PRODUCT,
         /// CFICode(461).
-        cfi_code: opt String = CFI_CODE,
+        cfi_code: opt CompactString = CFI_CODE,
     }
 }
 

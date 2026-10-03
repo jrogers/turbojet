@@ -18,6 +18,7 @@ const TYPES_IN_USE: &[&str] = &[
     "Box",
     "Clone",
     "Code",
+    "CompactString",
     "Copy",
     "Decimal",
     "Default",

@@ -82,8 +82,9 @@ fn imports(plan: &Plan, structs: &[&Struct], groups_module: bool) -> String {
     if !structs.is_empty() {
         out.push_str("use super::tags::*;\n");
     }
-    const FIELD_TYPES: [&str; 9] = [
+    const FIELD_TYPES: [&str; 10] = [
         "Code",
+        "CompactString",
         "Decimal",
         "MonthYear",
         "NaiveDate",
@@ -121,7 +122,7 @@ fn write_struct(out: &mut String, macro_name: &str, head: &str, s: &Struct) {
         .slots
         .iter()
         .filter_map(|f| match f.presence {
-            Presence::Req if f.ty == "String" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
+            Presence::Req if f.ty == "CompactString" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
                 Some(format!("{}: impl Into<{}>", f.ident, f.ty))
             }
             Presence::Req | Presence::Data => Some(format!("{}: {}", f.ident, f.ty)),
@@ -133,7 +134,7 @@ fn write_struct(out: &mut String, macro_name: &str, head: &str, s: &Struct) {
         .slots
         .iter()
         .map(|f| match f.presence {
-            Presence::Req if f.ty == "String" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
+            Presence::Req if f.ty == "CompactString" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
                 format!("{0}: {0}.into()", f.ident)
             }
             Presence::Req | Presence::ReqGroup | Presence::Data => f.ident.clone(),

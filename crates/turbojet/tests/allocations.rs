@@ -303,9 +303,9 @@ type Budget = [(Stage, u64, u64); Stage::ALL.len()];
 /// BTreeMap node size), so a toolchain or dependency update can move them without a change to
 /// Turbojet.
 const MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 5000, 2000), (Stage::Store, 1166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1166, 0)];
 const DISK_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 5000, 2000), (Stage::Store, 166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 166, 0)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
@@ -412,8 +412,8 @@ fn typed_parsing_allocates_exactly_its_budget() {
             parse_counts(|| {
                 std::hint::black_box(plain.parse::<NewOrderSingle>().unwrap());
             }),
-            // ClOrdID, Symbol and Account.
-            3000,
+            // ClOrdID, Symbol and Account are short enough to be kept inline.
+            0,
             0,
         ),
         (
@@ -421,8 +421,8 @@ fn typed_parsing_allocates_exactly_its_budget() {
             parse_counts(|| {
                 std::hint::black_box(with_allocs.parse::<NewOrderSingle>().unwrap());
             }),
-            // Those, the entries' Vec and each entry's AllocAccount.
-            7000,
+            // The entries' Vec; the strings, each entry's AllocAccount included, are inline.
+            1000,
             0,
         ),
     ];

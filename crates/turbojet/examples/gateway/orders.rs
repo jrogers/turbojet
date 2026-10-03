@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tracing::info;
 use turbojet::MessageReject;
-use turbojet::fields::Decimal;
 use turbojet::fields::UtcTimestamp;
+use turbojet::fields::{CompactString, Decimal, format_compact};
 use turbojet::message::tags;
 use turbojet_fix42::{
     CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, NewOrderSingleRef, OrdRejReason,
@@ -97,7 +97,7 @@ impl OrderManager {
             order.status = OrdStatus::Rejected;
             let mut report = self.execution_report(&order, ExecType::Rejected, None);
             report.ord_rej_reason = Some(reason);
-            report.text = Some(text);
+            report.text = Some(text.into());
             return Ok(report);
         }
 
@@ -136,7 +136,7 @@ impl OrderManager {
                 CxlRejResponseTo::OrderCancelRequest,
             );
             reject.cxl_rej_reason = Some(reason);
-            reject.text = Some(text);
+            reject.text = Some(text.into());
             reject
         };
 
@@ -200,7 +200,7 @@ impl OrderManager {
                 CxlRejResponseTo::OrderCancel,
             );
             reject.cxl_rej_reason = Some(reason);
-            reject.text = Some(text);
+            reject.text = Some(text.into());
             reject
         };
 
@@ -282,9 +282,9 @@ impl OrderManager {
                     avg_px,
                 );
                 report.ord_rej_reason = Some(OrdRejReason::UnknownOrder);
-                report.account = request.account.map(String::from);
+                report.account = request.account.map(CompactString::from);
                 report.transact_time = Some(UtcTimestamp::now());
-                report.text = Some(format!("Unknown order '{}'", request.cl_ord_id));
+                report.text = Some(format_compact!("Unknown order '{}'", request.cl_ord_id));
                 report
             }
         };
@@ -312,9 +312,9 @@ impl OrderManager {
             cum_qty,
             avg_px,
         );
-        report.cl_ord_id = Some(order.cl_ord_id.clone());
-        report.orig_cl_ord_id = orig_cl_ord_id.map(String::from);
-        report.account = order.account.clone();
+        report.cl_ord_id = Some(order.cl_ord_id.as_str().into());
+        report.orig_cl_ord_id = orig_cl_ord_id.map(CompactString::from);
+        report.account = order.account.as_deref().map(CompactString::from);
         report.order_qty = Some(order.qty);
         report.ord_type = Some(order.ord_type);
         report.price = order.price;

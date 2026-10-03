@@ -25,8 +25,8 @@ use crate::admin::{
 use crate::application::{Application, Context, MessageReject, Outbox};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::fields::{
-    ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason, ToFix,
-    UtcTimestamp,
+    ApplVerId, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason,
+    ToFix, UtcTimestamp,
 };
 use crate::initiator::InitiatorConfig;
 use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags};
@@ -1196,7 +1196,7 @@ impl Session {
             Some(_) => {}
             None if now.duration_since(self.silent_from(self.last_received)) >= probe_after(interval) => {
                 self.test_req_counter += 1;
-                let id = format!("TEST{}", self.test_req_counter);
+                let id = crate::fields::format_compact!("TEST{}", self.test_req_counter);
                 self.send(TestRequest { test_req_id: id }.into(), now);
                 self.test_request_sent = Some(now);
             }
@@ -1253,7 +1253,7 @@ impl Session {
         let mut logon = logon_message(heartbeat, reset, None, self.appl_ver_id());
         if let Role::Initiator { next_expected, username, password, .. } = &self.role {
             logon.next_expected_msg_seq_num = next_expected.then(|| self.peer().log.next_incoming());
-            logon.username = username.clone();
+            logon.username = username.as_deref().map(CompactString::from);
             logon.password = password.clone();
         }
         self.send(logon.into(), now);
@@ -2057,7 +2057,7 @@ impl Session {
             ref_seq_num: Some(seq_num),
             ref_msg_type: msg.msg_type(),
             business_reject_reason: reason,
-            text: Some(text),
+            text: Some(text.into()),
         };
         let reply = self.with_ref_appl_version(Message::from(reply).with_reverse_route(msg), msg);
         self.send(reply, now);
@@ -2267,7 +2267,7 @@ impl Session {
             ref_tag_id: ref_tag,
             ref_msg_type: Some(msg.msg_type()),
             session_reject_reason: reason,
-            text: Some(text.to_string()),
+            text: Some(text.into()),
         };
         self.peer().metrics.session_reject();
         let reject = self.with_ref_appl_version(Message::from(reject).with_reverse_route(msg), msg);
@@ -2312,7 +2312,7 @@ impl Session {
             info!("logging out during a resend; the rest of it isn't sent");
             self.finish_replay(now);
         }
-        self.send(Logout { text: text.map(String::from) }.into(), now);
+        self.send(Logout { text: text.map(CompactString::from) }.into(), now);
         if self.status != Status::Closed {
             self.status = Status::LoggingOut { since: now };
         }

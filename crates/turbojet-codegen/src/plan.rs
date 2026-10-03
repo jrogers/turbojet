@@ -536,8 +536,10 @@ fn rust_type(ty: &FieldType) -> &'static str {
         FieldType::TzTimestamp => "TzTimestamp",
         FieldType::Boolean => "bool",
         FieldType::Char => "char",
-        FieldType::MultipleCharValue | FieldType::MultipleStringValue | FieldType::MultipleValueString => "Vec<String>",
-        _ => "String",
+        FieldType::MultipleCharValue | FieldType::MultipleStringValue | FieldType::MultipleValueString => {
+            "Vec<CompactString>"
+        }
+        _ => "CompactString",
     }
 }
 
@@ -585,7 +587,7 @@ mod tests {
         );
         let plan = build(&dict, &[], false).unwrap();
         let types: Vec<_> = plan.messages[0].def.slots.iter().map(|s| s.ty.as_str()).collect();
-        assert_eq!(types, ["String", "Secret", "Secret"]);
+        assert_eq!(types, ["CompactString", "Secret", "Secret"]);
     }
 
     #[test]
@@ -635,13 +637,13 @@ mod tests {
         assert_eq!(
             slots(&order.def),
             [
-                ("cl_ord_id", Presence::Req, "String", "CL_ORD_ID"),
+                ("cl_ord_id", Presence::Req, "CompactString", "CL_ORD_ID"),
                 ("party_ids", Presence::Group, "PartyID", "NO_PARTY_IDS"),
                 ("allocs", Presence::Group, "NewOrderSingleAlloc", "NO_ALLOCS"),
                 ("side", Presence::Req, "Side", "SIDE"),
                 ("transact_time", Presence::Req, "UtcTimestamp", "TRANSACT_TIME"),
                 ("order_qty", Presence::Opt, "Decimal", "ORDER_QTY"),
-                ("text", Presence::Opt, "String", "TEXT"),
+                ("text", Presence::Opt, "CompactString", "TEXT"),
             ]
         );
         assert_eq!(order.def.slots[0].doc, "ClOrdID(11).");
@@ -664,7 +666,7 @@ mod tests {
         assert_eq!(
             slots(party),
             [
-                ("party_id", Presence::Req, "String", "PARTY_ID"),
+                ("party_id", Presence::Req, "CompactString", "PARTY_ID"),
                 ("party_role", Presence::Opt, "PartyRole", "PARTY_ROLE")
             ]
         );
@@ -770,7 +772,7 @@ mod tests {
         assert_eq!(
             slots(&plan.messages[0].def),
             [
-                ("account", Presence::Req, "String", "ACCOUNT"),
+                ("account", Presence::Req, "CompactString", "ACCOUNT"),
                 ("allocs", Presence::Group, "PreAllocGrp", "NO_ALLOCS"),
                 ("trading_sessions", Presence::Group, "TrdgSesGrp", "NO_TRADING_SESSIONS"),
             ]
@@ -972,9 +974,9 @@ mod tests {
         assert_eq!(
             slots(&plan.messages[0].def),
             [
-                ("x", Presence::Req, "String", "X"),
+                ("x", Presence::Req, "CompactString", "X"),
                 ("ys", Presence::ReqGroup, "Y", "NO_YS"),
-                ("z", Presence::Req, "String", "Z"),
+                ("z", Presence::Req, "CompactString", "Z"),
             ]
         );
     }

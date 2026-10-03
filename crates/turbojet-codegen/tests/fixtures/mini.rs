@@ -94,13 +94,13 @@ pub mod groups {
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::Decimal;
+use turbojet::fields::{CompactString, Decimal};
 
 turbojet::fix_group! {
     /// An entry of NoPartyIDs(453).
     PartyID / PartyIDRef {
         /// PartyID(448).
-        party_id: req String = PARTY_ID,
+        party_id: req CompactString = PARTY_ID,
         /// PartyRole(452).
         party_role: opt PartyRole = PARTY_ROLE,
     }
@@ -109,7 +109,7 @@ turbojet::fix_group! {
 impl PartyID {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(party_id: impl Into<String>) -> Self {
+    pub fn new(party_id: impl Into<CompactString>) -> Self {
         Self { party_id: party_id.into(), party_role: None }
     }
 }
@@ -118,7 +118,7 @@ turbojet::fix_group! {
     /// An entry of NoAllocs(78).
     NewOrderSingleAlloc / NewOrderSingleAllocRef {
         /// AllocAccount(79).
-        alloc_account: req String = ALLOC_ACCOUNT,
+        alloc_account: req CompactString = ALLOC_ACCOUNT,
         /// AllocQty(80).
         alloc_qty: opt Decimal = ALLOC_QTY,
     }
@@ -127,7 +127,7 @@ turbojet::fix_group! {
 impl NewOrderSingleAlloc {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_account: impl Into<String>) -> Self {
+    pub fn new(alloc_account: impl Into<CompactString>) -> Self {
         Self { alloc_account: alloc_account.into(), alloc_qty: None }
     }
 }
@@ -136,18 +136,18 @@ turbojet::fix_group! {
     /// An entry of NoAllocs(78).
     AllocationInstructionAlloc / AllocationInstructionAllocRef {
         /// AllocAccount(79).
-        alloc_account: req String = ALLOC_ACCOUNT,
+        alloc_account: req CompactString = ALLOC_ACCOUNT,
         /// AllocQty(80).
         alloc_qty: req Decimal = ALLOC_QTY,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
     }
 }
 
 impl AllocationInstructionAlloc {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_account: impl Into<String>, alloc_qty: Decimal) -> Self {
+    pub fn new(alloc_account: impl Into<CompactString>, alloc_qty: Decimal) -> Self {
         Self { alloc_account: alloc_account.into(), alloc_qty, text: None }
     }
 }
@@ -158,7 +158,7 @@ turbojet::fix_group! {
         /// Side(54).
         side: req Side = SIDE,
         /// ClOrdID(11).
-        cl_ord_id: opt String = CL_ORD_ID,
+        cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OddLot(575).
         odd_lot: opt bool = ODD_LOT,
     }
@@ -179,13 +179,13 @@ pub mod messages {
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{CompactString, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
     NewOrderSingle / NewOrderSingleRef = "D" {
         /// ClOrdID(11).
-        cl_ord_id: req String = CL_ORD_ID,
+        cl_ord_id: req CompactString = CL_ORD_ID,
         /// NoPartyIDs(453).
         party_ids: group PartyID = NO_PARTY_IDS,
         /// NoAllocs(78).
@@ -197,14 +197,14 @@ turbojet::fix_message! {
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
     }
 }
 
 impl NewOrderSingle {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(cl_ord_id: impl Into<String>, side: Side, transact_time: UtcTimestamp) -> Self {
+    pub fn new(cl_ord_id: impl Into<CompactString>, side: Side, transact_time: UtcTimestamp) -> Self {
         Self { cl_ord_id: cl_ord_id.into(), party_ids: Vec::new(), allocs: Vec::new(), side, transact_time, order_qty: None, text: None }
     }
 }
@@ -213,7 +213,7 @@ turbojet::fix_message! {
     /// AllocationInstruction(J).
     AllocationInstruction / AllocationInstructionRef = "J" {
         /// AllocID(70).
-        alloc_id: req String = ALLOC_ID,
+        alloc_id: req CompactString = ALLOC_ID,
         /// NoAllocs(78).
         allocs: req_group AllocationInstructionAlloc = NO_ALLOCS,
     }
@@ -222,7 +222,7 @@ turbojet::fix_message! {
 impl AllocationInstruction {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_id: impl Into<String>, allocs: Vec<AllocationInstructionAlloc>) -> Self {
+    pub fn new(alloc_id: impl Into<CompactString>, allocs: Vec<AllocationInstructionAlloc>) -> Self {
         Self { alloc_id: alloc_id.into(), allocs }
     }
 }
@@ -231,7 +231,7 @@ turbojet::fix_message! {
     /// TradeReport(AE).
     TradeReport / TradeReportRef = "AE" {
         /// TradeReportID(571).
-        trade_report_id: req String = TRADE_REPORT_ID,
+        trade_report_id: req CompactString = TRADE_REPORT_ID,
         /// NoSides(552).
         sides: req_group SideEntry = NO_SIDES,
         /// Yield(236).
@@ -244,7 +244,7 @@ turbojet::fix_message! {
 impl TradeReport {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trade_report_id: impl Into<String>, sides: Vec<SideEntry>, last_qty: Decimal) -> Self {
+    pub fn new(trade_report_id: impl Into<CompactString>, sides: Vec<SideEntry>, last_qty: Decimal) -> Self {
         Self { trade_report_id: trade_report_id.into(), sides, r#yield: None, last_qty }
     }
 }
@@ -267,7 +267,7 @@ turbojet::fix_message! {
         /// VenueFlag(5101).
         venue_flag: opt char = VENUE_FLAG,
         /// Labels(5102).
-        labels: opt Vec<String> = LABELS,
+        labels: opt Vec<CompactString> = LABELS,
     }
 }
 

@@ -2,7 +2,9 @@
 //! the same meaning and presence from FIX 4.2 onwards, except where a field notes the version
 //! that added it.
 
-use crate::fields::{ApplVerId, BusinessRejectReason, EncryptMethod, MsgType, Secret, SessionRejectReason};
+use crate::fields::{
+    ApplVerId, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Secret, SessionRejectReason,
+};
 use crate::message::tags::*;
 
 fix_message! {
@@ -10,7 +12,7 @@ fix_message! {
     Heartbeat / HeartbeatRef = Heartbeat {
         /// TestReqID(112).
         /// Required when answering a TestRequest.
-        test_req_id: opt String = TEST_REQ_ID,
+        test_req_id: opt CompactString = TEST_REQ_ID,
     }
 }
 
@@ -18,7 +20,7 @@ fix_message! {
     /// TestRequest(1).
     TestRequest / TestRequestRef = TestRequest {
         /// TestReqID(112).
-        test_req_id: req String = TEST_REQ_ID,
+        test_req_id: req CompactString = TEST_REQ_ID,
     }
 }
 
@@ -45,7 +47,7 @@ fix_message! {
         /// SessionRejectReason(373).
         session_reject_reason: opt SessionRejectReason = SESSION_REJECT_REASON,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
     }
 }
 
@@ -63,7 +65,7 @@ fix_message! {
     /// Logout(5).
     Logout / LogoutRef = Logout {
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
     }
 }
 
@@ -83,7 +85,7 @@ fix_message! {
         next_expected_msg_seq_num: opt u64 = NEXT_EXPECTED_MSG_SEQ_NUM,
         /// Username(553).
         /// FIX 4.3 and later.
-        username: opt String = USERNAME,
+        username: opt CompactString = USERNAME,
         /// Password(554).
         /// FIX 4.3 and later. Shown as `***` by `Debug` and in the engine's message log.
         password: opt Secret = PASSWORD,
@@ -105,6 +107,6 @@ fix_message! {
         /// BusinessRejectReason(380).
         business_reject_reason: req BusinessRejectReason = BUSINESS_REJECT_REASON,
         /// Text(58).
-        text: opt String = TEXT,
+        text: opt CompactString = TEXT,
     }
 }
