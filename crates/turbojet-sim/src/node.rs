@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use turbojet::codec::{DecodedInto, decode_into};
 use turbojet::message::DataFields;
@@ -90,6 +90,10 @@ pub struct Wants {
     pub read: bool,
     pub commands: bool,
     pub timer: Option<SimTime>,
+    /// When the outbound window frees up for sends waiting on it.
+    pub sends_free: Option<SimTime>,
+    /// When the inbound window frees up for input it holds.
+    pub input_free: Option<SimTime>,
 }
 
 impl Node {
@@ -171,14 +175,15 @@ impl Node {
         self.running.remove(&conn).is_some()
     }
 
-    /// The read branch, enabled whatever else is going on: everything in the receive buffer.
-    /// While resending it waits, read, for the resend to end; once the session has closed it's
-    /// dropped; otherwise it's fed in, one message at a time into the one reused message, up to
-    /// a message that starts a resend. Then the close, if it came.
+    /// The read branch, enabled unless the inbound window holds input: everything in the receive
+    /// buffer. While resending it waits, read, for the resend to end; once the session has closed
+    /// it's dropped; otherwise it's fed in, one message at a time into the one reused message, up
+    /// to a message that starts a resend or one the inbound window holds. Then the close, if it
+    /// came.
     pub fn read(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let data_fields = &self.data_fields;
         let instant = self.clocks.instant(now);
-        let Some(running) = self.running.get_mut(&conn).filter(|r| !r.unread.is_empty() || r.fin) else {
+        let Some(running) = self.running.get_mut(&conn).filter(|r| r.reads(instant)) else {
             return Effects::default();
         };
         let read = running.unread.len();
@@ -201,7 +206,8 @@ impl Node {
     }
 
     /// The command branch: a logout or operator command that's due, whatever else is going on;
-    /// otherwise, once logged on and not resending or backed up, sends, up to a batch.
+    /// otherwise, once logged on and not resending or backed up, sends, up to a batch or as many
+    /// as the outbound window allows.
     pub fn commands(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
         let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.commit.is_none()) else {
@@ -211,6 +217,9 @@ impl Node {
             running.session.on_command(command, instant);
         } else if running.takes_sends() {
             for _ in 0..MAX_COMMANDS_PER_BATCH {
+                if !running.session.can_send(instant) {
+                    break;
+                }
                 let Some(command) = running.commands.try_send() else { break };
                 running.session.on_command(command, instant);
             }
@@ -248,6 +257,13 @@ impl Node {
             return Effects::default();
         };
         self.step(conn, now, |session, instant| session.on_committed(commit.run(), instant))
+    }
+
+    /// The window branches: the outbound window has freed up for the sends it held, or the
+    /// inbound window for the input it held. The driver goes round, feeding held input and then
+    /// taking sends.
+    pub fn window_free(&mut self, conn: ConnId, now: SimTime) -> Effects {
+        self.settle(conn, now)
     }
 
     /// Output the send buffer hasn't taken yet.
@@ -293,7 +309,7 @@ impl Node {
         self.running.remove(&conn);
     }
 
-    fn step(&mut self, conn: ConnId, now: SimTime, f: impl FnOnce(&mut Session, std::time::Instant)) -> Effects {
+    fn step(&mut self, conn: ConnId, now: SimTime, f: impl FnOnce(&mut Session, Instant)) -> Effects {
         let instant = self.clocks.instant(now);
         if let Some(running) = self.running.get_mut(&conn) {
             f(&mut running.session, instant);
@@ -314,7 +330,12 @@ impl Node {
         let instant = clocks.instant(now);
         loop {
             let committing = running.commit.is_some();
-            if running.deferred && !running.session.is_resending() && !running.session.is_closed() && !committing {
+            if running.deferred
+                && !running.session.is_resending()
+                && !running.session.is_closed()
+                && !committing
+                && running.input_held_until(instant).is_none()
+            {
                 running.deferred = feed(running, data_fields, instant);
             }
             // A Logout that was waiting for the sends queued before it, now they've been taken.
@@ -328,9 +349,14 @@ impl Node {
             if running.commit.is_none() {
                 running.commit = running.session.take_commit(instant);
             }
-            // Input that stopped for a commit made at once goes on.
+            // Input that stopped for a commit made at once goes on. Input the inbound window holds
+            // waits for its wake-up.
             let stopped = running.deferred && running.commit.is_none();
-            if !(stopped && !running.session.is_resending() && !running.session.is_closed()) {
+            if !(stopped
+                && !running.session.is_resending()
+                && !running.session.is_closed()
+                && running.input_held_until(instant).is_none())
+            {
                 break;
             }
         }
@@ -351,24 +377,46 @@ impl Node {
         Effects { output, ..Effects::default() }
     }
 
-    /// What `conn`'s driver would do next, for the world to schedule.
-    pub fn wants(&self, conn: ConnId) -> Option<Wants> {
+    /// What `conn`'s driver would do next at `now`, for the world to schedule.
+    pub fn wants(&self, conn: ConnId, now: SimTime) -> Option<Wants> {
         let running = self.running.get(&conn)?;
+        let instant = self.clocks.instant(now);
         let closed = running.session.is_closed();
         let committing = running.commit.is_some();
+        let sends = running.takes_sends() && running.commands.has_sends();
         Some(Wants {
             commit: committing,
             resume: running.resumes(),
-            read: !running.unread.is_empty() || running.fin,
+            read: running.reads(instant),
             commands: !closed
                 && !committing
-                && (running.commands.has_control() || running.takes_sends() && running.commands.has_sends()),
+                && (running.commands.has_control() || sends && running.session.can_send(instant)),
             timer: (!closed && !committing).then_some(running.timer),
+            // As `sends_this_time` in the connection driver: only while sends wait, so a steady
+            // rate near the limit doesn't wake the driver for each message.
+            sends_free: sends
+                .then(|| running.session.send_free_at())
+                .flatten()
+                .filter(|at| *at > instant)
+                .map(|at| self.clocks.sim_time(at)),
+            input_free: running.input_held_until(instant).map(|at| self.clocks.sim_time(at)),
         })
     }
 }
 
 impl Running {
+    /// The read branch is enabled: something has arrived, and the inbound window doesn't hold
+    /// input, so a peer that closes meanwhile is noticed once the hold ends.
+    fn reads(&self, instant: Instant) -> bool {
+        (!self.unread.is_empty() || self.fin) && self.input_held_until(instant).is_none()
+    }
+
+    /// As `input_held_until` in the connection driver: when input held by the inbound window may
+    /// go on, if it's held at `instant`.
+    fn input_held_until(&self, instant: Instant) -> Option<Instant> {
+        self.session.input_free_at().filter(|at| *at > instant)
+    }
+
     /// The command branch takes sends.
     fn takes_sends(&self) -> bool {
         self.session.has_logged_on()
@@ -385,14 +433,17 @@ impl Running {
 }
 
 /// As `feed` in the connection driver: the complete messages in `buf` fed in, up to one that
-/// starts a resend or one that waits for a commit. Returns true if input is left waiting.
-fn feed(running: &mut Running, data_fields: &DataFields, instant: std::time::Instant) -> bool {
+/// starts a resend, or one that waits for a commit or the inbound window. Returns true if input is left waiting.
+fn feed(running: &mut Running, data_fields: &DataFields, instant: Instant) -> bool {
     let mut consumed = 0;
     let deferred = loop {
         if running.session.is_resending() || running.session.is_closed() {
             break running.session.is_resending();
         }
-        if consumed < running.buf.len() && !running.session.ready_for_input() {
+        // The message that fills the inbound window has been handled; the next one waits.
+        if consumed < running.buf.len()
+            && (!running.session.ready_for_input() || running.session.input_free_at().is_some_and(|at| at > instant))
+        {
             break true;
         }
         match decode_into(&running.buf[consumed..], data_fields, &mut running.scratch) {

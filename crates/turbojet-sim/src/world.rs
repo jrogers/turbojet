@@ -252,6 +252,10 @@ enum Event {
     /// Room in the send buffer: the driver writes more of its output.
     Writable(Side, ConnId),
     Timer(Side, ConnId, SimTime),
+    /// The outbound window frees up for the sends it held, or the inbound window for the input
+    /// it held.
+    SendsFree(Side, ConnId, SimTime),
+    InputFree(Side, ConnId, SimTime),
     SendOrder,
     SendReport,
     Reset,
@@ -289,6 +293,8 @@ struct Pending {
     commit: bool,
     writable: bool,
     timer: Option<SimTime>,
+    sends_free: Option<SimTime>,
+    input_free: Option<SimTime>,
 }
 
 /// Both ends stuck with output to write, each waiting for the other to read. The connection
@@ -828,6 +834,20 @@ impl World {
                     self.apply(side, conn, effects, now)?;
                 }
             }
+            Event::SendsFree(side, conn, at) => {
+                if self.pending.get(&(side, conn)).is_some_and(|p| p.sends_free == Some(at)) {
+                    self.pending_for(side, conn).sends_free = None;
+                    let effects = self.nodes[side.index()].window_free(conn, now);
+                    self.apply(side, conn, effects, now)?;
+                }
+            }
+            Event::InputFree(side, conn, at) => {
+                if self.pending.get(&(side, conn)).is_some_and(|p| p.input_free == Some(at)) {
+                    self.pending_for(side, conn).input_free = None;
+                    let effects = self.nodes[side.index()].window_free(conn, now);
+                    self.apply(side, conn, effects, now)?;
+                }
+            }
             Event::SendOrder => {
                 let id = self.fresh_id("o");
                 self.nodes[Side::Initiator.index()].app.send(order(&id));
@@ -1289,7 +1309,7 @@ impl World {
     /// Checks deliveries, and schedules what `conn`'s driver on `side` would do next.
     fn after(&mut self, side: Side, conn: ConnId, now: SimTime) -> Result<(), Violation> {
         self.check_all()?;
-        let Some(wants) = self.nodes[side.index()].wants(conn) else {
+        let Some(wants) = self.nodes[side.index()].wants(conn, now) else {
             self.pending.remove(&(side, conn));
             return Ok(());
         };
@@ -1320,6 +1340,19 @@ impl World {
                 push.push((at.max(now), Event::Timer(side, conn, at)));
             }
         }
+        // Like the timer, each window's wake-up is in the future when wanted.
+        if wants.sends_free != pending.sends_free {
+            pending.sends_free = wants.sends_free;
+            if let Some(at) = wants.sends_free {
+                push.push((at, Event::SendsFree(side, conn, at)));
+            }
+        }
+        if wants.input_free != pending.input_free {
+            pending.input_free = wants.input_free;
+            if let Some(at) = wants.input_free {
+                push.push((at, Event::InputFree(side, conn, at)));
+            }
+        }
         for (at, event) in push {
             self.queue.push(at, event);
         }
@@ -1332,7 +1365,15 @@ impl World {
         self.in_flight == 0
             && !self.connecting
             && !self.down.iter().any(|d| *d)
-            && self.pending.values().all(|p| !p.read && !p.commands && !p.resume && !p.writable && !p.commit)
+            && self.pending.values().all(|p| {
+                !p.read
+                    && !p.commands
+                    && !p.resume
+                    && !p.writable
+                    && !p.commit
+                    && p.sends_free.is_none()
+                    && p.input_free.is_none()
+            })
     }
 
     /// Liveness: one connection, both sides logged on over it, every application message sent
