@@ -754,7 +754,7 @@ fn invalid_data(msg: String) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::super::commit_now;
-    use super::super::conformance::{app_message, check, id};
+    use super::super::conformance::{app_message, check_blocking, id};
     use super::*;
 
     fn storage(dir: &tempfile::TempDir) -> DiskStorage {
@@ -768,8 +768,8 @@ mod tests {
     #[test]
     fn conforms() {
         let dir = tempfile::tempdir().unwrap();
-        check(&storage(&dir));
-        check(&DiskStorage::new(dir.path().join("synced"), true).unwrap());
+        check_blocking(&storage(&dir));
+        check_blocking(&DiskStorage::new(dir.path().join("synced"), true).unwrap());
     }
 
     #[test]
@@ -1007,8 +1007,8 @@ mod tests {
     #[test]
     fn conforms_with_small_segments() {
         let dir = tempfile::tempdir().unwrap();
-        check(&storage(&dir).with_segment_bytes(300).with_max_session_bytes(1 << 20));
-        check(&DiskStorage::new(dir.path().join("synced"), true).unwrap().with_segment_bytes(300));
+        check_blocking(&storage(&dir).with_segment_bytes(300).with_max_session_bytes(1 << 20));
+        check_blocking(&DiskStorage::new(dir.path().join("synced"), true).unwrap().with_segment_bytes(300));
     }
 
     #[test]

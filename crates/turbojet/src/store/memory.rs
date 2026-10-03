@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn conforms() {
-        super::super::conformance::check(&MemoryStorage::new());
+        super::super::conformance::check_blocking(&MemoryStorage::new());
     }
 
     fn stored(log: &mut Box<dyn SessionLog>) -> Vec<u64> {

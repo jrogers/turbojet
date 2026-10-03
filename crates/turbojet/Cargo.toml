@@ -37,6 +37,9 @@ metrics = ["dep:metrics"]
 tz = ["dep:chrono-tz"]
 # Checking inbound application messages against a data dictionary (turbojet-dictionary).
 validation = ["dep:turbojet-dictionary"]
+# The conformance suite for SessionStorage implementations (turbojet::store::conformance), for
+# store authors' tests.
+conformance = []
 
 [dev-dependencies]
 criterion.workspace = true

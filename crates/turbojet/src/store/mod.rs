@@ -1,6 +1,8 @@
 //! Session persistence: sequence numbers and sent application messages, kept per session so a
 //! counterparty can reconnect and recover missed messages.
 
+#[cfg(any(test, feature = "conformance"))]
+pub mod conformance;
 mod disk;
 mod memory;
 
@@ -384,13 +386,9 @@ pub(crate) mod deferring {
     }
 }
 
-/// Behaviour every [`SessionStorage`] implementation must satisfy.
 #[cfg(test)]
-pub(crate) mod conformance {
+mod tests {
     use super::*;
-    use crate::codec::encode;
-    use crate::fields::MsgType;
-    use crate::message::{Message, tags};
 
     #[test]
     fn a_commit_runs_its_job() {
@@ -415,116 +413,9 @@ pub(crate) mod conformance {
         assert!(current.block_on(async { future().run() }).is_err(), "would deadlock");
     }
 
-    pub fn id(target: &str) -> SessionId {
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: target.into() }
-    }
-
-    pub fn app_message(seq: u64) -> Vec<u8> {
-        encode(&message(seq)).unwrap()
-    }
-
-    fn message(seq: u64) -> Message {
-        Message::default()
-            .with(tags::BEGIN_STRING, "FIX.4.4")
-            .with(tags::MSG_TYPE, MsgType::ExecutionReport)
-            .with(tags::MSG_SEQ_NUM, seq)
-            .with(tags::EXEC_ID, format!("E{seq}"))
-    }
-
-    pub fn check(storage: &dyn SessionStorage) {
-        {
-            let mut log = storage.open(&id("A")).unwrap();
-            assert_eq!((log.next_outgoing(), log.next_incoming()), (1, 1));
-            log.record_outgoing(1, None).unwrap();
-            log.record_outgoing(2, Some(&app_message(2))).unwrap();
-            log.record_outgoing(3, None).unwrap();
-            log.record_outgoing(4, Some(&app_message(4))).unwrap();
-            log.set_next_incoming(7).unwrap();
-            commit_now(log.as_mut()).unwrap();
-        }
-
-        let mut log = storage.open(&id("A")).unwrap();
-        assert_eq!((log.next_outgoing(), log.next_incoming()), (5, 7), "state survives reopen");
-        let sent = log.sent_messages(1, 4).unwrap();
-        let seqs: Vec<u64> = sent.iter().map(|(s, _)| *s).collect();
-        assert_eq!(seqs, [2, 4]);
-        assert_eq!(sent[1].1, app_message(4));
-        assert_eq!(log.sent_messages(3, 3).unwrap().len(), 0);
-
-        // Sessions are independent.
-        let other = storage.open(&id("B")).unwrap();
-        assert_eq!((other.next_outgoing(), other.next_incoming()), (1, 1));
-        drop(other);
-
-        log.reset().unwrap();
-        assert_eq!((log.next_outgoing(), log.next_incoming()), (1, 1));
-        assert!(log.sent_messages(1, u64::MAX).unwrap().is_empty());
-        log.record_outgoing(1, Some(&app_message(1))).unwrap();
-        assert_eq!(log.sent_messages(1, 1).unwrap().len(), 1, "reads see what isn't committed yet");
-        commit_now(log.as_mut()).unwrap();
-        drop(log);
-
-        let mut log = storage.open(&id("A")).unwrap();
-        assert_eq!(log.next_outgoing(), 2, "reset persists");
-        assert_eq!(log.sent_messages(1, u64::MAX).unwrap().len(), 1);
-
-        // Creation time: unknown until recorded, kept across reopening, cleared by reset.
-        assert_eq!(log.created_at(), None);
-        let created = UtcTimestamp::from_timestamp(1_790_000_000, 123_000_000).unwrap();
-        log.set_created_at(created).unwrap();
-        commit_now(log.as_mut()).unwrap();
-        drop(log);
-        let mut log = storage.open(&id("A")).unwrap();
-        assert_eq!(log.created_at(), Some(created));
-        log.reset().unwrap();
-        assert_eq!(log.created_at(), None);
-        commit_now(log.as_mut()).unwrap();
-        drop(log);
-        assert_eq!(storage.open(&id("A")).unwrap().created_at(), None, "reset persists");
-
-        check_in_flight(storage);
-        check_data_fields(storage);
-    }
-
-    /// The messages in flight: kept across reopening, cleared by moving on or resetting.
-    fn check_in_flight(storage: &dyn SessionStorage) {
-        let mut log = storage.open(&id("C")).unwrap();
-        assert_eq!(log.in_flight(), None);
-        log.set_next_incoming(4).unwrap();
-        log.set_in_flight(4).unwrap();
-        log.record_outgoing(1, Some(&app_message(1))).unwrap();
-        commit_now(log.as_mut()).unwrap();
-        drop(log);
-        let mut log = storage.open(&id("C")).unwrap();
-        assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(4)), "survives reopen");
-        log.set_next_incoming(5).unwrap();
-        assert_eq!(log.in_flight(), None);
-        commit_now(log.as_mut()).unwrap();
-        drop(log);
-        let mut log = storage.open(&id("C")).unwrap();
-        assert_eq!(log.in_flight(), None, "clearing persists");
-        log.set_in_flight(5).unwrap();
-        log.reset().unwrap();
-        assert_eq!(log.in_flight(), None);
-        commit_now(log.as_mut()).unwrap();
-        drop(log);
-        assert_eq!(storage.open(&id("C")).unwrap().in_flight(), None, "reset persists");
-    }
-
-    /// Data fields, a venue's own too, come back byte for byte.
-    fn check_data_fields(storage: &dyn SessionStorage) {
-        let msg = message(1).with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"\xff\x01\x0110=000\x01").with_data(
-            5000,
-            5001,
-            b"a\x01\xfe",
-        );
-        {
-            let mut log = storage.open(&id("D")).unwrap();
-            log.record_outgoing(1, Some(&encode(&msg).unwrap())).unwrap();
-            commit_now(log.as_mut()).unwrap();
-        }
-        let mut log = storage.open(&id("D")).unwrap();
-        let sent = log.sent_messages(1, 1).unwrap();
-        assert_eq!(sent[0].1, encode(&msg).unwrap());
+    /// The suite runs a store's jobs, whatever it returns as one.
+    #[test]
+    fn a_store_of_jobs_conforms() {
+        conformance::check_blocking(&deferring::DeferringStorage::deferring_all());
     }
 }
