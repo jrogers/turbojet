@@ -192,6 +192,29 @@ Notable changes to the published crates.
   NewOrderSingle with nested groups.
 - `#[cfg]` on a `fix_message!` or `fix_group!` applies to everything it generates: a message
   configured out used to fail to compile.
+- Stores can hand the session's driver a future as well as a blocking job: `store::Job<T>` is
+  either, and `Commit` is now `Job<()>` (`Commit::blocking` and `run` work as before). A store
+  can also open a session's log with one (`SessionStorage::begin_open`, which by default calls
+  `open`; `open` itself now has a default that refuses, for stores that only open with
+  `begin_open`) and read a resend step with one (`SessionLog::fetch`, which by default calls
+  `sent_messages`). The session waits for them as for a commit: custom drivers call
+  `Session::take_fetch` / `on_fetched` and `take_open` / `on_opened` after `take_commit`, and
+  hold input while `is_waiting_on_store`. `Session::commit_blocking` runs them too.
+- Operator changes to a disconnected session await a store's opening and commit.
+- The store conformance suite is public with the `conformance` feature:
+  `store::conformance::check` (async) and `check_blocking` run a store through everything a
+  session relies on.
+
+### `turbojet-sql`
+
+- New: session storage in SQLite or PostgreSQL through sqlx, `SqlStorage` with `SqlConfig`.
+  Each session's state is a row of `turbojet_sessions` and its messages rows of
+  `turbojet_messages` (`SqlStorage::migrate` creates them); a commit is one transaction. Opening,
+  committing and resend reads run as futures the connection's driver awaits. Each session keeps
+  its newest messages up to `max_session_bytes` (1 GiB by default). Gateways sharing a database
+  hold a lease on each session they run (`SqlConfig::lease`, two minutes by default), renewed by
+  every commit: another gateway can't open the session while it's held, and a gateway whose lease
+  expired and was taken can't commit. Features `sqlite` (default), `postgres` and `tls`.
 
 ### `turbojet-dictionary`
 

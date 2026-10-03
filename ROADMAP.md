@@ -52,6 +52,13 @@ later, with:
   loss falls back to the record before it; both stores keep each session's newest messages up
   to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
   oldest, and the memory store a capped number of sessions;
+- SQL session storage (`turbojet-sql`) in SQLite or PostgreSQL through sqlx: one transaction per
+  commit, the same byte budget, and a lease per session, taken on opening and renewed by each
+  commit, so gateways sharing a database can't run one session at once and one whose lease was
+  taken can't commit. Stores can open sessions, commit and read resend steps with futures the
+  driver awaits (`SessionStorage::begin_open`, `SessionLog::fetch`, `Job`), so a networked store
+  never blocks the runtime; the simulator runs half its seeds over stores that do. The store
+  conformance suite is public (`conformance` feature) for other stores to check themselves;
 - optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
   outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
   read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
@@ -279,27 +286,22 @@ From the benchmarks.
 - **Message log retention** (M). A message log of both directions, kept apart from the resend
   store and from diagnostic logging, with rotation, compression, retention periods and archiving.
   Regulated firms must keep these for years. Pairs with inbound message persistence.
-- **Alternative storage backends**. Today there are only `MemoryStorage` and `DiskStorage`. Each
-  backend should live behind its own feature (or in its own crate) so its dependencies stay
-  optional, record `created_at` so session schedules work, pass a shared conformance suite, and
-  be measured with the existing storage benchmarks.
+- **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
+  `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
+  crate) so its dependencies stay optional, record `created_at` so session schedules work, pass
+  the conformance suite (`turbojet::store::conformance`), and be measured against `DiskStorage`.
   - **Embedded database** (M). A `SessionStorage` over [redb](https://docs.rs/redb) (or a
     similar embedded store) could be a better default than the hand-rolled files: sequence
     numbers and message bodies update in one transaction, so there's no torn-write recovery, and
     space is reclaimed without the rotation `DiskStorage` needs. Benchmark it against
     `DiskStorage` with and without fsync. If it matches or beats it, make it the recommended
     durable store.
-  - **SQL databases** (M). PostgreSQL (and SQLite) through `sqlx` or similar, for deployments
-    that can't rely on local disk or want session state next to their other data.
-  - **Async store interface** (M, prerequisite for networked stores). Commits can already run
-    off the connection's task (`SessionLog::commit` hands back a `Commit`), but only as a
-    blocking job, and reads still run on it: resends read stored messages, and opening a store
-    scans it. Networked stores need a `Commit` that's a future, and resend reads and opening
-    that don't block the runtime.
-  - **Exclusive sessions across processes** (S, with networked stores). `DiskStorage` locks a
-    session's files while it's connected; a shared database needs the equivalent (an advisory
-    lock or an expiring lease) so two gateways can't run the same session at once. This is also
-    the basis for hot-standby failover.
+  - **SQL stores, next steps** (S each). Move to sqlx 0.9 once the minimum Rust reaches 1.94.
+    Without sync, a SQLite commit costs about 25 times a `DiskStorage` one (75 µs against 3 µs);
+    rusqlite with blocking jobs may close some of that gap. Leases compare gateways' clocks;
+    the database's own clock would remove that requirement but differs between SQLite and
+    PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
+    on a timer would let an idle session notice sooner.
 - **High availability with replicated state** (L). A hot standby that receives every sequence
   number change and stored message as it happens, and takes over a session on failover with no
   gap and no resend storm. Replicate the session journal to the standby (over TCP, or something
@@ -351,6 +353,13 @@ Behaviour that's deliberate or documented, but worth revisiting.
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- A `SqlStorage` lease must outlast the longest heartbeat interval, since heartbeats are the
+  commits that renew it while a session is idle, and gateways sharing a database need clocks in
+  step to well within the lease. A log closed without a tokio runtime to give its lease up on
+  leaves it to expire.
+- An operator change to a disconnected session runs a store's blocking commit (`DiskStorage`
+  with fsync) on the calling task, as it always has: rare, but it holds a runtime worker for the
+  fsync.
 - A weekly schedule honours only a holiday on its start day: a mid-week holiday doesn't close it.
   Holidays don't shorten a day either (no early closes).
 - A schedule time skipped by a clock change of three hours or more (Samoa skipping 2011-12-30) is

@@ -33,6 +33,10 @@ messages, groups and enums from it (from a `build.rs`, or as a command), and
 every FIX 4.2, 4.3, 4.4 and 5.0 SP2 application message, generated from the FIX Trading
 Community's official data and checked in.
 
+[`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) keeps session
+state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
+sessions.
+
 CI runs Turbojet's sessions against QuickFIX/J, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
 loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
@@ -168,7 +172,9 @@ Layers, from the bottom up — each is public, so you can stop at any level:
   every FIX 4.2, 4.3, 4.4 or 5.0 SP2 application message, group and enum, generated from the
   official FIX data
 - `fix_message!`, `fix_group!`, `fix_enum!` – define your own typed messages, groups and enums
-- `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`
+- `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`; with the
+  `conformance` feature, the suite every store must pass
+- `turbojet-sql` (a separate crate) – `SqlStorage`, session storage in SQLite or PostgreSQL
 - `session::Session` – sans-IO state machine for either role; feed it messages and commands,
   call its timer when its next deadline falls due, write the encoded messages it leaves in
   `output`, and close the connection once it `is_closed`. While it `is_resending`, write its
@@ -530,7 +536,9 @@ work (everything that arrived in one read, one batch of application sends, one s
 and nothing the batch sends is written until that commit is done. A store that waits for its
 device (`DiskStorage` with `fsync`) hands the commit to the connection driver, which runs it on a
 blocking thread, so the async runtime never waits for a disk; meanwhile the connection reads but
-processes nothing. A `Receipt` resolves, and an operator hears of a sequence number change, once
+processes nothing. A store that waits for a network does the same with a future, and can hand
+over opening a session (at logon) and reading a resend step too (`SessionStorage::begin_open`,
+`SessionLog::fetch`). A `Receipt` resolves, and an operator hears of a sequence number change, once
 the change is committed.
 
 Delivery to the application is at least once. An inbound message counts as received only after
@@ -558,6 +566,18 @@ aren't.
   truncates a torn trailing write and advances the outgoing sequence number past the last stored
   message. Without `fsync`, commits are written in the call and survive a process
   crash but not an OS crash; with it, a batch costs one `fsync` of each file.
+- `SqlStorage` (`turbojet-sql`): a row per session in `turbojet_sessions` and its messages in
+  `turbojet_messages`, in SQLite (bundled, with `synchronous` FULL or NORMAL) or PostgreSQL. A
+  commit is one transaction, so sequence numbers and messages can't tear apart. Each session
+  keeps its newest 1 GiB of messages (`SqlConfig::max_session_bytes`); past it the oldest go,
+  down to 7/8 of it. Opening a session takes a lease on it (`SqlConfig::lease`, two minutes by
+  default), which every commit renews and closing gives up: another gateway can't open the
+  session meanwhile, and a gateway whose lease expired and was taken can't commit, so it
+  disconnects rather than send under numbers the other uses. Heartbeats are commits, so the lease
+  must be longer than the longest heartbeat interval. Leases compare the gateways' clocks.
+
+Stores outside Turbojet can check themselves against the suite its own stores pass:
+`turbojet::store::conformance::check`, with the `conformance` feature.
 
 ## The gateway
 
@@ -612,6 +632,7 @@ them, along with `gateway_orders_total` and `gateway_cancels_total` by `result`,
 cargo bench -p turbojet --all-features            # everything (~3 minutes)
 cargo bench -p turbojet --bench codec             # one group: codec, session or roundtrip
 cargo bench -p turbojet --all-features -- --quick # fast smoke run
+cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
 ```
 
 Snapshot (Apple M3, macOS 27, Rust 1.98.1, 2026-09-27; medians). Benchmarks build with one
@@ -631,6 +652,9 @@ to partition the crate.
 | Session: order → ack, wire to wire (decode + session, which encodes)² | 1.09 µs | 921k msg/s |
 | Store a sent message and commit it: memory / disk / disk + fsync³ | 49 ns / 3.3 µs / 8.2 ms | |
 | Store a sent message, 100 per commit: disk / disk + fsync³ | 88 ns / 82 µs | |
+| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |
+| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL⁴ | 3.0 µs / 55 µs / 7.1 µs | |
+| Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
@@ -650,7 +674,9 @@ one and then made owned, so it costs more than it did. ³ Measured 2026-10-02, w
 before it, storing 100 messages with fsync took 837 ms, and the disk + fsync round trip managed 62
 messages a second with 100 in flight; and with each commit recording the next in-flight window
 (before that, 12.2 ms one at a time with fsync). The other rows are the 2026-09-27 snapshot.
-The FIX 4.4 order has three parties with two sub-IDs each.
+The FIX 4.4 order has three parties with two sub-IDs each. ⁴ Measured 2026-10-03
+(`cargo bench -p turbojet-sql --all-features`), PostgreSQL 14 on the same machine over TCP; SQLite
+synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
