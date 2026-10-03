@@ -9,13 +9,14 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing_subscriber::EnvFilter;
+use turbojet::message::tags;
 use turbojet::{
     Acceptor, ApplVerId, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
     MsgType, SessionConfig, SessionHandle, SessionId,
 };
 
 use crate::mailbox::{Mailbox, Missing};
-use crate::{EVENT_TIMEOUT, Peer, PeerConfig, Proxy, QFJ, TJ};
+use crate::{EVENT_TIMEOUT, Peer, PeerConfig, PeerEvent, Proxy, QFJ, TJ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -219,6 +220,29 @@ impl Pair {
         if let Some(event) = self.tj.find_within(within, pred).await {
             panic!("expected no Turbojet {what}, got {event:?}");
         }
+    }
+
+    /// The proxy, for a pair started with [`Options::proxy`].
+    pub fn proxy(&mut self) -> &mut Proxy {
+        self.proxy.as_mut().expect("the pair was started without Options::proxy")
+    }
+
+    /// Exchanges a TestRequest and Heartbeat, so both sides have processed everything sent before.
+    pub async fn barrier(&mut self) {
+        self.peer.cmd("test-request BARRIER").await;
+        self.peer.received_with("0", |m| m.get(112) == Some("BARRIER")).await;
+    }
+
+    /// Fails if Turbojet delivers the order `id` (again). Call after [`Pair::barrier`].
+    pub async fn tj_delivers_no_more(&mut self, id: &str) {
+        let order = |e: &TjEvent| matches!(e, TjEvent::Message(m) if m.get(tags::CL_ORD_ID) == Some(id));
+        self.tj_expect_none(&format!("order {id}"), order, Duration::ZERO).await;
+    }
+
+    /// Fails if QuickFIX/J delivers the order `id` (again). Call after [`Pair::barrier`].
+    pub async fn peer_delivers_no_more(&mut self, id: &str) {
+        let order = |e: &PeerEvent| e.received().is_some_and(|m| m.msg_type() == "D" && m.get(11) == Some(id));
+        self.peer.expect_none(&format!("order {id} at QuickFIX/J"), order, Duration::ZERO).await;
     }
 
     /// Fails on anything unexpected either side saw: see [`Peer::finish`]. Turbojet delivers

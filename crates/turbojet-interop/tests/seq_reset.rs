@@ -4,18 +4,12 @@ use std::time::Duration;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Options, Pair, PeerEvent, Setup, TjEvent, matrix};
+use turbojet_interop::{Options, PeerEvent, Setup, TjEvent, matrix};
 
 matrix!(sequence_reset_from_peer, sequence_reset_from_tj, seq_too_low_at_tj, seq_too_low_at_peer);
 
 /// Longer than a scenario's 120s backstop.
 const NO_RECONNECT: Options = Options { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 300, proxy: false };
-
-/// Exchanges a TestRequest and Heartbeat, so both sides have processed everything sent before.
-async fn barrier(pair: &mut Pair) {
-    pair.peer.cmd("test-request BARRIER").await;
-    pair.peer.received_with("0", |m| m.get(112) == Some("BARRIER")).await;
-}
 
 /// QuickFIX/J jumps its sequence to 20 with a SequenceReset-Reset: Turbojet accepts the next
 /// message at 20 without asking for 3-19.
@@ -31,7 +25,7 @@ async fn sequence_reset_from_peer(setup: Setup) {
     let order = pair.tj_received("D").await;
     assert_eq!(order.get(tags::MSG_SEQ_NUM), Some("20"));
     assert_eq!(pair.handle.sequence_numbers().await.unwrap().next_incoming, 21);
-    barrier(&mut pair).await;
+    pair.barrier().await;
     pair.peer
         .expect_none("ResendRequest", |e| matches!(e, PeerEvent::In(m) if m.contains("|35=2|")), Duration::ZERO)
         .await;
@@ -51,7 +45,7 @@ async fn sequence_reset_from_tj(setup: Setup) {
 
     let order = pair.peer.received("D").await;
     assert_eq!(order.seq(), 20, "{}", order.raw());
-    barrier(&mut pair).await;
+    pair.barrier().await;
     pair.peer
         .expect_none("ResendRequest", |e| matches!(e, PeerEvent::Out(m) if m.contains("|35=2|")), Duration::ZERO)
         .await;

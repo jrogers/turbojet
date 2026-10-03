@@ -4,21 +4,9 @@ use std::time::Duration;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Pair, Setup, TjEvent, matrix};
+use turbojet_interop::{Setup, matrix};
 
 matrix!(gap_fill_from_peer, gap_fill_to_peer, resend_to_peer, resend_from_peer);
-
-/// Exchanges a TestRequest and Heartbeat, so both sides have processed everything sent before.
-async fn barrier(pair: &mut Pair) {
-    pair.peer.cmd("test-request BARRIER").await;
-    pair.peer.received_with("0", |m| m.get(112) == Some("BARRIER")).await;
-}
-
-/// Fails if Turbojet delivers the order `id` (again). Call after [`barrier`].
-async fn tj_delivers_no_more(pair: &mut Pair, id: &str) {
-    let order = |e: &TjEvent| matches!(e, TjEvent::Message(m) if m.get(tags::CL_ORD_ID) == Some(id));
-    pair.tj_expect_none(&format!("order {id}"), order, Duration::ZERO).await;
-}
 
 /// QuickFIX/J skips sequence numbers 2-9: Turbojet asks for them and QuickFIX/J, having sent
 /// nothing, fills the gap. Then the order that revealed the gap, queued meanwhile, is delivered,
@@ -42,8 +30,8 @@ async fn gap_fill_from_peer(setup: Setup) {
     assert_eq!(order.get(tags::MSG_SEQ_NUM), Some("10"));
     assert_eq!(order.get(tags::POSS_DUP_FLAG), None);
     assert_eq!(pair.handle.sequence_numbers().await.unwrap().next_incoming, 11);
-    barrier(&mut pair).await;
-    tj_delivers_no_more(&mut pair, "ORD1").await;
+    pair.barrier().await;
+    pair.tj_delivers_no_more("ORD1").await;
     pair.finish().await;
 }
 
@@ -71,7 +59,7 @@ async fn gap_fill_to_peer(setup: Setup) {
     assert_eq!(order.get(43), None, "{}", order.raw());
     let resent = pair.peer.wire_in("D", |m| m.get(43) == Some("Y")).await;
     assert_eq!(resent.seq(), 2, "{}", resent.raw());
-    barrier(&mut pair).await;
+    pair.barrier().await;
     pair.peer
         .expect_none("second ORD1", |e| e.received().is_some_and(|m| m.get(11) == Some("ORD1")), Duration::ZERO)
         .await;
@@ -106,7 +94,7 @@ async fn resend_to_peer(setup: Setup) {
     // QuickFIX/J processed the original from its queue; the resend (the ResendRequest was
     // open-ended) comes in too low, PossDupFlag=Y, and is ignored.
     pair.peer.wire_in("D", |m| m.get(11) == Some("ORD4") && m.get(43) == Some("Y")).await;
-    barrier(&mut pair).await;
+    pair.barrier().await;
     pair.peer
         .expect_none("second ORD4", |e| e.received().is_some_and(|m| m.get(11) == Some("ORD4")), Duration::ZERO)
         .await;
@@ -134,7 +122,7 @@ async fn resend_from_peer(setup: Setup) {
     }
     let last = pair.tj_received_with("D", |m| m.get(tags::CL_ORD_ID) == Some("ORD4")).await;
     assert_eq!(last.get(tags::POSS_DUP_FLAG), None, "the original, queued behind the gap");
-    barrier(&mut pair).await;
-    tj_delivers_no_more(&mut pair, "ORD4").await;
+    pair.barrier().await;
+    pair.tj_delivers_no_more("ORD4").await;
     pair.finish().await;
 }

@@ -38,6 +38,7 @@
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
@@ -197,6 +198,13 @@ impl Proxy {
             Ok(event) => event,
             Err(Missing::Closed) => panic!("the proxy stopped while waiting for {what}"),
             Err(Missing::TimedOut) => panic!("timed out waiting for proxy {what}"),
+        }
+    }
+
+    /// Fails if an event matching `pred` is buffered or arrives `within`.
+    pub async fn expect_none(&mut self, what: &str, pred: impl FnMut(&ProxyEvent) -> bool, within: Duration) {
+        if let Some(event) = self.events.find_within(within, pred).await {
+            panic!("expected no proxy {what}, got {event:?}");
         }
     }
 
@@ -493,8 +501,6 @@ fn garble(frame: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use tokio::time::timeout;
 
     use super::*;
