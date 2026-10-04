@@ -226,6 +226,7 @@ impl Acceptor {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        self.registry.spawn_cancel_task();
         let (mut session, commands) =
             Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
         session.set_connection_info(info);
@@ -242,10 +243,19 @@ impl Acceptor {
     /// disconnected, and shortly after that any connection still open (one blocked writing to a
     /// counterparty that has stopped reading, say) is closed regardless.
     ///
+    /// Then the [cancel-on-disconnect](SessionConfig::cancel_on_disconnect) countdowns still
+    /// under way for this acceptor's sessions fire at once, as nothing will be left to fire them
+    /// when they're due; those of other sessions in a shared registry carry on. Sessions it logs
+    /// out don't start one: our side chose to end them.
+    ///
     /// Shutdown is permanent: [`serve`](Acceptor::serve) returns, and connections made later are
     /// closed without logging on. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {
-        self.shutdown.run(text, self.config.logout_timeout).await
+        self.shutdown.run(text, self.config.logout_timeout).await;
+        // Every connection has closed, so no more countdowns start here. A counterparty's own
+        // settings keep this BeginString and SenderCompID (see `Counterparties`).
+        let (begin_string, sender_comp_id) = (&self.config.begin_string, &self.config.sender_comp_id);
+        self.registry.run_cancels_now(|id| id.begin_string == *begin_string && id.sender_comp_id == *sender_comp_id);
     }
 }
 

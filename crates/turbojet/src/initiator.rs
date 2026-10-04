@@ -15,7 +15,7 @@ use crate::connection;
 use crate::fields::Secret;
 use crate::peer::ConnectionInfo;
 use crate::reconnect::{Backoff, ReconnectPolicy};
-use crate::registry::{SessionHandle, SessionRegistry};
+use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
 use crate::session::{Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -376,9 +376,7 @@ impl Initiator {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let _open = self.shutdown.track();
-        let (mut session, commands) =
-            Session::initiator(&self.plan().config, self.registry.clone(), self.app.clone(), Instant::now());
-        session.set_connection_info(info);
+        let (session, commands) = self.session(&self.plan().config, info);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
 
@@ -389,9 +387,17 @@ impl Initiator {
     /// within the [logout timeout](SessionConfig::logout_timeout) is disconnected, and shortly
     /// after that the connection is closed regardless.
     ///
+    /// Then the session's [cancel-on-disconnect](SessionConfig::cancel_on_disconnect) countdown,
+    /// if one is under way, fires at once, as nothing will be left to fire it when it's due;
+    /// those of other initiators sharing its [registry](Self::with_registry) carry on. A logout
+    /// for the shutdown doesn't start one: our side chose to end the session.
+    ///
     /// Shutdown is permanent. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {
-        self.shutdown.run(text, self.plan().config.session.logout_timeout).await
+        self.shutdown.run(text, self.plan().config.session.logout_timeout).await;
+        // Every connection has closed, so no more countdowns start here.
+        let session = self.session_id();
+        self.registry.run_cancels_now(|id| *id == session);
     }
 
     /// Runs `step` unless shutdown starts first, which fails it.
@@ -471,13 +477,21 @@ impl Initiator {
         TcpStream::connect(addr).await
     }
 
+    /// A session for a new connection, described by `info`, with the task that fires its
+    /// cancel-on-disconnect countdowns running.
+    fn session(&self, config: &InitiatorConfig, info: ConnectionInfo) -> (Session, CommandReceiver) {
+        self.registry.spawn_cancel_task();
+        let (mut session, commands) =
+            Session::initiator(config, self.registry.clone(), self.app.clone(), Instant::now());
+        session.set_connection_info(info);
+        (session, commands)
+    }
+
     async fn run_session<S>(&self, stream: S, info: ConnectionInfo, config: &InitiatorConfig) -> Attempt
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let (mut session, commands) =
-            Session::initiator(config, self.registry.clone(), self.app.clone(), Instant::now());
-        session.set_connection_info(info);
+        let (session, commands) = self.session(config, info);
         let mut logged_on = false;
         let signal = Some(self.shutdown.signal());
         let result = connection::run_tracked(stream, session, commands, &mut logged_on, signal).await;

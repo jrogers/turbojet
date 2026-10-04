@@ -131,22 +131,28 @@ impl CancelTracker {
 
     /// Fires the countdowns that have ended by `now`.
     pub(crate) fn run_due(&self, now: Instant) {
-        self.run(|p| p.deadline <= now);
+        self.run(|_, p| p.deadline <= now);
     }
 
     /// Fires every countdown under way, as when shutting down.
     pub(crate) fn run_all(&self) {
-        self.run(|_| true);
+        self.run(|_, _| true);
+    }
+
+    /// Fires the countdowns under way of the sessions `which` picks, due or not, as when their
+    /// acceptor or initiator shuts down.
+    pub(crate) fn run_now(&self, which: impl Fn(&SessionId) -> bool) {
+        self.run(|id, _| which(id));
     }
 
     /// Fires the countdowns `due` picks, in deadline order, then by session for ties.
-    fn run(&self, due: impl Fn(&Pending) -> bool) {
+    fn run(&self, due: impl Fn(&SessionId, &Pending) -> bool) {
         // The lock is held while the callbacks run, so a logon of the same session waits in
         // `logged_on` until its cancel has returned: the cancel can't come after that logon's
         // `on_logon`. It is never held across an await, and callbacks must not block.
         let mut pending = self.lock();
-        let mut fired: Vec<(SessionId, Pending)> = pending.extract_if(|_, p| due(p)).collect();
-        debug_assert!(pending.values().all(|p| !due(p)), "every due countdown is taken");
+        let mut fired: Vec<(SessionId, Pending)> = pending.extract_if(|id, p| due(id, p)).collect();
+        debug_assert!(pending.iter().all(|(id, p)| !due(id, p)), "every due countdown is taken");
         crate::telemetry::cancels_removed(fired.len());
         fired.sort_by(|(a, pa), (b, pb)| pa.deadline.cmp(&pb.deadline).then_with(|| order(a).cmp(&order(b))));
         for (id, Pending { ended, trigger, app, .. }) in &fired {
@@ -267,6 +273,17 @@ mod tests {
         tracker.run_all();
         assert_eq!(app.take(), ["cancel A ConnectionLost", "cancel B Error"]);
         assert_eq!(tracker.next_deadline(), None);
+    }
+
+    /// A shutdown fires only the countdowns of its own sessions.
+    #[test]
+    fn run_now_fires_only_the_sessions_picked() {
+        let (tracker, app, t) = tracker();
+        start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(60));
+        start(&tracker, &app, "B", Disconnect::ConnectionLost, t + secs(30));
+        tracker.run_now(|id| id.target_comp_id == "A");
+        assert_eq!(app.take(), ["cancel A ConnectionLost"]);
+        assert_eq!(tracker.next_deadline(), Some(t + secs(30)));
     }
 
     #[test]

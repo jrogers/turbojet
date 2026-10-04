@@ -848,22 +848,35 @@ mod tests {
         heartbeat: u64,
         shutdown: Option<Signal>,
     ) -> (DuplexStream, Vec<u8>, crate::SessionHandle) {
+        let (peer, buf, registry, _) = logged_on_running(capacity, config, Arc::new(Acker), heartbeat, shutdown).await;
+        (peer, buf, registry.handle(peer_session()))
+    }
+
+    /// [`logged_on_over`] with `app`: the peer's end and read buffer, the registry, and the task
+    /// running the connection.
+    async fn logged_on_running(
+        capacity: usize,
+        config: SessionConfig,
+        app: Arc<dyn Application>,
+        heartbeat: u64,
+        shutdown: Option<Signal>,
+    ) -> (DuplexStream, Vec<u8>, Arc<SessionRegistry>, JoinHandle<io::Result<()>>) {
         let (ours, mut peer) = duplex(capacity);
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now);
-        tokio::spawn(async move { run_tracked(ours, session, commands, &mut false, shutdown).await });
+        let (session, commands) = Session::acceptor(config, registry.clone(), app, now);
+        let task = tokio::spawn(async move { run_tracked(ours, session, commands, &mut false, shutdown).await });
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
-        let handle = registry.handle(SessionId {
-            begin_string: "FIX.4.2".into(),
-            sender_comp_id: "US".into(),
-            target_comp_id: "PEER".into(),
-        });
-        (peer, buf, handle)
+        (peer, buf, registry, task)
+    }
+
+    /// The session [`logged_on_over`] logs on, as the acceptor sees it.
+    fn peer_session() -> SessionId {
+        SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "US".into(), target_comp_id: "PEER".into() }
     }
 
     /// An acceptor config sending at most `messages` application messages per `per`.
@@ -1942,5 +1955,59 @@ mod tests {
         }
         assert_eq!(sent, [MsgType::Logon, MsgType::Logout], "{}", String::from_utf8_lossy(&received));
         assert!(rest.is_empty(), "trailing bytes: {}", String::from_utf8_lossy(rest));
+    }
+
+    /// An acceptor config that cancels on disconnect after `grace`.
+    fn cancelling_after(grace: Duration) -> SessionConfig {
+        let mut config = SessionConfig::new("FIX.4.2", "US");
+        config.cancel_on_disconnect =
+            Some(crate::CancelOnDisconnect { trigger: crate::CancelTrigger::Disconnect, grace });
+        config
+    }
+
+    /// The counterparty closing its end ends the connection as lost (`Ended::Lost`): the driver
+    /// tells the session, whose cancel-on-disconnect countdown starts from the close.
+    #[tokio::test(start_paused = true)]
+    async fn a_counterparty_that_closes_starts_the_countdown() {
+        let grace = Duration::from_secs(5);
+        let (peer, _, registry, task) =
+            logged_on_running(1 << 20, cancelling_after(grace), Arc::new(Acker), 30, None).await;
+        tokio::time::advance(Duration::from_secs(2)).await;
+        let closed = Instant::now();
+        drop(peer);
+        tokio::time::timeout(Duration::from_secs(5), task).await.expect("still running").unwrap().unwrap();
+        assert_eq!(registry.next_cancel_deadline(), Some((closed + grace).into_std()));
+        assert!(!registry.handle(peer_session()).is_connected());
+    }
+
+    /// Replies a mebibyte long, so a few unread fill the output backlog.
+    struct Verbose;
+
+    impl Application for Verbose {
+        fn on_message(&self, ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
+            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "x".repeat(1 << 20)));
+            Ok(())
+        }
+    }
+
+    /// A counterparty that stops reading ends the connection with an error once output backs
+    /// up: the driver tells the session, whose cancel-on-disconnect countdown starts then.
+    #[tokio::test(start_paused = true)]
+    async fn a_counterparty_that_stops_reading_starts_the_countdown() {
+        let grace = Duration::from_secs(5);
+        let (mut peer, _, registry, task) =
+            logged_on_running(4 * 1024, cancelling_after(grace), Arc::new(Verbose), 30, None).await;
+        let started = Instant::now();
+        // More orders than MAX_UNWRITTEN holds replies to, and none of the replies read.
+        for seq in 2..2 + 2 * u64::try_from(MAX_UNWRITTEN >> 20).unwrap() {
+            if peer.write_all(&from_peer(seq, order(&format!("O{seq}")))).await.is_err() {
+                break;
+            }
+        }
+        let ended = tokio::time::timeout(Duration::from_secs(5), task).await.expect("still running").unwrap();
+        assert_eq!(ended.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        let deadline = registry.next_cancel_deadline().expect("a countdown");
+        assert!(deadline >= (started + grace).into_std(), "{:?}", deadline - started.into_std());
+        assert!(deadline <= (Instant::now() + grace).into_std());
     }
 }
