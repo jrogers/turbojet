@@ -125,19 +125,33 @@ async fn a_reload_applies_from_the_next_logon() {
     venue.log_on("BROKER").await;
 }
 
+/// Connects `initiator`, leaving it to run.
+fn connect(initiator: &Initiator) {
+    let initiator = initiator.clone();
+    tokio::spawn(async move { initiator.connect_once().await });
+}
+
 #[tokio::test]
 async fn cancel_on_disconnect_reloaded_applies_from_the_next_logon() {
     let mut venue = Venue::start(FILE).await;
+    // One initiator throughout, so its sequence numbers carry on from one logon to the next.
+    let fund = venue.initiator("FUND", 30);
+    connect(&fund);
+    assert_eq!(venue.next().await, "logon FUND");
     venue.rewrite(&FILE.replace("[counterparty.FUND]", "[counterparty.FUND]\ncancel_on_disconnect = \"logout\""));
     assert_eq!(venue.reload().unwrap(), Changes { changed: vec!["FUND".into()], ..Changes::default() });
+    // The session connected keeps its settings: its Logout cancels nothing. A cancel for it, or
+    // for BROKER, would come straight after its logout, failing the next logon assert.
+    fund.handle().logout(None).unwrap();
+    assert_eq!(venue.next().await, "logout FUND");
     venue.log_on("BROKER").await.logout(None).unwrap();
     assert_eq!(venue.next().await, "logout BROKER");
-    venue.log_on("FUND").await.logout(None).unwrap();
-    // FUND's grace is the default, none: its cancel comes at once. BROKER's Logout cancelled
-    // nothing: a cancel for it would come before FUND's events.
-    let mut events = [venue.next().await, venue.next().await];
-    events.sort();
-    assert_eq!(events, ["cancel FUND", "logout FUND"]);
+    // From the next Logon, it's on. The grace is the default, none: the cancel follows the logout
+    // at once.
+    connect(&fund);
+    assert_eq!(venue.next().await, "logon FUND");
+    fund.handle().logout(None).unwrap();
+    assert_eq!([venue.next().await, venue.next().await], ["logout FUND", "cancel FUND"]);
 }
 
 #[tokio::test]

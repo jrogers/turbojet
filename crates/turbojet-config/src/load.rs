@@ -534,12 +534,17 @@ fn inbound_limit(settings: &RawSettings, section: &str) -> Result<Option<Inbound
 fn cancel_on_disconnect(settings: &RawSettings, section: &str) -> Result<Option<CancelOnDisconnect>, Error> {
     let at = |e: String| Error::at(section, "cancel_grace", e);
     let grace = match &settings.cancel_grace {
-        Some(text) => parse_duration(text).map_err(at)?,
+        Some(text) => {
+            let grace = parse_duration(text).map_err(at)?;
+            // The message says 1h.
+            const _: () = assert!(MAX_CANCEL_GRACE.as_secs() == 3600);
+            if grace > MAX_CANCEL_GRACE {
+                return Err(at(format!("'{text}' must be at most 1h")));
+            }
+            grace
+        }
         None => Duration::ZERO,
     };
-    if grace > MAX_CANCEL_GRACE {
-        return Err(at(format!("{grace:?} is over the most, {MAX_CANCEL_GRACE:?}")));
-    }
     let trigger = match settings.cancel_on_disconnect {
         None | Some(RawCancelTrigger::Off) => return Ok(None),
         Some(RawCancelTrigger::Disconnect) => CancelTrigger::Disconnect,
@@ -823,14 +828,14 @@ mod tests {
             ),
             (
                 "[defaults]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"61m\"",
-                "defaults: cancel_grace: 3660s is over the most, 3600s",
+                "defaults: cancel_grace: '61m' must be at most 1h",
             ),
             (
                 "[counterparty.A]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"2h\"",
-                "counterparty A: cancel_grace: 7200s is over the most, 3600s",
+                "counterparty A: cancel_grace: '2h' must be at most 1h",
             ),
             ("[defaults]\ncancel_grace = \"soon\"", "defaults: cancel_grace: invalid duration 'soon'"),
-            ("[defaults]\ncancel_grace = \"2h\"", "defaults: cancel_grace: 7200s is over the most"),
+            ("[defaults]\ncancel_grace = \"2h\"", "defaults: cancel_grace: '2h' must be at most 1h"),
         ];
         for (text, expected) in cases {
             let error = error(text);
@@ -1003,7 +1008,7 @@ mod tests {
         let unused = error(&format!("{INITIATOR}cancel_grace = \"5s\""));
         assert_eq!(unused, "initiator LSE: cancel_grace: needs cancel_on_disconnect on");
         let long = error(&format!("{INITIATOR}cancel_on_disconnect = \"logout\"\ncancel_grace = \"2h\""));
-        assert_eq!(long, "initiator LSE: cancel_grace: 7200s is over the most, 3600s");
+        assert_eq!(long, "initiator LSE: cancel_grace: '2h' must be at most 1h");
     }
 
     #[test]

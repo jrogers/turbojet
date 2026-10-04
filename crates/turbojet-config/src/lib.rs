@@ -100,10 +100,11 @@
 //! each initiator's next connection: sessions connected keep theirs. Under `unknown = "refuse"`,
 //! connected counterparties the file no longer lists are logged out. Added initiators start, and
 //! removed ones are logged out and stopped; one that now logs on to another session, or turns TLS
-//! on or off, is stopped and started again; stopping one fires a cancel-on-disconnect countdown
-//! under way at once, without waiting out its grace. What's fixed until a restart can't change: whether
-//! there's an `[acceptor]`, its keys other than `unknown` and the TLS files, a store's
-//! definition, and which store a counterparty's or an initiator's sessions are kept in.
+//! on or off, is stopped and started again. Stopping an initiator, removed or restarted, fires its
+//! cancel-on-disconnect countdown, if one is under way, at once rather than after its grace.
+//! What's fixed until a restart can't change: whether there's an `[acceptor]`, its keys other
+//! than `unknown` and the TLS files, a store's definition, and which store a counterparty's or an
+//! initiator's sessions are kept in.
 
 mod initiators;
 mod load;

@@ -245,10 +245,11 @@ pub(crate) enum OverLimit {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum RawCancelTrigger {
+    /// No ending counts.
     Off,
     /// Endings without a Logout.
     Disconnect,
-    /// Those, and Logouts.
+    /// Endings with or without a Logout.
     Logout,
 }
 
