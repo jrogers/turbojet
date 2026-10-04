@@ -60,6 +60,11 @@ impl Clock {
     pub fn now(&self) -> DateTime<Utc> {
         (self.0)()
     }
+
+    /// Whether `other` is this clock, or a clone of it.
+    pub(crate) fn same_as(&self, other: &Clock) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 impl Default for Clock {
