@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpSocket, TcpStream};
+use tokio::runtime::Handle;
 use tracing::{Instrument, info, warn};
 
 use crate::application::Application;
@@ -426,6 +427,23 @@ impl Initiator {
         let _open = self.shutdown.track();
         let (session, commands) = self.session(&self.plan().config, info);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
+    }
+
+    /// [`run_stream`](Initiator::run_stream) on the calling thread, which it keeps busy polling
+    /// `stream` until the connection ends: see [`connection::run_spinning`], which says what
+    /// `stream` must be, and on which store jobs and cancel-on-disconnect run on `runtime`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`run_stream`](Initiator::run_stream).
+    pub fn run_spinning<S>(&self, stream: S, info: ConnectionInfo, runtime: &Handle) -> io::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let _runtime = runtime.enter();
+        let _open = self.shutdown.track();
+        let (session, commands) = self.session(&self.plan().config, info);
+        connection::run_spinning_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal()))
     }
 
     /// Shuts down this initiator and its clones: logs the session out (with `text` as the

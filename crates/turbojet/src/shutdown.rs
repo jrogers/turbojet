@@ -113,6 +113,11 @@ impl Signal {
         }
     }
 
+    /// Whether connections still open are to be closed without waiting.
+    pub(crate) fn closing_now(&self) -> bool {
+        *self.0.borrow() == Phase::Closing
+    }
+
     /// Completes once connections still open are to be closed without waiting.
     pub(crate) async fn closing(&mut self) {
         if self.0.wait_for(|phase| *phase == Phase::Closing).await.is_err() {

@@ -9,13 +9,14 @@ use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::Handle;
 use tracing::{Instrument, info, warn};
 
 use crate::application::Application;
 use crate::connection;
 use crate::counterparty::Counterparties;
 use crate::peer::ConnectionInfo;
-use crate::registry::{SessionHandle, SessionRegistry};
+use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
 use crate::session::{ConfigError, Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -247,11 +248,34 @@ impl Acceptor {
         self.run_connection(stream, info).await
     }
 
+    /// [`accept_stream`](Acceptor::accept_stream) on the calling thread, which it keeps busy
+    /// polling `stream` until the connection ends: see [`connection::run_spinning`], which says
+    /// what `stream` must be, and on which store jobs and cancel-on-disconnect run on `runtime`.
+    ///
+    /// # Errors
+    ///
+    /// As for [`accept_stream`](Acceptor::accept_stream).
+    pub fn accept_spinning<S>(&self, stream: S, info: ConnectionInfo, runtime: &Handle) -> io::Result<()>
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let _runtime = runtime.enter();
+        let _open = self.shutdown.track();
+        let (session, commands) = self.new_session(info);
+        connection::run_spinning_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal()))
+    }
+
     /// [`accept_stream`](Acceptor::accept_stream) for a connection shutdown already counts.
     async fn run_connection<S>(&self, stream: S, info: ConnectionInfo) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        let (session, commands) = self.new_session(info);
+        connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
+    }
+
+    /// A session for a connection described by `info`.
+    fn new_session(&self, info: ConnectionInfo) -> (Session, CommandReceiver) {
         self.registry.spawn_cancel_task();
         let (mut session, commands) =
             Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
@@ -259,7 +283,7 @@ impl Acceptor {
         if let Some(counterparties) = &self.counterparties {
             session.set_counterparties(counterparties.clone());
         }
-        connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
+        (session, commands)
     }
 
     /// Shuts down this acceptor and its clones: stops accepting connections, logs every

@@ -1,9 +1,13 @@
 //! Drives a [`Session`] over any byte stream.
 
 use std::io;
+use std::ops::ControlFlow;
+use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
@@ -113,6 +117,66 @@ where
     .await
 }
 
+/// [`run`] on the calling thread, which it keeps busy until the connection ends: rather than
+/// wait for the runtime to wake it, the driver polls `stream`, the handle's commands and its
+/// timers over and over. Input is seen as soon as the transport has it, without a wake-up, at the
+/// cost of a core spent spinning; give each connection a thread of its own, pinned to a core, if
+/// the platform allows. Store jobs and cancel-on-disconnect still run on `runtime`.
+///
+/// `stream` must answer each poll from the transport itself rather than wait for a waker, as a
+/// [`SpinningStream`] does. A tokio `TcpStream` works but is no faster than [`run`], since its
+/// reads report only what the runtime's reactor has seen.
+///
+/// # Errors
+///
+/// As for [`run`].
+pub fn run_spinning<S>(stream: S, session: Session, commands: CommandReceiver, runtime: &Handle) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let _runtime = runtime.enter();
+    run_spinning_tracked(stream, session, commands, &mut false, None)
+}
+
+/// [`run_spinning`], following `shutdown` as [`run_tracked`] does. Runs inside the runtime's
+/// context.
+pub(crate) fn run_spinning_tracked<S>(
+    stream: S,
+    session: Session,
+    commands: CommandReceiver,
+    logged_on: &mut bool,
+    mut shutdown: Option<Signal>,
+) -> io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let span = tracing::info_span!("session", id = tracing::field::Empty);
+    let _entered = span.enter();
+    let closing = shutdown.clone();
+    let (mut reader, mut writer) = tokio::io::split(stream);
+    let mut d = Driver::new(session, commands);
+    d.start(&mut shutdown);
+    match spin(&mut d, &mut reader, &mut writer, logged_on, shutdown, closing.as_ref()) {
+        Ok(Ended::Closed) => {
+            // As in `drive`: the session is released before the peer sees the close.
+            drop(d);
+            while poll_once(writer.shutdown()).is_none() {
+                std::hint::spin_loop();
+            }
+            Ok(())
+        }
+        // As when `run_tracked`'s select drops the driver.
+        Ok(Ended::Abandoned) => {
+            warn!("closing the connection: shutdown timed out waiting for the logout");
+            Ok(())
+        }
+        result => {
+            d.session.on_disconnect(Instant::now().into_std());
+            result.map(|_| ())
+        }
+    }
+}
+
 async fn drive<S>(
     stream: S,
     session: Session,
@@ -148,6 +212,127 @@ enum Ended {
     Closed,
     /// The counterparty closed the connection.
     Lost,
+    /// Shutdown gave up waiting for the logout (only from [`spin`]).
+    Abandoned,
+}
+
+/// The branches [`spin`] polls, as [`serve`]'s select has them. It starts each time round with the
+/// next one, so a busy branch can't starve the others (a flood of input can't hold off the timer
+/// and its heartbeats), as the select's random order ensures.
+const SPIN_BRANCHES: usize = 7;
+
+/// [`serve`] without waiting: each time round, after [`Driver::prepare`], the first of the
+/// select's branches that's ready is taken. Its guards are the select's. The two branches that
+/// only wake the select for the outbound and inbound windows aren't needed: `prepare` looks again
+/// every time round.
+fn spin<R, W>(
+    d: &mut Driver,
+    reader: &mut R,
+    writer: &mut W,
+    logged_on: &mut bool,
+    mut shutdown: Option<Signal>,
+    closing: Option<&Signal>,
+) -> io::Result<Ended>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut first = 0;
+    loop {
+        if closing.is_some_and(Signal::closing_now) {
+            return Ok(Ended::Abandoned);
+        }
+        let Some(step) = d.prepare(reader, writer, logged_on)? else { return Ok(Ended::Closed) };
+        let mut taken = false;
+        for i in 0..SPIN_BRANCHES {
+            match d.try_branch((first + i) % SPIN_BRANCHES, &step, reader, writer, &mut shutdown)? {
+                ControlFlow::Break(ended) => return Ok(ended),
+                ControlFlow::Continue(false) => {}
+                ControlFlow::Continue(true) => {
+                    taken = true;
+                    break;
+                }
+            }
+        }
+        first = (first + 1) % SPIN_BRANCHES;
+        if !taken {
+            std::hint::spin_loop();
+        }
+    }
+}
+
+impl Driver {
+    /// One of [`spin`]'s branches, if its guard allows and it's ready: whether it was taken, or
+    /// how the connection ended.
+    fn try_branch<R, W>(
+        &mut self,
+        branch: usize,
+        step: &Step,
+        reader: &mut R,
+        writer: &mut W,
+        shutdown: &mut Option<Signal>,
+    ) -> io::Result<ControlFlow<Ended, bool>>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        let &Step { closed, committing, resending, nothing_pending, sends, input_held, .. } = step;
+        let taken = match branch {
+            0 if !nothing_pending || self.unflushed => {
+                let write = if nothing_pending {
+                    poll_once(writer.flush()).map(|flushed| flushed.map(|()| 0))
+                } else {
+                    poll_once(writer.write(&self.outbox[self.written..]))
+                };
+                match write.transpose()? {
+                    None => false,
+                    Some(0) if !nothing_pending => return Err(io::ErrorKind::WriteZero.into()),
+                    Some(0) => {
+                        self.unflushed = false;
+                        true
+                    }
+                    Some(n) => {
+                        self.written += n;
+                        self.unflushed = true;
+                        true
+                    }
+                }
+            }
+            1 if input_held.is_none() => match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
+                None => false,
+                Some(0) => return Ok(ControlFlow::Break(Ended::Lost)),
+                Some(read) => {
+                    self.on_read(read, closed, resending || committing);
+                    true
+                }
+            },
+            2 if !closed && !committing => {
+                poll_once(self.commands.next_with(sends)).flatten().map(|next| self.on_next(next)).is_some()
+            }
+            3 if resending && nothing_pending && !closed && !committing => {
+                self.session.on_resume(Instant::now().into_std());
+                true
+            }
+            4 if !closed && !committing => match shutdown.as_ref().and_then(Signal::started_now) {
+                None => false,
+                Some(text) => {
+                    *shutdown = None;
+                    self.session.on_shutdown(text.as_deref(), Instant::now().into_std());
+                    true
+                }
+            },
+            5 if committing => {
+                let store = self.store.as_mut().expect("guarded by committing");
+                poll_once(store.finished()).map(|done| self.on_store_done(done)).is_some()
+            }
+            6 if !closed && !committing && Instant::now() >= self.timer_at => {
+                self.on_timer();
+                true
+            }
+            _ => false,
+        };
+        Ok(ControlFlow::Continue(taken))
+    }
 }
 
 /// Runs the connection until the session closes and its output has gone, or the transport ends.
@@ -707,6 +892,65 @@ fn sends_this_time(
 fn input_held_until(session: &Session) -> Option<std::time::Instant> {
     let free_at = session.input_free_at()?;
     (free_at > Instant::now().into_std()).then_some(free_at)
+}
+
+/// A TCP socket for [`run_spinning`], read and written with a system call each time it's polled.
+/// A tokio `TcpStream`'s polls report only the readiness its runtime's reactor has seen, so a loop
+/// polling one learns of input no sooner than the reactor does; polling this one, it learns as soon
+/// as the kernel has it. It never registers a waker, so only a driver that polls without waiting
+/// can use it.
+#[derive(Debug)]
+pub struct SpinningStream {
+    socket: std::net::TcpStream,
+    /// Reads land here, then are copied into the caller's buffer: tokio hands the reader
+    /// uninitialized space, which safe code would otherwise zero on every poll.
+    scratch: Box<[u8]>,
+}
+
+impl SpinningStream {
+    /// Makes `socket` non-blocking, and sets TCP_NODELAY on it, as [`Acceptor`](crate::Acceptor)
+    /// and [`Initiator`](crate::Initiator) do.
+    ///
+    /// # Errors
+    ///
+    /// The operating system's, if either option can't be set.
+    pub fn new(socket: std::net::TcpStream) -> io::Result<Self> {
+        socket.set_nonblocking(true)?;
+        socket.set_nodelay(true)?;
+        Ok(Self { socket, scratch: vec![0; READ_BUFFER_SIZE].into_boxed_slice() })
+    }
+}
+
+/// `Pending` for a socket that would block, and for an interrupted call, which is tried again.
+fn would_block<T>(result: io::Result<T>) -> Poll<io::Result<T>> {
+    match result {
+        Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => Poll::Pending,
+        result => Poll::Ready(result),
+    }
+}
+
+impl AsyncRead for SpinningStream {
+    fn poll_read(self: Pin<&mut Self>, _: &mut TaskContext<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let len = buf.remaining().min(this.scratch.len());
+        let read = std::task::ready!(would_block(io::Read::read(&mut this.socket, &mut this.scratch[..len])))?;
+        buf.put_slice(&this.scratch[..read]);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncWrite for SpinningStream {
+    fn poll_write(self: Pin<&mut Self>, _: &mut TaskContext<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        would_block(io::Write::write(&mut self.get_mut().socket, buf))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(self.socket.shutdown(std::net::Shutdown::Write))
+    }
 }
 
 /// Polls `future` once, without waiting: its output if it's ready. Write and flush are
@@ -2057,5 +2301,154 @@ mod tests {
         let deadline = registry.next_cancel_deadline().expect("a countdown");
         assert!(deadline >= (started + grace).into_std(), "{:?}", deadline - started.into_std());
         assert!(deadline <= (Instant::now() + grace).into_std());
+    }
+
+    /// Runs an acceptor on its own thread with [`run_spinning_tracked`], over a loopback TCP
+    /// connection of [`SpinningStream`]s, and logs the peer on with `heartbeat` as HeartBtInt.
+    /// With `shutdown`, the connection follows it and counts as open, as an Acceptor's does.
+    /// Returns the peer's end (a tokio stream) and read buffer once the Logon reply has arrived,
+    /// and a handle.
+    async fn logged_on_spinning(
+        config: SessionConfig,
+        heartbeat: u64,
+        shutdown: Option<&Arc<crate::shutdown::Shutdown>>,
+    ) -> (tokio::net::TcpStream, Vec<u8>, crate::SessionHandle) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+        let ours = SpinningStream::new(listener.accept().unwrap().0).unwrap();
+        let registry = Arc::new(SessionRegistry::default());
+        let (session, commands) =
+            Session::acceptor(config, registry.clone(), Arc::new(Acker), Instant::now().into_std());
+        let runtime = Handle::current();
+        let open = shutdown.map(crate::shutdown::Shutdown::track);
+        let signal = shutdown.map(|shutdown| shutdown.signal());
+        std::thread::spawn(move || {
+            let _runtime = runtime.enter();
+            let _open = open;
+            run_spinning_tracked(ours, session, commands, &mut false, signal)
+        });
+
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
+        (peer, buf, registry.handle(peer_session()))
+    }
+
+    /// Spinning, orders are answered, a handle's send goes out, and a Logout ends the connection
+    /// once its reply has gone.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_spinning_session_answers_sends_and_logs_out() {
+        let (mut peer, mut buf, handle) = logged_on_spinning(SessionConfig::new("FIX.4.2", "US"), 30, None).await;
+        for (seq, id) in [(2, "A"), (3, "B")] {
+            peer.write_all(&from_peer(seq, order(id))).await.unwrap();
+        }
+        let acks = receive(&mut peer, &mut buf, 2).await;
+        assert_eq!(acks.iter().map(|m| m.get(tags::CL_ORD_ID)).collect::<Vec<_>>(), [Some("A"), Some("B")]);
+
+        let receipt = handle.send(order("C")).unwrap();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].get(tags::CL_ORD_ID), Some("C"));
+        assert_eq!(receipt.await, Ok(4));
+
+        peer.write_all(&from_peer(4, Message::new(MsgType::Logout))).await.unwrap();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logout);
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+    }
+
+    /// Spinning, the timer still runs the session: a silent counterparty is sent a Heartbeat, then
+    /// a TestRequest, then dropped.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_spinning_session_probes_a_silent_counterparty() {
+        let (mut peer, mut buf, _) = logged_on_spinning(SessionConfig::new("FIX.4.2", "US"), 1, None).await;
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Heartbeat);
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::TestRequest);
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+    }
+
+    /// Spinning, shutdown logs the session out, and if the counterparty never answers, closes the
+    /// connection once shutdown gives up, before the session's own logout timeout.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_spinning_session_follows_shutdown() {
+        let shutdown = Arc::new(crate::shutdown::Shutdown::new());
+        let mut config = SessionConfig::new("FIX.4.2", "US");
+        config.logout_timeout = Duration::from_secs(60);
+        let (mut peer, mut buf, _) = logged_on_spinning(config, 30, Some(&shutdown)).await;
+        let running = tokio::spawn({
+            let shutdown = shutdown.clone();
+            async move { shutdown.run(Some("bye"), Duration::from_millis(100)).await }
+        });
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logout);
+        tokio::time::timeout(Duration::from_secs(5), running).await.expect("shutdown closed the connection").unwrap();
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(1), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+    }
+
+    /// Spinning, output still waits for the store's commit, run on the runtime's blocking threads.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_spinning_session_waits_for_the_stores_commit() {
+        let storage = crate::store::deferring::DeferringStorage::default();
+        let (permits, gate) = std::sync::mpsc::channel::<()>();
+        let gate = Arc::new(std::sync::Mutex::new(gate));
+        *storage.job.lock().unwrap() =
+            Arc::new(move || gate.lock().unwrap().recv().map_err(|_| io::Error::other("the test ended")));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut peer = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
+        let ours = SpinningStream::new(listener.accept().unwrap().0).unwrap();
+        let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
+        let (session, commands) = Session::acceptor(
+            SessionConfig::new("FIX.4.2", "US"),
+            registry,
+            Arc::new(Acker),
+            Instant::now().into_std(),
+        );
+        let runtime = Handle::current();
+        std::thread::spawn(move || run_spinning(ours, session, commands, &runtime));
+
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        let read = tokio::time::timeout(Duration::from_millis(100), peer.read_buf(&mut buf)).await;
+        assert!(read.is_err(), "nothing is written before its commit");
+        permits.send(()).unwrap();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
+    }
+
+    /// Spinning over a small in-memory connection, the driver keeps reading while its output
+    /// waits, as the select does: both ends writing at once never deadlock.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn both_ends_writing_at_once_do_not_deadlock_when_spinning() {
+        const ORDERS: usize = 2_000;
+        let (ours, theirs) = duplex(4 * 1024);
+        let (acceptor, commands) = Session::acceptor(
+            SessionConfig::new("FIX.4.2", "GATEWAY"),
+            Arc::new(SessionRegistry::default()),
+            Arc::new(Acker),
+            Instant::now().into_std(),
+        );
+        let runtime = Handle::current();
+        std::thread::spawn(move || run_spinning(theirs, acceptor, commands, &runtime));
+        let app = Arc::new(Counter::default());
+        let config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "GATEWAY");
+        let (initiator, commands) =
+            Session::initiator(&config, Arc::new(SessionRegistry::default()), app.clone(), Instant::now().into_std());
+        tokio::spawn(run(ours, initiator, commands));
+        tokio::time::timeout(Duration::from_secs(5), app.logged_on.notified()).await.expect("logged on");
+
+        let handle = app.handle.lock().unwrap().clone().unwrap();
+        for i in 0..ORDERS {
+            handle.send(order(&format!("O{i}"))).unwrap();
+        }
+        let all_acked = async {
+            while app.reports.load(Ordering::SeqCst) < ORDERS {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        let acked = tokio::time::timeout(Duration::from_secs(10), all_acked).await;
+        assert!(acked.is_ok(), "deadlocked after {} of {ORDERS} acknowledgements", app.reports.load(Ordering::SeqCst));
     }
 }
