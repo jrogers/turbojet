@@ -26,6 +26,8 @@ struct TestApp {
     keep_logon: bool,
     /// `Context::maybe_redelivered` for each message `on_message` saw.
     redelivered: Mutex<Vec<bool>>,
+    /// The messages `on_admin_message` saw.
+    admin: Mutex<Vec<Message>>,
 }
 
 impl TestApp {
@@ -53,6 +55,13 @@ impl Application for TestApp {
         }
         if msg.msg_type() == MsgType::Logon && !self.keep_logon {
             msg.set(tags::USERNAME, "user");
+        }
+    }
+
+    fn on_admin_message(&self, _session: &SessionId, msg: &Message) {
+        self.admin.lock().unwrap().push(msg.clone());
+        if self.panic_in == Some("on_admin_message") {
+            panic!("on_admin_message panicked");
         }
     }
 
@@ -1850,6 +1859,15 @@ fn panic_in_on_logout_still_disconnects() {
     let out = s.recv(client(2, MsgType::Logout), h.t0);
     assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
     assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT CounterpartyLogout"]);
+}
+
+#[test]
+fn panic_in_on_admin_message_is_only_logged() {
+    let h = panicking("on_admin_message");
+    let mut s = h.logged_on();
+    let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "T"), h.t0);
+    assert_eq!(types(&out), ["Heartbeat"]);
+    assert!(s.is_logged_on());
 }
 
 #[test]
@@ -5034,4 +5052,59 @@ fn a_logon_waits_for_a_cancel_in_progress() {
         assert_eq!(reconnect.join().unwrap(), ["Logon"]);
     });
     assert_eq!(*app.events.lock().unwrap(), ["logon", "cancel", "logon"]);
+}
+
+// ---- Inbound admin messages shown to the application ----
+
+/// The MsgTypes of the messages `on_admin_message` saw.
+fn admin_types(app: &TestApp) -> Vec<MsgType> {
+    app.admin.lock().unwrap().iter().map(Message::msg_type).collect()
+}
+
+#[test]
+fn a_counterparty_reject_reaches_on_admin_message() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let reject = client(2, MsgType::Reject).with(tags::REF_SEQ_NUM, 2u64).with(tags::TEXT, "unknown symbol");
+    assert!(s.recv(reject, h.t0).is_empty());
+    let admin = h.app.admin.lock().unwrap();
+    assert_eq!(admin.len(), 1);
+    assert_eq!(admin[0].get(tags::REF_SEQ_NUM), Some("2"));
+    assert_eq!(admin[0].get(tags::TEXT), Some("unknown symbol"));
+}
+
+/// Each admin message is shown once, a ResendRequest that arrived ahead of a gap when it arrives
+/// (it's answered then) and not again when the gap is filled; a Logon is left to verify_logon.
+#[test]
+fn inbound_admin_messages_reach_on_admin_message_once_each() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.recv(client(2, MsgType::Heartbeat), h.t0);
+    s.recv(client(3, MsgType::TestRequest).with(tags::TEST_REQ_ID, "T"), h.t0);
+    s.recv(client(5, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, 1u64).with(tags::END_SEQ_NO, 0u64), h.t0);
+    s.recv(gap_fill(4, 5), h.t0);
+    s.recv(client(6, MsgType::SequenceReset).with(tags::NEW_SEQ_NO, 10u64), h.t0);
+    s.recv(client(10, MsgType::Logout).with(tags::TEXT, "end of day"), h.t0);
+    assert_eq!(
+        admin_types(&h.app),
+        [
+            MsgType::Heartbeat,
+            MsgType::TestRequest,
+            MsgType::ResendRequest,
+            MsgType::SequenceReset,
+            MsgType::SequenceReset,
+            MsgType::Logout
+        ]
+    );
+    assert_eq!(h.app.admin.lock().unwrap()[5].get(tags::TEXT), Some("end of day"));
+}
+
+#[test]
+fn an_admin_message_the_session_refuses_does_not_reach_on_admin_message() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    // MsgSeqNum too low, without PossDupFlag: the session logs out.
+    let out = s.recv(client(1, MsgType::Heartbeat), h.t0);
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert!(admin_types(&h.app).is_empty());
 }

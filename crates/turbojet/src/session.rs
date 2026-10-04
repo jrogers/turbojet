@@ -1924,17 +1924,23 @@ impl Session {
 
     fn dispatch(&mut self, msg: &Message, seq_num: u64, now: Instant, arrived: bool) {
         match msg.msg_type() {
-            MsgType::Heartbeat => {}
-            MsgType::TestRequest => match msg.parse::<TestRequest>() {
-                Ok(request) => self.send(Heartbeat { test_req_id: Some(request.test_req_id) }.into(), now),
-                Err(e) => self.reject_field(msg, e, now),
-            },
+            MsgType::Heartbeat => self.notify_admin(msg),
+            MsgType::TestRequest => {
+                self.notify_admin(msg);
+                match msg.parse::<TestRequest>() {
+                    Ok(request) => self.send(Heartbeat { test_req_id: Some(request.test_req_id) }.into(), now),
+                    Err(e) => self.reject_field(msg, e, now),
+                }
+            }
             MsgType::ResendRequest => self.on_resend_request(msg, now),
-            MsgType::Reject => warn!(
-                ref_seq_num = ?msg.get(tags::REF_SEQ_NUM),
-                text = ?msg.get(tags::TEXT),
-                "counterparty rejected a message"
-            ),
+            MsgType::Reject => {
+                warn!(
+                    ref_seq_num = ?msg.get(tags::REF_SEQ_NUM),
+                    text = ?msg.get(tags::TEXT),
+                    "counterparty rejected a message"
+                );
+                self.notify_admin(msg);
+            }
             MsgType::Logout => self.on_logout_message(msg, now),
             MsgType::Logon => self.reject(msg, None, None, "Session is already logged on", now),
             _ => self.deliver(msg, seq_num, now, arrived),
@@ -1999,6 +2005,7 @@ impl Session {
 
     /// The counterparty's Logout: a request to answer, or the reply to ours.
     fn on_logout_message(&mut self, msg: &Message, now: Instant) {
+        self.notify_admin(msg);
         // Only an established session gets here: a Logout answering an initiator's Logon is refused
         // as a Logon reply.
         let reason = if self.status == Status::Active {
@@ -2223,6 +2230,7 @@ impl Session {
     }
 
     fn on_sequence_reset(&mut self, msg: &Message, now: Instant) {
+        self.notify_admin(msg);
         let reset: SequenceReset = match msg.parse() {
             Ok(reset) => reset,
             Err(e) => return self.reject_field(msg, e, now),
@@ -2238,6 +2246,7 @@ impl Session {
     }
 
     fn on_gap_fill(&mut self, msg: &Message, seq_num: u64, now: Instant) {
+        self.notify_admin(msg);
         match msg.parse::<SequenceReset>() {
             Ok(fill) if fill.new_seq_no > seq_num => {
                 debug!(from = seq_num, to = fill.new_seq_no, "gap fill");
@@ -2261,6 +2270,7 @@ impl Session {
 
     /// Replays stored application messages with PossDupFlag=Y and gap-fills everything else.
     fn on_resend_request(&mut self, msg: &Message, now: Instant) {
+        self.notify_admin(msg);
         let ResendRequest { begin_seq_no: begin, end_seq_no: end } = match msg.parse() {
             Ok(request) => request,
             Err(e) => return self.reject_field(msg, e, now),
@@ -2502,6 +2512,12 @@ impl Session {
             self.discard_pending();
             self.notify_logout(reason, now);
         }
+    }
+
+    /// Shows the application an inbound admin message the session is about to act on.
+    fn notify_admin(&self, msg: &Message) {
+        debug_assert!(msg.msg_type().is_admin() && msg.msg_type() != MsgType::Logon);
+        guarded("on_admin_message", || self.app.on_admin_message(&self.peer().id, msg));
     }
 
     /// Tells the application a logged-on session has ended, at `now`, and starts its

@@ -17,8 +17,8 @@ use crate::store::SessionId;
 /// A panicking callback doesn't end the connection. A panic in `on_message` is answered with a
 /// BusinessMessageReject (ApplicationNotAvailable) and any replies it queued are dropped; in
 /// `verify_logon` it refuses the logon; in `to_admin` it disconnects rather than send a message it
-/// may have half-modified; in `on_logon`, `on_logout` or `on_cancel_on_disconnect` it is only
-/// logged. Each panic is logged and counted (`turbojet_application_panics_total`). With
+/// may have half-modified; in `on_admin_message`, `on_logon`, `on_logout` or `on_cancel_on_disconnect`
+/// it is only logged. Each panic is logged and counted (`turbojet_application_panics_total`). With
 /// `panic = "abort"` the process stops.
 pub trait Application: Send + Sync + 'static {
     /// Inspects an inbound Logon before it is accepted: the counterparty's request on an
@@ -48,6 +48,15 @@ pub trait Application: Send + Sync + 'static {
     /// leave DefaultApplVerID(1137) to the engine and configure it with
     /// [`SessionConfig::with_appl_ver_id`](crate::SessionConfig::with_appl_ver_id).
     fn to_admin(&self, _session: &SessionId, _msg: &mut Message) {}
+
+    /// An inbound session-level message other than a Logon (which goes to `verify_logon`): a
+    /// Heartbeat, TestRequest, ResendRequest, Reject, SequenceReset or Logout. Called once for
+    /// each that passes the session's checks on its header and sequence number, before the session
+    /// acts on it; one whose body then turns out to be invalid is rejected as usual. The session
+    /// handles every one of them itself; this is so the application can see, for instance, that
+    /// the counterparty rejected one of its messages (a Reject's RefSeqNum(45) and Text(58)), or
+    /// why it logged out.
+    fn on_admin_message(&self, _session: &SessionId, _msg: &Message) {}
 
     /// The session is logged on. Keep the handle to send messages outside of callbacks.
     fn on_logon(&self, _session: SessionHandle) {}
