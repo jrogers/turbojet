@@ -65,7 +65,8 @@
 //! [`Application::on_logon`], and [`Acceptor::session`] and [`Initiator::handle`] give one at any
 //! time. Other hooks check a counterparty's Logon ([`Application::verify_logon`], with its
 //! credentials and TLS certificate), add to outbound session messages
-//! ([`Application::to_admin`]), and report logout ([`Application::on_logout`]).
+//! ([`Application::to_admin`]), report how a session ended ([`Application::on_logout`]), and
+//! say when to cancel its orders ([`Application::on_cancel_on_disconnect`]).
 //!
 //! Delivery is at least once. A message counts as received once `on_message` returns and its
 //! replies are stored, so if the process stops before then, the counterparty resends the message

@@ -126,7 +126,7 @@ use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 struct MyApp;
 
 impl Application for MyApp {
-    // Optional hooks: verify_logon, to_admin, on_logon, on_logout.
+    // Optional hooks: verify_logon, to_admin, on_logon, on_logout, on_cancel_on_disconnect.
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
@@ -487,6 +487,41 @@ counterparty's next Logon, counterparties no longer listed are logged out, and a
 doesn't load leaves the one in use in place. The gateway takes one with `--config FILE` and
 reloads it on SIGHUP.
 
+## Cancel on disconnect
+
+`Application::on_logout` says how a logged-on session ended, as a `Disconnect`: a Logout from us
+or from the counterparty, the connection lost, a heartbeat timeout, an error, or our own shutdown
+(or the schedule's end). Most venues cancel a counterparty's resting orders when its session drops
+without a Logout, so a firm that loses its connection isn't left exposed. A session opts in with
+`SessionConfig::cancel_on_disconnect`, per counterparty through `Counterparties`:
+
+```rust
+config.cancel_on_disconnect = Some(CancelOnDisconnect {
+    trigger: CancelTrigger::Disconnect, // or DisconnectOrLogout: a Logout counts too
+    grace: Duration::from_secs(5),      // up to MAX_CANCEL_GRACE, an hour
+});
+
+impl Application for MyApp {
+    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
+        self.orders.cancel_all(session); // the application knows the orders
+    }
+    // ...
+}
+```
+
+When a session that logged on ends in a way the trigger counts and the counterparty doesn't log
+back on within the grace period, `on_cancel_on_disconnect` is called once; a logon within it
+stops the countdown, and a logon just after waits for the cancel, so it never follows that
+logon's `on_logon`. Our own shutdown and the schedule's end never count. Acceptors and initiators
+run the countdowns on a task, and fire those under way at once when they shut down; a process
+that stops without shutting down loses them, so after a restart, check the orders you kept.
+Custom drivers call `Session::on_disconnect` when the transport ends and run the countdowns with
+`SessionRegistry::next_cancel_deadline` and `run_due_cancels`. In a `turbojet-config` file:
+`cancel_on_disconnect = "disconnect"` (or `"logout"`, or `"off"`) and `cancel_grace = "5s"`.
+
+A venue that negotiates cancel on disconnect at logon, in Logon fields of its own, is asked in
+`Application::to_admin`.
+
 ## Initiator failover
 
 An initiator has a primary endpoint and any number of backups, tried in order:
@@ -688,8 +723,10 @@ metric is labelled with `session`:
 | `turbojet_inbound_message_seconds`, `turbojet_commit_seconds`, `turbojet_read_to_write_seconds` (opt-in) | histogram |
 
 plus an unlabelled `turbojet_garbled_messages_total`, `turbojet_connections_refused_total` by
-`reason` (`total` or `per_ip`), and `turbojet_application_panics_total` by
-`callback` (a panicking callback is caught; see the `Application` docs). Handles are created once
+`reason` (`total` or `per_ip`), `turbojet_application_panics_total` by
+`callback` (a panicking callback is caught; see the `Application` docs), and
+`turbojet_cancel_on_disconnect_total` by `trigger` with `turbojet_cancels_pending` (see Cancel on
+disconnect). Handles are created once
 per session, so recording is a counter increment: measured A/B, order → ack costs nothing extra
 with no recorder installed, and about 2% (≈25 ns) with a Prometheus recorder. The gateway serves
 them, along with `gateway_orders_total` and `gateway_cancels_total` by `result`, at

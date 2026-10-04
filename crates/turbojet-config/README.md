@@ -27,6 +27,8 @@ over_limit = "reject"
 [counterparty.FUND]
 require_client_certificate = true
 heartbeat = { min = "10s", max = "60s" }
+cancel_on_disconnect = "disconnect" # its orders cancelled if it drops and stays away
+cancel_grace = "5s"
 
 [initiator.LSE]                     # we log on to LSE, as VENUE
 target_comp_id = "LSE"
@@ -46,7 +48,8 @@ let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
 
 - Each counterparty's settings are its own keys over `[defaults]`: schedule and holidays, rate
   limits, SendingTime tolerance, validation against a dictionary, the HeartBtInt it may ask for,
-  whether it must present a TLS client certificate, and the store its sessions are kept in.
+  whether it must present a TLS client certificate, cancel on disconnect, and the store its
+  sessions are kept in.
 - Unknown keys are errors, and every value is checked when the file loads, so a typo can't be
   silently ignored and a file that loads has nothing left to fail at a counterparty's Logon.
   Errors name the section and key.

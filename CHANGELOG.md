@@ -2,6 +2,39 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- Cancel on disconnect: `SessionConfig::cancel_on_disconnect` takes a `CancelOnDisconnect`, a
+  `CancelTrigger` (`Disconnect`, endings without a Logout, or `DisconnectOrLogout`) and a grace
+  period of up to `MAX_CANCEL_GRACE` (an hour), set per counterparty through `Counterparties`.
+  When a session that logged on ends in a way the trigger counts and the counterparty doesn't
+  log back on within the grace period, the new `Application::on_cancel_on_disconnect` is called
+  once, and the application cancels the session's orders. Our own shutdown and the schedule's end
+  never count. A logon of the session waits for a cancel in progress, so the cancel never comes
+  after that logon's `on_logon`. Acceptors and initiators run the countdowns on a task per
+  registry, and fire their pending ones at once when they shut down; a process that stops
+  without shutting down loses them. Custom drivers run them with
+  `SessionRegistry::next_cancel_deadline`, `run_due_cancels` and `run_all_cancels`. With the
+  `metrics` feature, `turbojet_cancel_on_disconnect_total` (by `trigger`) counts the calls and
+  `turbojet_cancels_pending` the countdowns under way. The example gateway cancels a session's
+  open orders 5 seconds after it drops without a Logout. Breaking for a `SessionConfig` built as
+  a struct literal: it has the new field.
+- Breaking: `Application::on_logout` takes a `Disconnect` saying how the session ended: a Logout
+  from us (`Logout`) or the counterparty (`CounterpartyLogout`), `ConnectionLost`,
+  `HeartbeatTimeout`, `Error` or `Shutdown` (ours, or the schedule's end). `Disconnect` is
+  `#[non_exhaustive]`.
+- `Session::on_disconnect` tells a session driven directly that its transport ended, and when,
+  so a cancel-on-disconnect countdown starts from then.
+
+### `turbojet-config`
+
+- `cancel_on_disconnect` (`"off"`, the default, `"disconnect"` or `"logout"`, under which Logouts
+  from either side count too) and `cancel_grace` (`0s`, the default, up to `1h`), in
+  `[defaults]`, a counterparty's section or an initiator's. Stopping an initiator, removed or
+  restarted by a reload, fires its countdown at once.
+
 ## 0.2.0 (2026-10-04)
 
 Two new crates: `turbojet-config`, session configuration files, and `turbojet-sql`, session

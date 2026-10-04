@@ -33,6 +33,11 @@ later, with:
   which the gateway does on SIGINT and SIGTERM; initiators reconnect with a configurable backoff
   (by default 1 s to 60 s, jittered), and acceptors limit connections overall and per IP address,
   and give each counterparty its own settings, decided at Logon, and its own store;
+- cancel on disconnect, per counterparty: when a logged-on session ends without a Logout (or,
+  if chosen, with one either side sent) and the counterparty doesn't log back on within a grace
+  period, the application is told to cancel its orders, which the gateway does; `on_logout` says
+  how every session ended (a Logout from either side, the connection lost, a heartbeat timeout,
+  an error, or our own shutdown or schedule);
 - a malformed body field (no `=`, an invalid tag, non-UTF-8 data) answered with a Reject rather
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
 - a long resend sent in steps of 256 sequence numbers, each written before the next is read from
@@ -138,17 +143,8 @@ Nothing left: the crates.io and docs.rs pages are linked and render correctly.
 
 ## 2. Protocol completeness
 
-What the session layer covers is under *Where things stand*.
-
-- **Cancel on disconnect** (M). Most venues offer cancel on disconnect (COD): when a session
-  drops without logging out, its resting orders are cancelled, so a firm that loses its
-  connection isn't left exposed. Turbojet knows the difference, but only tells the application
-  `on_logout` either way. Support it in the engine: say whether a session ended with a Logout, a
-  dropped connection or a missed heartbeat; let a session opt in, per counterparty, with a grace
-  period during which a reconnect that logs back on cancels nothing; and, on the initiator side,
-  ask for it at logon where a venue negotiates it there (in venue-specific Logon fields). The
-  cancelling stays the application's, which knows the orders; the gateway's cancel-on-disconnect
-  (section 8) would use it.
+What the session layer covers is under *Where things stand*. A venue that negotiates cancel on
+disconnect at logon, in Logon fields of its own, is asked through `Application::to_admin`.
 
 ## 3. Dictionaries and code generation
 
@@ -389,6 +385,9 @@ Behaviour that's deliberate or documented, but worth revisiting.
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- Cancel-on-disconnect countdowns live in memory: a process that stops without shutting down
+  loses those under way, so after a restart the application checks the orders it kept. One that
+  shuts down fires them at once, as does replacing an initiator during a grace period.
 - A `SqlStorage` lease must outlast the longest heartbeat interval, since heartbeats are the
   commits that renew it while a session is idle, and gateways sharing a database need clocks in
   step to well within the lease. A log closed without a tokio runtime to give its lease up on
