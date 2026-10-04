@@ -163,6 +163,10 @@ impl ToFix for Secret {
 /// Parses a field value from its wire form.
 pub trait FromFix: Sized {
     /// Parses `s`, a value without its tag or delimiter.
+    ///
+    /// # Errors
+    ///
+    /// [`ValueError`] if `s` isn't in the type's format, or isn't one of its permitted values.
     fn from_fix(s: &str) -> Result<Self, ValueError>;
 }
 

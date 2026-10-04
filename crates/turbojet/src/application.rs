@@ -43,6 +43,10 @@ pub trait Application: Send + Sync + 'static {
     ///     }
     /// }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Return `Err` with the reason to refuse the logon; the connection is then dropped.
     fn verify_logon(
         &self,
         _session: &SessionHandle,
@@ -131,6 +135,12 @@ pub trait Application: Send + Sync + 'static {
     /// ```
     ///
     /// The default rejects every message as an unsupported type.
+    ///
+    /// # Errors
+    ///
+    /// Return `Err` to reject the message: a [`MessageReject::Session`] answers it with a
+    /// Reject(3), a [`MessageReject::Business`] with a BusinessMessageReject(j). Replies sent
+    /// through `ctx` before then are dropped.
     fn on_message(&self, _ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
         Err(MessageReject::unsupported_message_type())
     }

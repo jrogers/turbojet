@@ -10,6 +10,10 @@ impl Dictionary {
     /// A member of a component is corrected on the component, and so for every message that
     /// uses it: `make_optional("Instrument", "Symbol")`. Fails if there's no message or component
     /// `owner`, or it has no member `member` of its own.
+    ///
+    /// # Errors
+    ///
+    /// If there's no message or component `owner`, or it has no member `member` of its own.
     pub fn make_optional(&mut self, owner: &str, member: &str) -> Result<(), Error> {
         let members = match self.messages.iter_mut().find(|m| m.name == owner) {
             Some(message) => &mut message.members,

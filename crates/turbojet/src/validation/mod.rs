@@ -205,6 +205,11 @@ impl Validator {
 
     /// Checks `msg`, which has already passed the session's own checks (header, sequence, no
     /// empty values).
+    ///
+    /// # Errors
+    ///
+    /// The first problem found, as an [`Invalid`] naming the field and the SessionRejectReason(373)
+    /// to reject the message with.
     pub fn validate(&self, msg: &Message) -> Result<(), Invalid> {
         let msg_type = msg.get(tags::MSG_TYPE).unwrap_or_default();
         let Some(rules) = self.messages.get(msg_type) else {

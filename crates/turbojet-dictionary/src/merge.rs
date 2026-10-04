@@ -25,6 +25,11 @@ impl Dictionary {
     /// another message, or making a field that counts one of this dictionary's groups something
     /// other than NUMINGROUP or INT, or making a component include itself, is an error, and on
     /// error nothing is changed.
+    ///
+    /// # Errors
+    ///
+    /// If the XML doesn't parse or the venue's dictionary isn't valid, or for any of the conflicts
+    /// above; on error nothing is changed.
     pub fn merge_xml(&mut self, xml: &str) -> Result<(), Error> {
         let venue = load::parse(xml, Some(self))?;
         self.apply(venue);
@@ -32,6 +37,10 @@ impl Dictionary {
     }
 
     /// [`merge_xml`](Self::merge_xml) with a file.
+    ///
+    /// # Errors
+    ///
+    /// If the file can't be read, or as [`merge_xml`](Self::merge_xml), naming the file.
     pub fn merge_file(&mut self, path: impl AsRef<Path>) -> Result<(), Error> {
         let path = path.as_ref();
         let xml = load::read(path)?;
@@ -41,6 +50,10 @@ impl Dictionary {
     /// A FIX 5.0+ application dictionary with the header and trailer of its transport (FIXT.1.1),
     /// plus the transport's fields and components that this dictionary lacks. The transport must
     /// be a FIXT dictionary.
+    ///
+    /// # Errors
+    ///
+    /// If `transport` isn't a FIXT dictionary.
     pub fn with_transport(mut self, transport: &Dictionary) -> Result<Self, Error> {
         if transport.version.protocol != Protocol::Fixt {
             let message = format!("the transport must be a FIXT dictionary, not {}", transport.version);

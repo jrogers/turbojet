@@ -558,11 +558,23 @@ impl Message {
     }
 
     /// A required field, converted to its type.
+    ///
+    /// # Errors
+    ///
+    /// [`FieldErrorKind::Missing`] if the field is absent, or
+    /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) or
+    /// [`IncorrectValue`](FieldErrorKind::IncorrectValue) if its value doesn't convert.
     pub fn field<T: FromFix>(&self, tag: u32) -> Result<T, FieldError> {
         self.opt_field(tag)?.ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
     }
 
     /// An optional field, converted to its type if present.
+    ///
+    /// # Errors
+    ///
+    /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) or
+    /// [`IncorrectValue`](FieldErrorKind::IncorrectValue) if the field is present and its value
+    /// doesn't convert.
     pub fn opt_field<T: FromFix>(&self, tag: u32) -> Result<Option<T>, FieldError> {
         convert(tag, self.get(tag))
     }
@@ -574,6 +586,13 @@ impl Message {
 
     /// The entries of the repeating group introduced by NumInGroup field `count_tag`, as defined
     /// by `spec`. Empty if `count_tag` is absent. See [`Fields::group`].
+    ///
+    /// # Errors
+    ///
+    /// [`IncorrectNumInGroup`](FieldErrorKind::IncorrectNumInGroup) if the count differs from the
+    /// entries found, [`RepeatingGroupOutOfOrder`](FieldErrorKind::RepeatingGroupOutOfOrder) if an
+    /// entry doesn't start with the delimiter or repeats a member, or
+    /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) if the count isn't a number.
     pub fn group(&self, count_tag: u32, spec: &GroupSpec) -> Result<Vec<Fields<'_>>, FieldError> {
         self.body().group(count_tag, spec)
     }
@@ -585,6 +604,12 @@ impl Message {
 
     /// Parses the message as `T`, which must match its MsgType: a typed message, or its borrowed
     /// form (`NameRef`), whose strings borrow from the message.
+    ///
+    /// # Errors
+    ///
+    /// [`IncorrectValue`](FieldErrorKind::IncorrectValue) on MsgType(35) if the message isn't a
+    /// `T`; otherwise the first problem found in the body: a required field missing, a value that
+    /// doesn't convert, or a repeating group that doesn't match its count or order.
     pub fn parse<'a, T: FromMessage<'a>>(&'a self) -> Result<T, FieldError> {
         if self.msg_type() != T::PARSED_MSG_TYPE {
             return Err(FieldError {
@@ -600,6 +625,11 @@ impl Message {
     /// if the message is otherwise valid. Header fields are never the body's. Use it where a
     /// counterparty's extra fields should be refused; the `validation` feature checks messages
     /// against a whole dictionary instead.
+    ///
+    /// # Errors
+    ///
+    /// As [`parse`](Self::parse), and [`NotDefined`](FieldErrorKind::NotDefined) for the first body
+    /// tag `T` doesn't define.
     pub fn parse_strict<'a, T: FromMessage<'a>>(&'a self) -> Result<T, FieldError> {
         if self.msg_type() != T::PARSED_MSG_TYPE {
             return Err(FieldError {
@@ -1094,11 +1124,23 @@ impl<'a> Fields<'a> {
     }
 
     /// A required field, converted to its type.
+    ///
+    /// # Errors
+    ///
+    /// [`FieldErrorKind::Missing`] if the field is absent, or
+    /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) or
+    /// [`IncorrectValue`](FieldErrorKind::IncorrectValue) if its value doesn't convert.
     pub fn field<T: FromFix>(&self, tag: u32) -> Result<T, FieldError> {
         self.opt_field(tag)?.ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
     }
 
     /// An optional field, converted to its type if present.
+    ///
+    /// # Errors
+    ///
+    /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) or
+    /// [`IncorrectValue`](FieldErrorKind::IncorrectValue) if the field is present and its value
+    /// doesn't convert.
     pub fn opt_field<T: FromFix>(&self, tag: u32) -> Result<Option<T>, FieldError> {
         convert(tag, self.get(tag))
     }
@@ -1118,6 +1160,13 @@ impl<'a> Fields<'a> {
     /// Each entry starts with the spec's delimiter and runs until the next delimiter or a tag that
     /// isn't a member. Fails if the number of entries differs from the count, if an entry
     /// doesn't start with the delimiter or repeats a member, or if the count isn't a number.
+    ///
+    /// # Errors
+    ///
+    /// [`IncorrectNumInGroup`](FieldErrorKind::IncorrectNumInGroup) if the count differs from the
+    /// entries found, [`RepeatingGroupOutOfOrder`](FieldErrorKind::RepeatingGroupOutOfOrder) if an
+    /// entry doesn't start with the delimiter or repeats a member, or
+    /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) if the count isn't a number.
     pub fn group(&mut self, count_tag: u32, spec: &GroupSpec) -> Result<Vec<Fields<'a>>, FieldError> {
         let Some(position) = self.position(count_tag) else {
             return Ok(Vec::new());
@@ -1425,12 +1474,21 @@ pub trait FixGroup: Sized {
     type Ref<'a>: FixGroupRef<'a, Owned = Self>;
 
     /// Reads one entry from its fields.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found in the entry: a required field missing, or a value that doesn't
+    /// convert.
     fn from_fields(entry: Fields<'_>) -> Result<Self, FieldError>;
 
     /// Appends this entry's fields, delimiter first.
     fn write(&self, msg: &mut Message);
 
     /// Reads every entry of this group, introduced by `count_tag`, out of `fields`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Fields::group`], and the first problem found in an entry.
     fn read(fields: &mut Fields<'_>, count_tag: u32) -> Result<Vec<Self>, FieldError> {
         fields.group(count_tag, &Self::SPEC)?.into_iter().map(Self::from_fields).collect()
     }
@@ -1446,6 +1504,11 @@ pub trait FixGroupRef<'a>: Copy + Sized {
     ///
     /// Must be a deterministic, pure function of the entry: a [`Group`] parses each entry once
     /// when it's checked and again as it's iterated, and expects the same result.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found in the entry: a required field missing, or a value that doesn't
+    /// convert.
     fn from_fields(entry: Fields<'a>) -> Result<Self, FieldError>;
 
     /// The owned entry.
@@ -1635,10 +1698,20 @@ pub trait FixMessage: Sized + Into<Message> {
 
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
     /// ignored.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found in the body: a required field missing, a value that doesn't convert,
+    /// or a repeating group that doesn't match its count or order.
     fn from_message(msg: &Message) -> Result<Self, FieldError>;
 
     /// [`from_message`](Self::from_message), failing with [`FieldErrorKind::NotDefined`] on the
     /// first body tag the message doesn't define, if it's otherwise valid.
+    ///
+    /// # Errors
+    ///
+    /// As [`from_message`](Self::from_message), and [`NotDefined`](FieldErrorKind::NotDefined) for
+    /// the first body tag the message doesn't define.
     fn from_message_strict(msg: &Message) -> Result<Self, FieldError>;
 
     /// The message body, starting with MsgType(35). The session adds the standard header.
@@ -1666,10 +1739,20 @@ pub trait FixMessageRef<'a>: Copy + Sized {
 
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
     /// ignored.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found in the body: a required field missing, a value that doesn't convert,
+    /// or a repeating group that doesn't match its count or order.
     fn from_message(msg: &'a Message) -> Result<Self, FieldError>;
 
     /// [`from_message`](Self::from_message), failing with [`FieldErrorKind::NotDefined`] on the
     /// first body tag the message doesn't define, if it's otherwise valid.
+    ///
+    /// # Errors
+    ///
+    /// As [`from_message`](Self::from_message), and [`NotDefined`](FieldErrorKind::NotDefined) for
+    /// the first body tag the message doesn't define.
     fn from_message_strict(msg: &'a Message) -> Result<Self, FieldError>;
 
     /// The owned message.
@@ -1689,10 +1772,20 @@ pub trait FromMessage<'a>: Sized {
 
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
     /// ignored. Doesn't check the MsgType.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found in the body: a required field missing, a value that doesn't convert,
+    /// or a repeating group that doesn't match its count or order.
     fn parse_from(msg: &'a Message) -> Result<Self, FieldError>;
 
     /// [`parse_from`](Self::parse_from), failing with [`FieldErrorKind::NotDefined`] on the
     /// first body tag the message doesn't define, if it's otherwise valid.
+    ///
+    /// # Errors
+    ///
+    /// As [`parse_from`](Self::parse_from), and [`NotDefined`](FieldErrorKind::NotDefined) for the
+    /// first body tag the message doesn't define.
     fn parse_strict_from(msg: &'a Message) -> Result<Self, FieldError>;
 }
 

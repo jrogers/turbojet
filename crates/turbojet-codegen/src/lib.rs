@@ -161,6 +161,11 @@ impl<'a> Generator<'a> {
     /// The code as separate modules, as [`write_modules`](Self::write_modules) writes them.
     /// Fails if the dictionary can't be generated as Rust: a group that doesn't start with a
     /// field, names that clash, or an official name that can't be an identifier.
+    ///
+    /// # Errors
+    ///
+    /// If the dictionary can't be generated as Rust: a group that doesn't start with a field, names
+    /// that clash, or an official name that can't be an identifier.
     pub fn modules(&self) -> Result<Modules, Error> {
         let options =
             plan::Options { skip: &self.skip, docs: self.docs, lenient_all: self.lenient_all, lenient: &self.lenient };
@@ -176,6 +181,10 @@ impl<'a> Generator<'a> {
 
     /// Everything in one file, for `include!`. The re-exports allow `unused_imports`, so the code
     /// can be included into a private module (in a binary, say) without warnings for them.
+    ///
+    /// # Errors
+    ///
+    /// As [`modules`](Self::modules).
     pub fn render(&self) -> Result<String, Error> {
         let m = self.modules()?;
         Ok(format!(
@@ -188,6 +197,10 @@ impl<'a> Generator<'a> {
 
     /// Writes `mod.rs`, `tags.rs`, `enums.rs`, `groups.rs` and `messages.rs` into `dir`, and
     /// returns their paths.
+    ///
+    /// # Errors
+    ///
+    /// As [`modules`](Self::modules), or if a file can't be written, naming it.
     pub fn write_modules(&self, dir: &Path) -> Result<Vec<PathBuf>, Error> {
         let m = self.modules()?;
         std::fs::create_dir_all(dir).map_err(io_error(dir))?;

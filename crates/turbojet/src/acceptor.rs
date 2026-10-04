@@ -128,6 +128,11 @@ impl Acceptor {
     /// [shutdown](Acceptor::shutdown) starts or the future is dropped; then returns `Ok`, closing
     /// the listener. Accept errors are logged and retried (after a short pause, unless they
     /// concern a single connection), so it doesn't return otherwise.
+    ///
+    /// # Errors
+    ///
+    /// None in practice: accept errors are logged and retried, and a connection's own errors end
+    /// only that connection.
     pub async fn serve(self, listener: TcpListener) -> io::Result<()> {
         self.serve_listener(listener).await
     }
@@ -142,6 +147,10 @@ impl Acceptor {
 
     /// Like [`serve`](Acceptor::serve), for TLS connections. Each handshake runs on the
     /// connection's own task and must complete within the logon timeout.
+    ///
+    /// # Errors
+    ///
+    /// As [`serve`](Acceptor::serve); a failed or slow handshake ends only its connection.
     #[cfg(feature = "tls")]
     pub async fn serve_tls(self, listener: TcpListener, tls: crate::tls::TlsAcceptor) -> io::Result<()> {
         self.serve_with(listener, move |acceptor, stream| {
@@ -226,6 +235,10 @@ impl Acceptor {
     /// Runs one acceptor session over an already-established stream (e.g. from a custom
     /// transport), described by `info` for [`Application::verify_logon`]. After
     /// [shutdown](Acceptor::shutdown) has started, disconnects without waiting for a Logon.
+    ///
+    /// # Errors
+    ///
+    /// The transport's error, if reading or writing failed, or the counterparty stopped reading.
     pub async fn accept_stream<S>(&self, stream: S, info: ConnectionInfo) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,

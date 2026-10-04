@@ -45,6 +45,11 @@ impl Error {
 impl Dictionary {
     /// Parses and validates a dictionary in either format, told apart by the root element:
     /// `<fix>` for QuickFIX, `<fixr:repository>` for FIX Orchestra.
+    ///
+    /// # Errors
+    ///
+    /// If the root element is neither format's, or as [`from_quickfix`](Self::from_quickfix) and
+    /// [`from_orchestra`](Self::from_orchestra).
     pub fn from_xml(xml: &str) -> Result<Self, Error> {
         let doc = document(xml)?;
         let root = doc.root_element();
@@ -58,18 +63,32 @@ impl Dictionary {
     }
 
     /// Parses and validates a QuickFIX-format dictionary.
+    ///
+    /// # Errors
+    ///
+    /// The XML doesn't parse, or the dictionary isn't valid: a member that isn't defined, a
+    /// component that includes itself, and the like; the error says where.
     pub fn from_quickfix(xml: &str) -> Result<Self, Error> {
         parse(xml, None)
     }
 
     /// Parses and validates a FIX Orchestra repository, such as the FIX Trading Community's
     /// `OrchestraFIX44.xml`.
+    ///
+    /// # Errors
+    ///
+    /// The XML doesn't parse, or the dictionary isn't valid: a member that isn't defined, a
+    /// component that includes itself, and the like; the error says where.
     pub fn from_orchestra(xml: &str) -> Result<Self, Error> {
         orchestra::parse(&document(xml)?)
     }
 
     /// Reads, parses and validates a dictionary file in either format, like
     /// [`from_xml`](Self::from_xml).
+    ///
+    /// # Errors
+    ///
+    /// If the file can't be read, or as [`from_xml`](Self::from_xml), naming the file.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let xml = read(path)?;

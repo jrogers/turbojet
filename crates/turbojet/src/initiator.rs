@@ -292,6 +292,11 @@ impl Initiator {
 
     /// Connects over TLS, verifying each server's certificate against `server_name` (a DNS name
     /// or IP address) unless the endpoint sets its own.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidInput`](io::ErrorKind::InvalidInput) if `server_name` isn't a DNS name or IP
+    /// address.
     #[cfg(feature = "tls")]
     pub fn with_tls(mut self, connector: crate::tls::TlsConnector, server_name: &str) -> io::Result<Self> {
         tls_server_name(server_name)?;
@@ -370,6 +375,11 @@ impl Initiator {
     ///
     /// Outside the session schedule, or after [shutdown](Initiator::shutdown) has started, fails
     /// immediately without connecting.
+    ///
+    /// # Errors
+    ///
+    /// The last endpoint's failure if none established a session; outside the schedule or once
+    /// shutdown has started, an error saying so; or the transport's error that ended the session.
     pub async fn connect_once(&self) -> io::Result<()> {
         self.connect().await.1
     }
@@ -405,6 +415,10 @@ impl Initiator {
     /// Runs the session over an already-established stream (e.g. one from a custom transport),
     /// described by `info` for [`Application::verify_logon`]. After
     /// [shutdown](Initiator::shutdown) has started, disconnects without logging on.
+    ///
+    /// # Errors
+    ///
+    /// The transport's error, if reading or writing failed, or the counterparty stopped reading.
     pub async fn run_stream<S>(&self, stream: S, info: ConnectionInfo) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,

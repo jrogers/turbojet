@@ -21,6 +21,10 @@ pub trait FieldRef<'a>: Sized {
     ///
     /// Must be a deterministic, pure function of `s`: a [`List`] parses each value once when it's
     /// checked and again as it's iterated, and expects the same result.
+    ///
+    /// # Errors
+    ///
+    /// As [`FromFix::from_fix`](super::FromFix::from_fix).
     fn parse_ref(s: &'a str) -> Result<Self::Ref, ValueError>;
 
     /// The owned value.

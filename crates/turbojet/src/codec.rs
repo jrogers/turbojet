@@ -163,6 +163,11 @@ fn frame_within(buf: &[u8], max_body_len: usize) -> Result<usize, Decoded> {
 /// Encodes a message, computing BodyLength(9) and CheckSum(10). BeginString(8) is taken from the
 /// message, and a message without one is refused as missing it; any BodyLength or CheckSum fields
 /// already present are ignored.
+///
+/// # Errors
+///
+/// [`FieldErrorKind::Missing`] on BeginString(8) if the
+/// message has none.
 pub fn encode(msg: &Message) -> Result<Vec<u8>, FieldError> {
     let mut out = Vec::new();
     encode_into(msg, &mut out)?;
@@ -171,6 +176,10 @@ pub fn encode(msg: &Message) -> Result<Vec<u8>, FieldError> {
 
 /// [`encode`], appending to `out` so a buffer can be reused across messages. On error, `out` is
 /// unchanged.
+///
+/// # Errors
+///
+/// As [`encode`].
 pub fn encode_into(msg: &Message, out: &mut Vec<u8>) -> Result<(), FieldError> {
     let begin_string =
         msg.get(tags::BEGIN_STRING).ok_or(FieldError { tag: tags::BEGIN_STRING, kind: FieldErrorKind::Missing })?;

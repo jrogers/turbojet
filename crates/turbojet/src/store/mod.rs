@@ -60,6 +60,11 @@ pub trait SessionStorage: Send + Sync {
     /// Opens the log for `id`, creating it with both sequence numbers at 1 if it does not exist.
     /// The gateway holds at most one open log per session. The default fails, for stores that
     /// open only with [`begin_open`](SessionStorage::begin_open).
+    ///
+    /// # Errors
+    ///
+    /// Any failure opening the log, and by default [`Unsupported`](io::ErrorKind::Unsupported); the
+    /// logon is refused.
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Err(io::Error::new(io::ErrorKind::Unsupported, format!("{id}: this store opens only with begin_open")))
     }
@@ -67,6 +72,10 @@ pub trait SessionStorage: Send + Sync {
     /// Opens the log for `id` as [`open`](SessionStorage::open) does: at once, or by a [`Job`]
     /// the session's driver runs off the async runtime while the logon waits. The session calls
     /// this when it learns its ID, at logon. The default opens at once with `open`.
+    ///
+    /// # Errors
+    ///
+    /// As [`open`](SessionStorage::open).
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
         self.open(id).map(Opened::Ready)
     }
@@ -104,16 +113,30 @@ pub trait SessionLog: Send {
 
     /// Records the next incoming sequence number, which also clears
     /// [`in_flight`](SessionLog::in_flight).
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()>;
 
     /// Records that outgoing `seq` has been used, storing `msg`, the message as sent (encoded,
     /// header and trailer included), for resends when given. On a FIXT session supporting more
     /// than one application version, a message in the default version is stored with its
     /// ApplVerID(1128) stated, so its bytes differ from those sent by that field.
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()>;
 
     /// Stored messages with sequence numbers in `begin..=end`, in ascending order, as they were
     /// given to `record_outgoing`.
+    ///
+    /// # Errors
+    ///
+    /// Any failure reading the store: the session disconnects rather than resend part of the range.
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<SentMessages>;
 
     /// Stored messages with sequence numbers in `begin..=end`, as
@@ -125,6 +148,10 @@ pub trait SessionLog: Send {
     ///
     /// A store that waits for a network to read should return a job here. Its reads must see
     /// every mutation made, committed or not, as `sent_messages` does.
+    ///
+    /// # Errors
+    ///
+    /// As [`sent_messages`](SessionLog::sent_messages).
     fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {
         self.sent_messages(begin, end).map(Fetched::Ready)
     }
@@ -137,6 +164,11 @@ pub trait SessionLog: Send {
     ///
     /// A store that waits for a device (`fsync`) or a network should buffer its mutations and
     /// return a `Commit` here, so that a batch of messages costs one wait rather than one each.
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
     fn commit(&mut self) -> io::Result<Option<Commit>> {
         Ok(None)
     }
@@ -144,6 +176,11 @@ pub trait SessionLog: Send {
     /// Resets both sequence numbers to 1, discards stored messages, and clears
     /// [`created_at`](SessionLog::created_at), [`in_flight`](SessionLog::in_flight) and
     /// [`evicted_through`](SessionLog::evicted_through).
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
     fn reset(&mut self) -> io::Result<()>;
 
     /// The highest sequence number whose message the store has discarded to stay within a limit,
@@ -167,6 +204,11 @@ pub trait SessionLog: Send {
 
     /// Records that incoming messages from `seq` on are about to be handed to the application.
     /// The default does nothing.
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
     fn set_in_flight(&mut self, _seq: u64) -> io::Result<()> {
         Ok(())
     }
@@ -179,6 +221,11 @@ pub trait SessionLog: Send {
     }
 
     /// Records when the stored state was created. The default does nothing.
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
     fn set_created_at(&mut self, _at: UtcTimestamp) -> io::Result<()> {
         Ok(())
     }
@@ -225,6 +272,11 @@ impl<T: Send + 'static> Job<T> {
     /// Runs the job on this thread, returning once it's done or has failed: for drivers that may
     /// block (tests, tools). A future job needs a multi-threaded tokio runtime current on this
     /// thread, whose worker it blocks meanwhile; without one it fails.
+    ///
+    /// # Errors
+    ///
+    /// The job's own error, or, for a future job, an error if no multi-threaded tokio runtime is
+    /// current. A panic in the job isn't caught.
     pub fn run(self) -> io::Result<T> {
         match self.0 {
             Work::Blocking(job) => job(),
@@ -241,6 +293,10 @@ impl<T: Send + 'static> Job<T> {
 
     /// Runs the job without blocking the runtime: a blocking job on a blocking thread, a future
     /// as a task of its own.
+    ///
+    /// # Errors
+    ///
+    /// The job's own error, or a panic in it as an error.
     pub async fn run_async(self) -> io::Result<T> {
         self.spawn().await.unwrap_or_else(|e| Err(io::Error::other(format!("the store's job failed: {e}"))))
     }

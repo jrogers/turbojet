@@ -84,6 +84,10 @@ impl DiskStorage {
     ///
     /// With `sync`, every write is followed by `fsync`, so state survives power loss at the cost
     /// of latency. Without it, writes survive a process crash but not an OS crash.
+    ///
+    /// # Errors
+    ///
+    /// Any failure creating `dir`.
     pub fn new(dir: impl Into<PathBuf>, sync: bool) -> io::Result<Self> {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;

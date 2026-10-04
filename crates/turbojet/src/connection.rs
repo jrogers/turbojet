@@ -68,6 +68,11 @@ const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 /// Works with any transport (plain TCP, TLS, in-memory duplex), so custom transports can reuse
 /// the engine without going through [`Acceptor`](crate::Acceptor) or
 /// [`Initiator`](crate::Initiator).
+///
+/// # Errors
+///
+/// The transport's error, if reading or writing failed, or [`TimedOut`](io::ErrorKind::TimedOut) if
+/// the counterparty stopped reading.
 pub async fn run<S>(stream: S, session: Session, commands: CommandReceiver) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,

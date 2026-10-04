@@ -4,6 +4,7 @@
 //! from the seed, and a checker looks for broken invariants after every event, so any failure
 //! replays from its seed. See the crate README.
 #![allow(missing_debug_implementations, reason = "a test harness, not published")]
+#![allow(clippy::missing_errors_doc, reason = "a test harness, not published")]
 
 pub mod app;
 pub mod check;

@@ -40,6 +40,10 @@ fn message(seq: u64) -> Message {
 }
 
 /// Opens `id`'s log, running the store's job if it returns one.
+///
+/// # Errors
+///
+/// The store's error opening the log.
 pub async fn open(storage: &dyn SessionStorage, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
     match storage.begin_open(id)? {
         Opened::Ready(log) => Ok(log),
@@ -48,6 +52,10 @@ pub async fn open(storage: &dyn SessionStorage, id: &SessionId) -> io::Result<Bo
 }
 
 /// Commits `log`'s mutations, running the store's job if it returns one.
+///
+/// # Errors
+///
+/// The store's error committing.
 pub async fn commit(log: &mut dyn SessionLog) -> io::Result<()> {
     match log.commit()? {
         None => Ok(()),
@@ -56,6 +64,10 @@ pub async fn commit(log: &mut dyn SessionLog) -> io::Result<()> {
 }
 
 /// Reads `log`'s stored messages `begin..=end`, running the store's job if it returns one.
+///
+/// # Errors
+///
+/// The store's error reading.
 pub async fn fetch(log: &mut dyn SessionLog, begin: u64, end: u64) -> io::Result<SentMessages> {
     match log.fetch(begin, end)? {
         Fetched::Ready(read) => Ok(read),

@@ -1,6 +1,7 @@
 //! Runs QuickFIX's scripted session acceptance scenarios against a Turbojet acceptor, without
 //! sockets and on a virtual clock. See the crate README for the script format and how results are
 //! compared.
+#![allow(clippy::missing_errors_doc, reason = "a test harness, not published")]
 
 use std::collections::{HashSet, VecDeque};
 use std::fmt;

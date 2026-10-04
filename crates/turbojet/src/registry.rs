@@ -725,6 +725,11 @@ impl SessionHandle {
     /// Queued, the message comes with a [`Receipt`]: it resolves to the MsgSeqNum once the
     /// session has stored the message, or to why it was dropped, such as the connection ending
     /// first. Ignore it for fire-and-forget.
+    ///
+    /// # Errors
+    ///
+    /// [`SendError::NotConnected`] if no connection has the session, or [`SendError::Full`] if its
+    /// send queue is full; either way the message comes back in it.
     pub fn send(&self, msg: impl Into<Message>) -> Result<Receipt, SendError> {
         let msg = msg.into();
         let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
@@ -741,6 +746,11 @@ impl SessionHandle {
 
     /// Queues an application message as [`send`](Self::send) does, waiting for room in the queue
     /// if it's full. Fails only if the session isn't connected, or the connection ends meanwhile.
+    ///
+    /// # Errors
+    ///
+    /// [`SendError::NotConnected`] if no connection has the session, or it ends while waiting; the
+    /// message comes back in it.
     pub async fn send_when_ready(&self, msg: impl Into<Message>) -> Result<Receipt, SendError> {
         let msg = msg.into();
         let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
@@ -757,6 +767,11 @@ impl SessionHandle {
     /// Starts an orderly logout, once the messages already queued through
     /// [`send`](Self::send) have gone. It has a queue of its own, so a full send queue doesn't
     /// hold it up.
+    ///
+    /// # Errors
+    ///
+    /// [`CommandError::NotConnected`] if no connection has the session, or [`CommandError::Full`]
+    /// if its control queue is full.
     pub fn logout(&self, text: Option<&str>) -> Result<(), CommandError> {
         let sender = self.registry.sender(&self.id).ok_or(CommandError::NotConnected)?;
         let after = sender.queued.load(Ordering::Acquire);
@@ -774,12 +789,20 @@ impl SessionHandle {
     // disconnected one has its stored state changed directly.
 
     /// The session's next incoming and outgoing sequence numbers.
+    ///
+    /// # Errors
+    ///
+    /// [`SequenceError::Storage`] if the store fails.
     pub async fn sequence_numbers(&self) -> Result<SequenceNumbers, SequenceError> {
         self.sequence(SequenceCommand::Get).await
     }
 
     /// Sets the next MsgSeqNum expected from the counterparty. It can go down as well as up:
     /// lowering it means messages already processed may be accepted again.
+    ///
+    /// # Errors
+    ///
+    /// [`SequenceError::Invalid`] for 0, or [`SequenceError::Storage`] if the store fails.
     pub async fn set_next_incoming(&self, seq: u64) -> Result<SequenceNumbers, SequenceError> {
         self.sequence(SequenceCommand::SetNextIncoming(seq)).await
     }
@@ -789,6 +812,11 @@ impl SessionHandle {
     /// the counterparty is told to expect `seq` next with a SequenceReset in gap-fill mode, which a
     /// counterparty still filling a gap applies only once it's filled, so nothing sent before is
     /// lost; otherwise it finds out from the next message, and asks for the skipped numbers.
+    ///
+    /// # Errors
+    ///
+    /// [`SequenceError::Invalid`] for 0 or a number below the next one, or
+    /// [`SequenceError::Storage`] if the store fails.
     pub async fn set_next_outgoing(&self, seq: u64) -> Result<SequenceNumbers, SequenceError> {
         self.sequence(SequenceCommand::SetNextOutgoing(seq)).await
     }
@@ -796,6 +824,11 @@ impl SessionHandle {
     /// Resets both sequence numbers to 1 and clears the resend store. Only while the session is
     /// disconnected ([`SequenceError::Connected`] otherwise); for a reset with the counterparty,
     /// log on with ResetSeqNumFlag instead.
+    ///
+    /// # Errors
+    ///
+    /// [`SequenceError::Connected`] if a connection has the session, or [`SequenceError::Storage`]
+    /// if the store fails.
     pub async fn reset_sequence_numbers(&self) -> Result<SequenceNumbers, SequenceError> {
         self.sequence(SequenceCommand::Reset).await
     }

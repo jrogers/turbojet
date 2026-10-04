@@ -49,6 +49,13 @@ pub enum ClientAuth<'a> {
 /// Server side: present `cert_chain` (leaf first) with its private `key`, authenticating
 /// clients according to `client_auth`. For certificates that can be replaced while running, use
 /// [`ServerTls`].
+///
+/// # Errors
+///
+/// The file's error if one can't be read; [`InvalidData`](io::ErrorKind::InvalidData), naming the
+/// file, if it holds no certificate or key, or one that doesn't parse, or if the key isn't the
+/// certificate's. [`InvalidInput`](io::ErrorKind::InvalidInput) if the client CAs can't verify
+/// clients.
 pub fn acceptor(cert_chain: &Path, key: &Path, client_auth: ClientAuth<'_>) -> io::Result<TlsAcceptor> {
     let client_trust = match client_auth {
         ClientAuth::None => ClientTrust::None,
@@ -61,6 +68,12 @@ pub fn acceptor(cert_chain: &Path, key: &Path, client_auth: ClientAuth<'_>) -> i
 /// Client side: trust servers whose certificates chain to a CA in `ca`. With `identity`
 /// (certificate chain, private key), present a client certificate for mutual TLS. For
 /// certificates that can be replaced while running, use [`ClientTls`].
+///
+/// # Errors
+///
+/// The file's error if one can't be read; [`InvalidData`](io::ErrorKind::InvalidData), naming the
+/// file, if it holds no certificate or key, or one that doesn't parse, or if the key isn't the
+/// certificate's.
 pub fn connector(ca: &Path, identity: Option<(&Path, &Path)>) -> io::Result<TlsConnector> {
     let identity = identity.map(|(cert_chain, key)| Identity::from_pem_files(cert_chain, key)).transpose()?;
     Ok(ClientTls::new(Trust::from_pem_files(ca)?, identity)?.connector())
@@ -74,6 +87,11 @@ pub struct Identity(Arc<CertifiedKey>);
 
 impl Identity {
     /// From DER: `chain` leaf first, and its private `key`.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if `chain` is empty, or `key` isn't a key for
+    /// its leaf certificate.
     pub fn from_der(chain: Vec<CertificateDer<'static>>, key: PrivateKeyDer<'static>) -> io::Result<Self> {
         if chain.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "no certificates"));
@@ -83,12 +101,22 @@ impl Identity {
     }
 
     /// From PEM text in memory: the certificate chain (leaf first), and the private key.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if the PEM doesn't parse, or as
+    /// [`from_der`](Self::from_der).
     pub fn from_pem(chain: &[u8], key: &[u8]) -> io::Result<Self> {
         let chain = CertificateDer::pem_slice_iter(chain).collect::<Result<Vec<_>, _>>().map_err(invalid_data)?;
         Self::from_der(chain, PrivateKeyDer::from_pem_slice(key).map_err(invalid_data)?)
     }
 
     /// From PEM files: the certificate chain (leaf first), and the private key.
+    ///
+    /// # Errors
+    ///
+    /// Either file's error if it can't be read, or as [`from_pem`](Self::from_pem), naming the
+    /// file.
     pub fn from_pem_files(chain: &Path, key: &Path) -> io::Result<Self> {
         Self::from_der(certificates(chain)?, private_key(key)?).map_err(|e| in_file(chain, e))
     }
@@ -107,6 +135,11 @@ pub struct Trust(Arc<RootCertStore>);
 
 impl Trust {
     /// From DER CA certificates.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if there are none, or one isn't a usable CA
+    /// certificate.
     pub fn from_der(cas: impl IntoIterator<Item = CertificateDer<'static>>) -> io::Result<Self> {
         let mut roots = RootCertStore::empty();
         for ca in cas {
@@ -119,11 +152,20 @@ impl Trust {
     }
 
     /// From PEM text in memory holding one or more CA certificates.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if the PEM doesn't parse, or as
+    /// [`from_der`](Self::from_der).
     pub fn from_pem(cas: &[u8]) -> io::Result<Self> {
         Self::from_der(CertificateDer::pem_slice_iter(cas).collect::<Result<Vec<_>, _>>().map_err(invalid_data)?)
     }
 
     /// From a PEM file holding one or more CA certificates.
+    ///
+    /// # Errors
+    ///
+    /// The file's error if it can't be read, or as [`from_pem`](Self::from_pem), naming the file.
     pub fn from_pem_files(cas: &Path) -> io::Result<Self> {
         Self::from_der(certificates(cas)?).map_err(|e| in_file(cas, e))
     }
@@ -159,6 +201,11 @@ pub struct ServerTls {
 
 impl ServerTls {
     /// Presents `identity`, authenticating clients as `client_trust` says.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidInput`](io::ErrorKind::InvalidInput) if no client verifier can be built from
+    /// `client_trust`.
     pub fn new(identity: Identity, client_trust: ClientTrust) -> io::Result<Self> {
         let provider = provider();
         let identity = Arc::new(CurrentIdentity(RwLock::new(Some(identity.0))));
@@ -189,6 +236,10 @@ impl ServerTls {
     }
 
     /// Authenticates clients as `client_trust` says from the next handshake on.
+    ///
+    /// # Errors
+    ///
+    /// As [`new`](Self::new); the trust in use is kept.
     pub fn set_client_trust(&self, client_trust: ClientTrust) -> io::Result<()> {
         let verifier = client_verifier(client_trust, &self.client_trust.provider)?;
         *self.client_trust.verifier.write().expect("TLS trust lock poisoned") = verifier;
@@ -216,6 +267,11 @@ pub struct ClientTls {
 impl ClientTls {
     /// Trusts servers whose certificates chain to `trust`, presenting `identity` if a server asks
     /// for a client certificate (mutual TLS).
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidInput`](io::ErrorKind::InvalidInput) if no server verifier can be built from
+    /// `trust`.
     pub fn new(trust: Trust, identity: Option<Identity>) -> io::Result<Self> {
         let provider = provider();
         let trust = Arc::new(CurrentServerTrust {
@@ -241,6 +297,10 @@ impl ClientTls {
     }
 
     /// Trusts servers whose certificates chain to `trust` from the next handshake on.
+    ///
+    /// # Errors
+    ///
+    /// As [`new`](Self::new); the trust in use is kept.
     pub fn set_trust(&self, trust: Trust) -> io::Result<()> {
         let verifier = server_verifier(&trust, &self.trust.provider)?;
         *self.trust.verifier.write().expect("TLS trust lock poisoned") = verifier;
