@@ -94,7 +94,9 @@ where
     let mut closing = shutdown.clone();
     async {
         tokio::select! {
-            result = drive(stream, session, commands, logged_on, shutdown) => result,
+            // Boxed: its state is about 18 KB, which would otherwise be inline in every future that
+            // awaits a connection (an Initiator's run, say), and copied as each is moved.
+            result = Box::pin(drive(stream, session, commands, logged_on, shutdown)) => result,
             // Dropping the driver drops the session, which notifies the application, and the
             // stream, which closes the connection.
             () = async { closing.as_mut().expect("guarded by is_some").closing().await }, if closing.is_some() => {
