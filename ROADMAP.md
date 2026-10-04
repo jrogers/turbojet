@@ -264,13 +264,27 @@ From the benchmarks.
     API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
-- **Latency** (L, research). A one-at-a-time round trip is about 28 µs, of which Turbojet's own
-  processing is only a few µs; the rest is task scheduling and system calls. Worth exploring:
-  a current-thread runtime per session, avoiding channel hops, busy-polling, and CPU pinning.
-- **Kernel bypass and hardware timestamps** (L, research). Beyond tuning the runtime, the lowest
-  latencies come from bypassing the kernel's network stack (OpenOnload or ef_vi on Solarflare
-  cards, DPDK) and from network cards that timestamp packets in hardware. It needs a transport
-  that isn't a tokio `TcpStream`, so it follows the zero-copy work.
+- **Latency** (researched 2026-10-04). A one-at-a-time round trip over localhost on an Apple M3
+  takes 26.5 µs when the benchmark's task sends each order through a `SessionHandle` and receives
+  each acknowledgement back, and 16.3 µs when the initiator's application sends the next order from
+  `on_message`. The 10 µs between them is the hop between tasks each way, waking another thread.
+  Of the 16.3 µs, about 13 µs is the operating system (the same sizes between two threads over
+  blocking sockets: 12.9 µs), about 3 µs tokio's reactor, and about 1 µs each end's processing.
+  Running everything on a current-thread runtime helps only by keeping hops on one thread; with
+  each end on its own thread, it was no faster than the default. Turbojet already runs on one, so
+  there is nothing to build; the README says to reply from `on_message`. Busy-polling and CPU
+  pinning moved to the next item.
+- **Kernel bypass, busy-polling and hardware timestamps** (L, research). What's left is mostly the
+  kernel. Busy-polling the socket halves the operating system's share (12.9 µs to 6.8 µs with both
+  ends of a plain socket spinning), but tokio can't do it: its `try_read` answers from readiness
+  cached by the reactor, so it reports nothing to read until the reactor runs, and a spinning read
+  needs the raw socket. Keeping a tokio runtime awake with a `yield_now` loop made the round trip
+  slower, and spinning on the acceptor's raw socket alone gained nothing through Turbojet. Pinning
+  can't be measured on macOS, which has no thread affinity API. Beyond that, the lowest latencies
+  come from bypassing the kernel's network stack (OpenOnload or ef_vi on Solarflare cards, DPDK)
+  and from network cards that timestamp packets in hardware. All of these need a transport that
+  isn't a tokio `TcpStream`, and a Linux machine with isolated cores to measure them, so they
+  follow the zero-copy work.
 - **Aeron and SBE** (L, research). Low-latency venues and in-house systems increasingly use binary
   encodings over messaging rather than tag=value over TCP: SBE (Simple Binary Encoding, the FIX
   Trading Community's binary standard) for messages, under FIXP for the session, and Aeron (reliable
