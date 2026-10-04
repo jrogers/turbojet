@@ -164,8 +164,8 @@ pub struct SessionConfig {
     /// application is told to cancel the session's orders, through
     /// [`on_cancel_on_disconnect`](Application::on_cancel_on_disconnect), unless the counterparty
     /// logs back on within the grace period, which stops the countdown. Our own shutdown and the
-    /// schedule's end never count. `None` (the default) means off; an acceptor sets it per counterparty through
-    /// [`Counterparties`].
+    /// schedule's end never count. `None` (the default) means off; an acceptor sets it per
+    /// counterparty through [`Counterparties`].
     pub cancel_on_disconnect: Option<CancelOnDisconnect>,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
@@ -2993,7 +2993,11 @@ impl Drop for Session {
         // taken from the last call: a session is dropped without `on_disconnect` when its task is
         // aborted or its future dropped (an initiator's, or a shutdown giving up), and its last
         // call can be a heartbeat interval old, which would end a short grace period at once.
-        self.notify_logout(self.ending.unwrap_or(Disconnect::ConnectionLost), Instant::now());
+        // It's tokio's clock, which the task driving the countdowns sleeps on: under paused time,
+        // a deadline from the system clock would look long overdue. Outside a runtime it's the
+        // system clock.
+        let now = tokio::time::Instant::now().into_std();
+        self.notify_logout(self.ending.unwrap_or(Disconnect::ConnectionLost), now);
         // Dropped while the store opened its log (the connection failed): the log, if the job
         // still opens it, is closed when the job's result is dropped.
         if let Some(opening) = self.opening_log.take() {

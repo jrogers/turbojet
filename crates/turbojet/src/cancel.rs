@@ -2,6 +2,7 @@
 //! ends and the counterparty doesn't log back on in time.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -94,21 +95,32 @@ impl CancelTracker {
         app: Arc<dyn Application>,
     ) {
         assert!(trigger.counts(ended), "only an ending the trigger counts starts a countdown");
+        // An `app` left unused (a countdown is under way) is dropped once the lock is released:
+        // see `run`.
+        let unused;
         {
             let mut pending = self.lock();
-            pending.entry(id).or_insert(Pending { deadline, ended, trigger, app });
-            crate::telemetry::cancels_pending(pending.len());
+            unused = match pending.entry(id) {
+                Entry::Vacant(entry) => {
+                    entry.insert(Pending { deadline, ended, trigger, app });
+                    crate::telemetry::cancels_added(1);
+                    None
+                }
+                Entry::Occupied(_) => Some(app),
+            };
         }
+        drop(unused);
         self.wake.notify_one();
     }
 
     /// The session `id` has logged on: its countdown, if any, stops. A cancel in progress
     /// holds the lock, so this waits for it, and the logon's `on_logon` comes after it.
     pub(crate) fn logged_on(&self, id: &SessionId) {
-        let mut pending = self.lock();
-        if pending.remove(id).is_some() {
+        let stopped = self.lock().remove(id);
+        // Dropped once the lock is released: see `run`.
+        if stopped.is_some() {
             info!(session = %id, "logged back on within the grace period; no cancel on disconnect");
-            crate::telemetry::cancels_pending(pending.len());
+            crate::telemetry::cancels_removed(1);
         }
     }
 
@@ -135,14 +147,18 @@ impl CancelTracker {
         let mut pending = self.lock();
         let mut fired: Vec<(SessionId, Pending)> = pending.extract_if(|_, p| due(p)).collect();
         debug_assert!(pending.values().all(|p| !due(p)), "every due countdown is taken");
-        crate::telemetry::cancels_pending(pending.len());
+        crate::telemetry::cancels_removed(fired.len());
         fired.sort_by(|(a, pa), (b, pb)| pa.deadline.cmp(&pb.deadline).then_with(|| order(a).cmp(&order(b))));
-        for (id, Pending { ended, trigger, app, .. }) in fired {
+        for (id, Pending { ended, trigger, app, .. }) in &fired {
             info!(session = %id, ?ended, "cancel on disconnect: the counterparty didn't log back on in time");
             crate::telemetry::cancel_on_disconnect(trigger.label());
-            guarded("on_cancel_on_disconnect", || app.on_cancel_on_disconnect(&id, ended));
+            guarded("on_cancel_on_disconnect", || app.on_cancel_on_disconnect(id, *ended));
         }
         drop(pending);
+        // The applications are dropped only now, outside the lock: dropping the last reference to
+        // one runs its own Drop, which could panic and poison the lock, and a session dropped
+        // while that panic unwinds would then panic again on it, aborting the process.
+        drop(fired);
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Pending>> {

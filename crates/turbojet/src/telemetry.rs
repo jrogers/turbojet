@@ -47,8 +47,8 @@
 //!
 //! `turbojet_cancel_on_disconnect_total` counts calls to
 //! [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), by the session's
-//! [trigger](crate::CancelTrigger); `turbojet_cancels_pending` is the countdowns under way, in
-//! the registry that last changed (a process usually has one per acceptor or initiator).
+//! [trigger](crate::CancelTrigger); `turbojet_cancels_pending` is the countdowns under way, across
+//! the process.
 //!
 //! ## Latency histograms
 //!
@@ -84,8 +84,8 @@
 //!   unread, in the transport, so it can't be counted message by message.
 
 pub(crate) use imp::{
-    LatencyMetrics, SessionMetrics, application_panic, cancel_on_disconnect, cancels_pending, connection_refused,
-    garbled_message,
+    LatencyMetrics, SessionMetrics, application_panic, cancel_on_disconnect, cancels_added, cancels_removed,
+    connection_refused, garbled_message,
 };
 
 #[cfg(feature = "metrics")]
@@ -169,8 +169,13 @@ mod imp {
         counter!("turbojet_cancel_on_disconnect_total", "trigger" => trigger).increment(1);
     }
 
-    pub(crate) fn cancels_pending(count: usize) {
-        gauge!("turbojet_cancels_pending").set(count as f64);
+    /// Counted up and down, rather than set, so registries add up across the process.
+    pub(crate) fn cancels_added(count: usize) {
+        gauge!("turbojet_cancels_pending").increment(count as f64);
+    }
+
+    pub(crate) fn cancels_removed(count: usize) {
+        gauge!("turbojet_cancels_pending").decrement(count as f64);
     }
 
     pub(crate) struct SessionMetrics {
@@ -341,7 +346,10 @@ mod imp {
     pub(crate) fn cancel_on_disconnect(_trigger: &'static str) {}
 
     #[inline(always)]
-    pub(crate) fn cancels_pending(_count: usize) {}
+    pub(crate) fn cancels_added(_count: usize) {}
+
+    #[inline(always)]
+    pub(crate) fn cancels_removed(_count: usize) {}
 
     /// No-op stand-in when the `metrics` feature is off.
     pub(crate) struct SessionMetrics;

@@ -4932,3 +4932,106 @@ fn a_dropped_session_starts_the_countdown_too() {
     h.registry.run_due_cancels(deadline);
     assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "cancel CLIENT ConnectionLost"]);
 }
+
+/// With no grace period, a session dropped without `on_disconnect` cancels as it's dropped.
+#[test]
+fn no_grace_cancels_when_dropped() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::ZERO);
+    drop(h.logged_on());
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "cancel CLIENT ConnectionLost"]);
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+}
+
+/// Sends through another session's handle from `on_cancel_on_disconnect`, as an application
+/// cancelling orders might.
+struct SendsOnCancel {
+    registry: Arc<SessionRegistry>,
+    events: Mutex<Vec<String>>,
+}
+
+impl Application for SendsOnCancel {
+    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
+        let other = SessionId { target_comp_id: "OTHER".into(), ..session.clone() };
+        let sent = self.registry.handle(other).send(Message::new(MsgType::NewOrderSingle));
+        let not_connected = matches!(sent, Err(SendError::NotConnected(_)));
+        self.events.lock().unwrap().push(format!("cancel {ended:?}, not connected: {not_connected}"));
+    }
+}
+
+/// A cancel callback may take the registry's session lock (here, by sending through a handle)
+/// under the tracker's: that's the one order the two locks are taken in, so it doesn't deadlock.
+#[test]
+fn a_cancel_can_send_through_a_handle() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let app = Arc::new(SendsOnCancel { registry: h.registry.clone(), events: Mutex::default() });
+    let mut s = Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).0;
+    assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logon"]);
+    s.on_disconnect(h.at(10));
+    h.registry.run_due_cancels(h.at(15));
+    assert_eq!(*app.events.lock().unwrap(), ["cancel ConnectionLost, not connected: true"]);
+}
+
+/// Holds `on_cancel_on_disconnect` until the test releases it.
+struct GatedCancel {
+    events: Mutex<Vec<String>>,
+    entered: Mutex<std::sync::mpsc::Sender<()>>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+    logged_on: Mutex<std::sync::mpsc::Sender<()>>,
+}
+
+impl Application for GatedCancel {
+    fn on_logon(&self, _session: SessionHandle) {
+        self.events.lock().unwrap().push("logon".into());
+        self.logged_on.lock().unwrap().send(()).unwrap();
+    }
+
+    fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {
+        self.entered.lock().unwrap().send(()).unwrap();
+        self.release.lock().unwrap().recv_timeout(Duration::from_secs(10)).expect("released");
+        self.events.lock().unwrap().push("cancel".into());
+    }
+}
+
+/// A logon of the session while its cancel runs on another thread waits for the cancel to return:
+/// `on_logon` comes after it.
+#[test]
+fn a_logon_waits_for_a_cancel_in_progress() {
+    use std::sync::mpsc;
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let (entered, cancel_entered) = mpsc::channel();
+    let (release_cancel, release) = mpsc::channel();
+    let (logged_on, logons) = mpsc::channel();
+    let app = Arc::new(GatedCancel {
+        events: Mutex::default(),
+        entered: Mutex::new(entered),
+        release: Mutex::new(release),
+        logged_on: Mutex::new(logged_on),
+    });
+    let session = || Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).0;
+    let mut first = session();
+    first.recv(logon(1), h.t0);
+    logons.recv().unwrap();
+    first.on_disconnect(h.at(10));
+    drop(first);
+
+    std::thread::scope(|scope| {
+        let canceller = scope.spawn(|| h.registry.run_due_cancels(h.at(15)));
+        cancel_entered.recv_timeout(Duration::from_secs(10)).expect("the cancel started");
+        let reconnect = scope.spawn(|| types(&session().recv(logon(2), h.at(12))));
+        // The logon claims the session before it completes; once claimed, it's on its way to
+        // waiting for the cancel.
+        let give_up = Instant::now() + Duration::from_secs(10);
+        while h.registry.sessions().is_empty() {
+            assert!(Instant::now() < give_up, "the logon never claimed the session");
+            std::thread::yield_now();
+        }
+        // Given time to, the logon still doesn't complete while the cancel runs. This wait can't
+        // fail when the logon waits as it should; it's what catches one that doesn't.
+        let early = logons.recv_timeout(Duration::from_millis(200));
+        assert_eq!(early, Err(mpsc::RecvTimeoutError::Timeout), "no logon while the cancel runs");
+        release_cancel.send(()).unwrap();
+        canceller.join().unwrap();
+        assert_eq!(reconnect.join().unwrap(), ["Logon"]);
+    });
+    assert_eq!(*app.events.lock().unwrap(), ["logon", "cancel", "logon"]);
+}

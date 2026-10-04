@@ -60,8 +60,10 @@ pub trait Application: Send + Sync + 'static {
 
     /// A session with [cancel on disconnect](crate::SessionConfig::cancel_on_disconnect) ended
     /// with `ended`, and the counterparty didn't log back on within the grace period: cancel its
-    /// resting orders. Called once per ending, after `on_logout`, from the task that keeps the
-    /// countdowns (or, with no grace period, the connection's). A logon of the same session waits
+    /// resting orders. Called once each time the session is gone, with how it first ended: endings
+    /// before it logs back on (failed reconnects, say) don't add calls. Called after `on_logout`,
+    /// from the task that keeps the countdowns, or a connection's (with no grace period, a session
+    /// ending fires every countdown due). A logon of the same session waits
     /// for this to return, so it never comes after that logon's `on_logon`. Like every callback it
     /// must not block. Countdowns pending when the acceptor or initiator shuts down fire then; a
     /// process that stops without shutting down loses them, so after a restart, check orders you

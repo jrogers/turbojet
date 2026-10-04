@@ -536,13 +536,14 @@ impl SessionRegistry {
     /// Fires the cancel-on-disconnect countdowns that have ended by `now`, calling
     /// [`on_cancel_on_disconnect`](Application::on_cancel_on_disconnect) for each, in deadline
     /// order. A logon of one of these sessions waits until its callback has returned. Calling it
-    /// early is harmless: it acts only on what is due. Not from inside an application callback:
-    /// one running here would wait for itself.
+    /// early is harmless: it acts only on what is due. Calling it from inside
+    /// `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
     pub fn run_due_cancels(&self, now: Instant) {
         self.cancels.run_due(now);
     }
 
     /// Fires every cancel-on-disconnect countdown under way, due or not, as a shutdown does.
+    /// Calling it from inside `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
     pub fn run_all_cancels(&self) {
         self.cancels.run_all();
     }
