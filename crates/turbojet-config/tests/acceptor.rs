@@ -57,7 +57,7 @@ impl Venue {
         let broker_store = Arc::new(MemoryStorage::new());
         let sessions = SessionsFile::builder(&path).with_store("broker", broker_store.clone()).load().unwrap();
         let (tx, events) = mpsc::unbounded_channel();
-        let acceptor = sessions.acceptor(Arc::new(Recorder(tx)));
+        let acceptor = sessions.acceptor(Arc::new(Recorder(tx))).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap().to_string();
         tokio::spawn(acceptor.clone().serve(listener));

@@ -1,5 +1,6 @@
-//! Turning the file as written into what an acceptor runs on, checking every value on the way:
-//! a file that loads has nothing left to fail at a counterparty's Logon.
+//! Turning the file as written into what an acceptor and initiators run on, checking every value
+//! on the way: a file that loads has nothing left to fail at a counterparty's Logon or an
+//! initiator's connection.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -9,15 +10,18 @@ use std::sync::Arc;
 
 use turbojet::fields::{ApplVerId, FromFix, Precision};
 use turbojet::{
-    Clock, Counterparty, DiskStorage, HolidayCalendar, InboundLimit, MemoryStorage, RateLimit, SessionConfig,
-    SessionSchedule, SessionStorage,
+    Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar, InboundLimit, InitiatorConfig, MemoryStorage,
+    RateLimit, ReconnectPolicy, SessionConfig, SessionId, SessionSchedule, SessionStorage,
 };
 
 use crate::Error;
 #[cfg(feature = "tls")]
 use crate::raw::ClientCertificate;
+#[cfg(feature = "tls")]
+use crate::raw::RawInitiatorKeys;
 use crate::raw::{
-    OverLimit, RawAcceptor, RawApplVersion, RawFile, RawPrecision, RawSettings, RawStore, parse_duration,
+    OverLimit, RawAcceptor, RawApplVersion, RawFile, RawInitiator, RawPrecision, RawSettings, RawStore, Unknown,
+    parse_duration,
 };
 
 /// The store every file has, without defining it.
@@ -33,6 +37,16 @@ pub(crate) struct Resolved {
 /// A loaded file: everything converted and checked.
 pub(crate) struct Loaded {
     pub raw: RawFile,
+    /// `[acceptor]` and its counterparties, if the file has one.
+    pub acceptor: Option<AcceptorPart>,
+    /// Each `[initiator.NAME]`, by name.
+    pub initiators: BTreeMap<String, ResolvedInitiator>,
+    /// Every store, by name: those the file defines, those registered in code, and `memory`.
+    pub stores: HashMap<String, Arc<dyn SessionStorage>>,
+}
+
+/// An acceptor's settings and its counterparties'.
+pub(crate) struct AcceptorPart {
     /// The acceptor's configuration: `[acceptor]` and `[defaults]`.
     pub base: SessionConfig,
     /// Each listed counterparty's settings, by CompID.
@@ -40,23 +54,82 @@ pub(crate) struct Loaded {
     /// An unlisted counterparty's settings, `[defaults]` alone; it logs on with them only under
     /// `unknown = "admit"`.
     pub unlisted: Resolved,
-    /// Every store, by name: those the file defines, those registered in code, and `memory`.
-    pub stores: HashMap<String, Arc<dyn SessionStorage>>,
     /// `[acceptor.tls]`, read and checked.
     #[cfg(feature = "tls")]
     pub tls: Tls,
 }
 
-impl Loaded {
+impl AcceptorPart {
     /// The settings for counterparty `comp_id`, listed or not.
     pub fn settings(&self, comp_id: &str) -> &Resolved {
         self.listed.get(comp_id).unwrap_or(&self.unlisted)
     }
+}
 
-    /// The store counterparty `comp_id`'s sessions are kept in.
-    pub fn store_for(&self, comp_id: &str) -> &Arc<dyn SessionStorage> {
-        let name = &self.settings(comp_id).store;
+/// An initiator's settings: its configuration, endpoints, store and TLS.
+#[derive(Clone)]
+pub(crate) struct ResolvedInitiator {
+    pub config: InitiatorConfig,
+    pub endpoints: Vec<Endpoint>,
+    pub store: String,
+    /// The CAs to trust, the certificate to present if any, and the server name to check.
+    #[cfg(feature = "tls")]
+    pub tls: Option<ClientTlsFiles>,
+}
+
+/// An initiator's TLS, read and checked.
+#[cfg(feature = "tls")]
+#[derive(Clone)]
+pub(crate) struct ClientTlsFiles {
+    pub trust: turbojet::tls::Trust,
+    pub identity: Option<turbojet::tls::Identity>,
+    pub server_name: String,
+}
+
+impl ResolvedInitiator {
+    /// The session it logs on to.
+    pub fn id(&self) -> SessionId {
+        SessionId {
+            begin_string: self.config.session.begin_string.clone(),
+            sender_comp_id: self.config.session.sender_comp_id.clone(),
+            target_comp_id: self.config.target_comp_id.clone(),
+        }
+    }
+
+    /// Whether it connects over TLS.
+    pub fn uses_tls(&self) -> bool {
+        #[cfg(feature = "tls")]
+        return self.tls.is_some();
+        #[cfg(not(feature = "tls"))]
+        false
+    }
+}
+
+impl Loaded {
+    /// The acceptor's part, for a file that has one.
+    pub fn acceptor(&self) -> &AcceptorPart {
+        self.acceptor.as_ref().expect("an acceptor is made only from a file with [acceptor], which a reload keeps")
+    }
+
+    /// What happens to a counterparty the file doesn't list.
+    pub fn unknown(&self) -> Unknown {
+        self.raw.acceptor.as_ref().map_or(Unknown::Refuse, |a| a.unknown)
+    }
+
+    /// The store named `name`.
+    pub fn store(&self, name: &str) -> &Arc<dyn SessionStorage> {
         self.stores.get(name).expect("loading checked that every store named exists")
+    }
+
+    /// The store the acceptor keeps counterparty `comp_id`'s sessions in.
+    pub fn counterparty_store(&self, comp_id: &str) -> &Arc<dyn SessionStorage> {
+        self.store(&self.acceptor().settings(comp_id).store)
+    }
+
+    /// The store an initiator keeps session `id` in; `memory` for a session no initiator has.
+    pub fn initiator_store(&self, id: &SessionId) -> &Arc<dyn SessionStorage> {
+        let initiator = self.initiators.values().find(|initiator| initiator.id() == *id);
+        self.store(initiator.map_or(MEMORY, |initiator| initiator.store.as_str()))
     }
 }
 
@@ -81,33 +154,77 @@ pub(crate) fn parse(text: &str, context: &Context<'_>) -> Result<Loaded, Error> 
 }
 
 fn load(raw: RawFile, context: &Context<'_>) -> Result<Loaded, Error> {
-    let fixed = fixed(&raw.acceptor, context.clock)?;
-    #[cfg(feature = "tls")]
-    let tls = tls(&raw, context.dir)?;
-    #[cfg(not(feature = "tls"))]
-    refuse_tls(&raw)?;
     let stores = stores(&raw.store, context)?;
     let mut dictionaries = Dictionaries::default();
+    let acceptor = match &raw.acceptor {
+        Some(acceptor) => Some(load_acceptor(&raw, acceptor, context, &stores, &mut dictionaries)?),
+        None => match raw.counterparty.keys().next() {
+            Some(comp_id) => {
+                return Err(Error::at(&format!("counterparty {comp_id}"), "section", "needs an [acceptor]"));
+            }
+            None => None,
+        },
+    };
+    let mut initiators = BTreeMap::new();
+    for (name, initiator) in &raw.initiator {
+        let resolved = resolve_initiator(name, initiator, &raw, context, &stores, &mut dictionaries)?;
+        initiators.insert(name.clone(), resolved);
+    }
+    check_sessions_unique(&raw, &initiators)?;
+    Ok(Loaded { raw, acceptor, initiators, stores })
+}
+
+fn load_acceptor(
+    raw: &RawFile,
+    acceptor: &RawAcceptor,
+    context: &Context<'_>,
+    stores: &HashMap<String, Arc<dyn SessionStorage>>,
+    dictionaries: &mut Dictionaries,
+) -> Result<AcceptorPart, Error> {
+    let fixed = fixed(acceptor, context.clock)?;
+    #[cfg(feature = "tls")]
+    let tls = tls(acceptor, context.dir)?;
+    #[cfg(not(feature = "tls"))]
+    refuse_tls(acceptor.tls.is_some(), "acceptor")?;
     let mut base = fixed.clone();
-    apply(&raw.defaults, &mut base, "defaults", context.dir, &mut dictionaries)?;
+    apply(&raw.defaults, &mut base, "defaults", context.dir, dictionaries)?;
     base.check().map_err(|e| Error::at("defaults", "settings", e))?;
-    let unlisted = resolve(&raw.defaults, &fixed, "defaults", context, &stores, &mut dictionaries)?;
+    let unlisted = resolve(&raw.defaults, &fixed, "defaults", context, stores, dictionaries)?;
     let mut listed = HashMap::new();
     for (comp_id, settings) in &raw.counterparty {
         let section = format!("counterparty {comp_id}");
         let merged = settings.or(&raw.defaults);
-        let resolved = resolve(&merged, &fixed, &section, context, &stores, &mut dictionaries)?;
+        let resolved = resolve(&merged, &fixed, &section, context, stores, dictionaries)?;
         listed.insert(comp_id.clone(), resolved);
     }
-    Ok(Loaded {
-        raw,
+    Ok(AcceptorPart {
         base,
         listed,
         unlisted,
-        stores,
         #[cfg(feature = "tls")]
         tls,
     })
+}
+
+/// No two initiators log on to one session, and none to a session the acceptor serves for a
+/// listed counterparty: the two would fight over its sequence numbers.
+fn check_sessions_unique(raw: &RawFile, initiators: &BTreeMap<String, ResolvedInitiator>) -> Result<(), Error> {
+    let mut seen: HashMap<SessionId, &str> = HashMap::new();
+    for (name, initiator) in initiators {
+        let id = initiator.id();
+        let section = format!("initiator {name}");
+        if let Some(other) = seen.insert(id.clone(), name) {
+            return Err(Error::at(&section, "target_comp_id", format!("initiator {other} already logs on to {id}")));
+        }
+        if let Some(acceptor) = &raw.acceptor
+            && acceptor.begin_string == id.begin_string
+            && acceptor.sender_comp_id == id.sender_comp_id
+            && raw.counterparty.contains_key(&id.target_comp_id)
+        {
+            return Err(Error::at(&section, "target_comp_id", format!("the acceptor serves {id}")));
+        }
+    }
+    Ok(())
 }
 
 /// The acceptor's certificate and the client CAs it trusts, if it serves TLS.
@@ -116,9 +233,9 @@ pub(crate) type Tls = Option<(turbojet::tls::Identity, turbojet::tls::ClientTrus
 
 /// `[acceptor.tls]`'s certificate, key and client CAs, read and checked.
 #[cfg(feature = "tls")]
-fn tls(raw: &RawFile, dir: &Path) -> Result<Tls, Error> {
+fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
     use turbojet::tls::{ClientTrust, Identity, ServerTls, Trust};
-    let Some(tls) = &raw.acceptor.tls else { return Ok(None) };
+    let Some(tls) = &acceptor.tls else { return Ok(None) };
     let at = |path: &Path, e: std::io::Error| Error::at("acceptor", "tls", format!("{}: {e}", path.display()));
     let (cert, key) = (dir.join(&tls.cert), dir.join(&tls.key));
     let identity = Identity::from_pem_files(&cert, &key).map_err(|e| at(&cert, e))?;
@@ -141,37 +258,150 @@ fn tls(raw: &RawFile, dir: &Path) -> Result<Tls, Error> {
     Ok(Some((identity, client_trust)))
 }
 
-/// Without the tls feature, `[acceptor.tls]` can't be served.
+/// Without the tls feature, a `tls` key can't be used.
 #[cfg(not(feature = "tls"))]
-fn refuse_tls(raw: &RawFile) -> Result<(), Error> {
-    match raw.acceptor.tls {
-        Some(_) => Err(Error::at("acceptor", "tls", "needs turbojet-config's tls feature")),
-        None => Ok(()),
+fn refuse_tls(set: bool, section: &str) -> Result<(), Error> {
+    match set {
+        true => Err(Error::at(section, "tls", "needs turbojet-config's tls feature")),
+        false => Ok(()),
     }
+}
+
+/// Session settings fixed until a restart: `logon_timeout` and `send_queue`.
+fn fixed_keys(
+    config: &mut SessionConfig,
+    section: &str,
+    logon_timeout: Option<&String>,
+    send_queue: Option<usize>,
+) -> Result<(), Error> {
+    if let Some(timeout) = logon_timeout {
+        config.logon_timeout = parse_duration(timeout).map_err(|e| Error::at(section, "logon_timeout", e))?;
+    }
+    if let Some(queue) = send_queue {
+        if queue == 0 {
+            return Err(Error::at(section, "send_queue", "must be at least 1"));
+        }
+        config.send_queue = queue;
+    }
+    Ok(())
 }
 
 /// The acceptor's settings fixed until a restart.
 fn fixed(acceptor: &RawAcceptor, clock: &Clock) -> Result<SessionConfig, Error> {
-    let at = |key, e| Error::at("acceptor", key, e);
     let mut config = SessionConfig::new(&acceptor.begin_string, &acceptor.sender_comp_id);
     config.clock = clock.clone();
-    if let Some(timeout) = &acceptor.logon_timeout {
-        config.logon_timeout = parse_duration(timeout).map_err(|e| at("logon_timeout", e))?;
-    }
-    if let Some(queue) = acceptor.send_queue {
-        if queue == 0 {
-            return Err(at("send_queue", "must be at least 1".into()));
-        }
-        config.send_queue = queue;
-    }
+    fixed_keys(&mut config, "acceptor", acceptor.logon_timeout.as_ref(), acceptor.send_queue)?;
     for (key, limit) in
         [("max_connections", acceptor.max_connections), ("max_connections_per_ip", acceptor.max_connections_per_ip)]
     {
         if limit == Some(0) {
-            return Err(at(key, "must be at least 1".into()));
+            return Err(Error::at("acceptor", key, "must be at least 1"));
         }
     }
     Ok(config)
+}
+
+/// Initiator `name`'s settings: its own keys, and its session keys over `[defaults]`.
+fn resolve_initiator(
+    name: &str,
+    initiator: &RawInitiator,
+    raw: &RawFile,
+    context: &Context<'_>,
+    stores: &HashMap<String, Arc<dyn SessionStorage>>,
+    dictionaries: &mut Dictionaries,
+) -> Result<ResolvedInitiator, Error> {
+    let section = format!("initiator {name}");
+    let at = |key: &str, e: String| Error::at(&section, key, e);
+    let (own, settings) = (&initiator.own, &initiator.settings);
+    if settings.heartbeat.is_some() {
+        return Err(at("heartbeat", "is a counterparty's range: an initiator asks for heartbeat_interval".into()));
+    }
+    if settings.require_client_certificate.is_some() {
+        return Err(at("require_client_certificate", "is for counterparties".into()));
+    }
+    let acceptor = raw.acceptor.as_ref();
+    let begin_string = own.begin_string.clone().or_else(|| acceptor.map(|a| a.begin_string.clone()));
+    let begin_string = begin_string.ok_or_else(|| at("begin_string", "needed without an [acceptor]".into()))?;
+    let sender_comp_id = own.sender_comp_id.clone().or_else(|| acceptor.map(|a| a.sender_comp_id.clone()));
+    let sender_comp_id = sender_comp_id.ok_or_else(|| at("sender_comp_id", "needed without an [acceptor]".into()))?;
+    let mut session = SessionConfig::new(begin_string, sender_comp_id);
+    session.clock = context.clock.clone();
+    fixed_keys(&mut session, &section, own.logon_timeout.as_ref(), own.send_queue)?;
+    let merged = settings.or(&raw.defaults);
+    apply(&merged, &mut session, &section, context.dir, dictionaries)?;
+    let mut config = InitiatorConfig::new(session, &own.target_comp_id);
+    if let Some(interval) = &own.heartbeat_interval {
+        config.heartbeat_interval = parse_duration(interval).map_err(|e| at("heartbeat_interval", e))?;
+    }
+    config.reset_on_logon = own.reset_on_logon.unwrap_or(false);
+    config.next_expected_msg_seq_num = own.next_expected_msg_seq_num.unwrap_or(false);
+    config.username = own.username.clone();
+    if let Some(variable) = &own.password_env {
+        let password =
+            std::env::var(variable).map_err(|e| at("password_env", format!("environment variable {variable}: {e}")))?;
+        config.password = Some(password.into());
+    }
+    if let Some(timeout) = &own.connect_timeout {
+        config.connect_timeout = parse_duration(timeout).map_err(|e| at("connect_timeout", e))?;
+    }
+    if let Some(reconnect) = &own.reconnect {
+        let duration = |text: &str| parse_duration(text).map_err(|e| at("reconnect", e));
+        let mut policy = ReconnectPolicy::exponential(duration(&reconnect.initial)?, duration(&reconnect.max)?);
+        policy.multiplier = reconnect.multiplier.unwrap_or(policy.multiplier);
+        policy.jitter = reconnect.jitter.unwrap_or(policy.jitter);
+        config.reconnect = policy;
+    }
+    config.check().map_err(|e| at("settings", e))?;
+    if own.connect.is_empty() {
+        return Err(at("connect", "needs an address".into()));
+    }
+    let endpoints = own.connect.iter().map(Endpoint::new).collect();
+    let store = merged.store.clone().unwrap_or_else(|| MEMORY.into());
+    if !stores.contains_key(&store) {
+        return Err(at("store", format!("no store named '{store}'")));
+    }
+    #[cfg(not(feature = "tls"))]
+    refuse_tls(own.tls.is_some(), &section)?;
+    Ok(ResolvedInitiator {
+        config,
+        endpoints,
+        store,
+        #[cfg(feature = "tls")]
+        tls: client_tls(own, &section, context.dir)?,
+    })
+}
+
+/// An initiator's `tls`, read and checked.
+#[cfg(feature = "tls")]
+fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Option<ClientTlsFiles>, Error> {
+    use turbojet::tls::{ClientTls, Identity, ServerName, Trust};
+    let Some(tls) = &own.tls else { return Ok(None) };
+    let at = |e: String| Error::at(section, "tls", e);
+    let file_error = |path: &Path, e: std::io::Error| at(format!("{}: {e}", path.display()));
+    let ca = dir.join(&tls.ca);
+    let trust = Trust::from_pem_files(&ca).map_err(|e| file_error(&ca, e))?;
+    let identity = match (&tls.cert, &tls.key) {
+        (Some(cert), Some(key)) => {
+            let (cert, key) = (dir.join(cert), dir.join(key));
+            Some(Identity::from_pem_files(&cert, &key).map_err(|e| file_error(&cert, e))?)
+        }
+        (None, None) => None,
+        _ => return Err(at("cert and key go together".into())),
+    };
+    let server_name = match &tls.server_name {
+        Some(name) => name.clone(),
+        None => host(&own.connect[0]).to_string(),
+    };
+    ServerName::try_from(server_name.clone()).map_err(|e| at(format!("invalid server_name '{server_name}': {e}")))?;
+    ClientTls::new(trust.clone(), identity.clone()).map_err(|e| at(e.to_string()))?;
+    Ok(Some(ClientTlsFiles { trust, identity, server_name }))
+}
+
+/// The host of `host:port` (or `[v6]:port`).
+#[cfg(feature = "tls")]
+fn host(addr: &str) -> &str {
+    let host = addr.rsplit_once(':').map_or(addr, |(host, _)| host);
+    host.trim_start_matches('[').trim_end_matches(']')
 }
 
 /// One counterparty's settings, from `settings` (already merged over the defaults).
@@ -450,18 +680,22 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(loaded.base.max_latency, Some(Duration::from_secs(30)), "the defaults are the acceptor's");
-        let broker = &loaded.settings("BROKER").counterparty;
+        assert_eq!(
+            loaded.acceptor().base.max_latency,
+            Some(Duration::from_secs(30)),
+            "the defaults are the acceptor's"
+        );
+        let broker = &loaded.acceptor().settings("BROKER").counterparty;
         assert_eq!(broker.config.max_latency, None);
         assert_eq!(broker.config.outbound_limit, Some(RateLimit::new(100, Duration::from_secs(1))));
         assert_eq!(broker.heartbeat, Duration::from_secs(5)..=Duration::from_secs(60));
         assert!(broker.require_client_certificate);
-        let fund = &loaded.settings("FUND").counterparty;
+        let fund = &loaded.acceptor().settings("FUND").counterparty;
         assert_eq!(fund.config.max_latency, Some(Duration::from_secs(30)));
         assert!(!fund.require_client_certificate);
-        let other = &loaded.settings("OTHER").counterparty;
+        let other = &loaded.acceptor().settings("OTHER").counterparty;
         assert_eq!(other.config.max_latency, Some(Duration::from_secs(30)), "unlisted: the defaults");
-        assert_eq!(loaded.settings("OTHER").store, MEMORY);
+        assert_eq!(loaded.acceptor().settings("OTHER").store, MEMORY);
     }
 
     #[test]
@@ -480,7 +714,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let config = &loaded.settings("A").counterparty.config;
+        let config = &loaded.acceptor().settings("A").counterparty.config;
         assert_eq!(config.logout_timeout, Duration::from_secs(2));
         assert_eq!(config.schedule, Some("daily 08:00-17:00 mon-fri".parse().unwrap()));
         assert!(!config.check_orig_sending_time && !config.check_header_order);
@@ -532,7 +766,7 @@ mod tests {
         let error = parse(fixt, &context).err().unwrap().to_string();
         assert!(error.starts_with("defaults: settings: a FIXT session needs an application version"), "{error}");
         let loaded = parse(&format!("{fixt}\n[defaults]\nappl_versions = [\"9\"]"), &context).unwrap();
-        assert_eq!(loaded.base.appl_versions.len(), 1);
+        assert_eq!(loaded.acceptor().base.appl_versions.len(), 1);
         let zero = ACCEPTOR.replace("listen", "send_queue = 0\nlisten");
         assert!(parse(&zero, &context).err().unwrap().to_string().starts_with("acceptor: send_queue"));
     }
@@ -543,7 +777,7 @@ mod tests {
         std::fs::write(dir.path().join("holidays.txt"), "2026-12-25 # Christmas\n").unwrap();
         let loaded =
             load_in(dir.path(), "[defaults]\nschedule = \"daily 08:00-17:00\"\nholidays = \"holidays.txt\"").unwrap();
-        assert_eq!(loaded.base.schedule.unwrap().holidays().len(), 1);
+        assert_eq!(loaded.acceptor().base.schedule.as_ref().unwrap().holidays().len(), 1);
         let error = load_in(dir.path(), "[defaults]\nschedule = \"daily 08:00-17:00\"\nholidays = \"missing.txt\"")
             .err()
             .unwrap()
@@ -569,10 +803,10 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(loaded.settings("OTHER").store, "main");
-        assert_eq!(loaded.settings("SCRATCH").store, MEMORY);
+        assert_eq!(loaded.acceptor().settings("OTHER").store, "main");
+        assert_eq!(loaded.acceptor().settings("SCRATCH").store, MEMORY);
         assert!(dir.path().join("store").is_dir(), "opened relative to the file");
-        assert!(!Arc::ptr_eq(loaded.store_for("OTHER"), loaded.store_for("SCRATCH")));
+        assert!(!Arc::ptr_eq(loaded.counterparty_store("OTHER"), loaded.counterparty_store("SCRATCH")));
     }
 
     #[cfg(not(feature = "tls"))]
@@ -603,9 +837,104 @@ mod tests {
     fn dictionaries_are_loaded() {
         let orchestra = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
         let loaded = load_in(&orchestra, "[counterparty.A]\ndictionary = \"OrchestraFIX44.xml\"").unwrap();
-        assert!(loaded.settings("A").counterparty.config.validator.is_some());
-        assert!(loaded.settings("B").counterparty.config.validator.is_none());
+        assert!(loaded.acceptor().settings("A").counterparty.config.validator.is_some());
+        assert!(loaded.acceptor().settings("B").counterparty.config.validator.is_none());
         let error = error("[defaults]\ndictionary = \"missing.xml\"");
         assert!(error.starts_with("defaults: dictionary: ") && error.contains("missing.xml"), "{error}");
+    }
+
+    const INITIATOR: &str = r#"
+        [initiator.LSE]
+        target_comp_id = "LSE"
+        connect = ["primary:9876", "backup:9876"]
+    "#;
+
+    #[test]
+    fn an_initiator_takes_the_acceptors_identity_and_the_defaults() {
+        let loaded = load_text(&format!(
+            "[defaults]\nmax_latency = \"30s\"\nstore = \"memory\"\n{INITIATOR}heartbeat_interval = \"20s\"\nreset_on_logon = true\nusername = \"firm\"\npassword_env = \"PATH\"\nreconnect = {{ initial = \"100ms\", max = \"5s\", jitter = false }}"
+        ))
+        .unwrap();
+        let lse = &loaded.initiators["LSE"];
+        assert_eq!(lse.id().to_string(), "FIX.4.4:VENUE->LSE");
+        assert_eq!(lse.config.session.max_latency, Some(Duration::from_secs(30)));
+        assert_eq!(lse.config.heartbeat_interval, Duration::from_secs(20));
+        assert!(lse.config.reset_on_logon && !lse.config.next_expected_msg_seq_num);
+        assert_eq!(lse.config.username.as_deref(), Some("firm"));
+        assert_eq!(lse.config.password.as_ref().map(|p| p.expose().to_string()), std::env::var("PATH").ok());
+        assert_eq!(lse.config.reconnect.initial, Duration::from_millis(100));
+        assert!(!lse.config.reconnect.jitter);
+        assert_eq!(lse.endpoints, [Endpoint::new("primary:9876"), Endpoint::new("backup:9876")]);
+    }
+
+    #[test]
+    fn a_file_may_hold_only_initiators() {
+        let clock = Clock::system();
+        let registered = HashMap::new();
+        let context = Context {
+            dir: Path::new("."),
+            clock: &clock,
+            registered: &registered,
+            previous: None,
+            previous_defined: None,
+        };
+        let text = format!("{INITIATOR}begin_string = \"FIX.4.2\"\nsender_comp_id = \"FIRM\"");
+        let loaded = parse(&text, &context).unwrap();
+        assert!(loaded.acceptor.is_none());
+        assert_eq!(loaded.initiators["LSE"].id().to_string(), "FIX.4.2:FIRM->LSE");
+        let error = parse(INITIATOR, &context).err().unwrap().to_string();
+        assert_eq!(error, "initiator LSE: begin_string: needed without an [acceptor]");
+        let error = parse(
+            &format!("{INITIATOR}begin_string = \"FIX.4.2\"\nsender_comp_id = \"F\"\n[counterparty.X]"),
+            &context,
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert_eq!(error, "counterparty X: section: needs an [acceptor]");
+    }
+
+    #[test]
+    fn initiator_errors_name_the_section_and_key() {
+        let cases = [
+            (
+                format!("{INITIATOR}heartbeat = {{ min = \"1s\", max = \"2s\" }}"),
+                "initiator LSE: heartbeat: is a counterparty's range",
+            ),
+            (format!("{INITIATOR}require_client_certificate = true"), "initiator LSE: require_client_certificate:"),
+            (
+                format!("{INITIATOR}heartbeat_interval = \"500ms\""),
+                "initiator LSE: settings: heartbeat_interval must be whole seconds",
+            ),
+            (
+                format!("{INITIATOR}password_env = \"TURBOJET_CONFIG_SURELY_UNSET\""),
+                "initiator LSE: password_env: environment variable",
+            ),
+            (format!("{INITIATOR}store = \"tape\""), "initiator LSE: store: no store named 'tape'"),
+            (
+                INITIATOR.replace("[\"primary:9876\", \"backup:9876\"]", "[]"),
+                "initiator LSE: connect: needs an address",
+            ),
+            (format!("{INITIATOR}conect = []"), "conect"),
+            (
+                format!("{INITIATOR}\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nconnect = [\"x:1\"]"),
+                "initiator LSE: target_comp_id: initiator AGAIN already logs on to FIX.4.4:VENUE->LSE",
+            ),
+            (
+                format!("[counterparty.LSE]\n{INITIATOR}"),
+                "initiator LSE: target_comp_id: the acceptor serves FIX.4.4:VENUE->LSE",
+            ),
+        ];
+        for (text, expected) in cases {
+            let error = error(&text);
+            assert!(error.contains(expected), "{text}\n  gave {error}\n  not {expected}");
+        }
+    }
+
+    #[cfg(not(feature = "tls"))]
+    #[test]
+    fn an_initiators_tls_needs_the_tls_feature() {
+        let error = error(&format!("{INITIATOR}tls = {{ ca = \"ca.pem\" }}"));
+        assert_eq!(error, "initiator LSE: tls: needs turbojet-config's tls feature");
     }
 }

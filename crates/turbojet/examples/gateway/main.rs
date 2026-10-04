@@ -562,7 +562,14 @@ async fn serve_file(path: &Path, app: Arc<GatewayApp>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let base = sessions.base();
+    let Some(base) = sessions.base() else {
+        error!("{} has no [acceptor]: the gateway runs an acceptor", path.display());
+        return ExitCode::FAILURE;
+    };
+    if !sessions.initiator_names().is_empty() {
+        error!("{} has [initiator] sections: the gateway runs only an acceptor", path.display());
+        return ExitCode::FAILURE;
+    }
     // The application parses FIX 4.2 messages.
     if base.begin_string != "FIX.4.2" {
         error!("the gateway speaks FIX.4.2, but {} has begin_string {}", path.display(), base.begin_string);
@@ -575,7 +582,7 @@ async fn serve_file(path: &Path, app: Arc<GatewayApp>) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let listen = sessions.listen();
+    let listen = sessions.listen().expect("a file with [acceptor] has listen");
     let listener = match TcpListener::bind(&listen).await {
         Ok(l) => l,
         Err(e) => {
@@ -592,7 +599,7 @@ async fn serve_file(path: &Path, app: Arc<GatewayApp>) -> ExitCode {
         tls = tls.is_some(),
         "FIX gateway listening"
     );
-    let acceptor = sessions.acceptor(app);
+    let acceptor = sessions.acceptor(app).expect("the file has [acceptor]");
     reload_file_on_hangup(Arc::new(sessions), acceptor.clone());
     run(acceptor, listener, tls).await
 }

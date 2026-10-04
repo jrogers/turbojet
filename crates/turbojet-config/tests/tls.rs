@@ -57,7 +57,7 @@ fn a_reload_replaces_the_certificates_but_not_whether_tls_is_served() {
     certificate(dir.path(), "renewed");
     let path = write(dir.path(), r#"{ cert = "server.pem", key = "server.key" }"#);
     let sessions = SessionsFile::load(&path).unwrap();
-    let acceptor = sessions.acceptor(Arc::new(App));
+    let acceptor = sessions.acceptor(Arc::new(App)).unwrap();
     let server = sessions.server_tls().unwrap().unwrap();
     write(dir.path(), r#"{ cert = "renewed.pem", key = "renewed.key" }"#);
     assert!(sessions.reload(&acceptor).unwrap().is_empty());
@@ -66,4 +66,40 @@ fn a_reload_replaces_the_certificates_but_not_whether_tls_is_served() {
     std::fs::write(&path, ACCEPTOR).unwrap();
     let error = sessions.reload(&acceptor).unwrap_err().to_string();
     assert!(error.contains("acceptor: tls: can't change until a restart"), "{error}");
+}
+
+struct Nothing;
+impl turbojet::Application for Nothing {}
+
+#[tokio::test]
+async fn an_initiators_tls_is_checked_when_the_file_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    certificate(dir.path(), "ca");
+    certificate(dir.path(), "firm");
+    let initiator = |tls: &str| {
+        format!(
+            "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
+             connect = [\"localhost:1\"]\ntls = {tls}\n"
+        )
+    };
+    let path = dir.path().join("sessions.toml");
+    for tls in [
+        r#"{ ca = "ca.pem" }"#,
+        r#"{ ca = "ca.pem", cert = "firm.pem", key = "firm.key", server_name = "fix.lse.com" }"#,
+    ] {
+        std::fs::write(&path, initiator(tls)).unwrap();
+        let sessions = SessionsFile::load(&path).unwrap();
+        let initiators = sessions.initiators(Arc::new(Nothing)).unwrap();
+        assert_eq!(initiators.names(), ["LSE"], "{tls}");
+        initiators.shutdown(None).await;
+    }
+    for (tls, error) in [
+        (r#"{ ca = "missing.pem" }"#, "initiator LSE: tls: "),
+        (r#"{ ca = "ca.pem", cert = "firm.pem" }"#, "initiator LSE: tls: cert and key go together"),
+        (r#"{ ca = "ca.pem", server_name = "not a name" }"#, "invalid server_name"),
+    ] {
+        std::fs::write(&path, initiator(tls)).unwrap();
+        let loaded = SessionsFile::load(&path).unwrap_err().to_string();
+        assert!(loaded.contains(error), "{tls}: {loaded}");
+    }
 }

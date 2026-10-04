@@ -10,13 +10,94 @@ use serde::Deserialize;
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawFile {
-    pub acceptor: RawAcceptor,
+    pub acceptor: Option<RawAcceptor>,
     #[serde(default)]
     pub store: BTreeMap<String, RawStore>,
     #[serde(default)]
     pub defaults: RawSettings,
     #[serde(default)]
     pub counterparty: BTreeMap<String, RawSettings>,
+    #[serde(default)]
+    pub initiator: BTreeMap<String, RawInitiator>,
+}
+
+/// `[initiator.NAME]`: the initiator's own keys, and session keys over `[defaults]`.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RawInitiator {
+    pub own: RawInitiatorKeys,
+    pub settings: RawSettings,
+}
+
+/// The keys only an initiator has.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawInitiatorKeys {
+    pub begin_string: Option<String>,
+    pub sender_comp_id: Option<String>,
+    pub target_comp_id: String,
+    pub connect: Vec<String>,
+    pub tls: Option<RawClientTls>,
+    pub heartbeat_interval: Option<String>,
+    pub reset_on_logon: Option<bool>,
+    pub next_expected_msg_seq_num: Option<bool>,
+    pub username: Option<String>,
+    pub password_env: Option<String>,
+    pub connect_timeout: Option<String>,
+    pub logon_timeout: Option<String>,
+    pub send_queue: Option<usize>,
+    pub reconnect: Option<RawReconnect>,
+}
+
+/// The names of [`RawInitiatorKeys`]' fields: an initiator's table is split by them, since
+/// serde can't flatten into a struct that denies unknown fields.
+const INITIATOR_KEYS: &[&str] = &[
+    "begin_string",
+    "sender_comp_id",
+    "target_comp_id",
+    "connect",
+    "tls",
+    "heartbeat_interval",
+    "reset_on_logon",
+    "next_expected_msg_seq_num",
+    "username",
+    "password_env",
+    "connect_timeout",
+    "logon_timeout",
+    "send_queue",
+    "reconnect",
+];
+
+impl<'de> Deserialize<'de> for RawInitiator {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+        let table = toml::Table::deserialize(deserializer)?;
+        let (own, settings): (toml::Table, toml::Table) =
+            table.into_iter().partition(|(key, _)| INITIATOR_KEYS.contains(&key.as_str()));
+        let own = RawInitiatorKeys::deserialize(toml::Value::Table(own)).map_err(D::Error::custom)?;
+        let settings = RawSettings::deserialize(toml::Value::Table(settings)).map_err(D::Error::custom)?;
+        Ok(Self { own, settings })
+    }
+}
+
+/// An initiator's `tls`: the CAs its counterparty's certificate must chain to, and its own
+/// certificate if the counterparty asks for one.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawClientTls {
+    pub ca: PathBuf,
+    pub cert: Option<PathBuf>,
+    pub key: Option<PathBuf>,
+    pub server_name: Option<String>,
+}
+
+/// `reconnect = { initial = "1s", max = "60s", multiplier = 2, jitter = true }`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawReconnect {
+    pub initial: String,
+    pub max: String,
+    pub multiplier: Option<u32>,
+    pub jitter: Option<bool>,
 }
 
 /// `[acceptor]`: what's fixed until a restart, and how unlisted counterparties are treated.
@@ -212,7 +293,7 @@ mod tests {
     #[test]
     fn a_minimal_file_lists_nothing_and_refuses_the_unknown() {
         let file = parse(MINIMAL).unwrap();
-        assert_eq!(file.acceptor.unknown, Unknown::Refuse);
+        assert_eq!(file.acceptor.as_ref().unwrap().unknown, Unknown::Refuse);
         assert!(file.store.is_empty() && file.counterparty.is_empty());
         assert_eq!(file.defaults, RawSettings::default());
     }
@@ -259,8 +340,8 @@ mod tests {
             "#
         );
         let file = parse(&text).unwrap();
-        assert_eq!(file.acceptor.unknown, Unknown::Admit);
-        assert_eq!(file.acceptor.tls.unwrap().client_certificate, ClientCertificate::Required);
+        assert_eq!(file.acceptor.as_ref().unwrap().unknown, Unknown::Admit);
+        assert_eq!(file.acceptor.unwrap().tls.unwrap().client_certificate, ClientCertificate::Required);
         assert_eq!(file.store["main"], RawStore::Disk { dir: "./store".into(), fsync: true });
         assert_eq!(file.store["scratch"], RawStore::Memory);
         assert_eq!(file.defaults.timestamp_precision, Some(RawPrecision::Micros));

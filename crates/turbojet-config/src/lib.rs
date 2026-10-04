@@ -1,5 +1,5 @@
 //! Session configuration files for [Turbojet](https://docs.rs/turbojet): an acceptor, its
-//! counterparties and their stores, read from TOML and reloaded while running.
+//! counterparties, initiators and their stores, read from TOML and reloaded while running.
 //!
 //! ```toml
 //! [acceptor]
@@ -22,6 +22,12 @@
 //! [counterparty.FUND]
 //! require_client_certificate = true
 //! heartbeat = { min = "10s", max = "60s" }
+//!
+//! [initiator.LSE]                     # we log on to LSE, as VENUE (the acceptor's CompID)
+//! target_comp_id = "LSE"
+//! connect = ["primary.lse:9876", "dr.lse:9876"]
+//! username = "venue"
+//! password_env = "LSE_PASSWORD"
 //! ```
 //!
 //! ```no_run
@@ -31,11 +37,12 @@
 //! # impl turbojet::Application for App {}
 //! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
 //! let sessions = SessionsFile::load("sessions.toml")?;
-//! let acceptor = sessions.acceptor(Arc::new(App));
-//! let listener = tokio::net::TcpListener::bind(sessions.listen()).await?;
+//! let acceptor = sessions.acceptor(Arc::new(App)).expect("the file has [acceptor]");
+//! let listener = tokio::net::TcpListener::bind(sessions.listen().unwrap()).await?;
 //! tokio::spawn(acceptor.clone().serve(listener));
+//! let initiators = sessions.initiators(Arc::new(App))?;
 //! // Later, on SIGHUP say:
-//! let changes = sessions.reload(&acceptor)?;
+//! let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
 //! # Ok(())
 //! # }
 //! ```
@@ -63,6 +70,16 @@
 //! { min, max }` (the HeartBtInt a counterparty may ask for), and `require_client_certificate`.
 //! Durations are a whole number and `ms`, `s`, `m` or `h`. Paths are relative to the file.
 //!
+//! `[initiator.NAME]`, NAME being for logs and errors: `target_comp_id`, `connect` (addresses,
+//! the primary first, then failover), `begin_string` and `sender_comp_id` (the acceptor's by
+//! default; needed without one), `heartbeat_interval`, `reset_on_logon`,
+//! `next_expected_msg_seq_num`, `username`, `password_env` (the environment variable holding the
+//! password: a password isn't kept in the file), `connect_timeout`, `logon_timeout`, `send_queue`,
+//! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, cert, key, server_name }`
+//! (feature `tls`; `server_name` is the first address's host by default), and every session key
+//! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators
+//! may log on to one session, nor to one the acceptor serves for a listed counterparty.
+//!
 //! Unknown keys are errors, and every value is checked when the file loads, so a file that loads
 //! has nothing left to fail at a counterparty's Logon. The `[defaults]` are also the acceptor's
 //! own settings, which the Logon itself is checked against (its SendingTime, say) before the
@@ -70,13 +87,17 @@
 //!
 //! # Reloading
 //!
-//! [`reload`](SessionsFile::reload) reads the file again and checks it whole; a file that
-//! doesn't load leaves the one in use in place. Changed settings apply from each counterparty's
-//! next Logon; sessions logged on keep theirs. Under `unknown = "refuse"`, connected counterparties
-//! the file no longer lists are logged out. What's fixed until a restart can't change: the
-//! `[acceptor]` keys other than `unknown` and the TLS files, a store's definition, and which store
-//! a counterparty's sessions are kept in.
+//! [`reload_all`](SessionsFile::reload_all) (or [`reload`](SessionsFile::reload), for a file
+//! without initiators) reads the file again and checks it whole; a file that doesn't load leaves
+//! the one in use in place. Changed settings apply from each counterparty's next Logon, and from
+//! each initiator's next connection: sessions connected keep theirs. Under `unknown = "refuse"`,
+//! connected counterparties the file no longer lists are logged out. Added initiators start, and
+//! removed ones are logged out and stopped; one that now logs on to another session, or turns TLS
+//! on or off, is stopped and started again. What's fixed until a restart can't change: whether
+//! there's an `[acceptor]`, its keys other than `unknown` and the TLS files, a store's
+//! definition, and which store a counterparty's or an initiator's sessions are kept in.
 
+mod initiators;
 mod load;
 mod raw;
 mod reload;
@@ -90,9 +111,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use turbojet::store::{Opened, SessionLog};
 use turbojet::{
     Acceptor, Application, Clock, ConnectionInfo, Counterparties, Counterparty, Message, SessionConfig, SessionId,
-    SessionStorage,
+    SessionRegistry, SessionStorage,
 };
 
+pub use crate::initiators::Initiators;
 use crate::load::{Context, Loaded};
 pub use crate::raw::Unknown;
 pub use crate::reload::Changes;
@@ -123,8 +145,8 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// A sessions file, loaded: makes the [`Acceptor`] it describes and reloads it. Cheap to share
-/// by reference; the acceptor reads the settings current at each Logon.
+/// A sessions file, loaded: makes the [`Acceptor`] and [`Initiators`] it describes, and reloads
+/// them. The acceptor reads the settings current at each Logon.
 pub struct SessionsFile {
     path: PathBuf,
     clock: Clock,
@@ -224,14 +246,14 @@ impl SessionsFile {
         SessionsFileBuilder { path: path.into(), clock: Clock::system(), registered: HashMap::new() }
     }
 
-    /// The address to listen on: `[acceptor] listen`.
-    pub fn listen(&self) -> String {
-        self.current.get().raw.acceptor.listen.clone()
+    /// The address to listen on, `[acceptor] listen`, if the file has an acceptor.
+    pub fn listen(&self) -> Option<String> {
+        self.current.get().raw.acceptor.as_ref().map(|acceptor| acceptor.listen.clone())
     }
 
     /// What happens to a counterparty the file doesn't list.
     pub fn unknown(&self) -> Unknown {
-        self.current.get().raw.acceptor.unknown
+        self.current.get().unknown()
     }
 
     /// The counterparties the file lists, by CompID, in order.
@@ -239,26 +261,49 @@ impl SessionsFile {
         self.current.get().raw.counterparty.keys().cloned().collect()
     }
 
-    /// The acceptor's own configuration: `[acceptor]` and `[defaults]`.
-    pub fn base(&self) -> SessionConfig {
-        self.current.get().base.clone()
+    /// The initiators the file lists, by section name, in order.
+    pub fn initiator_names(&self) -> Vec<String> {
+        self.current.get().raw.initiator.keys().cloned().collect()
     }
 
-    /// An acceptor serving `app` as the file says: its counterparties' settings and stores, and
-    /// its connection limits. Serve it on [`listen`](Self::listen), with
+    /// The acceptor's own configuration, `[acceptor]` and `[defaults]`, if the file has one.
+    pub fn base(&self) -> Option<SessionConfig> {
+        self.current.get().acceptor.as_ref().map(|acceptor| acceptor.base.clone())
+    }
+
+    /// An acceptor serving `app` as the file says, if it has `[acceptor]`: its counterparties'
+    /// settings and stores, and its connection limits. Serve it on [`listen`](Self::listen), with
     /// [`server_tls`](Self::server_tls) if the file has `[acceptor.tls]`.
-    pub fn acceptor(&self, app: Arc<dyn Application>) -> Acceptor {
+    pub fn acceptor(&self, app: Arc<dyn Application>) -> Option<Acceptor> {
         let loaded = self.current.get();
+        let (raw, part) = (loaded.raw.acceptor.as_ref()?, loaded.acceptor.as_ref()?);
         let storage = Arc::new(Router(self.current.clone()));
-        let mut acceptor = Acceptor::new(loaded.base.clone(), storage, app)
+        let mut acceptor = Acceptor::new(part.base.clone(), storage, app)
             .with_counterparties(Arc::new(Resolver(self.current.clone())));
-        if let Some(connections) = loaded.raw.acceptor.max_connections {
+        if let Some(connections) = raw.max_connections {
             acceptor = acceptor.with_max_connections(connections);
         }
-        if let Some(connections) = loaded.raw.acceptor.max_connections_per_ip {
+        if let Some(connections) = raw.max_connections_per_ip {
             acceptor = acceptor.with_max_connections_per_ip(connections);
         }
-        acceptor
+        Some(acceptor)
+    }
+
+    /// Starts every `[initiator.NAME]`, each on its own task, serving `app`. Call it within a
+    /// tokio runtime.
+    ///
+    /// # Errors
+    ///
+    /// If an initiator's TLS can't be set up; loading the file checked it, so only if its files
+    /// changed since.
+    pub fn initiators(&self, app: Arc<dyn Application>) -> Result<Initiators, Error> {
+        let storage = Arc::new(InitiatorStores(self.current.clone()));
+        let registry = Arc::new(SessionRegistry::new(storage).with_clock(self.clock.clone()));
+        let initiators = Initiators::new(app, registry);
+        for (name, initiator) in &self.current.get().initiators {
+            initiators.start(name, initiator)?;
+        }
+        Ok(initiators)
     }
 
     /// TLS for [`Acceptor::serve_tls`] if the file has `[acceptor.tls]`; reloading the file
@@ -271,8 +316,9 @@ impl SessionsFile {
     #[cfg(feature = "tls")]
     pub fn server_tls(&self) -> io::Result<Option<turbojet::tls::ServerTls>> {
         let mut server = self.server_tls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tls = self.current.get().acceptor.as_ref().and_then(|acceptor| acceptor.tls.clone());
         if server.is_none()
-            && let Some((identity, client_trust)) = self.current.get().tls.clone()
+            && let Some((identity, client_trust)) = tls
         {
             *server = Some(turbojet::tls::ServerTls::new(identity, client_trust)?);
         }
@@ -280,22 +326,49 @@ impl SessionsFile {
     }
 
     /// Reads the file again and puts it in use for `acceptor` (made by
-    /// [`acceptor`](Self::acceptor)): see [Reloading](crate#reloading).
+    /// [`acceptor`](Self::acceptor)): see [Reloading](crate#reloading). For a file with
+    /// initiators, use [`reload_all`](Self::reload_all).
     ///
     /// # Errors
     ///
-    /// If the file can't be read, doesn't load, or changes what's fixed until a restart; the
-    /// file in use stays in use.
+    /// If the file can't be read, doesn't load, changes what's fixed until a restart, or has
+    /// (or had) initiators; the file in use stays in use.
     pub fn reload(&self, acceptor: &Acceptor) -> Result<Changes, Error> {
+        self.reload_with(Some(acceptor), None)
+    }
+
+    /// Reads the file again and puts it in use for `acceptor` (if one was made) and `initiators`
+    /// (made by [`initiators`](Self::initiators)): see [Reloading](crate#reloading).
+    ///
+    /// # Errors
+    ///
+    /// If the file can't be read, doesn't load, or changes what's fixed until a restart; the file
+    /// in use stays in use.
+    pub fn reload_all(&self, acceptor: Option<&Acceptor>, initiators: &Initiators) -> Result<Changes, Error> {
+        self.reload_with(acceptor, Some(initiators))
+    }
+
+    fn reload_with(&self, acceptor: Option<&Acceptor>, initiators: Option<&Initiators>) -> Result<Changes, Error> {
         let _reloading = self.reloading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let in_file = |e: Error| Error::file(format!("{}: {e}", self.path.display()));
         let old = self.current.get();
         let new = read(&self.path, &self.clock, &self.registered, Some(&old))?;
-        reload::check(&old, &new).map_err(|e| Error::file(format!("{}: {e}", self.path.display())))?;
+        reload::check(&old, &new).map_err(in_file)?;
+        if initiators.is_none() && !(old.initiators.is_empty() && new.initiators.is_empty()) {
+            return Err(in_file(Error::at("initiator", "section", "reload a file with initiators with reload_all")));
+        }
         #[cfg(feature = "tls")]
         self.replace_certificates(&new)?;
         let mut changes = reload::changes(&old, &new);
+        let started = reload::initiator_changes(&old, &new);
         self.current.set(new);
-        changes.logged_out = reload::log_out_removed(&self.current.get(), acceptor);
+        let new = self.current.get();
+        if let (Some(acceptor), Some(_)) = (acceptor, &new.acceptor) {
+            changes.logged_out = reload::log_out_removed(&new, acceptor);
+        }
+        if let Some(initiators) = initiators {
+            initiators.apply(&started, &new, &mut changes);
+        }
         Ok(changes)
     }
 
@@ -303,7 +376,8 @@ impl SessionsFile {
     #[cfg(feature = "tls")]
     fn replace_certificates(&self, new: &Loaded) -> Result<(), Error> {
         let server = self.server_tls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let (Some(server), Some((identity, client_trust))) = (server.as_ref(), new.tls.clone()) {
+        let tls = new.acceptor.as_ref().and_then(|acceptor| acceptor.tls.clone());
+        if let (Some(server), Some((identity, client_trust))) = (server.as_ref(), tls) {
             server.set_client_trust(client_trust).map_err(|e| Error::at("acceptor", "tls", e))?;
             server.set_identity(identity);
         }
@@ -329,10 +403,10 @@ impl Counterparties for Resolver {
         _: &ConnectionInfo,
     ) -> Result<Counterparty, String> {
         let loaded = self.0.get();
-        let comp_id = &id.target_comp_id;
-        match loaded.listed.get(comp_id) {
+        let (acceptor, comp_id) = (loaded.acceptor(), &id.target_comp_id);
+        match acceptor.listed.get(comp_id) {
             Some(resolved) => Ok(resolved.counterparty.clone()),
-            None if loaded.raw.acceptor.unknown == Unknown::Admit => Ok(loaded.unlisted.counterparty.clone()),
+            None if loaded.unknown() == Unknown::Admit => Ok(acceptor.unlisted.counterparty.clone()),
             None => Err(format!("unknown counterparty '{comp_id}'")),
         }
     }
@@ -343,10 +417,23 @@ struct Router(Arc<Current>);
 
 impl SessionStorage for Router {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        self.0.get().store_for(&id.target_comp_id).open(id)
+        self.0.get().counterparty_store(&id.target_comp_id).open(id)
     }
 
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
-        self.0.get().store_for(&id.target_comp_id).begin_open(id)
+        self.0.get().counterparty_store(&id.target_comp_id).begin_open(id)
+    }
+}
+
+/// Opens each initiator's session log in its store, as the file current then says.
+struct InitiatorStores(Arc<Current>);
+
+impl SessionStorage for InitiatorStores {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        self.0.get().initiator_store(id).open(id)
+    }
+
+    fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
+        self.0.get().initiator_store(id).begin_open(id)
     }
 }

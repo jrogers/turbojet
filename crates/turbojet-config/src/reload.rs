@@ -9,7 +9,7 @@ use crate::Error;
 use crate::load::Loaded;
 use crate::raw::{RawAcceptor, Unknown};
 
-/// What a [reload](crate::SessionsFile::reload) changed, by counterparty CompID.
+/// What a reload changed: counterparties by CompID, initiators by section name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Changes {
     /// Counterparties listed now that weren't before.
@@ -21,18 +21,28 @@ pub struct Changes {
     pub removed: Vec<String>,
     /// Connected counterparties logged out because the file no longer admits them.
     pub logged_out: Vec<String>,
+    /// Initiators started: new ones, and those restarted for another session or TLS setting.
+    pub started: Vec<String>,
+    /// Initiators whose settings changed, applying from their next connection.
+    pub reconfigured: Vec<String>,
+    /// Initiators stopped (logging their sessions out): removed ones, and those restarted.
+    pub stopped: Vec<String>,
 }
 
 impl Changes {
-    /// Whether nothing changed for any listed counterparty.
+    /// Whether nothing changed for any listed counterparty or initiator.
     pub fn is_empty(&self) -> bool {
-        self.added.is_empty() && self.changed.is_empty() && self.removed.is_empty() && self.logged_out.is_empty()
+        self == &Self::default()
     }
 }
 
-/// Why `new` can't replace `old` while the acceptor runs, if it can't.
+/// Why `new` can't replace `old` while running, if it can't.
 pub(crate) fn check(old: &Loaded, new: &Loaded) -> Result<(), Error> {
-    check_acceptor(&old.raw.acceptor, &new.raw.acceptor)?;
+    match (&old.raw.acceptor, &new.raw.acceptor) {
+        (Some(before), Some(after)) => check_acceptor(before, after)?,
+        (None, None) => {}
+        _ => return Err(Error::at("acceptor", "section", "can't be added or removed until a restart")),
+    }
     for (name, store) in &old.raw.store {
         match new.raw.store.get(name) {
             Some(same) if same == store => {}
@@ -40,19 +50,32 @@ pub(crate) fn check(old: &Loaded, new: &Loaded) -> Result<(), Error> {
             None => return Err(Error::at(&format!("store {name}"), "name", "can't be removed until a restart")),
         }
     }
+    if old.acceptor.is_some() && new.acceptor.is_some() {
+        check_counterparty_stores(old, new)?;
+    }
+    for (name, after) in &new.initiators {
+        let before = old.initiators.values().find(|before| before.id() == after.id());
+        if let Some(before) = before
+            && before.store != after.store
+        {
+            return Err(Error::at(&format!("initiator {name}"), "store", moved(&before.store, &after.store)));
+        }
+    }
+    Ok(())
+}
+
+fn check_counterparty_stores(old: &Loaded, new: &Loaded) -> Result<(), Error> {
     let comp_ids: BTreeSet<&String> = old.raw.counterparty.keys().chain(new.raw.counterparty.keys()).collect();
     for comp_id in comp_ids {
-        let section = format!("counterparty {comp_id}");
         if let (Some(before), Some(after)) = (store_name(old, comp_id), store_name(new, comp_id))
             && before != after
         {
-            return Err(Error::at(&section, "store", moved(before, after)));
+            return Err(Error::at(&format!("counterparty {comp_id}"), "store", moved(before, after)));
         }
     }
-    if let (Unknown::Admit, Unknown::Admit) = (old.raw.acceptor.unknown, new.raw.acceptor.unknown)
-        && old.unlisted.store != new.unlisted.store
-    {
-        return Err(Error::at("defaults", "store", moved(&old.unlisted.store, &new.unlisted.store)));
+    let (before, after) = (&old.acceptor().unlisted.store, &new.acceptor().unlisted.store);
+    if (old.unknown(), new.unknown()) == (Unknown::Admit, Unknown::Admit) && before != after {
+        return Err(Error::at("defaults", "store", moved(before, after)));
     }
     Ok(())
 }
@@ -63,9 +86,10 @@ fn moved(before: &str, after: &str) -> String {
 
 /// The store counterparty `comp_id`'s sessions are kept in, if it may log on.
 fn store_name<'a>(loaded: &'a Loaded, comp_id: &str) -> Option<&'a str> {
-    match loaded.listed.get(comp_id) {
+    let acceptor = loaded.acceptor();
+    match acceptor.listed.get(comp_id) {
         Some(resolved) => Some(&resolved.store),
-        None if loaded.raw.acceptor.unknown == Unknown::Admit => Some(&loaded.unlisted.store),
+        None if loaded.unknown() == Unknown::Admit => Some(&acceptor.unlisted.store),
         None => None,
     }
 }
@@ -103,16 +127,51 @@ pub(crate) fn changes(old: &Loaded, new: &Loaded) -> Changes {
     changes
 }
 
+/// What a reload does to each initiator, by section name.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct InitiatorChanges {
+    pub start: Vec<String>,
+    pub reconfigure: Vec<String>,
+    pub stop: Vec<String>,
+}
+
+/// Initiators to start, reconfigure and stop from `old` to `new`. One that now logs on to
+/// another session, or switches TLS on or off, is stopped and started again: the session and
+/// the connector are fixed when an initiator is made.
+pub(crate) fn initiator_changes(old: &Loaded, new: &Loaded) -> InitiatorChanges {
+    let mut changes = InitiatorChanges::default();
+    for (name, after) in &new.initiators {
+        let Some(before) = old.initiators.get(name) else {
+            changes.start.push(name.clone());
+            continue;
+        };
+        if before.id() != after.id() || before.uses_tls() != after.uses_tls() {
+            changes.stop.push(name.clone());
+            changes.start.push(name.clone());
+            continue;
+        }
+        let (raw_before, raw_after) = (&old.raw.initiator[name], &new.raw.initiator[name]);
+        let changed = raw_before.own != raw_after.own
+            || raw_before.settings.or(&old.raw.defaults) != raw_after.settings.or(&new.raw.defaults);
+        if changed {
+            changes.reconfigure.push(name.clone());
+        }
+    }
+    changes.stop.extend(old.initiators.keys().filter(|name| !new.initiators.contains_key(*name)).cloned());
+    changes.stop.sort();
+    changes
+}
+
 /// Logs out `acceptor`'s connected counterparties that `loaded` doesn't admit, returning their
 /// CompIDs.
 pub(crate) fn log_out_removed(loaded: &Loaded, acceptor: &Acceptor) -> Vec<String> {
-    if loaded.raw.acceptor.unknown == Unknown::Admit {
+    if loaded.unknown() == Unknown::Admit {
         return Vec::new();
     }
     let mut logged_out = Vec::new();
     for id in acceptor.sessions() {
         let comp_id = &id.target_comp_id;
-        if loaded.listed.contains_key(comp_id) {
+        if loaded.acceptor().listed.contains_key(comp_id) {
             continue;
         }
         match acceptor.session(comp_id).logout(Some("no longer configured")) {
