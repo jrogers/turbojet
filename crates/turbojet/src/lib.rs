@@ -210,6 +210,7 @@ mod macros;
 pub mod acceptor;
 pub mod admin;
 pub mod application;
+pub mod cancel;
 pub mod codec;
 pub mod connection;
 pub mod counterparty;
@@ -232,6 +233,7 @@ pub mod validation;
 
 pub use acceptor::Acceptor;
 pub use application::{Application, Context, Disconnect, MessageReject};
+pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};

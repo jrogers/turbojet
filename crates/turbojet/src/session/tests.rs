@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use super::*;
+use crate::cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 use crate::codec::{decode, decode_stored, encode};
 use crate::fields::{ApplVerId, FromFix};
 use crate::message::utc_timestamp;
@@ -4513,6 +4514,19 @@ fn rate_limits_out_of_bounds_are_refused() {
     assert!(err(inbound.clone()).starts_with("inbound_limit: "), "{}", err(inbound));
     let inbound = config(None, Some(InboundLimit::Reject(zero)));
     assert!(err(inbound.clone()).starts_with("inbound_limit: "), "{}", err(inbound));
+}
+
+#[test]
+fn a_cancel_grace_over_the_maximum_is_refused() {
+    let config = |grace| {
+        let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
+        config.cancel_on_disconnect = Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace });
+        config
+    };
+    assert_eq!(config(Duration::ZERO).check(), Ok(()));
+    assert_eq!(config(MAX_CANCEL_GRACE).check(), Ok(()));
+    let err = config(MAX_CANCEL_GRACE + Duration::from_millis(1)).check().unwrap_err();
+    assert!(err.starts_with("cancel_on_disconnect: "), "{err}");
 }
 
 #[test]

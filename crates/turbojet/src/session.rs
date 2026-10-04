@@ -25,6 +25,7 @@ use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
 use crate::application::{Application, Context, Disconnect, MessageReject, Outbox};
+use crate::cancel::{CancelOnDisconnect, MAX_CANCEL_GRACE};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::counterparty::{Counterparties, Counterparty};
 use crate::fields::{
@@ -159,6 +160,12 @@ pub struct SessionConfig {
     /// `turbojet_throttled_total` counts holds and rejects (see [`telemetry`](crate::telemetry)),
     /// and each reject is logged at DEBUG only, so a flood doesn't flood the log.
     pub inbound_limit: Option<InboundLimit>,
+    /// Cancel on disconnect: when a session that logged on ends in a way the trigger counts, the
+    /// application is told to cancel the session's orders, unless the counterparty logs back on
+    /// within the grace period, which stops the countdown. Our own shutdown and the schedule's end
+    /// never count. `None` (the default) means off; an acceptor sets it per counterparty through
+    /// [`Counterparties`].
+    pub cancel_on_disconnect: Option<CancelOnDisconnect>,
     /// FIXT.1.1 only: the application versions (DefaultApplVerID(1137)) this session supports; see
     /// [`with_appl_ver_id`](Self::with_appl_ver_id).
     pub appl_versions: Vec<ApplVersion>,
@@ -178,7 +185,8 @@ pub struct SessionConfig {
 impl SessionConfig {
     /// A configuration for BeginString `begin_string` with our CompID `sender_comp_id`: 10 seconds
     /// to log on and 5 to log out, no schedule, the system clock, SendingTime within 120 seconds,
-    /// OrigSendingTime and header order checked, a send queue of 10,000 and no rate limits.
+    /// OrigSendingTime and header order checked, a send queue of 10,000, no rate limits and no cancel
+    /// on disconnect.
     pub fn new(begin_string: impl Into<String>, sender_comp_id: impl Into<String>) -> Self {
         Self {
             begin_string: begin_string.into(),
@@ -195,6 +203,7 @@ impl SessionConfig {
             send_queue: 10_000,
             outbound_limit: None,
             inbound_limit: None,
+            cancel_on_disconnect: None,
             appl_versions: Vec::new(),
             #[cfg(feature = "validation")]
             validator: None,
@@ -252,14 +261,19 @@ impl SessionConfig {
     }
 
     /// Why this configuration can't run a session, if it can't: a rate limit out of bounds (see
-    /// [`RateLimit`]), or a FIXT session without an application version, or with one twice, or
-    /// a FIX 4.x session with one.
+    /// [`RateLimit`]), a cancel grace over [`MAX_CANCEL_GRACE`], or a FIXT session without an
+    /// application version, or with one twice, or a FIX 4.x session with one.
     pub fn check(&self) -> Result<(), String> {
         if let Some(limit) = &self.outbound_limit {
             limit.check().map_err(|e| format!("outbound_limit: {e}"))?;
         }
         if let Some(InboundLimit::Delay(limit) | InboundLimit::Reject(limit)) = &self.inbound_limit {
             limit.check().map_err(|e| format!("inbound_limit: {e}"))?;
+        }
+        if let Some(CancelOnDisconnect { grace, .. }) = self.cancel_on_disconnect
+            && grace > MAX_CANCEL_GRACE
+        {
+            return Err(format!("cancel_on_disconnect: grace {grace:?} is over {MAX_CANCEL_GRACE:?}"));
         }
         let versions = self.appl_versions.len();
         if !self.is_fixt() {

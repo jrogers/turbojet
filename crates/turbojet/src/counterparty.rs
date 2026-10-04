@@ -183,6 +183,7 @@ impl Counterparties for CounterpartyMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
     use crate::schedule::Clock;
     use crate::throttle::RateLimit;
 
@@ -227,6 +228,16 @@ mod tests {
         let mut counterparty = Counterparty::new(base.clone());
         counterparty.config.outbound_limit = Some(RateLimit { messages: 0, per: Duration::from_secs(1) });
         assert!(counterparty.check(&base).unwrap_err().starts_with("outbound_limit"));
+    }
+
+    #[test]
+    fn a_cancel_grace_over_the_maximum_is_refused() {
+        let base = base();
+        let mut counterparty = Counterparty::new(base.clone());
+        let grace = MAX_CANCEL_GRACE + Duration::from_secs(1);
+        counterparty.config.cancel_on_disconnect =
+            Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace });
+        assert!(counterparty.check(&base).unwrap_err().starts_with("cancel_on_disconnect"));
     }
 
     #[test]
