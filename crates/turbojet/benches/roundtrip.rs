@@ -8,7 +8,8 @@
 //! acknowledgement back to it: a hop between tasks each way. "latency, replying from on_message"
 //! has the initiator's application send each next order from `on_message` instead, as an
 //! application reacting to what it receives would, so only the first order and the last
-//! acknowledgement hop.
+//! acknowledgement hop. "tcp, spinning" runs it with each end on a thread of its own, polling a
+//! non-blocking socket without waiting (`run_spinning`).
 
 mod common;
 
@@ -19,11 +20,12 @@ use std::time::{Duration, Instant};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc;
+use turbojet::connection::SpinningStream;
 use turbojet::{
-    Acceptor, Application, Context, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject, SessionConfig,
-    SessionHandle, SessionStorage,
+    Acceptor, Application, ConnectionInfo, Context, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject,
+    SessionConfig, SessionHandle, SessionStorage,
 };
 
 /// Orders in flight at once in the pipelined benchmark.
@@ -107,6 +109,66 @@ async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, l
     tokio::spawn(initiator.run());
     tokio::time::timeout(Duration::from_secs(5), logons.recv()).await.expect("logon timed out");
     Connection { handle, acks, client }
+}
+
+/// Starts an acceptor and a logged-on initiator, each driven by `run_spinning` on a thread of its
+/// own. Shutting the initiator down ends both threads.
+async fn connect_spinning() -> (Connection, Initiator) {
+    let acceptor =
+        Acceptor::new(config("GATEWAY", false), Arc::new(common::DiscardStorage), Arc::new(common::Acker::default()))
+            .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let (logged_on, mut logons) = mpsc::unbounded_channel();
+    let (received, acks) = mpsc::unbounded_channel();
+    let mut config = InitiatorConfig::new(config("CLIENT", false), "GATEWAY");
+    config.reset_on_logon = true;
+    let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
+    let initiator = Initiator::new(addr.to_string(), config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
+
+    let runtime = Handle::current();
+    std::thread::spawn({
+        let runtime = runtime.clone();
+        move || {
+            let socket = SpinningStream::new(listener.accept().unwrap().0).unwrap();
+            acceptor.accept_spinning(socket, ConnectionInfo::default(), &runtime)
+        }
+    });
+    std::thread::spawn({
+        let initiator = initiator.clone();
+        move || {
+            let socket = SpinningStream::new(std::net::TcpStream::connect(addr).unwrap()).unwrap();
+            initiator.run_spinning(socket, ConnectionInfo::default(), &runtime)
+        }
+    });
+    tokio::time::timeout(Duration::from_secs(5), logons.recv()).await.expect("logon timed out");
+    (Connection { handle: initiator.handle(), acks, client }, initiator)
+}
+
+/// One order at a time, each sent by the initiator's application as the last is acknowledged,
+/// with both ends spinning.
+fn spinning(c: &mut Criterion) {
+    let runtime = Runtime::new().unwrap();
+    let (mut conn, initiator) = runtime.block_on(connect_spinning());
+    let mut group = c.benchmark_group("roundtrip tcp, spinning");
+    group.throughput(Throughput::Elements(1));
+    let mut next_id = 0u64;
+    group.bench_function("latency, replying from on_message", |b| {
+        b.iter_custom(|iters| {
+            runtime.block_on(async {
+                let start = Instant::now();
+                conn.client.chain.store(iters - 1, Ordering::Relaxed);
+                next_id += 1;
+                conn.handle.send(common::new_order_single(next_id)).unwrap();
+                conn.acks.recv().await.unwrap();
+                start.elapsed()
+            })
+        })
+    });
+    group.finish();
+    // Frees the spinning cores for the benchmarks after this one.
+    runtime.block_on(initiator.shutdown(None));
 }
 
 /// The latency and pipelined benchmarks, `window` orders in flight in the latter.
@@ -263,6 +325,7 @@ fn resend(c: &mut Criterion) {
 fn roundtrip(c: &mut Criterion) {
     resend(c);
     transport(c, "tcp", false, Arc::new(common::DiscardStorage), WINDOW);
+    spinning(c);
     #[cfg(feature = "tls")]
     transport(c, "tls", true, Arc::new(common::DiscardStorage), WINDOW);
     let dir = tempfile::tempdir().unwrap();
