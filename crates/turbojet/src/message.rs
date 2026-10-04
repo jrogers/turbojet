@@ -717,6 +717,7 @@ impl Message {
     /// bytes written.
     pub(crate) fn write_segments(&self, out: &mut Vec<u8>, keep: impl Fn(u32) -> bool) -> usize {
         let before = out.len();
+        let keep = &keep;
         for f in self.fields.iter().filter(|f| keep(f.tag)) {
             if f.is_binary() {
                 push_digits(out, f.tag as usize);
@@ -727,7 +728,10 @@ impl Message {
                 out.extend_from_slice(&self.buf.as_bytes()[f.start as usize..=f.end as usize]);
             }
         }
-        out.len() - before
+        let written = out.len() - before;
+        // Paired with the length computed before writing, which goes in BodyLength(9).
+        debug_assert_eq!(written, self.segments_len(keep), "the fields are as long as computed");
+        written
     }
 
     /// The first field that would be misread on the wire: a data field in `data` that doesn't
@@ -781,6 +785,7 @@ impl Message {
 
     /// The field's value, unless it's binary.
     fn text(&self, field: &Field) -> Option<&str> {
+        debug_assert!(field.is_binary() || field.end as usize <= self.buf.len(), "a field lies within the buffer");
         (!field.is_binary()).then(|| &self.buf[field.value as usize..field.end as usize])
     }
 
@@ -1139,6 +1144,7 @@ impl<'a> Fields<'a> {
     /// The tag and raw value at `index`; `None` for a binary value.
     #[doc(hidden)]
     pub fn at(&self, index: usize) -> (u32, Option<&'a str>) {
+        debug_assert!((self.start..self.end).contains(&index), "field {index} outside the view");
         let field = &self.msg.fields[index];
         (field.tag, self.msg.text(field))
     }
@@ -1146,6 +1152,7 @@ impl<'a> Fields<'a> {
     /// The value at `index` as bytes.
     #[doc(hidden)]
     pub fn bytes_at(&self, index: usize) -> &'a [u8] {
+        debug_assert!((self.start..self.end).contains(&index), "field {index} outside the view");
         self.msg.bytes(&self.msg.fields[index])
     }
 
