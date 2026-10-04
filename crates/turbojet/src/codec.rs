@@ -77,6 +77,8 @@ pub fn decode_into(buf: &[u8], data: &DataFields, msg: &mut Message) -> DecodedI
         Ok(total) => total,
         Err(d) => return without_message(d),
     };
+    debug_assert!(total > 0, "a frame has bytes");
+    debug_assert!(total <= buf.len(), "a frame lies within the buffer");
     match msg.read_frame(&buf[..total], data) {
         Ok(()) => DecodedInto::Message(total),
         Err(reason) => without_message(garbled(buf, reason)),
@@ -181,7 +183,9 @@ pub fn encode_into(msg: &Message, out: &mut Vec<u8>) -> Result<(), FieldError> {
     out.extend_from_slice(b"\x019=");
     push_digits(out, body_len);
     out.push(SOH);
+    let body_start = out.len();
     msg.write_segments(out, in_body);
+    debug_assert_eq!(out.len() - body_start, body_len, "the body is as long as BodyLength(9) says");
     push_trailer(out, start);
     // What we encode, we can frame: the pair of the checks decoding makes.
     debug_assert_eq!(frame_stored(&out[start..]), Ok(out.len() - start));
@@ -190,8 +194,10 @@ pub fn encode_into(msg: &Message, out: &mut Vec<u8>) -> Result<(), FieldError> {
 
 /// Appends the CheckSum(10) field for the message that starts at `out[start]`.
 pub(crate) fn push_trailer(out: &mut Vec<u8>, start: usize) {
+    debug_assert!(start < out.len(), "a trailer follows a message");
     let sum = checksum(&out[start..]);
     out.extend_from_slice(&[b'1', b'0', b'=', b'0' + sum / 100, b'0' + sum / 10 % 10, b'0' + sum % 10, SOH]);
+    debug_assert!(out[out.len() - TRAILER_LEN..].starts_with(b"10="));
 }
 
 /// Appends the decimal digits of `n` without allocating.
@@ -233,13 +239,18 @@ fn header_field(buf: &[u8], start: usize, prefix: &[u8]) -> Result<(usize, usize
 }
 
 fn garbled(buf: &[u8], reason: String) -> Decoded {
+    debug_assert!(!buf.is_empty(), "garbled input has bytes");
     // Resynchronise on the next plausible BeginString.
     let skip = buf.windows(5).skip(1).position(|w| w == b"8=FIX").map(|p| p + 1).unwrap_or_else(|| {
         // Keep a trailing partial "8=FIX" that may be completed by the next read.
         let keep = (1..5).rev().find(|&k| buf.ends_with(&b"8=FIX"[..k])).unwrap_or(0);
         buf.len() - keep
     });
-    Decoded::Garbled { skip: skip.max(1), reason }
+    let skip = skip.max(1);
+    // The reader drops `skip` bytes: at least one, so it can't spin on the same input, and no
+    // more than it has.
+    debug_assert!(skip <= buf.len(), "skip {skip} past the {} bytes read", buf.len());
+    Decoded::Garbled { skip, reason }
 }
 
 fn parse_digits(bytes: &[u8]) -> Option<usize> {
