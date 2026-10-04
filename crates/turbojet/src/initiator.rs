@@ -3,7 +3,7 @@
 
 use std::future::Future;
 use std::io;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -137,9 +137,9 @@ impl From<&String> for Endpoint {
 /// disaster-recovery sites), so sequence numbers carry over when failing over.
 #[derive(Clone)]
 pub struct Initiator {
-    /// Primary first, then backups in priority order.
-    endpoints: Vec<Endpoint>,
-    config: Arc<InitiatorConfig>,
+    /// What it connects to and with, shared by clones and replaced whole by
+    /// [`reconfigure`](Self::reconfigure); each connection attempt takes the one current then.
+    plan: Arc<RwLock<Arc<Plan>>>,
     registry: Arc<SessionRegistry>,
     app: Arc<dyn Application>,
     #[cfg(feature = "tls")]
@@ -149,6 +149,13 @@ pub struct Initiator {
     /// which a real socket can't reliably be made to do.
     #[cfg(test)]
     unreachable: Vec<String>,
+}
+
+/// An initiator's endpoints and configuration.
+struct Plan {
+    /// Primary first, then backups in priority order.
+    endpoints: Vec<Endpoint>,
+    config: InitiatorConfig,
 }
 
 /// How a connection attempt to one endpoint ended.
@@ -174,8 +181,7 @@ impl Initiator {
         config.assert_valid();
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.session.clock.clone()));
         Self {
-            endpoints: vec![addr.into()],
-            config: Arc::new(config),
+            plan: Arc::new(RwLock::new(Arc::new(Plan { endpoints: vec![addr.into()], config }))),
             registry,
             app,
             #[cfg(feature = "tls")]
@@ -187,9 +193,67 @@ impl Initiator {
     }
 
     /// Adds a backup endpoint, tried after the primary and any earlier backups.
-    pub fn with_failover(mut self, endpoint: impl Into<Endpoint>) -> Self {
-        self.endpoints.push(endpoint.into());
+    pub fn with_failover(self, endpoint: impl Into<Endpoint>) -> Self {
+        let plan = self.plan();
+        let mut endpoints = plan.endpoints.clone();
+        endpoints.push(endpoint.into());
+        self.set_plan(Plan { endpoints, config: plan.config.clone() });
         self
+    }
+
+    /// Keeps the session's state in `registry` rather than one of its own, so that
+    /// [`SessionHandle`]s from it stay valid if this initiator is replaced by another for the same
+    /// session (with different settings, say), and operator changes go through it. The registry's
+    /// storage is used in place of the one given to [`new`](Self::new). Set it before running or
+    /// cloning.
+    #[must_use]
+    pub fn with_registry(mut self, registry: Arc<SessionRegistry>) -> Self {
+        self.registry = registry;
+        self
+    }
+
+    /// Connects with `config` and to `endpoints` (primary first) from the next connection
+    /// attempt on, here and in clones; a session already connected carries on with the settings
+    /// it connected with. The reconnect policy applies from the next wait.
+    ///
+    /// # Errors
+    ///
+    /// If `config` is invalid ([`InitiatorConfig::check`]), `endpoints` is empty, a TLS server
+    /// name in it is invalid, or `config` names another session (BeginString or either CompID) or
+    /// another clock than the one this initiator was made with: those make another initiator.
+    pub fn reconfigure(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), String> {
+        config.check()?;
+        if endpoints.is_empty() {
+            return Err("an initiator needs an endpoint".into());
+        }
+        let current = self.plan();
+        let (now, then) = (&config.session, &current.config.session);
+        let fixed = [
+            ("begin_string", now.begin_string == then.begin_string),
+            ("sender_comp_id", now.sender_comp_id == then.sender_comp_id),
+            ("target_comp_id", config.target_comp_id == current.config.target_comp_id),
+            ("clock", now.clock.same_as(&then.clock)),
+        ];
+        if let Some((field, _)) = fixed.iter().find(|(_, same)| !same) {
+            return Err(format!("{field} can't change: that's another initiator"));
+        }
+        #[cfg(feature = "tls")]
+        if self.tls.is_some() {
+            for name in endpoints.iter().filter_map(|e| e.tls_server_name.as_deref()) {
+                tls_server_name(name).map_err(|e| e.to_string())?;
+            }
+        }
+        self.set_plan(Plan { endpoints, config });
+        Ok(())
+    }
+
+    /// The endpoints and configuration current now.
+    fn plan(&self) -> Arc<Plan> {
+        self.plan.read().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    fn set_plan(&self, plan: Plan) {
+        *self.plan.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(plan);
     }
 
     /// Connects over TLS, verifying each server's certificate against `server_name` (a DNS name
@@ -197,7 +261,7 @@ impl Initiator {
     #[cfg(feature = "tls")]
     pub fn with_tls(mut self, connector: crate::tls::TlsConnector, server_name: &str) -> io::Result<Self> {
         tls_server_name(server_name)?;
-        for endpoint in &self.endpoints {
+        for endpoint in &self.plan().endpoints {
             if let Some(name) = &endpoint.tls_server_name {
                 tls_server_name(name)?;
             }
@@ -206,17 +270,18 @@ impl Initiator {
         Ok(self)
     }
 
-    /// The endpoints in the order they are tried.
-    pub fn endpoints(&self) -> &[Endpoint] {
-        &self.endpoints
+    /// The endpoints in the order they are tried, as of now.
+    pub fn endpoints(&self) -> Vec<Endpoint> {
+        self.plan().endpoints.clone()
     }
 
     /// The session this initiator logs on to: its BeginString, our CompID and the target's.
     pub fn session_id(&self) -> SessionId {
+        let config = &self.plan().config;
         SessionId {
-            begin_string: self.config.session.begin_string.clone(),
-            sender_comp_id: self.config.session.sender_comp_id.clone(),
-            target_comp_id: self.config.target_comp_id.clone(),
+            begin_string: config.session.begin_string.clone(),
+            sender_comp_id: config.session.sender_comp_id.clone(),
+            target_comp_id: config.target_comp_id.clone(),
         }
     }
 
@@ -233,7 +298,7 @@ impl Initiator {
         let span = tracing::info_span!("initiator", session = %self.session_id());
         async {
             let mut waiting = false;
-            let mut backoff = Backoff::new(self.config.reconnect);
+            let mut backoff = Backoff::new(self.plan().config.reconnect);
             while !self.shutdown.is_started() {
                 if let Some((wait, reason)) = self.schedule_wait() {
                     if !waiting {
@@ -251,6 +316,7 @@ impl Initiator {
                     Err(e) if self.shutdown.is_started() => info!("{e}"),
                     Err(e) => warn!("{e}"),
                 }
+                backoff.set_policy(self.plan().config.reconnect);
                 let delay = backoff.next_delay(logged_on);
                 if !self.shutdown.is_started() {
                     info!(?delay, "reconnecting after a delay");
@@ -279,17 +345,19 @@ impl Initiator {
         if let Some((_, reason)) = self.schedule_wait() {
             return (false, Err(io::Error::new(io::ErrorKind::NotConnected, reason)));
         }
-        let mut errors = Vec::with_capacity(self.endpoints.len());
-        for (index, endpoint) in self.endpoints.iter().enumerate() {
+        // One plan for the whole attempt, even if reconfigured meanwhile.
+        let plan = self.plan();
+        let mut errors = Vec::with_capacity(plan.endpoints.len());
+        for (index, endpoint) in plan.endpoints.iter().enumerate() {
             if self.shutdown.is_started() {
                 return (false, Err(shutting_down()));
             }
             let role = if index == 0 { "primary" } else { "backup" };
             let span = tracing::info_span!("endpoint", addr = %endpoint.addr, role);
-            match self.attempt(endpoint).instrument(span).await {
+            match self.attempt(endpoint, &plan.config).instrument(span).await {
                 Attempt::Established(result) => return (true, result),
                 Attempt::Failed(e) => {
-                    let next = self.endpoints.get(index + 1).map_or("none left", |next| next.addr.as_str());
+                    let next = plan.endpoints.get(index + 1).map_or("none left", |next| next.addr.as_str());
                     warn!(addr = %endpoint.addr, role, next, "endpoint failed: {e}");
                     errors.push(format!("{}: {e}", endpoint.addr));
                 }
@@ -309,7 +377,7 @@ impl Initiator {
     {
         let _open = self.shutdown.track();
         let (mut session, commands) =
-            Session::initiator(&self.config, self.registry.clone(), self.app.clone(), Instant::now());
+            Session::initiator(&self.plan().config, self.registry.clone(), self.app.clone(), Instant::now());
         session.set_connection_info(info);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
@@ -323,7 +391,7 @@ impl Initiator {
     ///
     /// Shutdown is permanent. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {
-        self.shutdown.run(text, self.config.session.logout_timeout).await
+        self.shutdown.run(text, self.plan().config.session.logout_timeout).await
     }
 
     /// Runs `step` unless shutdown starts first, which fails it.
@@ -337,19 +405,20 @@ impl Initiator {
 
     /// How long until the schedule allows a session, and why, if it doesn't now.
     fn schedule_wait(&self) -> Option<(Duration, String)> {
-        let schedule = self.config.session.schedule.as_ref()?;
-        let now = self.config.session.clock.now();
+        let plan = self.plan();
+        let schedule = plan.config.session.schedule.as_ref()?;
+        let now = plan.config.session.clock.now();
         let reason = schedule.closed_reason(now)?;
         let wait =
             schedule.next_start(now).and_then(|next| (next - now).to_std().ok()).unwrap_or(Duration::from_secs(60));
         Some((wait, reason))
     }
 
-    async fn attempt(&self, endpoint: &Endpoint) -> Attempt {
+    async fn attempt(&self, endpoint: &Endpoint, config: &InitiatorConfig) -> Attempt {
         // Counted from here, so shutdown also waits for a TLS handshake; the connect and the
         // handshake are abandoned as soon as it starts.
         let _open = self.shutdown.track();
-        let connect = tokio::time::timeout(self.config.connect_timeout, self.tcp_connect(&endpoint.addr));
+        let connect = tokio::time::timeout(config.connect_timeout, self.tcp_connect(&endpoint.addr));
         let connect = match self.unless_shutdown(connect).await {
             Ok(connect) => connect,
             Err(e) => return Attempt::Failed(e),
@@ -358,7 +427,7 @@ impl Initiator {
             Ok(Ok(stream)) => stream,
             Ok(Err(e)) => return Attempt::Failed(e),
             Err(_) => {
-                let timeout = self.config.connect_timeout;
+                let timeout = config.connect_timeout;
                 return Attempt::Failed(io::Error::new(
                     io::ErrorKind::TimedOut,
                     format!("connect timed out after {timeout:?}"),
@@ -377,7 +446,7 @@ impl Initiator {
                 Ok(name) => name,
                 Err(e) => return Attempt::Failed(e),
             };
-            let handshake = tokio::time::timeout(self.config.session.logon_timeout, connector.connect(name, stream));
+            let handshake = tokio::time::timeout(config.session.logon_timeout, connector.connect(name, stream));
             let handshake = match self.unless_shutdown(handshake).await {
                 Ok(handshake) => handshake,
                 Err(e) => return Attempt::Failed(e),
@@ -389,9 +458,9 @@ impl Initiator {
             };
             info!("TLS handshake complete");
             let certificates = crate::tls::peer_certificates(stream.get_ref().1.peer_certificates());
-            return self.run_session(stream, ConnectionInfo::new(addr, certificates)).await;
+            return self.run_session(stream, ConnectionInfo::new(addr, certificates), config).await;
         }
-        self.run_session(stream, ConnectionInfo::new(addr, Vec::new())).await
+        self.run_session(stream, ConnectionInfo::new(addr, Vec::new()), config).await
     }
 
     async fn tcp_connect(&self, addr: &str) -> io::Result<TcpStream> {
@@ -402,12 +471,12 @@ impl Initiator {
         TcpStream::connect(addr).await
     }
 
-    async fn run_session<S>(&self, stream: S, info: ConnectionInfo) -> Attempt
+    async fn run_session<S>(&self, stream: S, info: ConnectionInfo, config: &InitiatorConfig) -> Attempt
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let (mut session, commands) =
-            Session::initiator(&self.config, self.registry.clone(), self.app.clone(), Instant::now());
+            Session::initiator(config, self.registry.clone(), self.app.clone(), Instant::now());
         session.set_connection_info(info);
         let mut logged_on = false;
         let signal = Some(self.shutdown.signal());
@@ -493,5 +562,70 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::NotConnected, "{err}");
         assert!(err.to_string().contains("shutting down"), "{err}");
+    }
+
+    /// A listener that takes each connection and closes it before logon.
+    async fn closing_listener() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                drop(stream);
+            }
+        });
+        addr
+    }
+
+    #[tokio::test]
+    async fn reconfiguring_applies_from_the_next_connection() {
+        let (first, second) = (closing_listener().await, closing_listener().await);
+        let initiator = initiator(&first, Duration::from_secs(5));
+        let clone = initiator.clone();
+        let err = initiator.connect_once().await.unwrap_err().to_string();
+        assert!(err.contains(&first), "{err}");
+        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+        config.session.clock = initiator.plan().config.session.clock.clone();
+        config.heartbeat_interval = Duration::from_secs(10);
+        initiator.reconfigure(config, vec![Endpoint::new(&second)]).unwrap();
+        assert_eq!(clone.endpoints(), [Endpoint::new(&second)], "clones share it");
+        let err = clone.connect_once().await.unwrap_err().to_string();
+        assert!(err.contains(&second) && !err.contains(&first), "{err}");
+        assert_eq!(clone.plan().config.heartbeat_interval, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn reconfiguring_keeps_the_session_and_clock() {
+        let initiator = initiator("127.0.0.1:1", Duration::from_secs(5));
+        let same = || {
+            let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+            config.session.clock = initiator.plan().config.session.clock.clone();
+            config
+        };
+        type Change = fn(&mut InitiatorConfig);
+        let changes: [(&str, Change); 4] = [
+            ("begin_string", |c| c.session.begin_string = "FIX.4.4".into()),
+            ("sender_comp_id", |c| c.session.sender_comp_id = "OTHER".into()),
+            ("target_comp_id", |c| c.target_comp_id = "OTHER".into()),
+            ("clock", |c| c.session.clock = crate::Clock::system()),
+        ];
+        for (field, change) in changes {
+            let mut config = same();
+            change(&mut config);
+            let err = initiator.reconfigure(config, vec![Endpoint::new("127.0.0.1:2")]).unwrap_err();
+            assert_eq!(err, format!("{field} can't change: that's another initiator"));
+        }
+        assert!(initiator.reconfigure(same(), Vec::new()).is_err(), "no endpoint");
+        let mut invalid = same();
+        invalid.heartbeat_interval = Duration::ZERO;
+        assert!(initiator.reconfigure(invalid, vec![Endpoint::new("127.0.0.1:2")]).is_err());
+        assert_eq!(initiator.endpoints(), [Endpoint::new("127.0.0.1:1")], "unchanged by refusals");
+    }
+
+    #[tokio::test]
+    async fn a_shared_registry_holds_the_session() {
+        let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
+        let initiator = initiator("127.0.0.1:1", Duration::from_secs(5)).with_registry(registry.clone());
+        registry.handle(initiator.session_id()).set_next_outgoing(5).await.unwrap();
+        assert_eq!(initiator.handle().sequence_numbers().await.unwrap().next_outgoing, 5);
     }
 }

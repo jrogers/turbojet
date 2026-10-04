@@ -92,6 +92,11 @@ impl Backoff {
         Self { policy, attempt: 0, random: RandomState::new(), draws: 0 }
     }
 
+    /// Waits as `policy` says from the next delay on, keeping the count of attempts.
+    pub(crate) fn set_policy(&mut self, policy: ReconnectPolicy) {
+        self.policy = policy;
+    }
+
     /// The wait before connecting again; `logged_on` if the session that just ended had logged
     /// on, which starts the count again.
     pub(crate) fn next_delay(&mut self, logged_on: bool) -> Duration {
