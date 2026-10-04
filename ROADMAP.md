@@ -375,8 +375,5 @@ Behaviour that's deliberate or documented, but worth revisiting.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
-- A typed parse keeps the first of a repeated NumInGroup and skips the repeat unchecked, so the
-  skipped group's entries are read as top-level fields: a field the message also declares at the
-  top level, such as Text, takes the skipped entry's value. Validation rejects the repeat (13).
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.

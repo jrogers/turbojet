@@ -6,6 +6,11 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- A typed message that repeats a group's NumInGroup field skips the repeat whole, as it skips any
+  repeated field. Before, it skipped only the NumInGroup field, so the repeat's entries were read
+  as the message's own fields: a field the message also declares at the top level, such as Text,
+  took an entry's value. A repeat that's malformed, so that its end can't be found, now fails the
+  parse.
 - Breaking: text fields in typed messages are `CompactString`s rather than `String`s (in the
   generated crates, and Text, TestReqID and Username in the admin messages), re-exported with
   `format_compact!` and `ToCompactString` from `turbojet::fields`. Values of up to 24 bytes are

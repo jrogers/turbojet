@@ -914,11 +914,11 @@ pub fn take_group<G: FixGroup>(
     index: usize,
     tag: u32,
 ) -> Result<usize, FieldError> {
-    if slot.is_some() {
-        return Ok(index + 1);
-    }
     // Within the view, as `Fields::group` scans.
     let (count, end) = check_group(fields.msg, index, fields.end, tag, &G::SPEC)?;
+    if slot.is_some() {
+        return Ok(end);
+    }
     let group: Group<'_, G::Ref<'_>> = Group::new(fields.msg, index + 1, end, count);
     // At most one entry per field checked, so the message's size bounds it.
     let mut entries = Vec::with_capacity(group.len());
@@ -932,7 +932,9 @@ pub fn take_group<G: FixGroup>(
 
 /// Checks the repeating group whose NumInGroup field is at `index` and stores it in its slot,
 /// borrowed, returning the index after it. A second occurrence is skipped, like any repeated
-/// field, and an entry that fails to parse fails the parse.
+/// field, but whole: its entries aren't read as the message's own fields, and if it's malformed,
+/// so that its end can't be found, it fails the parse. An entry that fails to parse fails the
+/// parse.
 #[doc(hidden)]
 #[inline(never)]
 pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
@@ -941,12 +943,12 @@ pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
     index: usize,
     tag: u32,
 ) -> Result<usize, FieldError> {
-    if slot.is_some() {
-        return Ok(index + 1);
-    }
     let spec = &<G::Owned as FixGroup>::SPEC;
     // Within the view, as `Fields::group` scans.
     let (count, end) = check_group(fields.msg, index, fields.end, tag, spec)?;
+    if slot.is_some() {
+        return Ok(end);
+    }
     let group = Group::new(fields.msg, index + 1, end, count);
     // Each entry is parsed now, in order, so a bad one fails the parse; the entries are parsed
     // again as the group is iterated. Not inside the walk above: the group is checked whole before
@@ -2253,13 +2255,31 @@ mod tests {
 
     #[test]
     fn a_borrowed_group_is_taken_once() {
-        let msg = raw("35=D|453=1|448=A|55=X|453=1|448=B|");
+        let msg = raw("35=D|453=1|448=A|55=X|453=2|448=B|452=1|448=C|58=end|");
         let body = msg.body();
         let mut slot = None;
         assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 1, NO_PARTY_IDS), Ok(3));
-        assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 4, NO_PARTY_IDS), Ok(5), "skipped");
+        assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 4, NO_PARTY_IDS), Ok(8), "skipped whole");
         let ids: Vec<_> = slot.unwrap().iter().map(|p| p.id).collect();
         assert_eq!(ids, ["A"]);
+        let mut owned = None;
+        assert_eq!(take_group::<Party>(&mut owned, &body, 1, NO_PARTY_IDS), Ok(3));
+        assert_eq!(take_group::<Party>(&mut owned, &body, 4, NO_PARTY_IDS), Ok(8), "skipped whole");
+    }
+
+    #[test]
+    fn a_malformed_repeated_group_fails_the_parse() {
+        // Its end can't be found, so it can't be skipped.
+        let msg = raw("35=D|453=1|448=A|453=2|448=B|");
+        let body = msg.body();
+        let error =
+            FieldError { tag: NO_PARTY_IDS, kind: FieldErrorKind::IncorrectNumInGroup { declared: 2, found: 1 } };
+        let mut slot = None;
+        assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 1, NO_PARTY_IDS), Ok(3));
+        assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 3, NO_PARTY_IDS), Err(error.clone()));
+        let mut owned = None;
+        assert_eq!(take_group::<Party>(&mut owned, &body, 1, NO_PARTY_IDS), Ok(3));
+        assert_eq!(take_group::<Party>(&mut owned, &body, 3, NO_PARTY_IDS), Err(error));
     }
 
     #[test]

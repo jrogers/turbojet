@@ -1311,20 +1311,20 @@ mod tests {
     }
 
     #[test]
-    fn a_repeated_group_is_skipped_and_its_entries_read_as_top_level_fields() {
-        // The second NoAllocs is skipped, like any repeated field, without being checked; its
-        // entry's AllocAccount is then a top-level tag that TestOrder doesn't declare.
+    fn a_repeated_group_is_skipped_whole() {
+        // The second NoAllocs is skipped, like any repeated field, but with its entries, which
+        // aren't read as top-level fields.
         let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|78=1|79=B|55=X|");
         assert_eq!(lenient, Ok(order(vec![leg("A", None, &[])], None)));
-        assert_eq!(strict, Err(error(ALLOC_ACCOUNT, FieldErrorKind::NotDefined)));
-        // So a member that TestOrder also declares is read from the skipped entry, as the first
-        // top-level occurrence.
+        assert_eq!(strict, lenient);
+        // So a member that TestOrder also declares at the top level keeps its own value.
         let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|58=in|78=1|79=B|58=second|55=X|58=out|");
-        assert_eq!(lenient, Ok(order(vec![leg("A", Some("in"), &[])], Some("second"))));
-        assert_eq!(strict, Err(error(ALLOC_ACCOUNT, FieldErrorKind::NotDefined)));
-        // The repeat's count isn't checked against anything.
+        assert_eq!(lenient, Ok(order(vec![leg("A", Some("in"), &[])], Some("out"))));
+        assert_eq!(strict, lenient);
+        // A repeat whose count is wrong has no end to skip to, and fails the parse.
         let (lenient, strict) = parse_both::<TestOrder>("35=D|78=1|79=A|78=2|55=X|");
-        assert_eq!(lenient, Ok(order(vec![leg("A", None, &[])], None)));
+        let wrong_count = FieldErrorKind::IncorrectNumInGroup { declared: 2, found: 0 };
+        assert_eq!(lenient, Err(error(NO_ALLOCS, wrong_count)));
         assert_eq!(strict, lenient);
     }
 
