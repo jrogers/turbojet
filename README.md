@@ -38,7 +38,8 @@ state in SQLite or PostgreSQL, with leases so that gateways sharing a database e
 sessions.
 
 [`turbojet-config`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-config) reads an
-acceptor, its counterparties and their stores from a TOML file, and reloads it while running.
+acceptor, its counterparties, initiators and their stores from a TOML file, and reloads it while
+running.
 
 CI runs Turbojet's sessions against QuickFIX/J, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
@@ -178,7 +179,8 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 - `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`; with the
   `conformance` feature, the suite every store must pass
 - `turbojet-sql` (a separate crate) – `SqlStorage`, session storage in SQLite or PostgreSQL
-- `turbojet-config` (a separate crate) – `SessionsFile`, an acceptor from a TOML file, reloadable
+- `turbojet-config` (a separate crate) – `SessionsFile`, an acceptor and initiators from a TOML
+  file, reloadable
 - `session::Session` – sans-IO state machine for either role; feed it messages and commands,
   call its timer when its next deadline falls due, write the encoded messages it leaves in
   `output`, and close the connection once it `is_closed`. While it `is_resending`, write its
@@ -514,6 +516,12 @@ address (a NAT, or a hub serving several firms) share its limit.
 
 All endpoints are treated as the same FIX session (e.g. a counterparty's primary and DR
 sites), so sequence numbers carry over and the `SessionHandle` stays valid across failovers.
+
+`Initiator::reconfigure` replaces an initiator's configuration and endpoints from its next
+connection attempt, leaving a session that's connected alone, and `with_registry` lets
+initiators share a `SessionRegistry`, so handles from it outlive an initiator replaced by
+another for the same session. `turbojet-config` uses both to run `[initiator.NAME]` sections
+from a file and apply a reload to them.
 
 ## Shutting down
 

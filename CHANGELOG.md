@@ -6,6 +6,12 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `Initiator::reconfigure` replaces an initiator's configuration and endpoints from its next
+  connection attempt (and its reconnect policy from the next wait), here and in clones; a session
+  connected carries on. It refuses another session's identity or clock.
+  `Initiator::with_registry` keeps the session in a shared `SessionRegistry`, so handles from it
+  outlive the initiator. Breaking: `Initiator::endpoints` returns a `Vec<Endpoint>`, since the
+  endpoints can change.
 - `Counterparty::check` is public, for resolvers that load their settings ahead of time.
 - The example gateway reads its sessions from a `turbojet-config` file with `--config FILE`,
   reloading it on SIGHUP.
@@ -267,6 +273,13 @@ Notable changes to the published crates.
   settings apply from each counterparty's next Logon, TLS certificates are replaced, and under
   `unknown = "refuse"` connected counterparties no longer listed are logged out. Features `tls`,
   `tz`, `validation`, `metrics`.
+- `[initiator.NAME]` sections: an initiator's counterparty, addresses, credentials (the password
+  from an environment variable), reconnect policy, TLS and session settings over `[defaults]`.
+  `SessionsFile::initiators` starts each on its own task as `Initiators`, whose handles survive
+  reloads. `SessionsFile::reload_all` reloads acceptor and initiators together: added initiators
+  start, removed ones are logged out and stopped, and changed ones apply their settings from
+  their next connection. `[acceptor]` is optional, so `acceptor`, `listen` and `base` return
+  `Option`s.
 
 ### `turbojet-sql`
 

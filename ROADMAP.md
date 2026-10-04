@@ -53,10 +53,12 @@ later, with:
   loss falls back to the record before it; both stores keep each session's newest messages up
   to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
   oldest, and the memory store a capped number of sessions;
-- session configuration files (`turbojet-config`): an acceptor, its counterparties and their
-  stores from TOML, every value checked on loading and errors naming the section and key, and
-  reloaded while running (changes apply from each counterparty's next Logon, counterparties no
-  longer listed are logged out, and a file that doesn't load leaves the one in use);
+- session configuration files (`turbojet-config`): an acceptor, its counterparties, initiators and
+  their stores from TOML, every value checked on loading and errors naming the section and key,
+  and reloaded while running (changes apply from each counterparty's next Logon and each
+  initiator's next connection, counterparties no longer listed are logged out, initiators are
+  started and stopped as they're added and removed, and a file that doesn't load leaves the one
+  in use);
 - SQL session storage (`turbojet-sql`) in SQLite or PostgreSQL through sqlx: one transaction per
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was
@@ -264,12 +266,10 @@ From the benchmarks.
 
 ## 7. Operations and deployment
 
-- **Initiators from configuration files** (M). `turbojet-config` configures an acceptor and its
-  counterparties from a file and reloads it; initiators are still configured in code. Add
-  `[initiator.X]` sections (address, failover endpoints, reconnect policy, credentials) and
-  something that owns their tasks, starting, stopping and restarting them as a reload adds,
-  removes and changes them. A QuickFIX `.cfg` importer for the keys that map would ease
-  migration.
+- **QuickFIX settings files** (S). `turbojet-config` reads TOML. An importer for the QuickFIX
+  `.cfg` keys that map (BeginString, SenderCompID, TargetCompID, SocketConnectHost/Port,
+  StartTime/EndTime, HeartBtInt, ResetOnLogon and the like) would ease moving from QuickFIX,
+  QuickFIX/J or QuickFIX/n.
 - **Management API and console** (L). The operator API works on connected sessions in the
   library, but nothing exposes it remotely, and the gateway only has the offline `seqnums`
   tool. Provide an optional management endpoint (HTTP, or a local socket) that lists sessions

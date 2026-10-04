@@ -1,7 +1,7 @@
 # turbojet-config
 
 Session configuration files for [Turbojet](https://github.com/jrogers/turbojet): an acceptor, its
-counterparties and their stores, read from TOML and reloaded while running.
+counterparties, initiators and their stores, read from TOML and reloaded while running.
 
 ```toml
 [acceptor]
@@ -27,14 +27,21 @@ over_limit = "reject"
 [counterparty.FUND]
 require_client_certificate = true
 heartbeat = { min = "10s", max = "60s" }
+
+[initiator.LSE]                     # we log on to LSE, as VENUE
+target_comp_id = "LSE"
+connect = ["primary.lse:9876", "dr.lse:9876"]
+username = "venue"
+password_env = "LSE_PASSWORD"       # passwords come from the environment, not the file
 ```
 
 ```rust,ignore
 let sessions = SessionsFile::load("sessions.toml")?;
-let acceptor = sessions.acceptor(Arc::new(MyApp));
-tokio::spawn(acceptor.clone().serve(TcpListener::bind(sessions.listen()).await?));
+let acceptor = sessions.acceptor(app.clone()).expect("the file has [acceptor]");
+tokio::spawn(acceptor.clone().serve(TcpListener::bind(sessions.listen().unwrap()).await?));
+let initiators = sessions.initiators(app)?;      // each [initiator] on its own task
 // On SIGHUP, say:
-let changes = sessions.reload(&acceptor)?;
+let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
 ```
 
 - Each counterparty's settings are its own keys over `[defaults]`: schedule and holidays, rate
@@ -43,9 +50,14 @@ let changes = sessions.reload(&acceptor)?;
 - Unknown keys are errors, and every value is checked when the file loads, so a typo can't be
   silently ignored and a file that loads has nothing left to fail at a counterparty's Logon.
   Errors name the section and key.
+- An initiator takes its counterparty, addresses (the primary, then failover), credentials,
+  reconnect policy and TLS, and the same session keys over `[defaults]`. A file may hold only
+  initiators.
 - A reload checks the whole file first and keeps the one in use if anything fails. Changed
-  settings apply from each counterparty's next Logon; under `unknown = "refuse"`, connected
-  counterparties no longer listed are logged out. What's in use until a restart can't change:
+  settings apply from each counterparty's next Logon and each initiator's next connection, so a
+  working session is never dropped for an edit; under `unknown = "refuse"`, connected
+  counterparties no longer listed are logged out, and removed initiators are logged out and
+  stopped. What's in use until a restart can't change:
   the acceptor's identity, address and limits, a store's definition, and which store a
   counterparty's sessions are in.
 - Stores of other kinds, such as `turbojet-sql`'s, are registered in code by name and named in
@@ -53,5 +65,3 @@ let changes = sessions.reload(&acceptor)?;
 
 The crate documentation lists every key. Features: `tls` (`[acceptor.tls]`), `tz` (time zones
 in schedules), `validation` (dictionaries), `metrics` (`latency_metrics`).
-
-Initiators are configured in code for now.
