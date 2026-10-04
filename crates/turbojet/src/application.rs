@@ -342,6 +342,19 @@ impl MessageReject {
     }
 }
 
+/// The reject it's answered with: `Reject(3) RequiredTagMissing, tag 55: Required tag 55 missing`.
+impl std::fmt::Display for MessageReject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Session { ref_tag: Some(tag), reason, text } => write!(f, "Reject(3) {reason:?}, tag {tag}: {text}"),
+            Self::Session { ref_tag: None, reason, text } => write!(f, "Reject(3) {reason:?}: {text}"),
+            Self::Business { reason, text } => write!(f, "BusinessMessageReject(j) {reason:?}: {text}"),
+        }
+    }
+}
+
+impl std::error::Error for MessageReject {}
+
 impl From<FieldError> for MessageReject {
     fn from(e: FieldError) -> Self {
         Self::Session { ref_tag: Some(e.tag), reason: e.reject_reason(), text: e.to_string() }
@@ -380,6 +393,18 @@ mod tests {
 
     /// A typed reply is built in a spare message, which `send` takes from the outbox; a message
     /// sent as it is leaves the spares alone.
+    #[test]
+    fn rejects_display_as_the_reject_they_send() {
+        assert_eq!(
+            MessageReject::required_tag_missing(55).to_string(),
+            "Reject(3) RequiredTagMissing, tag 55: Required tag 55 missing"
+        );
+        assert_eq!(
+            MessageReject::unsupported_message_type().to_string(),
+            "BusinessMessageReject(j) UnsupportedMessageType: Unsupported message type"
+        );
+    }
+
     #[test]
     fn typed_replies_are_built_in_spare_messages() {
         let id = session_id();
