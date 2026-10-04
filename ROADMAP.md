@@ -219,9 +219,11 @@ parent that decides and helpers that compute; the few still marked
   transitions and pairs (2026-10-04: a stored message is checked as stored and as read back, in
   both stores and again by the session; BodyLength is checked as computed and as written; a
   resend never reaches a number not yet sent; a store never reuses a number), about one assertion
-  per four functions, up from one per seven. The rest of the engine has fewer: the registry,
-  the connection driver, throttling, schedules and validation. Add checks where they state
-  something a reader relies on, not to reach a count.
+  per four functions, up from one per seven. The connection driver states its own (2026-10-04: a
+  store job is what the session waits for, checked as it starts and ends; a transport takes no
+  more than it's given; a clean end leaves nothing unwritten). The rest of the engine has fewer:
+  the registry, throttling, schedules and validation. Add checks where they state something a
+  reader relies on, not to reach a count.
 
 ## 6. Performance
 
