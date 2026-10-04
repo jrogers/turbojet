@@ -1,5 +1,7 @@
 //! A FIX 4.2 order-entry gateway: an [`Acceptor`] serving [`GatewayApp`], an
-//! [`Application`](turbojet::Application) that validates, books and cancels orders.
+//! [`Application`](turbojet::Application) that validates, books and cancels orders. A
+//! counterparty's orders are also cancelled when its session drops without a Logout and it doesn't
+//! log back on within 5 seconds (`CANCEL_ON_DISCONNECT`).
 //!
 //! `cargo run --example gateway --all-features -- --help`
 
@@ -13,14 +15,16 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 use metrics_exporter_prometheus::PrometheusBuilder;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use turbojet::{
-    Acceptor, CounterpartyMap, DiskStorage, HolidayCalendar, InboundLimit, MemoryStorage, RateLimit, SequenceError,
-    SessionConfig, SessionId, SessionRegistry, SessionSchedule, SessionStorage, tls,
+    Acceptor, CancelOnDisconnect, CancelTrigger, CounterpartyMap, DiskStorage, HolidayCalendar, InboundLimit,
+    MemoryStorage, RateLimit, SequenceError, SessionConfig, SessionId, SessionRegistry, SessionSchedule,
+    SessionStorage, tls,
 };
 use turbojet_config::SessionsFile;
 
@@ -68,6 +72,10 @@ Options:
                        handle each message, to commit, and from reading input to its replies)
   --log-format F       `text` (default) or `json`
   -h, --help           Show this help
+
+A counterparty whose session drops without a Logout has its open orders cancelled unless it logs
+back on within 5 seconds (cancel on disconnect). With --config, set this in the sessions file:
+  cancel_on_disconnect = \"disconnect\" and cancel_grace = \"5s\"
 
 Logging is controlled by RUST_LOG (default `info`). To log every FIX message:
   RUST_LOG=info,turbojet::messages=debug
@@ -118,11 +126,18 @@ fn only(allowed: &HashSet<String>) -> CounterpartyMap {
     allowed.iter().fold(CounterpartyMap::new(), |map, comp_id| map.with(comp_id.clone(), |_| {})).refuse_unknown()
 }
 
+/// Cancel on disconnect, as venues offer it: a session that drops without a Logout has its orders
+/// cancelled, unless the counterparty logs back on within the grace period. Five seconds covers a
+/// client's prompt reconnect without leaving orders working long for one that has gone.
+const CANCEL_ON_DISCONNECT: CancelOnDisconnect =
+    CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace: Duration::from_secs(5) };
+
 /// Parses the gateway's arguments (without the program name).
 #[expect(clippy::too_many_lines, reason = "one match arm per option")]
 fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut listen = "0.0.0.0:9876".to_string();
     let mut config = SessionConfig::new("FIX.4.2", "GATEWAY");
+    config.cancel_on_disconnect = Some(CANCEL_ON_DISCONNECT);
     let mut allowed = None;
     let mut allow_any = false;
     let mut store_dir = None;
@@ -513,6 +528,7 @@ async fn main() -> ExitCode {
         schedule = %config.schedule.as_ref().map_or("always open".to_string(), |s| s.to_string()),
         holidays = %describe_holidays(config.schedule.as_ref()),
         inbound_limit = %describe_inbound_limit(config.inbound_limit.as_ref()),
+        cancel_on_disconnect = ?config.cancel_on_disconnect,
         tls_match_comp_id,
         "FIX gateway listening"
     );

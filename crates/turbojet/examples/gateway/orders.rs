@@ -245,6 +245,19 @@ impl OrderManager {
         Ok(Ok(report))
     }
 
+    /// Cancels every open order of `owner`, whose session dropped and didn't come back: what a
+    /// venue's cancel on disconnect does. No ExecutionReports, since there is no one to send them
+    /// to; a later OrderStatusRequest reports the orders Canceled. Returns how many it cancelled.
+    pub fn cancel_all(&self, owner: &str) -> usize {
+        let mut book = self.lock();
+        let mut canceled = 0;
+        for order in book.orders.values_mut().filter(|order| order.owner == owner && order.status == OrdStatus::New) {
+            order.status = OrdStatus::Canceled;
+            canceled += 1;
+        }
+        canceled
+    }
+
     /// The order's current state as a status ExecutionReport (ExecTransType Status, ExecID 0),
     /// looked up by any ClOrdID it has had. An unknown order is reported as Rejected with
     /// OrdRejReason UnknownOrder, as FIX 4.2 prescribes.

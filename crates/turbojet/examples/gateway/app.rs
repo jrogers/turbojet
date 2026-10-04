@@ -1,5 +1,5 @@
 //! The order-entry gateway as a turbojet [`Application`], speaking FIX 4.2: new orders,
-//! cancels, replaces and status requests.
+//! cancels, replaces and status requests, and cancel on disconnect.
 
 use std::sync::Arc;
 
@@ -93,6 +93,12 @@ impl Application for GatewayApp {
         info!(?ended, "session ended");
     }
 
+    // Called from the engine's countdown task, outside any session span, so the ID is logged.
+    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
+        let canceled = self.orders.cancel_all(&session.target_comp_id);
+        info!(%session, ?ended, canceled, "canceled the open orders of a session that didn't come back");
+    }
+
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         let owner = ctx.session_id().target_comp_id.clone();
         match msg.msg_type() {
@@ -177,6 +183,52 @@ mod tests {
     #[test]
     fn certificates_are_ignored_when_matching_is_disabled() {
         assert!(verify(&app(false), "CLIENT2", &with_certificate("CLIENT1", &[])).is_ok());
+    }
+
+    fn limit_order(cl_ord_id: &str) -> Message {
+        use turbojet_fix42::{HandlInst, NewOrderSingle, OrdType, Side};
+        let mut order = NewOrderSingle::new(
+            cl_ord_id,
+            HandlInst::AutomatedExecutionNoIntervention,
+            "AAPL",
+            Side::Buy,
+            turbojet::fields::UtcTimestamp::now(),
+            OrdType::Limit,
+        );
+        order.order_qty = Some(100u64.into());
+        order.price = Some("150.25".parse().unwrap());
+        order.into()
+    }
+
+    /// Two counterparties each rest an order, and one's cancel on disconnect fires: only its
+    /// order is cancelled, and a status request then reports it Canceled.
+    #[test]
+    fn cancel_on_disconnect_cancels_only_that_sessions_orders() {
+        use turbojet::FixMessage;
+        use turbojet_fix42::{ExecType, ExecutionReport, OrderStatusRequest, Side};
+
+        let orders = Arc::new(OrderManager::new());
+        let app = GatewayApp::new(orders.clone());
+        let mut order_ids = Vec::new();
+        for comp_id in ["C1", "C2"] {
+            let session = session(comp_id);
+            let mut ctx = Context::new(&session);
+            app.on_message(&mut ctx, &limit_order("A")).unwrap();
+            let ack: ExecutionReport = ctx.replies().last().unwrap().parse().unwrap();
+            assert_eq!(ack.ord_status, OrdStatus::New);
+            order_ids.push(ack.order_id.to_string());
+        }
+
+        app.on_cancel_on_disconnect(&session("C1"), Disconnect::ConnectionLost);
+        assert_eq!(orders.order(&order_ids[0]).unwrap().status, OrdStatus::Canceled);
+        assert_eq!(orders.order(&order_ids[1]).unwrap().status, OrdStatus::New, "another session's order");
+
+        let status = orders.status("C1", OrderStatusRequest::new("A", "AAPL", Side::Buy).to_message().parse().unwrap());
+        assert_eq!((status.exec_type, status.ord_status), (ExecType::Canceled, OrdStatus::Canceled));
+        assert_eq!(status.leaves_qty, 0u64.into());
+
+        // Firing again, as after a later disconnect, finds nothing left to cancel.
+        assert_eq!(orders.cancel_all("C1"), 0);
     }
 
     #[test]

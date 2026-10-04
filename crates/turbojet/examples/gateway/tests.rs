@@ -608,3 +608,11 @@ fn gateway_records_latency_only_with_a_metrics_listener() {
     let err = crate::parse_args(args(&["--allow-any", "--latency-metrics"])).err().expect("needs the listener");
     assert!(err.contains("--latency-metrics requires --metrics-listen"), "{err}");
 }
+
+#[test]
+fn gateway_cancels_on_disconnect_after_a_grace_period() {
+    let cancel = crate::parse_args(args(&["--allow-any"])).unwrap().config.cancel_on_disconnect;
+    let cancel = cancel.expect("on by default");
+    assert_eq!(cancel.trigger, turbojet::CancelTrigger::Disconnect, "a Logout doesn't cancel");
+    assert_eq!(cancel.grace, Duration::from_secs(5));
+}

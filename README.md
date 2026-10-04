@@ -655,6 +655,12 @@ explanatory Text. The typed FIX 4.2 messages type every field in the dictionary,
 out-of-spec value is rejected even in a field the gateway doesn't use (e.g. Rule80A 47 or
 OpenClose 77) rather than ignored.
 
+The gateway cancels on disconnect, as most venues do: when a session drops without a Logout and
+the counterparty doesn't log back on within 5 seconds, its open orders are cancelled and the count
+logged. No ExecutionReports are sent, since the counterparty has gone; an OrderStatusRequest after
+it logs back on reports them Canceled. With `--config`, the sessions file sets it
+(`cancel_on_disconnect = "disconnect"`, `cancel_grace = "5s"`).
+
 ## Logging and metrics
 
 **Logging** uses [`tracing`](https://docs.rs/tracing). Each connection runs in a `session` span

@@ -363,10 +363,8 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 - **ClOrdID history** (S). After a replace, earlier ClOrdIDs still find the order; strict venues
   reject them.
 - **Example client** (S). It doesn't demonstrate replace or status requests.
-- **Cancel-on-disconnect and kill switch** (S). Cancel a session's resting orders when it
-  disconnects, or on an operator command. Almost every venue offers this, and it would show how
-  an application reacts to session events. Builds on the engine's cancel on disconnect
-  (section 2).
+- **Kill switch** (S). Cancel a session's resting orders, or all of them, on an operator command.
+  Almost every venue offers this alongside cancel on disconnect, which the gateway does.
 - **Pre-trade risk checks** (M). Order size limits, price bands against a reference price,
   credit limits and self-trade prevention, rejected before booking.
 
