@@ -6,6 +6,17 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: the public config structs (`SessionConfig`, `InitiatorConfig`, `ReconnectPolicy`,
+  `ValidationOptions`, `RateLimit`, `CancelOnDisconnect`), `Endpoint` and `SessionId` are
+  `#[non_exhaustive]`, so adding a field to one no longer breaks code that uses it. Build them
+  with their constructors (new: `SessionId::new`, `CancelOnDisconnect::new`) and set fields
+  afterwards, rather than with struct literals. The error enums, `MessageReject`,
+  `InboundLimit` and `CancelTrigger` are `#[non_exhaustive]` too: a match on one from outside
+  needs a wildcard arm.
+- Every public type implements `Debug`, among them `Acceptor`, `Initiator`, `Session`,
+  `SessionRegistry` and the stores.
+- The builder methods that return the value they change are `#[must_use]`, so
+  `msg.with(tag, value);` without using the result warns.
 - `Application::on_admin_message` shows the application each inbound Heartbeat, TestRequest,
   ResendRequest, Reject, SequenceReset and Logout that passes the session's header and sequence
   checks, once, before the session acts on it. Until now a counterparty's session-level Reject
