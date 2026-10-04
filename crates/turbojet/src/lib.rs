@@ -232,7 +232,7 @@ pub mod validation;
 
 pub use acceptor::Acceptor;
 pub use application::{Application, Context, MessageReject};
-pub use counterparty::{Counterparties, Counterparty};
+pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
