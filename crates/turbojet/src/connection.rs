@@ -1,11 +1,12 @@
 //! Drives a [`Session`] over any byte stream.
 
 use std::io;
+use std::pin::Pin;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::time::{Instant, Sleep};
 use tracing::{Instrument, debug, warn};
 
 use crate::codec::{DecodedInto, decode_into};
@@ -106,11 +107,10 @@ where
     .await
 }
 
-#[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
 async fn drive<S>(
     stream: S,
-    mut session: Session,
-    mut commands: CommandReceiver,
+    session: Session,
+    commands: CommandReceiver,
     logged_on: &mut bool,
     mut shutdown: Option<Signal>,
 ) -> io::Result<()>
@@ -118,258 +118,74 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    // After each read it keeps only an incomplete frame, which the codec caps at MAX_BODY_LENGTH
-    // plus header and trailer, so it grows to no more than that and one read, except during a
-    // resend, when input waits here (up to MAX_UNPROCESSED).
-    let mut buf = Vec::with_capacity(READ_BUFFER_SIZE);
-    // Input read during a resend or a commit, or held by an inbound Delay limit, waiting in `buf`
-    // until it ends.
-    let mut deferred = false;
-    // Every inbound frame is decoded into this one message, which keeps its allocations.
-    let mut scratch = Message::default();
-    // Bytes read before the session is bound (an acceptor's Logon) are attributed once it is.
-    let mut unattributed_bytes = 0;
-    // What the session sent, written as the stream takes it while the driver goes on reading:
-    // `outbox[written..]` is still to go, and a flush is owed once it has (up to MAX_UNWRITTEN).
-    let mut outbox: Vec<u8> = Vec::new();
-    let mut written = 0;
-    let mut unflushed = false;
+    let mut d = Driver::new(session, commands);
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
     tokio::pin!(timer);
-    let mut stuck = None;
-    // The store's commit or read under way, off the connection's task: the session waits for it.
-    let mut store: Option<StoreTask> = None;
-    // The store's commits wait (an fsync), so input that has already arrived is worth taking into
-    // a batch before committing it. Commits made at once aren't: smaller batches let the
-    // counterparty start on the replies sooner (see READ_BUFFER_SIZE).
-    let mut commits_wait = false;
-    // Whether application sends have waited for the outbound window since the queue was last
-    // empty: those taken meanwhile count as throttled.
-    let mut sends_held = false;
-    let mut timings = Timings::default();
-
-    // A connection made once shutdown has started closes without logging on.
-    match shutdown.as_ref().and_then(Signal::started_now) {
-        Some(text) => {
-            shutdown = None;
-            session.on_shutdown(text.as_deref(), Instant::now().into_std());
-        }
-        None => session.on_connect(Instant::now().into_std()),
-    }
+    d.start(&mut shutdown);
     loop {
-        *logged_on |= session.has_logged_on();
-        loop {
-            // Input that waited for a resend, a commit or the inbound window is processed once it
-            // has ended.
-            if deferred
-                && !session.is_resending()
-                && !session.is_closed()
-                && !session.is_waiting_on_store()
-                && input_held_until(&session).is_none()
-            {
-                deferred = feed(&mut session, &mut buf, &mut scratch, Instant::now().into_std());
-            }
-            // A Logout that was waiting for the sends queued before it, now they've been taken.
-            while !session.is_closed()
-                && !session.is_waiting_on_store()
-                && let Some(command) = commands.try_control()
-            {
-                session.on_command(command, Instant::now().into_std());
-            }
-            // Input that has already arrived joins this batch rather than waiting out its commit to
-            // make one of its own, so a burst is committed together.
-            let mut reads = 0;
-            while commits_wait
-                && reads < MAX_READS_PER_BATCH
-                && store.is_none()
-                && !deferred
-                && !session.is_closed()
-                && !session.is_resending()
-                && buf.len() < MAX_UNPROCESSED
-                && input_held_until(&session).is_none()
-                && let Some(read) = poll_once(reader.read_buf(&mut buf))
-            {
-                reads += 1;
-                match read? {
-                    // The select's read sees the end of the input again, after this batch's commit.
-                    0 => break,
-                    read => {
-                        unattributed_bytes += read;
-                        let now = Instant::now();
-                        timings.read(&session, now);
-                        deferred = feed(&mut session, &mut buf, &mut scratch, now.into_std());
-                    }
-                }
-            }
-            // Whatever the session did since the last commit is committed before it's written; a
-            // resend step the store reads with a job, or a logon whose log it opens with one,
-            // waits for it.
-            if store.is_none() {
-                if let Some(job) = session.take_commit(Instant::now().into_std()) {
-                    store = Some(StoreTask::Commit(job.spawn()));
-                    commits_wait = true;
-                    timings.commit_started(&session, deferred);
-                } else if let Some(job) = session.take_fetch() {
-                    store = Some(StoreTask::Fetch(job.spawn()));
-                } else if let Some(job) = session.take_open() {
-                    store = Some(StoreTask::Open(job.spawn()));
-                }
-                if store.is_none() && !deferred {
-                    // Committed at once: what was read has all been handled and can be written.
-                    timings.handled(&session);
-                }
-            }
-            // Input that stopped for a commit made at once goes on: each time round, the commit
-            // opens the window it stopped for, or is left under way. Input the inbound window
-            // holds waits for the select's wake-up.
-            if !(deferred
-                && store.is_none()
-                && !session.is_resending()
-                && !session.is_closed()
-                && input_held_until(&session).is_none())
-            {
-                break;
-            }
-        }
-        if let Some(metrics) = session.metrics() {
-            metrics.bytes_received(std::mem::take(&mut unattributed_bytes));
-            metrics.bytes_sent(session.output().len());
-        }
-        if !session.output().is_empty() {
-            if written == outbox.len() {
-                outbox.clear();
-                written = 0;
-            }
-            outbox.extend_from_slice(session.output());
-            session.clear_output();
-        }
-        // Most writes complete at once: try, before waiting for one in the select.
-        if written < outbox.len()
-            && let Some(result) = poll_once(writer.write(&outbox[written..]))
-        {
-            match result? {
-                0 => return Err(io::ErrorKind::WriteZero.into()),
-                n => written += n,
-            }
-            unflushed = true;
-        }
-        if written == outbox.len()
-            && unflushed
-            && let Some(result) = poll_once(writer.flush())
-        {
-            result?;
-            unflushed = false;
-        }
-        let unwritten = outbox.len() - written;
-        if unwritten > MAX_UNWRITTEN || buf.len() > MAX_UNPROCESSED {
-            warn!(unwritten, unprocessed = buf.len(), "the counterparty has stopped reading; disconnecting");
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "the counterparty has stopped reading"));
-        }
-        let closed = session.is_closed();
+        *logged_on |= d.session.has_logged_on();
+        d.process(&mut reader)?;
+        d.stage_output();
+        d.write_now(&mut writer)?;
+        d.check_backlog()?;
+        let closed = d.session.is_closed();
         // While the store works, everything but reading and writing waits.
-        let committing = store.is_some();
-        if closed && unwritten == 0 && !unflushed && !committing {
+        let committing = d.store.is_some();
+        if closed && d.unwritten() == 0 && !d.unflushed && !committing {
             // Everything the session sent, a Logout before a close included, has gone. Release
             // the session (and its store) before the peer sees the close, so an immediate
             // reconnect can log on again.
-            drop(session);
+            drop(d.session);
             let _ = writer.shutdown().await;
             return Ok(());
         }
-        // Only ever bring the timer forward: most sends and receives push deadlines later, and a
-        // timer that fires early just finds nothing due.
-        if let Some(deadline) = session.next_deadline().map(Instant::from_std)
-            && deadline < timer.deadline()
-            && stuck != Some(deadline)
-        {
-            timer.as_mut().reset(deadline);
-        }
+        d.bring_timer_forward(timer.as_mut());
 
         // While resending, input waits in the buffer and commands in their queue, so nothing new
         // goes out in the middle of the range; each step waits until the last has been written.
         // While committing, everything but reading and writing waits.
-        let resending = session.is_resending();
-        let pending = &outbox[written..];
+        let resending = d.session.is_resending();
+        let pending = &d.outbox[d.written..];
+        let nothing_pending = pending.is_empty();
         // Application sends are taken once logged on (until then they wait in their bounded
         // queue), and not while resending or with output backed up, or while the outbound window
         // is full.
         let takes_sends =
-            !closed && !committing && session.has_logged_on() && !resending && unwritten < COMMANDS_PAUSE_AT;
-        let (sends, sends_free_at) = sends_this_time(&session, &commands, takes_sends);
+            !closed && !committing && d.session.has_logged_on() && !resending && d.unwritten() < COMMANDS_PAUSE_AT;
+        let (sends, sends_free_at) = sends_this_time(&d.session, &d.commands, takes_sends);
         // While the inbound window holds input, the socket isn't read: input waits there, in
         // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
-        let input_held = input_held_until(&session);
+        let input_held = input_held_until(&d.session);
+        // Borrowed apart from `d`, for a future that only runs `if committing`: select! makes
+        // every branch's future, and an async block would borrow all of `d`.
+        let store = &mut d.store;
         tokio::select! {
             // Write what the stream takes, then flush: buffering transports (TLS in particular)
             // may hold written data until flushed. Each is cancel-safe, so another branch
             // finishing first loses nothing.
             result = async {
                 if pending.is_empty() { writer.flush().await.map(|()| 0) } else { writer.write(pending).await }
-            }, if !pending.is_empty() || unflushed => {
+            }, if !nothing_pending || d.unflushed => {
                 match result? {
-                    0 if !pending.is_empty() => return Err(io::ErrorKind::WriteZero.into()),
-                    0 => unflushed = false,
+                    0 if !nothing_pending => return Err(io::ErrorKind::WriteZero.into()),
+                    0 => d.unflushed = false,
                     n => {
-                        written += n;
-                        unflushed = true;
+                        d.written += n;
+                        d.unflushed = true;
                     }
                 }
             }
             // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
-            read = reader.read_buf(&mut buf), if input_held.is_none() => {
-                let read = read?;
-                if read == 0 {
-                    return Ok(());
-                }
-                unattributed_bytes += read;
-                if closed {
-                    // Only the session's last output is still to go; what arrives is read so the
-                    // counterparty's writes don't block, and dropped.
-                    buf.clear();
-                } else if resending || deferred || committing {
-                    deferred = true;
-                    if session.times_latency() {
-                        timings.read(&session, Instant::now());
-                    }
-                } else {
-                    let now = Instant::now();
-                    timings.read(&session, now);
-                    deferred = feed(&mut session, &mut buf, &mut scratch, now.into_std());
+            read = reader.read_buf(&mut d.buf), if input_held.is_none() => {
+                match read? {
+                    0 => return Ok(()),
+                    read => d.on_read(read, closed, resending || committing),
                 }
             }
             // Logout and operator commands, whatever else is going on (a Logout once the sends
             // queued before it have been taken, which the outbound limit may slow); application
             // sends when `takes_sends` and the outbound window allows.
-            Some(next) = commands.next_with(sends), if !closed && !committing => {
-                // A noticed send arms the wait for the window, next time round.
-                let Next::Command(command) = next else {
-                    sends_held = true;
-                    session.on_sends_held();
-                    continue;
-                };
-                let now = Instant::now().into_std();
-                let sending = matches!(command, Command::Send(..));
-                let mut sends = u64::from(sending);
-                session.on_command(command, now);
-                // Take whatever else is already queued, so a burst of sends becomes one write, up
-                // to what the outbound window allows.
-                for _ in (1..MAX_COMMANDS_PER_BATCH).take_while(|_| sending) {
-                    if !session.can_send(now) {
-                        break;
-                    }
-                    let Some(command) = commands.try_send() else { break };
-                    session.on_command(command, now);
-                    sends += 1;
-                }
-                // The noticed send and those queued behind it waited. Sends queued once the
-                // queue has emptied haven't.
-                if sends_held && sends > 0 {
-                    if let Some(metrics) = session.metrics() {
-                        metrics.throttled_outbound(sends);
-                    }
-                    sends_held = commands.has_sends();
-                }
-            }
+            Some(next) = d.commands.next_with(sends), if !closed && !committing => d.on_next(next),
             // The outbound window has freed up for the sends it held: they're taken next time
             // round. Not the timer, which a stuck deadline can hold at the ceiling.
             () = async {
@@ -381,32 +197,312 @@ where
                 tokio::time::sleep_until(Instant::from_std(input_held.expect("guarded by is_some"))).await;
             }, if input_held.is_some() => {}
             // One step of the resend each time round, once the last step has been written.
-            () = std::future::ready(()), if resending && pending.is_empty() && !closed && !committing => {
-                session.on_resume(Instant::now().into_std());
+            () = std::future::ready(()), if resending && nothing_pending && !closed && !committing => {
+                d.session.on_resume(Instant::now().into_std());
             }
             // Once only: after that the session's logout (or its timeout) ends the connection.
             text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() && !closed && !committing => {
                 shutdown = None;
-                session.on_shutdown(text.as_deref(), Instant::now().into_std());
+                d.session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
             // The store's commit has ended, and what it covers can be written; or its read, and
             // the resend step goes on.
             done = async { store.as_mut().expect("guarded by is_some").finished().await }, if committing => {
-                store = None;
-                let now = Instant::now();
-                if let StoreDone::Committed(result) = &done {
-                    timings.commit_finished(&session, result.is_ok(), now);
-                }
-                done.deliver(&mut session, now.into_std());
+                d.on_store_done(done);
             }
-            () = &mut timer, if !closed && !committing => {
-                let now = Instant::now();
-                timer.as_mut().reset(now + MAX_TIMER_SLEEP);
-                session.on_timer(now.into_std());
-                // A deadline on_timer left in the past waits for the ceiling rather than spin.
-                stuck = session.next_deadline().map(Instant::from_std).filter(|deadline| *deadline <= now);
+            () = &mut timer, if !closed && !committing => d.on_timer(timer.as_mut()),
+        }
+    }
+}
+
+/// A connection's state between wake-ups: the session, what's been read and not yet handled,
+/// what it sent and hasn't been written, and the store's work under way.
+struct Driver {
+    session: Session,
+    commands: CommandReceiver,
+    /// After each read it keeps only an incomplete frame, which the codec caps at MAX_BODY_LENGTH
+    /// plus header and trailer, so it grows to no more than that and one read, except during a
+    /// resend, when input waits here (up to MAX_UNPROCESSED).
+    buf: Vec<u8>,
+    /// Input read during a resend or a commit, or held by an inbound Delay limit, waiting in `buf`
+    /// until it ends.
+    deferred: bool,
+    /// Every inbound frame is decoded into this one message, which keeps its allocations.
+    scratch: Message,
+    /// Bytes read before the session is bound (an acceptor's Logon) are attributed once it is.
+    unattributed_bytes: usize,
+    /// What the session sent, written as the stream takes it while the driver goes on reading:
+    /// `outbox[written..]` is still to go, and a flush is owed once it has (up to MAX_UNWRITTEN).
+    outbox: Vec<u8>,
+    written: usize,
+    unflushed: bool,
+    /// A deadline the session left in the past, which the timer waits out at its ceiling.
+    stuck: Option<Instant>,
+    /// The store's commit or read under way, off the connection's task: the session waits for it.
+    store: Option<StoreTask>,
+    /// The store's commits wait (an fsync), so input that has already arrived is worth taking
+    /// into a batch before committing it. Commits made at once aren't: smaller batches let the
+    /// counterparty start on the replies sooner (see READ_BUFFER_SIZE).
+    commits_wait: bool,
+    /// Whether application sends have waited for the outbound window since the queue was last
+    /// empty: those taken meanwhile count as throttled.
+    sends_held: bool,
+    timings: Timings,
+}
+
+impl Driver {
+    fn new(session: Session, commands: CommandReceiver) -> Self {
+        Self {
+            session,
+            commands,
+            buf: Vec::with_capacity(READ_BUFFER_SIZE),
+            deferred: false,
+            scratch: Message::default(),
+            unattributed_bytes: 0,
+            outbox: Vec::new(),
+            written: 0,
+            unflushed: false,
+            stuck: None,
+            store: None,
+            commits_wait: false,
+            sends_held: false,
+            timings: Timings::default(),
+        }
+    }
+
+    /// Starts the session: connects it, or, once shutdown has started, closes it without logging
+    /// on.
+    fn start(&mut self, shutdown: &mut Option<Signal>) {
+        match shutdown.as_ref().and_then(Signal::started_now) {
+            Some(text) => {
+                *shutdown = None;
+                self.session.on_shutdown(text.as_deref(), Instant::now().into_std());
+            }
+            None => self.session.on_connect(Instant::now().into_std()),
+        }
+    }
+
+    /// Only ever brings the timer forward to the session's next deadline: most sends and
+    /// receives push deadlines later, and a timer that fires early just finds nothing due.
+    fn bring_timer_forward(&self, timer: Pin<&mut Sleep>) {
+        if let Some(deadline) = self.session.next_deadline().map(Instant::from_std)
+            && deadline < timer.deadline()
+            && self.stuck != Some(deadline)
+        {
+            timer.reset(deadline);
+        }
+    }
+
+    /// The timer has fired: the session's deadlines are checked, and the timer set for the next.
+    fn on_timer(&mut self, timer: Pin<&mut Sleep>) {
+        let now = Instant::now();
+        timer.reset(now + MAX_TIMER_SLEEP);
+        self.session.on_timer(now.into_std());
+        // A deadline on_timer left in the past waits for the ceiling rather than spin.
+        self.stuck = self.session.next_deadline().map(Instant::from_std).filter(|deadline| *deadline <= now);
+    }
+
+    /// Bytes the session sent that haven't been written yet.
+    fn unwritten(&self) -> usize {
+        self.outbox.len() - self.written
+    }
+
+    /// Whether input waiting in `buf` can be fed to the session now.
+    fn can_feed(&self) -> bool {
+        !self.session.is_resending()
+            && !self.session.is_closed()
+            && !self.session.is_waiting_on_store()
+            && input_held_until(&self.session).is_none()
+    }
+
+    /// Everything the session can do before the driver waits: input that waited, control
+    /// commands, input already arrived (when commits wait), and the store's next job.
+    fn process<R: AsyncRead + Unpin>(&mut self, reader: &mut R) -> io::Result<()> {
+        loop {
+            // Input that waited for a resend, a commit or the inbound window is processed once it
+            // has ended.
+            if self.deferred && self.can_feed() {
+                self.deferred = feed(&mut self.session, &mut self.buf, &mut self.scratch, Instant::now().into_std());
+            }
+            // A Logout that was waiting for the sends queued before it, now they've been taken.
+            while !self.session.is_closed()
+                && !self.session.is_waiting_on_store()
+                && let Some(command) = self.commands.try_control()
+            {
+                self.session.on_command(command, Instant::now().into_std());
+            }
+            self.read_arrived(reader)?;
+            self.start_store_job();
+            // Input that stopped for a commit made at once goes on: each time round, the commit
+            // opens the window it stopped for, or is left under way. Input the inbound window
+            // holds waits for the select's wake-up.
+            if !(self.deferred && self.store.is_none() && self.can_feed()) {
+                return Ok(());
             }
         }
+    }
+
+    /// Input that has already arrived joins this batch rather than waiting out its commit to make
+    /// one of its own, so a burst is committed together.
+    fn read_arrived<R: AsyncRead + Unpin>(&mut self, reader: &mut R) -> io::Result<()> {
+        let mut reads = 0;
+        while self.commits_wait
+            && reads < MAX_READS_PER_BATCH
+            && self.store.is_none()
+            && !self.deferred
+            && !self.session.is_closed()
+            && !self.session.is_resending()
+            && self.buf.len() < MAX_UNPROCESSED
+            && input_held_until(&self.session).is_none()
+            && let Some(read) = poll_once(reader.read_buf(&mut self.buf))
+        {
+            reads += 1;
+            match read? {
+                // The select's read sees the end of the input again, after this batch's commit.
+                0 => break,
+                read => {
+                    self.unattributed_bytes += read;
+                    let now = Instant::now();
+                    self.timings.read(&self.session, now);
+                    self.deferred = feed(&mut self.session, &mut self.buf, &mut self.scratch, now.into_std());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Whatever the session did since the last commit is committed before it's written; a resend
+    /// step the store reads with a job, or a logon whose log it opens with one, waits for it.
+    fn start_store_job(&mut self) {
+        if self.store.is_some() {
+            return;
+        }
+        if let Some(job) = self.session.take_commit(Instant::now().into_std()) {
+            self.store = Some(StoreTask::Commit(job.spawn()));
+            self.commits_wait = true;
+            self.timings.commit_started(&self.session, self.deferred);
+        } else if let Some(job) = self.session.take_fetch() {
+            self.store = Some(StoreTask::Fetch(job.spawn()));
+        } else if let Some(job) = self.session.take_open() {
+            self.store = Some(StoreTask::Open(job.spawn()));
+        }
+        if self.store.is_none() && !self.deferred {
+            // Committed at once: what was read has all been handled and can be written.
+            self.timings.handled(&self.session);
+        }
+    }
+
+    /// Moves what the session sent into the outbox, counting the bytes either way.
+    fn stage_output(&mut self) {
+        if let Some(metrics) = self.session.metrics() {
+            metrics.bytes_received(std::mem::take(&mut self.unattributed_bytes));
+            metrics.bytes_sent(self.session.output().len());
+        }
+        if !self.session.output().is_empty() {
+            if self.written == self.outbox.len() {
+                self.outbox.clear();
+                self.written = 0;
+            }
+            self.outbox.extend_from_slice(self.session.output());
+            self.session.clear_output();
+        }
+    }
+
+    /// Most writes complete at once: tries, and a flush, before waiting for one in the select.
+    fn write_now<W: AsyncWrite + Unpin>(&mut self, writer: &mut W) -> io::Result<()> {
+        if self.written < self.outbox.len()
+            && let Some(result) = poll_once(writer.write(&self.outbox[self.written..]))
+        {
+            match result? {
+                0 => return Err(io::ErrorKind::WriteZero.into()),
+                n => self.written += n,
+            }
+            self.unflushed = true;
+        }
+        if self.written == self.outbox.len()
+            && self.unflushed
+            && let Some(result) = poll_once(writer.flush())
+        {
+            result?;
+            self.unflushed = false;
+        }
+        debug_assert!(self.written <= self.outbox.len());
+        Ok(())
+    }
+
+    /// Fails if output or input has backed up past its limit: the counterparty has stopped
+    /// reading.
+    fn check_backlog(&self) -> io::Result<()> {
+        let (unwritten, unprocessed) = (self.unwritten(), self.buf.len());
+        if unwritten > MAX_UNWRITTEN || unprocessed > MAX_UNPROCESSED {
+            warn!(unwritten, unprocessed, "the counterparty has stopped reading; disconnecting");
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "the counterparty has stopped reading"));
+        }
+        Ok(())
+    }
+
+    /// `read` bytes arrived in `buf`: fed to the session, or left for later if it's `waiting`
+    /// (resending or committing), or dropped once it's `closed`.
+    fn on_read(&mut self, read: usize, closed: bool, waiting: bool) {
+        debug_assert!(read > 0);
+        self.unattributed_bytes += read;
+        if closed {
+            // Only the session's last output is still to go; what arrives is read so the
+            // counterparty's writes don't block, and dropped.
+            self.buf.clear();
+        } else if waiting || self.deferred {
+            self.deferred = true;
+            if self.session.times_latency() {
+                self.timings.read(&self.session, Instant::now());
+            }
+        } else {
+            let now = Instant::now();
+            self.timings.read(&self.session, now);
+            self.deferred = feed(&mut self.session, &mut self.buf, &mut self.scratch, now.into_std());
+        }
+    }
+
+    /// A command, or a send noticed waiting for the outbound window.
+    fn on_next(&mut self, next: Next) {
+        // A noticed send arms the wait for the window, next time round.
+        let Next::Command(command) = next else {
+            self.sends_held = true;
+            self.session.on_sends_held();
+            return;
+        };
+        let now = Instant::now().into_std();
+        let sending = matches!(command, Command::Send(..));
+        let mut sends = u64::from(sending);
+        self.session.on_command(command, now);
+        // Take whatever else is already queued, so a burst of sends becomes one write, up to what
+        // the outbound window allows.
+        for _ in (1..MAX_COMMANDS_PER_BATCH).take_while(|_| sending) {
+            if !self.session.can_send(now) {
+                break;
+            }
+            let Some(command) = self.commands.try_send() else { break };
+            self.session.on_command(command, now);
+            sends += 1;
+        }
+        // The noticed send and those queued behind it waited. Sends queued once the queue has
+        // emptied haven't.
+        if self.sends_held && sends > 0 {
+            if let Some(metrics) = self.session.metrics() {
+                metrics.throttled_outbound(sends);
+            }
+            self.sends_held = self.commands.has_sends();
+        }
+    }
+
+    /// The store's job has ended.
+    fn on_store_done(&mut self, done: StoreDone) {
+        debug_assert!(self.store.is_some());
+        self.store = None;
+        let now = Instant::now();
+        if let StoreDone::Committed(result) = &done {
+            self.timings.commit_finished(&self.session, result.is_ok(), now);
+        }
+        done.deliver(&mut self.session, now.into_std());
     }
 }
 
