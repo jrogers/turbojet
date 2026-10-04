@@ -453,12 +453,20 @@ fn cancels(seed: u64) -> [Option<CancelOnDisconnect>; 2] {
     })
 }
 
-/// The two nodes' roles, with the seed's rate limits and cancels on disconnect.
+/// How many messages each side asks for per ResendRequest, chunked on about half the seeds each.
+/// Drawn apart from the world's random stream, as for [`cancels`].
+fn resend_chunks(seed: u64) -> [Option<u64>; 2] {
+    let mut rng = Rng::new(seed ^ 0x2e5e_7d00);
+    [(); 2].map(|()| rng.pick(&[None, None, None, Some(1), Some(2), Some(10)]))
+}
+
+/// The two nodes' roles, with the seed's rate limits, cancels on disconnect and resend chunks.
 fn roles(mut initiator: InitiatorConfig, mut acceptor: SessionConfig, seed: u64) -> [Role; 2] {
     let (outbound, inbound) = limits(seed);
     initiator.session.outbound_limit = outbound;
     acceptor.inbound_limit = inbound;
     [initiator.session.cancel_on_disconnect, acceptor.cancel_on_disconnect] = cancels(seed);
+    [initiator.session.resend_request_chunk, acceptor.resend_request_chunk] = resend_chunks(seed);
     [Role::Initiator(initiator), Role::Acceptor(acceptor)]
 }
 
