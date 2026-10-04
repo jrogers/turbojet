@@ -38,6 +38,9 @@ later, with:
   period, the application is told to cancel its orders, which the gateway does; `on_logout` says
   how every session ended (a Logout from either side, the connection lost, a heartbeat timeout,
   an error, or our own shutdown or schedule);
+- every inbound session-level message but the Logon shown to the application
+  (`Application::on_admin_message`), so it learns of a counterparty's Reject of one of its
+  messages, or a Logout's reason;
 - a malformed body field (no `=`, an invalid tag, non-UTF-8 data) answered with a Reject rather
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
 - a long resend sent in steps of 256 sequence numbers, each written before the next is read from

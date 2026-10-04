@@ -6,6 +6,11 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `Application::on_admin_message` shows the application each inbound Heartbeat, TestRequest,
+  ResendRequest, Reject, SequenceReset and Logout that passes the session's header and sequence
+  checks, once, before the session acts on it. Until now a counterparty's session-level Reject
+  of one of our messages was only logged, and a Logout's Text never reached the application.
+  It has a default that does nothing.
 - Cancel on disconnect: `SessionConfig::cancel_on_disconnect` takes a `CancelOnDisconnect`, a
   `CancelTrigger` (`Disconnect`, endings without a Logout, or `DisconnectOrLogout`) and a grace
   period of up to `MAX_CANCEL_GRACE` (an hour), set per counterparty through `Counterparties`.

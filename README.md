@@ -126,7 +126,8 @@ use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 struct MyApp;
 
 impl Application for MyApp {
-    // Optional hooks: verify_logon, to_admin, on_logon, on_logout, on_cancel_on_disconnect.
+    // Optional hooks: verify_logon, to_admin, on_admin_message, on_logon, on_logout,
+    // on_cancel_on_disconnect.
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
@@ -194,6 +195,11 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 
 `Application` callbacks run on the session's connection task and must not block; hand slow work
 to another task and send the result with a `SessionHandle`.
+
+The session handles the session-level messages itself, and shows the application each one it
+receives other than a Logon (which goes to `verify_logon`) through `on_admin_message`, before
+acting on it: a counterparty's Reject of one of our messages (RefSeqNum and Text say which and
+why), a Logout's Text, and Heartbeats, TestRequests, ResendRequests and SequenceResets.
 
 For the lowest latency, send from the callback. `Context::send` in `on_message` is written with
 the same wake-up of the connection task, while a `SessionHandle` send from another task wakes the
