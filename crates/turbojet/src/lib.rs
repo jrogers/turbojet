@@ -248,7 +248,7 @@ pub use registry::{
     CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry,
 };
 pub use schedule::{Clock, HolidayCalendar, SessionSchedule};
-pub use session::{ApplVersion, Session, SessionConfig};
+pub use session::{ApplVersion, ConfigError, Session, SessionConfig};
 pub use store::{DiskStorage, MemoryStorage, SessionId, SessionStorage};
 #[cfg(feature = "metrics")]
 pub use telemetry::describe_metrics;

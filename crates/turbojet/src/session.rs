@@ -57,6 +57,25 @@ pub struct ApplVersion {
     pub validator: Option<Arc<crate::validation::Validator>>,
 }
 
+/// Why a configuration can't run a session: what [`SessionConfig::check`] and the other
+/// configurations' `check`s find.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigError(String);
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+impl From<String> for ConfigError {
+    fn from(message: String) -> Self {
+        Self(message)
+    }
+}
+
 /// Settings shared by both roles.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -268,10 +287,19 @@ impl SessionConfig {
         self.begin_string.starts_with("FIXT.")
     }
 
-    /// Why this configuration can't run a session, if it can't: a rate limit out of bounds (see
-    /// [`RateLimit`]), a cancel grace over [`MAX_CANCEL_GRACE`], or a FIXT session without an
+    /// Why this configuration can't run a session, if it can't.
+    ///
+    /// # Errors
+    ///
+    /// The first problem found: a rate limit out of bounds (see [`RateLimit`]), a cancel grace over
+    /// [`MAX_CANCEL_GRACE`], a resend request chunk of 0, or a FIXT session without an
     /// application version, or with one twice, or a FIX 4.x session with one.
-    pub fn check(&self) -> Result<(), String> {
+    pub fn check(&self) -> Result<(), ConfigError> {
+        self.first_problem().map_err(ConfigError)
+    }
+
+    /// [`check`](Self::check), as text, for checks that build on it.
+    pub(crate) fn first_problem(&self) -> Result<(), String> {
         if self.resend_request_chunk == Some(0) {
             return Err("resend_request_chunk must be at least 1".into());
         }
@@ -310,7 +338,7 @@ impl SessionConfig {
 
     /// Panics with [`check`](Self::check)'s message if this configuration is invalid.
     pub(crate) fn assert_valid(&self) {
-        if let Err(e) = self.check() {
+        if let Err(e) = self.first_problem() {
             panic!("invalid session configuration: {e}");
         }
     }
@@ -1575,7 +1603,7 @@ impl Session {
         let Some(counterparties) = self.counterparties.clone() else { return Ok(()) };
         let resolved = guarded("resolve", || counterparties.resolve(&self.config, id, logon, &self.connection))
             .unwrap_or_else(|| Err("the counterparty resolver panicked".into()))?;
-        resolved.check(&self.config)?;
+        resolved.first_problem(&self.config)?;
         if resolved.require_client_certificate && self.connection.peer_certificate().is_none() {
             return Err("a client certificate is required".into());
         }

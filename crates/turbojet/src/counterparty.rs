@@ -73,7 +73,12 @@ impl Counterparty {
     /// The first problem found: a field in use before Logon that differs from `base`'s, the
     /// config failing [`SessionConfig::check`], or a heartbeat range outside
     /// [`DEFAULT_HEARTBEAT`](Self::DEFAULT_HEARTBEAT).
-    pub fn check(&self, base: &SessionConfig) -> Result<(), String> {
+    pub fn check(&self, base: &SessionConfig) -> Result<(), crate::ConfigError> {
+        self.first_problem(base).map_err(crate::ConfigError::from)
+    }
+
+    /// [`check`](Self::check), as text.
+    pub(crate) fn first_problem(&self, base: &SessionConfig) -> Result<(), String> {
         let config = &self.config;
         let fixed = [
             ("begin_string", config.begin_string == base.begin_string),
@@ -85,7 +90,7 @@ impl Counterparty {
         if let Some((field, _)) = fixed.iter().find(|(_, same)| !same) {
             return Err(format!("the counterparty's {field} differs from the acceptor's"));
         }
-        config.check()?;
+        config.first_problem()?;
         let (low, high) = (*self.heartbeat.start(), *self.heartbeat.end());
         let widest = Self::DEFAULT_HEARTBEAT;
         if low > high || low < *widest.start() || high > *widest.end() {
@@ -218,7 +223,7 @@ mod tests {
             let mut counterparty = Counterparty::new(base.clone());
             change(&mut counterparty.config);
             let error = format!("the counterparty's {field} differs from the acceptor's");
-            assert_eq!(counterparty.check(&base), Err(error), "{field}");
+            assert_eq!(counterparty.check(&base), Err(error.into()), "{field}");
         }
     }
 
@@ -227,7 +232,7 @@ mod tests {
         let base = base();
         let mut counterparty = Counterparty::new(base.clone());
         counterparty.config.outbound_limit = Some(RateLimit { messages: 0, per: Duration::from_secs(1) });
-        assert!(counterparty.check(&base).unwrap_err().starts_with("outbound_limit"));
+        assert!(counterparty.check(&base).unwrap_err().to_string().starts_with("outbound_limit"));
     }
 
     #[test]
@@ -237,7 +242,7 @@ mod tests {
         let grace = MAX_CANCEL_GRACE + Duration::from_secs(1);
         counterparty.config.cancel_on_disconnect =
             Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace });
-        assert!(counterparty.check(&base).unwrap_err().starts_with("cancel_on_disconnect"));
+        assert!(counterparty.check(&base).unwrap_err().to_string().starts_with("cancel_on_disconnect"));
     }
 
     #[test]

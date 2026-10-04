@@ -3441,7 +3441,7 @@ fn an_unanswered_chunk_is_asked_for_again() {
 fn a_resend_request_chunk_of_zero_is_refused() {
     let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
     config.resend_request_chunk = Some(0);
-    assert!(config.check().unwrap_err().contains("resend_request_chunk"));
+    assert!(config.check().unwrap_err().to_string().contains("resend_request_chunk"));
 }
 
 #[test]
@@ -3597,7 +3597,7 @@ fn initiator_heartbeat_interval_is_whole_seconds_from_1_to_3600() {
         config(Duration::from_secs(secs)).check().unwrap();
     }
     for bad in [Duration::ZERO, Duration::from_millis(500), Duration::from_millis(1500), Duration::from_secs(3601)] {
-        let err = config(bad).check().unwrap_err();
+        let err = config(bad).check().unwrap_err().to_string();
         assert!(err.contains("heartbeat_interval"), "{bad:?}: {err}");
     }
 }
@@ -3729,7 +3729,7 @@ fn fixt_logon(seq: u64, version: Option<&str>) -> Message {
 fn fixt_configs_are_checked() {
     assert_eq!(fixt_config(&[ApplVerId::Fix50Sp2]).check(), Ok(()));
     assert_eq!(fixt_config(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]).check(), Ok(()));
-    let err = |c: SessionConfig| c.check().unwrap_err();
+    let err = |c: SessionConfig| c.check().unwrap_err().to_string();
     assert!(err(fixt_config(&[])).contains("with_appl_ver_id"));
     assert!(err(fixt_config(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp2])).contains("twice"));
     assert!(err(SessionConfig::new("FIX.4.4", "GATEWAY").with_appl_ver_id(ApplVerId::Fix44)).contains("FIXT"));
@@ -4640,7 +4640,7 @@ fn rate_limits_out_of_bounds_are_refused() {
     let empty = RateLimit { messages: 1, per: Duration::ZERO };
     assert_eq!(config(Some(good), Some(InboundLimit::Delay(good))).check(), Ok(()));
     assert_eq!(config(Some(good), Some(InboundLimit::Reject(good))).check(), Ok(()));
-    let err = |c: SessionConfig| c.check().unwrap_err();
+    let err = |c: SessionConfig| c.check().unwrap_err().to_string();
     assert!(err(config(Some(zero), None)).starts_with("outbound_limit: "), "{}", err(config(Some(zero), None)));
     let inbound = config(None, Some(InboundLimit::Delay(empty)));
     assert!(err(inbound.clone()).starts_with("inbound_limit: "), "{}", err(inbound));
@@ -4657,7 +4657,7 @@ fn a_cancel_grace_over_the_maximum_is_refused() {
     };
     assert_eq!(config(Duration::ZERO).check(), Ok(()));
     assert_eq!(config(MAX_CANCEL_GRACE).check(), Ok(()));
-    let err = config(MAX_CANCEL_GRACE + Duration::from_millis(1)).check().unwrap_err();
+    let err = config(MAX_CANCEL_GRACE + Duration::from_millis(1)).check().unwrap_err().to_string();
     assert!(err.starts_with("cancel_on_disconnect: "), "{err}");
 }
 
@@ -4747,7 +4747,7 @@ mod validation {
         // A dictionary before any version is the bare validator, which FIXT sessions refuse.
         let early =
             SessionConfig::new("FIXT.1.1", "GATEWAY").with_dictionary(&dict).with_appl_ver_id(ApplVerId::Fix50Sp2);
-        assert!(early.check().unwrap_err().contains("before"));
+        assert!(early.check().unwrap_err().to_string().contains("before"));
     }
 
     #[test]

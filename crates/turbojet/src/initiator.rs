@@ -17,6 +17,7 @@ use crate::fields::Secret;
 use crate::peer::ConnectionInfo;
 use crate::reconnect::{Backoff, ReconnectPolicy};
 use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
+use crate::session::ConfigError;
 use crate::session::{Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -79,9 +80,18 @@ impl InitiatorConfig {
     /// policy's ([`ReconnectPolicy::check`]), and a heartbeat interval of whole seconds from 1 to
     /// 3600. HeartBtInt(108) is a whole number of seconds, so anything else would promise the
     /// counterparty a different interval from the one kept.
-    pub fn check(&self) -> Result<(), String> {
-        self.session.check()?;
-        self.reconnect.check()?;
+    ///
+    /// # Errors
+    ///
+    /// The first problem found.
+    pub fn check(&self) -> Result<(), ConfigError> {
+        self.first_problem().map_err(ConfigError::from)
+    }
+
+    /// [`check`](Self::check), as text.
+    pub(crate) fn first_problem(&self) -> Result<(), String> {
+        self.session.first_problem()?;
+        self.reconnect.first_problem()?;
         let interval = self.heartbeat_interval;
         if interval.subsec_nanos() != 0 || !(1..=3600).contains(&interval.as_secs()) {
             return Err(format!("heartbeat_interval must be whole seconds from 1 to 3600, not {interval:?}"));
@@ -91,7 +101,7 @@ impl InitiatorConfig {
 
     /// Panics with [`check`](Self::check)'s message if this configuration is invalid.
     pub(crate) fn assert_valid(&self) {
-        if let Err(e) = self.check() {
+        if let Err(e) = self.first_problem() {
             panic!("invalid initiator configuration: {e}");
         }
     }
@@ -241,8 +251,12 @@ impl Initiator {
     /// If `config` is invalid ([`InitiatorConfig::check`]), `endpoints` is empty, a TLS server
     /// name in it is invalid, or `config` names another session (BeginString or either CompID) or
     /// another clock than the one this initiator was made with: those make another initiator.
-    pub fn reconfigure(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), String> {
-        config.check()?;
+    pub fn reconfigure(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), ConfigError> {
+        self.reconfigure_or(config, endpoints).map_err(ConfigError::from)
+    }
+
+    fn reconfigure_or(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), String> {
+        config.first_problem()?;
         if endpoints.is_empty() {
             return Err("an initiator needs an endpoint".into());
         }
@@ -694,7 +708,7 @@ mod tests {
         for (field, change) in changes {
             let mut config = same();
             change(&mut config);
-            let err = initiator.reconfigure(config, vec![Endpoint::new("127.0.0.1:2")]).unwrap_err();
+            let err = initiator.reconfigure(config, vec![Endpoint::new("127.0.0.1:2")]).unwrap_err().to_string();
             assert_eq!(err, format!("{field} can't change: that's another initiator"));
         }
         assert!(initiator.reconfigure(same(), Vec::new()).is_err(), "no endpoint");

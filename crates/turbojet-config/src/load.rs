@@ -358,7 +358,7 @@ fn resolve_initiator(
         policy.jitter = reconnect.jitter.unwrap_or(policy.jitter);
         config.reconnect = policy;
     }
-    config.check().map_err(|e| at("settings", e))?;
+    config.check().map_err(|e| at("settings", e.to_string()))?;
     if own.connect.is_empty() {
         return Err(at("connect", "needs an address".into()));
     }

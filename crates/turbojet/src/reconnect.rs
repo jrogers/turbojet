@@ -36,7 +36,16 @@ impl ReconnectPolicy {
 
     /// Checks the policy: a first wait above zero (or the initiator would spin), no longer than
     /// `max`, and a multiplier of at least 1.
-    pub fn check(&self) -> Result<(), String> {
+    ///
+    /// # Errors
+    ///
+    /// The first problem found.
+    pub fn check(&self) -> Result<(), crate::ConfigError> {
+        self.first_problem().map_err(crate::ConfigError::from)
+    }
+
+    /// [`check`](Self::check), as text.
+    pub(crate) fn first_problem(&self) -> Result<(), String> {
         if self.initial.is_zero() {
             return Err("reconnect.initial must be above zero".into());
         }
