@@ -13,6 +13,7 @@ use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,7 @@ use crate::admin::{
 };
 use crate::application::{Application, Context, MessageReject, Outbox};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
+use crate::counterparty::{Counterparties, Counterparty};
 use crate::fields::{
     ApplVerId, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason,
     ToFix, UtcTimestamp,
@@ -346,14 +348,16 @@ struct Peer {
     metrics: SessionMetrics,
 }
 
-/// What an acceptor needs from a valid Logon.
+/// What an acceptor needs from a well-formed Logon. Whether its HeartBtInt and
+/// DefaultApplVerID are acceptable depends on the counterparty (see
+/// [`Session::logon_terms`]).
 struct LogonRequest {
     comp_id: String,
     heartbeat: Duration,
     seq_num: u64,
     their_next: Option<u64>,
-    /// FIXT sessions: the configured version matching their DefaultApplVerID(1137).
-    appl_version: Option<ApplVersion>,
+    /// FIXT sessions: their DefaultApplVerID(1137).
+    appl_ver_id: Option<ApplVerId>,
 }
 
 /// Most messages kept while waiting for a gap to be filled. Beyond it they're dropped, and come
@@ -451,6 +455,10 @@ pub struct Session {
     appl_version: Option<ApplVersion>,
     /// The transport, as reported by the driver; shown to the application at logon.
     connection: ConnectionInfo,
+    /// Acceptor: decides each counterparty's settings at Logon; see [`Counterparties`].
+    counterparties: Option<Arc<dyn Counterparties>>,
+    /// Acceptor: the HeartBtInt(108) a counterparty may ask for, once its settings are known.
+    heartbeat_range: RangeInclusive<Duration>,
     status: Status,
     /// Set once the session is bound to its log: on accepting Logon, or on connect as initiator.
     peer: Option<Peer>,
@@ -595,6 +603,8 @@ impl Session {
             commands,
             appl_version,
             connection: ConnectionInfo::default(),
+            counterparties: None,
+            heartbeat_range: Counterparty::DEFAULT_HEARTBEAT,
             status: Status::AwaitingLogon,
             peer: None,
             app_logged_on: false,
@@ -638,6 +648,13 @@ impl Session {
     /// [`Application::verify_logon`]. Set it before feeding the session any messages.
     pub fn set_connection_info(&mut self, connection: ConnectionInfo) {
         self.connection = connection;
+    }
+
+    /// Acceptor: decides each counterparty's settings at Logon, in place of the configuration
+    /// the session was made with; see [`Counterparties`]. Set it before feeding the session any
+    /// messages. An initiator ignores it.
+    pub fn set_counterparties(&mut self, counterparties: Arc<dyn Counterparties>) {
+        self.counterparties = Some(counterparties);
     }
 
     /// The data fields to decode inbound messages with.
@@ -1272,7 +1289,7 @@ impl Session {
 
     /// Acceptor: validate the counterparty's Logon and reply.
     fn accept_logon(&mut self, msg: &Message, now: Instant) {
-        let LogonRequest { comp_id, heartbeat, seq_num, their_next, appl_version } =
+        let LogonRequest { comp_id, heartbeat, seq_num, their_next, appl_ver_id } =
             match self.validate_logon_request(msg) {
                 Ok(v) => v,
                 Err(reason) => {
@@ -1281,6 +1298,14 @@ impl Session {
                 }
             };
         let id = self.session_id_for(comp_id);
+        let terms = self.take_counterparty(&id, msg).and_then(|()| self.logon_terms(heartbeat, appl_ver_id));
+        let appl_version = match terms {
+            Ok(version) => version,
+            Err(reason) => {
+                warn!(session = %id, "refusing logon: {reason}");
+                return self.close();
+            }
+        };
         if let Some(reason) = self.outside_schedule() {
             warn!(session = %id, "refusing logon: {reason}");
             return self.close();
@@ -1451,12 +1476,50 @@ impl Session {
         if logon.encrypt_method != EncryptMethod::None {
             return Err("only EncryptMethod(98)=0 is supported".into());
         }
-        if !(1..=3600).contains(&logon.heart_bt_int) {
-            return Err("HeartBtInt(108) must be between 1 and 3600".into());
-        }
         let seq_num = msg.field::<u64>(tags::MSG_SEQ_NUM).map_err(|e| e.to_string())?;
-        let appl_version = if self.config.is_fixt() {
-            let id = logon.default_appl_ver_id.ok_or("DefaultApplVerID(1137) missing")?;
+        let appl_ver_id = match self.config.is_fixt() {
+            true => Some(logon.default_appl_ver_id.ok_or("DefaultApplVerID(1137) missing")?),
+            false => None,
+        };
+        Ok(LogonRequest {
+            comp_id: comp_id.to_string(),
+            heartbeat: Duration::from_secs(logon.heart_bt_int),
+            seq_num,
+            their_next: logon.next_expected_msg_seq_num,
+            appl_ver_id,
+        })
+    }
+
+    /// Acceptor: takes the settings the [`Counterparties`] resolver gives counterparty `id`, if
+    /// there is one, in place of the session's own. Fails if it refuses, panics, or gives
+    /// settings that can't apply.
+    fn take_counterparty(&mut self, id: &SessionId, logon: &Message) -> Result<(), String> {
+        let Some(counterparties) = self.counterparties.clone() else { return Ok(()) };
+        let resolved = guarded("resolve", || counterparties.resolve(&self.config, id, logon, &self.connection))
+            .unwrap_or_else(|| Err("the counterparty resolver panicked".into()))?;
+        resolved.check(&self.config)?;
+        if resolved.require_client_certificate && self.connection.peer_certificate().is_none() {
+            return Err("a client certificate is required".into());
+        }
+        let Counterparty { config, heartbeat, .. } = resolved;
+        debug_assert!(config.sender_comp_id == self.config.sender_comp_id && config.clock.same_as(&self.config.clock));
+        // Nothing has been counted yet: admin messages don't count.
+        self.outbound = config.outbound_limit.map(Window::new);
+        self.inbound = config.inbound_limit.map(Inbound::new);
+        self.config = config;
+        self.heartbeat_range = heartbeat;
+        Ok(())
+    }
+
+    /// Acceptor: whether the counterparty's HeartBtInt and, on FIXT sessions, DefaultApplVerID
+    /// are acceptable, and if so the application version they choose.
+    fn logon_terms(&self, heartbeat: Duration, appl_ver_id: Option<ApplVerId>) -> Result<Option<ApplVersion>, String> {
+        let range = &self.heartbeat_range;
+        if !range.contains(&heartbeat) {
+            let (low, high) = (range.start().as_secs(), range.end().as_secs());
+            return Err(format!("HeartBtInt(108) must be between {low} and {high}"));
+        }
+        let appl_version = if let Some(id) = appl_ver_id {
             let version = self.config.appl_versions.iter().find(|v| v.id == id).ok_or_else(|| {
                 let supported: Vec<_> =
                     self.config.appl_versions.iter().map(|v| format!("'{}'", v.id.code())).collect();
@@ -1467,13 +1530,7 @@ impl Session {
         } else {
             None
         };
-        Ok(LogonRequest {
-            comp_id: comp_id.to_string(),
-            heartbeat: Duration::from_secs(logon.heart_bt_int),
-            seq_num,
-            their_next: logon.next_expected_msg_seq_num,
-            appl_version,
-        })
+        Ok(appl_version)
     }
 
     fn session_id_for(&self, target_comp_id: String) -> SessionId {

@@ -2752,6 +2752,22 @@ mod schedule_tests {
         assert!(h.app.events().is_empty());
     }
 
+    /// A counterparty's own schedule decides whether it may log on, under the acceptor's clock.
+    #[test]
+    fn a_counterpartys_schedule_decides_its_logon() {
+        let clock = ManualClock::at("2026-09-28 07:00:00");
+        let mut h = Harness::new();
+        h.config.clock = clock.clock();
+        h.config.max_latency = None;
+        let in_hours = adjusted(|c| c.config.schedule = Some("daily 08:00-17:00".parse().unwrap()));
+        let mut s = h.resolved(in_hours);
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"], "closed at 07:00");
+        assert!(h.app.events().is_empty());
+        clock.set("2026-09-28 09:00:00");
+        let mut s = h.resolved(adjusted(|c| c.config.schedule = Some("daily 08:00-17:00".parse().unwrap())));
+        assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"), "open at 09:00");
+    }
+
     #[test]
     fn logs_out_when_the_period_ends() {
         let clock = ManualClock::at("2026-09-28 16:59:00");
@@ -3561,7 +3577,9 @@ fn fixt_acceptor_refuses_missing_unknown_or_unsupported_versions() {
 #[test]
 fn fixt_acceptor_refusals_name_the_supported_versions() {
     let refusal = |versions: &[ApplVerId]| {
-        Harness::fixt(versions).session().validate_logon_request(&fixt_logon(1, Some("6"))).err().unwrap()
+        let s = Harness::fixt(versions).session();
+        let request = s.validate_logon_request(&fixt_logon(1, Some("6"))).ok().unwrap();
+        s.logon_terms(request.heartbeat, request.appl_ver_id).err().unwrap()
     };
     assert_eq!(refusal(&[ApplVerId::Fix50Sp2]), "DefaultApplVerID(1137) must be '9', not '6'");
     assert_eq!(
@@ -4490,5 +4508,144 @@ mod validation {
         // A message stating SP1 on the SP2 session is checked against SP1's dictionary.
         let out = sp2.recv(with_header(bad(3), &[(tags::APPL_VER_ID, "8")]), h.t0);
         assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("5"));
+    }
+}
+
+// ---- Per-counterparty settings ----
+
+type Resolve = dyn Fn(&SessionConfig, &SessionId) -> Result<Counterparty, String> + Send + Sync;
+
+/// Counterparties from a closure.
+struct Resolver(Box<Resolve>);
+
+impl Counterparties for Resolver {
+    fn resolve(
+        &self,
+        base: &SessionConfig,
+        id: &SessionId,
+        _: &Message,
+        _: &ConnectionInfo,
+    ) -> Result<Counterparty, String> {
+        (self.0)(base, id)
+    }
+}
+
+impl Harness {
+    /// An acceptor session whose counterparty's settings come from `resolve`.
+    fn resolved(
+        &self,
+        resolve: impl Fn(&SessionConfig, &SessionId) -> Result<Counterparty, String> + Send + Sync + 'static,
+    ) -> Session {
+        let mut s = self.session();
+        s.set_counterparties(Arc::new(Resolver(Box::new(resolve))));
+        s
+    }
+}
+
+/// A resolver giving every counterparty the acceptor's settings changed by `adjust`.
+fn adjusted(
+    adjust: impl Fn(&mut Counterparty) + Send + Sync + 'static,
+) -> impl Fn(&SessionConfig, &SessionId) -> Result<Counterparty, String> + Send + Sync + 'static {
+    move |base, _| {
+        let mut counterparty = Counterparty::new(base.clone());
+        adjust(&mut counterparty);
+        Ok(counterparty)
+    }
+}
+
+mod counterparty_tests {
+    use super::*;
+
+    #[test]
+    fn the_resolver_is_asked_about_the_counterparty_logging_on() {
+        let h = Harness::new();
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let mut s = h.resolved({
+            let asked = asked.clone();
+            move |base, id| {
+                asked.lock().unwrap().push(id.clone());
+                Ok(Counterparty::new(base.clone()))
+            }
+        });
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logon"]);
+        assert_eq!(
+            asked.lock().unwrap().iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+            ["FIX.4.4:GATEWAY->CLIENT"]
+        );
+    }
+
+    #[test]
+    fn resolved_settings_apply_after_the_logon() {
+        let h = Harness::new();
+        let mut s = h.resolved(adjusted(|c| c.config.max_latency = None));
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logon"]);
+        assert!(s.recv(at_offset(client(2, MsgType::Heartbeat), -3600), h.t0).is_empty(), "latency unchecked");
+        // The Logon itself is checked against the acceptor's, before the counterparty is known.
+        let mut s = h.resolved(adjusted(|c| c.config.max_latency = None));
+        assert_eq!(types(&s.recv(at_offset(logon(1), -3600), h.t0)), ["DISCONNECT"]);
+    }
+
+    #[test]
+    fn a_resolved_rate_limit_applies() {
+        let h = Harness::new();
+        let mut s =
+            h.resolved(adjusted(|c| c.config.outbound_limit = Some(RateLimit::new(1, Duration::from_secs(60)))));
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logon"]);
+        assert!(s.can_send(h.t0));
+        assert_eq!(types(&s.command(send_command("A"), h.t0)), ["NewOrderSingle"]);
+        assert!(!s.can_send(h.t0), "one per minute");
+    }
+
+    #[test]
+    fn heartbeat_intervals_outside_the_counterpartys_range_are_refused() {
+        let h = Harness::new();
+        let narrow = || adjusted(|c| c.heartbeat = Duration::from_secs(5)..=Duration::from_secs(10));
+        let mut s = h.resolved(narrow());
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"], "30 s is outside 5..=10");
+        let mut s = h.resolved(narrow());
+        let mut ten = logon(1);
+        ten.set(tags::HEART_BT_INT, 10u64);
+        let out = s.recv(ten, h.t0);
+        assert_eq!(sent(&out)[0].get(tags::HEART_BT_INT), Some("10"));
+    }
+
+    #[test]
+    fn a_required_client_certificate_must_be_presented() {
+        let h = Harness::new();
+        let required = || adjusted(|c| c.require_client_certificate = true);
+        let mut s = h.resolved(required());
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
+        assert!(h.app.connections.lock().unwrap().is_empty(), "refused before verify_logon");
+        let mut s = h.resolved(required());
+        s.set_connection_info(connection_info());
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logon"]);
+    }
+
+    #[test]
+    fn a_refusal_closes_the_connection_before_verify_logon() {
+        let h = Harness::new();
+        let mut s = h.resolved(|_, _| Err("not today".into()));
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
+        assert!(h.app.connections.lock().unwrap().is_empty());
+        assert!(h.app.events().is_empty());
+        assert!(h.registry.sessions().is_empty());
+    }
+
+    #[test]
+    fn a_panicking_resolver_refuses_the_logon() {
+        let h = Harness::new();
+        let mut s = h.resolved(|_, _| panic!("resolver panicked"));
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
+        assert!(h.app.events().is_empty());
+    }
+
+    #[test]
+    fn settings_that_cannot_apply_refuse_the_logon() {
+        let h = Harness::new();
+        let mut s = h.resolved(adjusted(|c| c.config.sender_comp_id = "OTHER".into()));
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
+        let mut s = h.resolved(adjusted(|c| c.heartbeat = Duration::ZERO..=Duration::from_secs(30)));
+        assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
+        assert!(h.app.events().is_empty());
     }
 }

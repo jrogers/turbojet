@@ -110,7 +110,8 @@ mod tests {
     #[test]
     fn settings_in_use_before_logon_stay_the_acceptors() {
         let base = base();
-        let changes: [(&str, fn(&mut SessionConfig)); 5] = [
+        type Change = fn(&mut SessionConfig);
+        let changes: [(&str, Change); 5] = [
             ("begin_string", |c| c.begin_string = "FIX.4.2".into()),
             ("sender_comp_id", |c| c.sender_comp_id = "OTHER".into()),
             ("clock", |c| c.clock = Clock::system()),
