@@ -412,7 +412,6 @@ impl Message {
     /// Decodes into `self`, replacing what it held but keeping its allocations, so a message
     /// reused for each frame decodes without allocating once it has grown. After an error its
     /// contents are unspecified.
-    #[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
     pub(crate) fn read_frame(&mut self, frame: &[u8], data: &DataFields) -> Result<(), String> {
         self.clear();
         let body = frame.strip_suffix(&[SOH]).ok_or("message does not end with SOH")?;
@@ -432,55 +431,30 @@ impl Message {
             let (tag, eq) = match parse_field(&body[start..end]) {
                 Ok(field) => field,
                 Err(text) => {
-                    // A tag of 0 is well formed, if invalid, so the Reject can name it.
-                    let segment = &body[start..end];
-                    let zero = segment
-                        .iter()
-                        .position(|&b| b == b'=')
-                        .is_some_and(|eq| eq > 0 && segment[..eq].iter().all(|&b| b == b'0'));
-                    let tag = zero.then_some(0);
-                    defect.get_or_insert(Defect { tag, reason: SessionRejectReason::InvalidTagNumber, text });
+                    defect.get_or_insert_with(|| invalid_tag(&body[start..end], text));
                     previous = None;
                     start = end + 1;
                     continue;
                 }
             };
             let value = start + eq + 1;
-            if data.is_data(tag)
-                && let Some((length_tag, length)) = previous
-                && data.length_tag(tag) == Some(length_tag)
-                && let Some(n) = parse_length(length)
-            {
-                match value.checked_add(n).filter(|&e| e == body.len() || e < body.len() && body[e] == SOH) {
-                    Some(data_end) => end = data_end,
-                    None => {
+            if let Some((length_tag, length)) = previous {
+                match data_end(data, tag, length_tag, length, body, value) {
+                    Some(Ok(data_end)) => end = data_end,
+                    Some(Err(())) => {
                         defect.get_or_insert_with(|| Defect {
                             tag: Some(length_tag),
                             reason: SessionRejectReason::IncorrectDataFormat,
                             text: format!("Tag {length_tag} does not give the length of data field {tag}"),
                         });
                     }
+                    None => {}
                 }
             }
-            let field = if text.is_some() {
-                Field::text(tag, start, value, end)
-            } else {
-                let bytes = &body[value..end];
-                match std::str::from_utf8(bytes) {
-                    Ok(text) => self.write_segment(tag, text),
-                    Err(_) if data.is_data(tag) => self.write_data(tag, bytes),
-                    Err(_) => {
-                        if TRUSTED_HEADER.contains(&tag) {
-                            return Err(format!("Tag {tag} value is not UTF-8"));
-                        }
-                        defect.get_or_insert_with(|| Defect {
-                            tag: Some(tag),
-                            reason: SessionRejectReason::IncorrectDataFormat,
-                            text: format!("Tag {tag} value is not UTF-8"),
-                        });
-                        self.write_segment(tag, &*String::from_utf8_lossy(bytes))
-                    }
-                }
+            debug_assert!(value <= end && end <= body.len());
+            let field = match text {
+                Some(_) => Field::text(tag, start, value, end),
+                None => self.read_value(tag, &body[value..end], data, &mut defect)?,
             };
             self.fields.push(field);
             previous = Some((tag, &body[value..end]));
@@ -489,16 +463,46 @@ impl Message {
         if let Some(text) = text {
             self.buf.push_str(text);
         }
-        if let Some(defect) = defect {
-            self.rare.get_or_insert_default().defect = Some(defect);
-        }
-        if let Some(defect) = self.defect()
-            && (defect.tag.is_some_and(|tag| TRUSTED_HEADER.contains(&tag))
-                || TRUSTED_HEADER.iter().any(|&tag| self.get(tag).is_none()))
-        {
-            return Err(defect.text.clone());
-        }
-        Ok(())
+        self.finish_frame(defect)
+    }
+
+    /// A field's value from a frame that isn't all UTF-8, copied into the text buffer: a data
+    /// field's bytes set apart, and another field's value kept lossily, recorded as `defect` if
+    /// it's the first. Fails if it's a header field the session relies on.
+    #[cold]
+    fn read_value(
+        &mut self,
+        tag: u32,
+        bytes: &[u8],
+        data: &DataFields,
+        defect: &mut Option<Defect>,
+    ) -> Result<Field, String> {
+        Ok(match std::str::from_utf8(bytes) {
+            Ok(text) => self.write_segment(tag, text),
+            Err(_) if data.is_data(tag) => self.write_data(tag, bytes),
+            Err(_) => {
+                if TRUSTED_HEADER.contains(&tag) {
+                    return Err(format!("Tag {tag} value is not UTF-8"));
+                }
+                defect.get_or_insert_with(|| Defect {
+                    tag: Some(tag),
+                    reason: SessionRejectReason::IncorrectDataFormat,
+                    text: format!("Tag {tag} value is not UTF-8"),
+                });
+                self.write_segment(tag, &*String::from_utf8_lossy(bytes))
+            }
+        })
+    }
+
+    /// Records the frame's `defect`, if any, and fails if it leaves the header untrustworthy: a
+    /// defect in a header field the session relies on, or one of them missing.
+    fn finish_frame(&mut self, defect: Option<Defect>) -> Result<(), String> {
+        let Some(defect) = defect else { return Ok(()) };
+        let untrusted = defect.tag.is_some_and(|tag| TRUSTED_HEADER.contains(&tag))
+            || TRUSTED_HEADER.iter().any(|&tag| self.get(tag).is_none());
+        let text = untrusted.then(|| defect.text.clone());
+        self.rare.get_or_insert_default().defect = Some(defect);
+        text.map_or(Ok(()), Err)
     }
 
     /// [`read_frame`](Self::read_frame) into a new message.
@@ -1272,6 +1276,35 @@ fn entry_end(msg: &Message, start: usize, limit: usize, spec: &GroupSpec) -> Res
 /// them is malformed, or missing from a message with a defect.
 const TRUSTED_HEADER: [u32; 5] =
     [tags::MSG_TYPE, tags::SENDER_COMP_ID, tags::TARGET_COMP_ID, tags::MSG_SEQ_NUM, tags::SENDING_TIME];
+
+/// The defect for a field whose tag is invalid, `segment` being the field. A tag of 0 is well
+/// formed, if invalid, so the Reject can name it.
+#[cold]
+fn invalid_tag(segment: &[u8], text: String) -> Defect {
+    let zero =
+        segment.iter().position(|&b| b == b'=').is_some_and(|eq| eq > 0 && segment[..eq].iter().all(|&b| b == b'0'));
+    Defect { tag: zero.then_some(0), reason: SessionRejectReason::InvalidTagNumber, text }
+}
+
+/// Where data field `tag`'s value ends, if it is one, given the field before it (`length_tag`
+/// and its value `length`) and where its value starts in `body`: `Ok` with the end, or `Err` if
+/// the length doesn't end it at a field boundary. `None` if `tag` isn't a data field, or the
+/// field before isn't its Length field, or holds no number.
+fn data_end(
+    data: &DataFields,
+    tag: u32,
+    length_tag: u32,
+    length: &[u8],
+    body: &[u8],
+    value: usize,
+) -> Option<Result<usize, ()>> {
+    if !data.is_data(tag) || data.length_tag(tag) != Some(length_tag) {
+        return None;
+    }
+    let n = parse_length(length)?;
+    let end = value.checked_add(n).filter(|&e| e == body.len() || e < body.len() && body[e] == SOH);
+    Some(end.ok_or(()))
+}
 
 /// Splits a `tag=value` segment, returning the tag and the index of its `=`, or the text of the
 /// defect that makes it unusable.
