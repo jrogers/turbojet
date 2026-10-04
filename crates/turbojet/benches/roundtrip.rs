@@ -3,10 +3,17 @@
 //! ExecutionReport. Both sides use DiscardStorage (see benches/common) so long runs don't
 //! accumulate messages, except in the disk store groups, where the acceptor stores to disk, with
 //! and without fsync, to show what its writes cost end to end.
+//!
+//! The latency benchmarks send from the benchmark's task, through a SessionHandle, and hand each
+//! acknowledgement back to it: a hop between tasks each way. "latency, replying from on_message"
+//! has the initiator's application send each next order from `on_message` instead, as an
+//! application reacting to what it receives would, so only the first order and the last
+//! acknowledgement hop.
 
 mod common;
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -24,10 +31,13 @@ const WINDOW: u64 = 1_000;
 /// Orders in flight at once in the pipelined benchmark with fsync.
 const FSYNC_WINDOW: u64 = 100;
 
-/// Forwards logon and every received message to the benchmark.
+/// Forwards logon and received messages to the benchmark. While `chain` is above zero, it answers
+/// each message with the next order itself instead, counting `chain` down.
 struct Client {
     logged_on: mpsc::UnboundedSender<()>,
     received: mpsc::UnboundedSender<Message>,
+    chain: AtomicU64,
+    next_id: AtomicU64,
 }
 
 impl Application for Client {
@@ -35,8 +45,12 @@ impl Application for Client {
         let _ = self.logged_on.send(());
     }
 
-    fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
-        let _ = self.received.send(msg.clone());
+    fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        if self.chain.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_ok() {
+            ctx.send(common::new_order_single(self.next_id.fetch_add(1, Ordering::Relaxed)));
+        } else {
+            let _ = self.received.send(msg.clone());
+        }
         Ok(())
     }
 }
@@ -44,6 +58,7 @@ impl Application for Client {
 struct Connection {
     handle: SessionHandle,
     acks: mpsc::UnboundedReceiver<Message>,
+    client: Arc<Client>,
 }
 
 /// A FIX 4.2 session sent as `sender`, recording the latency histograms if `latency`.
@@ -70,8 +85,8 @@ async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, l
     let (received, acks) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(config("CLIENT", latency), "GATEWAY");
     config.reset_on_logon = true;
-    let initiator =
-        Initiator::new(addr, config, Arc::new(common::DiscardStorage), Arc::new(Client { logged_on, received }));
+    let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
+    let initiator = Initiator::new(addr, config, Arc::new(common::DiscardStorage), client.clone());
 
     #[cfg(feature = "tls")]
     let initiator = if tls {
@@ -88,7 +103,7 @@ async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, l
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
     tokio::time::timeout(Duration::from_secs(5), logons.recv()).await.expect("logon timed out");
-    Connection { handle, acks }
+    Connection { handle, acks, client }
 }
 
 /// The latency and pipelined benchmarks, `window` orders in flight in the latter.
@@ -125,6 +140,20 @@ fn transport_with(
                     conn.handle.send(common::new_order_single(next_id)).unwrap();
                     conn.acks.recv().await.unwrap();
                 }
+                start.elapsed()
+            })
+        })
+    });
+
+    // One order at a time, each sent by the initiator's application as the last is acknowledged.
+    group.bench_function("latency, replying from on_message", |b| {
+        b.iter_custom(|iters| {
+            runtime.block_on(async {
+                let start = Instant::now();
+                conn.client.chain.store(iters - 1, Ordering::Relaxed);
+                next_id += 1;
+                conn.handle.send(common::new_order_single(next_id)).unwrap();
+                conn.acks.recv().await.unwrap();
                 start.elapsed()
             })
         })

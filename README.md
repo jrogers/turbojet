@@ -770,8 +770,10 @@ to partition the crate.
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL⁴ | 3.0 µs / 55 µs / 7.1 µs | |
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
+| Round trip over localhost TCP, one at a time, replying from `on_message`⁷ | 16.3 µs | 61.4k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
+| Round trip over localhost TLS, one at a time, replying from `on_message`⁷ | 20.4 µs | 49.0k/s |
 | Round trip over localhost TLS, 1,000 in flight | | 508k msg/s |
 | Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 31.3 µs | 715k msg/s |
 | Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 4.1 ms | 13.4k msg/s |
@@ -797,6 +799,12 @@ synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. �
 2026-10-03, after the application's replies were built in messages the session reuses: 945 ns and
 1.20 µs just before, on the same day. ⁶ Owned re-measured 2026-10-03, after owned messages were
 parsed straight into their owned form: 166 ns, 335 ns and 1.04 µs just before, on the same day.
+⁷ Measured 2026-10-04. The other round trips send each order from the benchmark's task through a
+`SessionHandle`, and the initiator's application hands each acknowledgement back to it: a hop
+between tasks each way, on a multi-threaded runtime. Here the initiator's application sends each
+next order from `on_message`. On the same day, the round trips through the benchmark's task took
+26.5 µs (TCP) and 28.3 µs (TLS). Of the 16.3 µs, about 13 µs is the operating system: the same
+sizes ping-ponged between two threads over plain blocking sockets took 12.9 µs.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
