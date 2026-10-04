@@ -160,6 +160,15 @@ pub struct Initiator {
     unreachable: Vec<String>,
 }
 
+impl std::fmt::Debug for Initiator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Initiator")
+            .field("session", &self.session_id())
+            .field("endpoints", &self.endpoints())
+            .finish_non_exhaustive()
+    }
+}
+
 /// An initiator's endpoints and configuration.
 struct Plan {
     /// Primary first, then backups in priority order.

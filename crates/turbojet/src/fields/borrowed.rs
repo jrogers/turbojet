@@ -272,6 +272,12 @@ pub struct ListIter<'a, T> {
     _value: PhantomData<fn() -> T>,
 }
 
+impl<T> fmt::Debug for ListIter<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ListIter").finish_non_exhaustive()
+    }
+}
+
 impl<'a, T: FieldRef<'a>> Iterator for ListIter<'a, T> {
     type Item = T::Ref;
 

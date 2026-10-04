@@ -1385,6 +1385,12 @@ impl Message {
 /// A message displayed with its passwords masked; see [`Message::redacted`].
 pub struct Redacted<'a>(&'a Message);
 
+impl fmt::Debug for Redacted<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
 impl fmt::Display for Redacted<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = self.0;
@@ -1560,6 +1566,12 @@ impl<'a, G: FixGroupRef<'a>> IntoIterator for &Group<'a, G> {
 pub struct GroupIter<'a, G> {
     entries: Entries<'a>,
     _entry: PhantomData<fn() -> G>,
+}
+
+impl<G> fmt::Debug for GroupIter<'_, G> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GroupIter").finish_non_exhaustive()
+    }
 }
 
 impl<'a, G: FixGroupRef<'a>> Iterator for GroupIter<'a, G> {

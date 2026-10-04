@@ -189,6 +189,15 @@ pub struct SessionsFileBuilder {
     registered: HashMap<String, Arc<dyn SessionStorage>>,
 }
 
+impl fmt::Debug for SessionsFileBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionsFileBuilder")
+            .field("path", &self.path)
+            .field("stores", &self.registered.keys().collect::<Vec<_>>())
+            .finish_non_exhaustive()
+    }
+}
+
 impl SessionsFileBuilder {
     /// Makes `storage` available to the file as store `name`, e.g. a `turbojet-sql` store.
     #[must_use]

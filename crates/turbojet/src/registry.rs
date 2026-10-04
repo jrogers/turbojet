@@ -420,6 +420,13 @@ pub struct SessionRegistry {
     cancel_task: Arc<AtomicBool>,
 }
 
+/// Takes no lock, so it's safe to format anywhere.
+impl fmt::Debug for SessionRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SessionRegistry").finish_non_exhaustive()
+    }
+}
+
 impl Default for SessionRegistry {
     fn default() -> Self {
         Self::new(Arc::new(MemoryStorage::new()))

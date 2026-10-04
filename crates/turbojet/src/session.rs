@@ -574,6 +574,15 @@ pub struct Session {
     wall_clock: Cell<Option<DateTime<Utc>>>,
 }
 
+impl fmt::Debug for Session {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("id", &self.peer.as_ref().map(|peer| &peer.id))
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Session {
     /// A session that waits for a counterparty's Logon. The receiver carries
     /// [`SessionHandle`](crate::SessionHandle) commands and must be fed to [`Session::on_command`].

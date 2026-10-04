@@ -56,6 +56,7 @@ use crate::fields::{FromFix, ToFix, UtcTimestamp};
 ///
 /// [`with_segment_bytes`]: DiskStorage::with_segment_bytes
 /// [`with_max_session_bytes`]: DiskStorage::with_max_session_bytes
+#[derive(Debug)]
 pub struct DiskStorage {
     dir: PathBuf,
     sync: bool,

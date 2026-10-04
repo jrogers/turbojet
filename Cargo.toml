@@ -23,6 +23,8 @@ lto = "fat"
 [workspace.lints.rust]
 # Deny rather than forbid, so a reviewed exception can `#[allow]` it locally with a reason.
 unsafe_code = "deny"
+# Public types can go in a user's `#[derive(Debug)]` struct.
+missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 # Thresholds are in clippy.toml.

@@ -156,6 +156,15 @@ pub struct Context<'a> {
     redelivered: bool,
 }
 
+impl std::fmt::Debug for Context<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Context")
+            .field("session", self.session)
+            .field("redelivered", &self.redelivered)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> Context<'a> {
     /// A context for `session`. The engine creates these; construct one yourself to unit-test an
     /// [`Application`], then inspect what it sent with [`Context::replies`].

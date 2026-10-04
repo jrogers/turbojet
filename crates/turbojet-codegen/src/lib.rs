@@ -86,6 +86,7 @@ fn io_error(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_ {
 }
 
 /// The generated modules' source, unformatted.
+#[derive(Debug)]
 pub struct Modules {
     /// `mod.rs`: declares the others and re-exports the enums, groups and messages.
     pub root: String,
@@ -100,6 +101,7 @@ pub struct Modules {
 }
 
 /// Generates code for a dictionary's application messages.
+#[derive(Debug)]
 pub struct Generator<'a> {
     dict: &'a Dictionary,
     skip: Vec<String>,

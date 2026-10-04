@@ -1,5 +1,6 @@
 //! Runs Turbojet sessions against QuickFIX/J. The tests need Java and the peer jar, so they run only
 //! with `TURBOJET_INTEROP=1`; `scripts/interop.sh` builds the jar and sets it.
+#![allow(missing_debug_implementations, reason = "a test harness, not published")]
 
 use std::env;
 use std::time::Duration;

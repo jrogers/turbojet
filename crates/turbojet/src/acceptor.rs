@@ -52,6 +52,15 @@ pub struct Acceptor {
     counterparties: Option<Arc<dyn Counterparties>>,
 }
 
+impl std::fmt::Debug for Acceptor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Acceptor")
+            .field("begin_string", &self.config.begin_string)
+            .field("sender_comp_id", &self.config.sender_comp_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Acceptor {
     /// An acceptor serving `app`, keeping session state in `storage`.
     ///

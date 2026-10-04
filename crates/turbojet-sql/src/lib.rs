@@ -107,6 +107,12 @@ pub struct SqlStorage {
     shared: Arc<Shared>,
 }
 
+impl std::fmt::Debug for SqlStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SqlStorage").finish_non_exhaustive()
+    }
+}
+
 /// What every log of a store shares.
 struct Shared {
     pool: AnyPool,

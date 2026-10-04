@@ -74,6 +74,16 @@ pub struct MemoryStorage {
     max_session_bytes: usize,
 }
 
+/// Takes no lock, so it's safe to format anywhere.
+impl std::fmt::Debug for MemoryStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryStorage")
+            .field("max_sessions", &self.max_sessions)
+            .field("max_session_bytes", &self.max_session_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for MemoryStorage {
     fn default() -> Self {
         Self {
