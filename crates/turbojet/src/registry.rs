@@ -546,7 +546,7 @@ impl SessionRegistry {
 
     /// Fires the cancel-on-disconnect countdowns that have ended by `now`, calling
     /// [`on_cancel_on_disconnect`](Application::on_cancel_on_disconnect) for each, in deadline
-    /// order. A logon of one of these sessions waits until its callback has returned. Calling it
+    /// order. While they run, logons and endings of every session in the registry wait. Calling it
     /// early is harmless: it acts only on what is due. Calling it from inside
     /// `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
     pub fn run_due_cancels(&self, now: Instant) {
@@ -646,6 +646,7 @@ impl Drop for SessionRegistry {
         // every session that could log back on, have gone too.
         let lost = self.cancels.count();
         if lost > 0 {
+            crate::telemetry::cancels_removed(lost);
             warn!(lost, "session registry dropped with cancel-on-disconnect countdowns pending; they won't fire");
         }
     }
