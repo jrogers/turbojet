@@ -6,6 +6,12 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: every `Application` callback is given the session's `&SessionHandle` in place of
+  its `&SessionId`, and `on_logon` a `&SessionHandle` rather than an owned one (clone it to
+  keep it). `handle.id()` gives the ID, and a callback can act on the session, say logging it
+  out after a Reject. `Context::session` gives `on_message` the handle, and `Context::new` takes
+  one; `SessionHandle::disconnected` makes one for unit tests, and `SessionHandle` displays as
+  its ID. `SessionRegistry::run_due_cancels` and `run_all_cancels` take `self: &Arc<Self>`.
 - `MessageReject` implements `Display` (as the reject it sends) and `std::error::Error`.
 - Breaking: `Acceptor::new` and `Initiator::new` return `Result<Self, ConfigError>` rather than
   panicking on an invalid configuration.

@@ -194,7 +194,10 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 - `Acceptor`, `Initiator` – TCP transports; `SessionHandle` sends on a live session from anywhere
 
 `Application` callbacks run on the session's connection task and must not block; hand slow work
-to another task and send the result with a `SessionHandle`.
+to another task and send the result with a `SessionHandle`. Every callback is given the session's
+`SessionHandle` (`on_message` through `Context::session`), to read its ID, send on it or log it
+out; clone it to keep it. To unit-test an application, call its callbacks with a
+`SessionHandle::disconnected`.
 
 The session handles the session-level messages itself, and shows the application each one it
 receives other than a Logon (which goes to `verify_logon`) through `on_admin_message`, before
@@ -524,7 +527,7 @@ without a Logout, so a firm that loses its connection isn't left exposed. A sess
 config.cancel_on_disconnect = Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(5)));
 
 impl Application for MyApp {
-    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: Disconnect) {
         self.orders.cancel_all(session); // the application knows the orders
     }
     // ...
