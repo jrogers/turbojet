@@ -684,11 +684,13 @@ impl Session {
     /// has committed, so call [`take_commit`](Self::take_commit) after each call into the session.
     /// Once [`is_closed`](Self::is_closed), write them, then close the connection.
     pub fn output(&self) -> &[u8] {
+        debug_assert!(self.committed <= self.output.len(), "only output that exists is committed");
         &self.output[..self.committed]
     }
 
     /// Empties [`output`](Self::output), keeping its capacity, once it's been written.
     pub fn clear_output(&mut self) {
+        debug_assert!(self.committed <= self.output.len(), "only output that exists is committed");
         self.output.drain(..self.committed);
         self.committed = 0;
     }
@@ -1323,6 +1325,8 @@ impl Session {
 
     /// Acceptor, bound: reply to the counterparty's Logon.
     fn answer_logon(&mut self, reset: bool, seq_num: u64, their_next: Option<u64>, heartbeat: Duration, now: Instant) {
+        assert!(self.peer.is_some(), "a Logon is answered once its session is bound");
+        assert_eq!(self.status, Status::AwaitingLogon, "a Logon is answered once");
         if reset && let Err(e) = self.reset_store() {
             return self.storage_failed(e);
         }
@@ -1434,6 +1438,7 @@ impl Session {
         if self.status == Status::Closed {
             return;
         }
+        assert!(self.peer.is_some(), "a session logs on bound to its log");
         self.status = Status::Active;
         info!(heartbeat = ?self.peer().heartbeat, "logged on");
         if seq_num > expected {
@@ -1569,6 +1574,9 @@ impl Session {
     /// `then`; if the store opens the log with a job, that waits for it (see
     /// [`take_open`](Self::take_open)). Closes on failure.
     fn bind(&mut self, id: SessionId, heartbeat: Duration, then: AfterOpen, now: Instant) {
+        // A session binds to one log, once: a second Logon on the connection is refused first.
+        assert!(self.peer.is_none(), "the session is bound once");
+        assert!(self.opening_log.is_none(), "the session is bound once");
         match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id()) {
             Ok(Opened::Ready(log)) => self.bound(id, heartbeat, log, then, now),
             Ok(Opened::Pending(job)) => {
@@ -1592,6 +1600,7 @@ impl Session {
         #[cfg(not(feature = "metrics"))]
         let latency = false;
         let metrics = SessionMetrics::new(&id, latency);
+        assert!(self.peer.is_none(), "the session is bound once");
         self.peer = Some(Peer { id, log, heartbeat, metrics });
         if let Err(e) = self.start_period() {
             return self.storage_failed(e);
@@ -1653,6 +1662,9 @@ impl Session {
         let now = self.config.clock.now();
         let log = &mut self.peer_mut().log;
         log.reset()?;
+        // Paired with the store's own reset: both numbers start again.
+        assert_eq!(log.next_outgoing(), 1, "a reset store sends from 1");
+        assert_eq!(log.next_incoming(), 1, "a reset store expects 1");
         log.set_created_at(now.into())?;
         // Windows count in the old numbers.
         self.recovered = None;
@@ -1950,6 +1962,7 @@ impl Session {
     /// Keeps a message that arrived ahead of a gap until its turn; the first one kept for each
     /// number wins, so an original isn't replaced by its resend.
     fn queue(&mut self, seq_num: u64, msg: &Message, answered: bool) {
+        debug_assert!(seq_num > self.peer().log.next_incoming(), "only a message ahead of the gap waits");
         if self.queued.len() >= MAX_QUEUED && !self.queued.contains_key(&seq_num) {
             debug!(seq_num, "queue full; dropping a message ahead of the gap");
             return;
@@ -2222,7 +2235,10 @@ impl Session {
             return;
         }
         info!(begin, end, "resending messages");
-        debug_assert!(begin <= end);
+        assert!(begin >= 1, "sequence numbers start at 1");
+        assert!(begin <= end, "a resend covers at least one number");
+        // Never past what's been sent: those numbers would be used again by new messages.
+        assert!(end < self.peer().log.next_outgoing(), "resend {begin}..={end} reaches numbers not yet sent");
         // Only a driver that feeds messages during a resend gets here with one in progress. The
         // new range replaces it; what was held is stored, so it's resent if the range covers it,
         // and otherwise the counterparty finds the gap at our next message.
@@ -2324,6 +2340,7 @@ impl Session {
     }
 
     fn send_gap_fill(&mut self, seq: u64, new_seq_no: u64, now_ts: &str) {
+        debug_assert!(seq < new_seq_no, "a gap fill moves the sequence forward");
         let body = SequenceReset { gap_fill_flag: Some(true), new_seq_no }.into();
         let mut output = std::mem::take(&mut self.output);
         let start = output.len();
@@ -2333,6 +2350,7 @@ impl Session {
     }
 
     fn request_resend(&mut self, from: u64, received: u64, now: Instant) {
+        debug_assert!(from < received, "a gap lies before the message that revealed it");
         warn!(expected = from, received, "sequence gap detected; requesting resend");
         self.peer().metrics.sequence_gap();
         self.send(ResendRequest { begin_seq_no: from, end_seq_no: 0 }.into(), now);
@@ -2791,6 +2809,7 @@ impl Session {
     /// are handled, and returns true: what they did is to be committed next. Otherwise operators
     /// hear of their changes.
     fn finish_commit(&mut self, now: Instant) -> bool {
+        debug_assert!(!self.committing, "a commit has ended before it's finished");
         self.committed = self.output.len();
         self.window_end = self.opening.take().map(|start| start + DELIVERIES_PER_COMMIT);
         if self.store_failed {
