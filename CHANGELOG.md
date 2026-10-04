@@ -23,6 +23,9 @@ Notable changes to the published crates.
   ended, so if reading through it took longer than the counterparty's resend timeout, the
   counterparty logged out, and did again on every reconnect. Each step of a resend now gap-fills
   what it doesn't resend.
+- Fixed: each message the session logs out over restarted the logout timeout, so a counterparty
+  that kept sending them (stale ones after a long stall, say) could put a logout off
+  indefinitely. The timeout now counts from the first Logout.
 - Cancel on disconnect: `SessionConfig::cancel_on_disconnect` takes a `CancelOnDisconnect`, a
   `CancelTrigger` (`Disconnect`, endings without a Logout, or `DisconnectOrLogout`) and a grace
   period of up to `MAX_CANCEL_GRACE` (an hour), set per counterparty through `Counterparties`.
