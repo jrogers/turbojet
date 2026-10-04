@@ -31,7 +31,8 @@ later, with:
   given from memory or files, and replaced while running), initiator
   failover, and graceful shutdown (every session logged out, bounded by the logout timeout),
   which the gateway does on SIGINT and SIGTERM; initiators reconnect with a configurable backoff
-  (by default 1 s to 60 s, jittered), and acceptors limit connections overall and per IP address;
+  (by default 1 s to 60 s, jittered), and acceptors limit connections overall and per IP address,
+  and give each counterparty its own settings, decided at Logon, and its own store;
 - a malformed body field (no `=`, an invalid tag, non-UTF-8 data) answered with a Reject rather
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
 - a long resend sent in steps of 256 sequence numbers, each written before the next is read from
@@ -259,12 +260,11 @@ From the benchmarks.
 
 ## 7. Operations and deployment
 
-- **Per-counterparty configuration** (M). An `Acceptor` applies one configuration to every
-  counterparty. Allow per-session heartbeat limits, schedules, TLS requirements and stores.
 - **Configuration files and runtime sessions** (M). Sessions are configured in code. Commercial
   engines (and QuickFIX) read session definitions from a file, reload it without a restart, and
   add or remove sessions while running, including acceptors that admit unknown CompIDs from a
-  template. Builds on per-counterparty configuration.
+  template. Can build on per-counterparty settings (`Counterparties`, `StorageByCounterparty`):
+  a resolver backed by a file that's reloaded.
 - **Management API and console** (L). The operator API works on connected sessions in the
   library, but nothing exposes it remotely, and the gateway only has the offline `seqnums`
   tool. Provide an optional management endpoint (HTTP, or a local socket) that lists sessions

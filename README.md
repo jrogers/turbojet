@@ -440,6 +440,41 @@ Turbojet's own connection driver. The gateway limits each counterparty with
 `--inbound-limit N/W`, and `--over-limit delay` (the default) or `reject`. Limits that are never
 reached cost about 10 ns an order, within noise.
 
+## Per-counterparty settings
+
+An `Acceptor` gives every counterparty its own `SessionConfig` unless told otherwise. With
+`Acceptor::with_counterparties`, a `Counterparties` resolver decides at each Logon, once
+SenderCompID is known, whether that counterparty may log on and with which settings: its own
+schedule, rate limits, validation, SendingTime tolerance and so on, the HeartBtInt range it may
+ask for, and whether it must present a TLS client certificate. `CounterpartyMap` covers the usual
+case, by CompID:
+
+```rust
+use turbojet::store::StorageByCounterparty;
+use turbojet::CounterpartyMap;
+
+let counterparties = CounterpartyMap::new()
+    .with("BROKER", |c| c.config.schedule = Some("daily 08:00-17:00".parse().unwrap()))
+    .with("FUND", |c| {
+        c.require_client_certificate = true;
+        c.heartbeat = Duration::from_secs(10)..=Duration::from_secs(60);
+    })
+    .refuse_unknown(); // or admit others with the acceptor's own settings
+let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
+    .with("FUND", Arc::new(DiskStorage::new("./store", true)?));
+let acceptor = Acceptor::new(config, Arc::new(storage), app).with_counterparties(Arc::new(counterparties));
+```
+
+Each counterparty starts from the acceptor's configuration. What's in use before Logon stays the
+acceptor's, and a counterparty's settings that change it are refused at Logon: its identity
+(BeginString, SenderCompID), clock, logon timeout and send queue. The Logon itself is checked
+against the acceptor's configuration too, its SendingTime against `max_latency` for one. The
+resolver runs before `Application::verify_logon`; a refusal, or a panic, closes the connection
+as a `verify_logon` refusal does.
+
+Stores are chosen apart, by `StorageByCounterparty`, because an operator's change to a session
+that isn't connected opens its store with no Logon to decide from.
+
 ## Initiator failover
 
 An initiator has a primary endpoint and any number of backups, tried in order:

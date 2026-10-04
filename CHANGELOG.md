@@ -6,6 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Per-counterparty settings on an acceptor: `Acceptor::with_counterparties` takes a
+  `Counterparties` resolver, asked at each Logon whether that counterparty may log on and with
+  which `Counterparty` settings: a `SessionConfig` derived from the acceptor's (schedule, rate
+  limits, validation and the rest), the HeartBtInt range it may ask for, and whether it must
+  present a TLS client certificate. `CounterpartyMap` gives them by CompID, refusing or admitting
+  others. `store::StorageByCounterparty` keeps chosen counterparties' sessions in stores of their
+  own. `Session::set_counterparties` does the same for a session driven directly. The example
+  gateway's `--allow` is now a `CounterpartyMap`.
 - A typed message that repeats a group's NumInGroup field skips the repeat whole, as it skips any
   repeated field. Before, it skipped only the NumInGroup field, so the repeat's entries were read
   as the message's own fields: a field the message also declares at the top level, such as Text,
