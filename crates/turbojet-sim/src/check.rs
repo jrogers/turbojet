@@ -5,10 +5,10 @@ use std::fmt;
 
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::tags;
-use turbojet::{Message, MsgType};
+use turbojet::{CancelOnDisconnect, CancelTrigger, Disconnect, Message, MsgType};
 
 use crate::Side;
-use crate::app::{Delivery, id_of};
+use crate::app::{Delivery, Lifecycle, id_of};
 use crate::store::Stored;
 use crate::time::SimTime;
 
@@ -176,10 +176,77 @@ struct Received {
     ids: BTreeMap<String, u64>,
 }
 
+/// One side's cancel on disconnect, as its application saw it.
+#[derive(Default)]
+struct Cancels {
+    config: Option<CancelOnDisconnect>,
+    /// Lifecycle events already checked.
+    seen: usize,
+    /// The countdown under way: when it ends, and the ending that started it.
+    pending: Option<(SimTime, Disconnect)>,
+}
+
+impl Cancels {
+    /// Rule 8 on one lifecycle event at `at`.
+    fn apply(&mut self, side: Side, at: SimTime, event: Lifecycle) -> Result<(), Violation> {
+        match event {
+            Lifecycle::LoggedOn => {
+                // A logon at the very end of the grace period may beat the cancel or not.
+                if let Some((deadline, ended)) = self.pending.take()
+                    && deadline < at
+                {
+                    return Err(violation(
+                        "8 cancel",
+                        format!("{side:?} logged on at {at} with no cancel for {ended:?}, due at {deadline}"),
+                    ));
+                }
+            }
+            Lifecycle::LoggedOut(ended) => {
+                // The first ending's countdown runs on until a logon, however often it ends again.
+                if let Some(CancelOnDisconnect { trigger, grace }) = self.config
+                    && counts(trigger, ended)
+                    && self.pending.is_none()
+                {
+                    self.pending = Some((at.after(grace), ended));
+                }
+            }
+            Lifecycle::Cancel(ended) => match self.pending.take() {
+                Some(expected) if expected == (at, ended) => {}
+                Some((deadline, expected)) => {
+                    return Err(violation(
+                        "8 cancel",
+                        format!("{side:?} cancelled at {at} for {ended:?}; expected at {deadline} for {expected:?}"),
+                    ));
+                }
+                None => {
+                    return Err(violation(
+                        "8 cancel",
+                        format!("{side:?} cancelled at {at} for {ended:?} with no countdown under way"),
+                    ));
+                }
+            },
+            // The countdown went with the process's registry.
+            Lifecycle::Crashed => self.pending = None,
+        }
+        Ok(())
+    }
+}
+
+/// Which endings `trigger` counts: the checker's own table, not the engine's.
+fn counts(trigger: CancelTrigger, ended: Disconnect) -> bool {
+    match ended {
+        Disconnect::ConnectionLost | Disconnect::HeartbeatTimeout | Disconnect::Error => true,
+        Disconnect::Logout | Disconnect::CounterpartyLogout => trigger == CancelTrigger::DisconnectOrLogout,
+        // Shutdown, and any ending added later: a cancel for one is a violation, to look into.
+        _ => false,
+    }
+}
+
 #[derive(Default)]
 pub struct Checker {
     sent: [Sent; 2],
     received: [Received; 2],
+    cancels: [Cancels; 2],
     lossy: bool,
 }
 
@@ -200,8 +267,27 @@ fn body(msg: &Message) -> Vec<(u32, String)> {
 }
 
 impl Checker {
-    pub fn new() -> Self {
-        Self::default()
+    /// A checker for sides with these cancel-on-disconnect settings.
+    pub fn new(cancels: [Option<CancelOnDisconnect>; 2]) -> Self {
+        Self { cancels: cancels.map(|config| Cancels { config, ..Cancels::default() }), ..Self::default() }
+    }
+
+    /// Rule 8, on `side`'s lifecycle events since the last call, at `now`: a cancel on disconnect
+    /// for each ending its trigger counts, unless the session logs on within the grace period,
+    /// at the end of it; none otherwise. The first ending's countdown runs on until a logon, and
+    /// a crash takes it.
+    pub fn lifecycle(&mut self, side: Side, events: &[(SimTime, Lifecycle)], now: SimTime) -> Result<(), Violation> {
+        let cancels = &mut self.cancels[side.index()];
+        for (at, event) in &events[cancels.seen..] {
+            cancels.apply(side, *at, *event)?;
+            cancels.seen += 1;
+        }
+        match cancels.pending {
+            Some((deadline, ended)) if deadline < now => {
+                Err(violation("8 cancel", format!("{side:?} had no cancel for {ended:?} by {now}, due at {deadline}")))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// The MsgSeqNum `side` stored application message `id` as, in this epoch.
@@ -588,6 +674,42 @@ mod tests {
         assert_eq!(check(Err(turbojet::Dropped::Storage)), Ok(()), "a failed store may have stored it");
         let check_b = |outcome| h.checker.receipt(Side::Initiator, "b", &outcome).map_err(|e| e.rule);
         assert_eq!(check_b(Err(turbojet::Dropped::LoggingOut)), Ok(()), "never stored");
+    }
+
+    /// Runs `events` (seconds, event) past a checker whose acceptor cancels on `trigger` after
+    /// 5 s, then checks at `now` seconds.
+    fn cancels(trigger: CancelTrigger, events: &[(u64, Lifecycle)], now: u64) -> Result<(), &'static str> {
+        let config = CancelOnDisconnect { trigger, grace: std::time::Duration::from_secs(5) };
+        let mut checker = Checker::new([None, Some(config)]);
+        let at = |secs: u64| SimTime::from_duration(std::time::Duration::from_secs(secs));
+        let events: Vec<_> = events.iter().map(|(secs, event)| (at(*secs), *event)).collect();
+        checker.lifecycle(Side::Acceptor, &events, at(now)).map_err(|e| e.rule)
+    }
+
+    #[test]
+    fn a_cancel_comes_at_the_end_of_the_grace_period_unless_the_session_logs_on_breaking_rule_8() {
+        use CancelTrigger::{Disconnect as OnDisconnect, DisconnectOrLogout};
+        use Disconnect::{ConnectionLost, Logout};
+        use Lifecycle::{Cancel, Crashed, LoggedOn, LoggedOut};
+        let lost = [(0, LoggedOn), (10, LoggedOut(ConnectionLost))];
+        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (15, Cancel(ConnectionLost))], 20), Ok(()));
+        assert_eq!(cancels(OnDisconnect, &lost, 15), Ok(()), "due now");
+        assert_eq!(cancels(OnDisconnect, &lost, 16), Err("8 cancel"), "missed");
+        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (16, Cancel(ConnectionLost))], 16), Err("8 cancel"));
+        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (15, LoggedOn)], 30), Ok(()), "logged on in time");
+        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (16, LoggedOn)], 16), Err("8 cancel"));
+        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (12, Crashed)], 30), Ok(()), "lost in a crash");
+        // The first ending's countdown runs on.
+        let again = [lost[0], lost[1], (12, LoggedOut(ConnectionLost)), (15, Cancel(ConnectionLost))];
+        assert_eq!(cancels(OnDisconnect, &again, 30), Ok(()));
+        let logout = [(0, LoggedOn), (10, LoggedOut(Logout))];
+        assert_eq!(cancels(OnDisconnect, &logout, 30), Ok(()), "a logout doesn't count");
+        assert_eq!(cancels(OnDisconnect, &[logout[0], logout[1], (15, Cancel(Logout))], 30), Err("8 cancel"));
+        assert_eq!(cancels(DisconnectOrLogout, &logout, 30), Err("8 cancel"), "it does now");
+        assert_eq!(
+            cancels(DisconnectOrLogout, &[logout[0], logout[1], (15, Cancel(ConnectionLost))], 30),
+            Err("8 cancel")
+        );
     }
 
     #[test]

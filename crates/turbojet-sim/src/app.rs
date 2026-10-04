@@ -4,8 +4,11 @@
 use std::sync::{Arc, Mutex};
 
 use turbojet::message::tags;
-use turbojet::{Application, Context, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle};
+use turbojet::{
+    Application, Context, Disconnect, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle, SessionId,
+};
 
+use crate::time::{Clocks, SimTime};
 use crate::world::{PLANTED_AT, Plant};
 
 /// An application message as its receiver saw it.
@@ -15,6 +18,17 @@ pub struct Delivery {
     pub id: String,
     pub seq: u64,
     pub redelivered: bool,
+}
+
+/// A session's logon, its ending, and a cancel on disconnect, as its application saw them, for
+/// the cancel-on-disconnect rule; and the process crashing, which takes the countdowns under way
+/// with its registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lifecycle {
+    LoggedOn,
+    LoggedOut(Disconnect),
+    Cancel(Disconnect),
+    Crashed,
 }
 
 #[derive(Default)]
@@ -28,23 +42,43 @@ pub struct RecordingApp {
     acked: Mutex<u64>,
     /// Receipts for what this application queued, by message id, until they resolve.
     pub receipts: Mutex<Vec<(String, Receipt)>>,
+    /// Logons, endings, cancels and crashes, each when it happened.
+    pub lifecycle: Mutex<Vec<(SimTime, Lifecycle)>>,
+    clocks: Clocks,
+    /// The process is down after a crash, until it restarts. Its sessions, dropped as it crashes,
+    /// still tell it they ended, which a dead process never hears: those calls are ignored.
+    down: Mutex<bool>,
     /// A planted bug for the checker's self-tests, and the deliveries counted towards it.
     plant: Option<Plant>,
     delivered: Mutex<u64>,
+    cancels: Mutex<u64>,
 }
 
 impl RecordingApp {
-    pub fn acceptor(plant: Option<Plant>) -> Arc<Self> {
-        Arc::new(Self { acks: true, plant, ..Self::default() })
+    pub fn acceptor(plant: Option<Plant>, clocks: Clocks) -> Arc<Self> {
+        Arc::new(Self { acks: true, plant, clocks, ..Self::default() })
     }
 
-    pub fn initiator() -> Arc<Self> {
-        Arc::new(Self::default())
+    pub fn initiator(clocks: Clocks) -> Arc<Self> {
+        Arc::new(Self { clocks, ..Self::default() })
     }
 
     /// The process crashed: the handle went with it. What it recorded survives.
     pub fn crash(&self) {
         *self.handle.lock().unwrap() = None;
+        self.record(Lifecycle::Crashed);
+        *self.down.lock().unwrap() = true;
+    }
+
+    /// The process restarted.
+    pub fn restart(&self) {
+        *self.down.lock().unwrap() = false;
+    }
+
+    fn record(&self, event: Lifecycle) {
+        if !*self.down.lock().unwrap() {
+            self.lifecycle.lock().unwrap().push((self.clocks.now(), event));
+        }
     }
 
     /// Sends `msg` through the session's handle: whether it was queued, refused as the queue is
@@ -103,6 +137,23 @@ pub fn id_of(msg: &Message) -> Option<&str> {
 impl Application for RecordingApp {
     fn on_logon(&self, session: SessionHandle) {
         *self.handle.lock().unwrap() = Some(session);
+        self.record(Lifecycle::LoggedOn);
+    }
+
+    fn on_logout(&self, _session: &SessionId, ended: Disconnect) {
+        self.record(Lifecycle::LoggedOut(ended));
+    }
+
+    fn on_cancel_on_disconnect(&self, _session: &SessionId, ended: Disconnect) {
+        if *self.down.lock().unwrap() {
+            return;
+        }
+        let mut cancels = self.cancels.lock().unwrap();
+        *cancels += 1;
+        // The planted bug: the first cancel never reaches the application.
+        if !(self.plant == Some(Plant::SkipCancel) && *cancels == 1) {
+            self.record(Lifecycle::Cancel(ended));
+        }
     }
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {

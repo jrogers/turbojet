@@ -97,3 +97,13 @@ fn an_altered_resend_is_caught() {
 fn a_commit_reported_before_it_is_made_is_caught() {
     caught(Plant::EarlyCommit, &["2 sequence"]);
 }
+
+#[test]
+fn a_missed_cancel_on_disconnect_is_caught() {
+    caught(Plant::SkipCancel, &["8 cancel"]);
+}
+
+#[test]
+fn a_late_cancel_on_disconnect_is_caught() {
+    caught(Plant::LateCancel, &["8 cancel"]);
+}

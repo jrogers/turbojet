@@ -26,6 +26,11 @@ rules:
 5. Nothing stored is lost: a delivery never passes a message the sender stored.
 6. A store reopens with exactly the numbers it last recorded, crash or not; a change a power loss
    tore shows up as either made or not.
+7. A send's receipt says truly whether the store recorded it, and as which MsgSeqNum.
+8. On seeds with cancel on disconnect (either side, either trigger, a grace period of up to 30 s),
+   an application is told to cancel exactly when a logged-on session ended in a way the trigger
+   counts and didn't log on again within the grace period, at its end. The first ending's
+   countdown runs until a logon; a crash takes it with the process's registry.
 
 When the workload and faults stop, the sessions have until the slowest recovery could take to
 settle: one connection, both sides logged on over it, every application message stored delivered,
@@ -56,7 +61,8 @@ rule holds there too.
 
 A checker that passes everything proves nothing. `Options::plant` plants a bug in the simulator
 standing for one in the engine: the application missing a delivery or seeing one twice, a store
-that keeps a message's number but not the message, a resend that arrives altered. A test per
+that keeps a message's number but not the message, a resend that arrives altered, a cancel on
+disconnect missed or run late. A test per
 plant runs seeds until the checker catches it, by the rule expected.
 
 ## Known failures

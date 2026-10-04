@@ -13,8 +13,9 @@ use turbojet::message::tags;
 use turbojet::store::SessionStorage;
 
 use turbojet::{
-    DiskStorage, HolidayCalendar, InboundLimit, InitiatorConfig, MemoryStorage, RateLimit, ReconnectPolicy,
-    SequenceError, SequenceNumbers, SessionConfig, SessionHandle, SessionId, SessionRegistry, SessionSchedule,
+    CancelOnDisconnect, CancelTrigger, DiskStorage, HolidayCalendar, InboundLimit, InitiatorConfig, MemoryStorage,
+    RateLimit, ReconnectPolicy, SequenceError, SequenceNumbers, SessionConfig, SessionHandle, SessionId,
+    SessionRegistry, SessionSchedule,
 };
 
 use crate::Side;
@@ -59,6 +60,10 @@ pub enum Plant {
     /// The acceptor's store reports each commit done before it is: its changes reach the ledger
     /// only with the next one.
     EarlyCommit,
+    /// The acceptor's application never hears of its first cancel on disconnect.
+    SkipCancel,
+    /// The acceptor's cancel-on-disconnect countdowns are run a millisecond after they end.
+    LateCancel,
 }
 
 impl Options {
@@ -256,6 +261,9 @@ enum Event {
     /// it held.
     SendsFree(Side, ConnId, SimTime),
     InputFree(Side, ConnId, SimTime),
+    /// A side's registry runs the cancel-on-disconnect countdowns that have ended, as the task
+    /// `Acceptor` and `Initiator` spawn does.
+    Cancels(Side, SimTime),
     SendOrder,
     SendReport,
     Reset,
@@ -340,6 +348,8 @@ struct World {
     net: Net,
     checker: Checker,
     pending: BTreeMap<(Side, ConnId), Pending>,
+    /// When each side's registry runs its cancel-on-disconnect countdowns next, if it has any.
+    cancels_at: [Option<SimTime>; 2],
     /// Connections reset: whatever was on its way is lost.
     reset: BTreeSet<ConnId>,
     black_holed: BTreeSet<ConnId>,
@@ -426,11 +436,24 @@ fn limits(seed: u64) -> (Option<RateLimit>, Option<InboundLimit>) {
     (outbound, inbound)
 }
 
-/// The two nodes' roles, with the seed's rate limits.
+/// Cancel on disconnect for each side's session, on about two thirds of seeds each: either
+/// trigger, with a grace period of up to 30 s, zero on some. Drawn apart from the world's random
+/// stream so that seeds keep the faults they had before.
+fn cancels(seed: u64) -> [Option<CancelOnDisconnect>; 2] {
+    let mut rng = Rng::new(seed ^ 0xca2c_e100);
+    [(); 2].map(|()| {
+        let trigger = rng.pick(&[None, Some(CancelTrigger::Disconnect), Some(CancelTrigger::DisconnectOrLogout)])?;
+        let grace = if rng.chance(200_000) { Duration::ZERO } else { Duration::from_millis(rng.between(1, 30_000)) };
+        Some(CancelOnDisconnect { trigger, grace })
+    })
+}
+
+/// The two nodes' roles, with the seed's rate limits and cancels on disconnect.
 fn roles(mut initiator: InitiatorConfig, mut acceptor: SessionConfig, seed: u64) -> [Role; 2] {
     let (outbound, inbound) = limits(seed);
     initiator.session.outbound_limit = outbound;
     acceptor.inbound_limit = inbound;
+    [initiator.session.cancel_on_disconnect, acceptor.cancel_on_disconnect] = cancels(seed);
     [Role::Initiator(initiator), Role::Acceptor(acceptor)]
 }
 
@@ -482,8 +505,8 @@ fn nodes(
         node
     };
     [
-        node(Side::Initiator, initiator, RecordingApp::initiator()),
-        node(Side::Acceptor, acceptor, RecordingApp::acceptor(plant)),
+        node(Side::Initiator, initiator, RecordingApp::initiator(clocks.clone())),
+        node(Side::Acceptor, acceptor, RecordingApp::acceptor(plant, clocks.clone())),
     ]
 }
 
@@ -529,6 +552,18 @@ fn schedule(faults: &Faults, options: &Options) -> (Option<SessionSchedule>, Sim
     (Some(schedule), busy_end)
 }
 
+/// The initiator's reconnects, fixed or backing off from `reconnect`, chosen and jittered from
+/// `rng`, apart from the world's random stream so that seeds keep the faults they had before
+/// reconnects backed off.
+fn reconnect_policy(reconnect: Duration, rng: &mut Rng) -> ReconnectPolicy {
+    if rng.chance(500_000) {
+        ReconnectPolicy::fixed(reconnect)
+    } else {
+        let max = reconnect * u32::try_from(rng.between(2, 20)).expect("small");
+        ReconnectPolicy { jitter: rng.chance(500_000), ..ReconnectPolicy::exponential(reconnect, max) }
+    }
+}
+
 impl World {
     fn new(options: Options) -> Self {
         let clocks = Clocks::new();
@@ -546,15 +581,8 @@ impl World {
         };
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
         initiator.heartbeat_interval = heartbeat;
-        // Fixed or backing off, chosen and jittered apart from `rng` so that seeds keep the faults
-        // they had before reconnects backed off.
         let mut reconnect_rng = Rng::new(options.seed ^ 0x7ec0_22ec);
-        initiator.reconnect = if reconnect_rng.chance(500_000) {
-            ReconnectPolicy::fixed(reconnect)
-        } else {
-            let max = reconnect * u32::try_from(reconnect_rng.between(2, 20)).expect("small");
-            ReconnectPolicy { jitter: reconnect_rng.chance(500_000), ..ReconnectPolicy::exponential(reconnect, max) }
-        };
+        initiator.reconnect = reconnect_policy(reconnect, &mut reconnect_rng);
         let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
         let early = options.plant == Some(Plant::EarlyCommit);
         let slow = commit_rng.chance(500_000) || early;
@@ -567,6 +595,8 @@ impl World {
         let net = Net::new(faults.net.clone(), rng.fork());
         let proxy = faults.hostile.map(|rate| Proxy::new(rate, rng.fork()));
         let mut world = Self {
+            // Before `options` moves into the world.
+            checker: Checker::new(cancels(options.seed)),
             options,
             faults,
             clocks,
@@ -579,8 +609,8 @@ impl World {
             storage,
             _dir: dir,
             net,
-            checker: Checker::new(),
             pending: BTreeMap::new(),
+            cancels_at: [None; 2],
             reset: BTreeSet::new(),
             black_holed: BTreeSet::new(),
             connecting: true,
@@ -631,6 +661,11 @@ impl World {
         }
         if let Some(InboundLimit::Delay(limit)) = inbound {
             header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
+        }
+        for (side, cancel) in [Side::Initiator, Side::Acceptor].into_iter().zip(cancels(self.options.seed)) {
+            if let Some(CancelOnDisconnect { trigger, grace }) = cancel {
+                header.push_str(&format!(", {side:?} cancels on {trigger:?} after {grace:?}"));
+            }
         }
         self.record(&header);
         self.queue.push(SimTime(0), Event::Connect(0));
@@ -708,6 +743,7 @@ impl World {
             self.dispatch(event, at, busy_end)?;
             self.poll_operators()?;
             self.operator_traps(at)?;
+            self.schedule_cancels(at);
             // A trap's crash kills the process when its call is made, not at some later step.
             assert!(
                 self.storage.iter().all(|s| !s.crash_pending()),
@@ -828,7 +864,7 @@ impl World {
             }
             Event::Fail { side, conn } => {
                 self.in_flight -= 1;
-                if self.nodes[side.index()].fail(conn) {
+                if self.nodes[side.index()].fail(conn, now) {
                     self.ended(side, conn, now);
                 }
                 self.after(side, conn, now)?;
@@ -879,6 +915,12 @@ impl World {
                     self.pending_for(side, conn).input_free = None;
                     let effects = self.nodes[side.index()].window_free(conn, now);
                     self.apply(side, conn, effects, now)?;
+                }
+            }
+            Event::Cancels(side, at) => {
+                if self.cancels_at[side.index()] == Some(at) {
+                    self.cancels_at[side.index()] = None;
+                    self.nodes[side.index()].registry.run_due_cancels(self.clocks.instant(now));
                 }
             }
             Event::SendOrder => {
@@ -1040,7 +1082,7 @@ impl World {
             Event::GiveUp(conn) => {
                 self.net.reset(conn);
                 for side in [Side::Initiator, Side::Acceptor] {
-                    if self.nodes[side.index()].fail(conn) {
+                    if self.nodes[side.index()].fail(conn, now) {
                         self.ended(side, conn, now);
                     }
                 }
@@ -1053,6 +1095,8 @@ impl World {
     /// connections (so the other end's fail), and it restarts after a while.
     fn crash(&mut self, side: Side, now: SimTime) {
         self.down[side.index()] = true;
+        // The countdowns under way go with the process's registry.
+        self.cancels_at[side.index()] = None;
         if side == Side::Initiator {
             self.connecting = false;
             self.generation += 1;
@@ -1170,6 +1214,27 @@ impl World {
         Ok(())
     }
 
+    /// Schedules each running side's cancel-on-disconnect countdowns for when the next ends, as
+    /// the task driving its registry sleeps until then: once per deadline, again if a countdown
+    /// started, stopped or fired. On the planted bug, the acceptor's run late.
+    fn schedule_cancels(&mut self, now: SimTime) {
+        for side in [Side::Initiator, Side::Acceptor] {
+            if self.down[side.index()] {
+                continue;
+            }
+            let next = self.nodes[side.index()].registry.next_cancel_deadline().map(|d| self.clocks.sim_time(d));
+            if next == self.cancels_at[side.index()] {
+                continue;
+            }
+            self.cancels_at[side.index()] = next;
+            if let Some(at) = next {
+                let late = self.options.plant == Some(Plant::LateCancel) && side == Side::Acceptor;
+                let run_at = if late { at.after(Duration::from_millis(1)) } else { at };
+                self.queue.push(run_at.max(now), Event::Cancels(side, at));
+            }
+        }
+    }
+
     /// Schedules the next fault of a kind, while the workload runs.
     fn again(&mut self, busy: bool, now: SimTime, every: Option<Duration>, event: Event) {
         if let (true, Some(every)) = (busy, every) {
@@ -1269,6 +1334,11 @@ impl World {
         for s in [Side::Initiator, Side::Acceptor] {
             let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap();
             self.checker.delivered(s, &deliveries)?;
+        }
+        let now = self.clocks.now();
+        for s in [Side::Initiator, Side::Acceptor] {
+            let lifecycle = self.nodes[s.index()].app.lifecycle.lock().unwrap();
+            self.checker.lifecycle(s, &lifecycle, now)?;
         }
         for s in [Side::Initiator, Side::Acceptor] {
             let mut receipts = self.nodes[s.index()].app.receipts.lock().unwrap();

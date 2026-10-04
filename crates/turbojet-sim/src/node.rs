@@ -177,9 +177,10 @@ impl Node {
     }
 
     /// `conn` failed (a reset, or TCP giving up): the driver's read or write returns an error and
-    /// it ends, dropping the session without writing anything more. Unread bytes are lost.
-    pub fn fail(&mut self, conn: ConnId) -> bool {
-        self.running.remove(&conn).is_some()
+    /// it ends, telling the session the connection is gone and dropping it without writing
+    /// anything more. Unread bytes are lost.
+    pub fn fail(&mut self, conn: ConnId, now: SimTime) -> bool {
+        self.end(conn, now)
     }
 
     /// The read branch, enabled unless the inbound window holds input: everything in the receive
@@ -206,7 +207,7 @@ impl Node {
         effects.read = read;
         // A read of 0 after the data: the driver returns, dropping the session.
         if self.running.get(&conn).is_some_and(|r| r.fin && r.unread.is_empty()) {
-            self.running.remove(&conn);
+            self.end(conn, now);
             effects.ended = true;
         }
         effects
@@ -315,10 +316,23 @@ impl Node {
     pub fn restart(&mut self, registry: Arc<SessionRegistry>) {
         assert!(self.running.is_empty(), "a crashed node has no sessions");
         self.registry = registry;
+        self.app.restart();
     }
 
+    /// The session closed and its output has gone: the driver returns. A session closed already
+    /// ignores `on_disconnect`, which the driver doesn't call here.
     pub fn remove(&mut self, conn: ConnId) {
-        self.running.remove(&conn);
+        let removed = self.running.remove(&conn);
+        assert!(removed.is_none_or(|r| r.session.is_closed()), "only a closed session is removed");
+    }
+
+    /// The driver returns as the transport ended under it, telling the session first, as the
+    /// connection driver does on every end but a clean one: so `on_logout`, and any
+    /// cancel-on-disconnect countdown, start at `now`. Whether it was running.
+    fn end(&mut self, conn: ConnId, now: SimTime) -> bool {
+        let Some(mut running) = self.running.remove(&conn) else { return false };
+        running.session.on_disconnect(self.clocks.instant(now));
+        true
     }
 
     fn step(&mut self, conn: ConnId, now: SimTime, f: impl FnOnce(&mut Session, Instant)) -> Effects {
@@ -382,7 +396,7 @@ impl Node {
         running.outbox.extend_from_slice(&output);
         if running.outbox.len() > MAX_UNWRITTEN || running.buf.len() > MAX_UNPROCESSED {
             // The counterparty has stopped reading: the driver returns an error.
-            self.running.remove(&conn);
+            self.end(conn, now);
             return Effects { output, ended: true, ..Effects::default() };
         }
         if let Some(deadline) = running.session.next_deadline().map(|d| clocks.sim_time(d))
