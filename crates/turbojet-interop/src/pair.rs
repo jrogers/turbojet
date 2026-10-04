@@ -159,12 +159,12 @@ impl Setup {
                 config.heartbeat_interval = Duration::from_secs(options.heartbeat_secs.into());
                 config.reset_on_logon = options.reset_on_logon;
                 config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_secs(options.reconnect_secs.into()));
-                let initiator = Initiator::new(addr.to_string(), config, storage, app);
+                let initiator = Initiator::new(addr.to_string(), config, storage, app).unwrap();
                 let handle = initiator.handle();
                 (peer, handle, tokio::spawn(initiator.run()))
             }
             Role::TjAcceptor => {
-                let acceptor = Acceptor::new(session, storage, app);
+                let acceptor = Acceptor::new(session, storage, app).unwrap();
                 let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
                 let addr = listener.local_addr().unwrap();
                 peer_config.port = Some(addr.port());

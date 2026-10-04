@@ -4674,20 +4674,21 @@ fn a_cancel_grace_over_the_maximum_is_refused() {
 }
 
 #[test]
-#[should_panic(expected = "invalid session configuration: outbound_limit")]
-fn an_acceptor_with_an_invalid_outbound_limit_panics_when_built() {
+fn an_acceptor_with_an_invalid_outbound_limit_is_refused_when_built() {
     let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
     config.outbound_limit = Some(RateLimit { messages: 0, per: Duration::from_secs(1) });
-    let _ = crate::Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+    let made = crate::Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+    assert!(made.unwrap_err().to_string().starts_with("outbound_limit"));
 }
 
 #[test]
-#[should_panic(expected = "invalid initiator configuration: inbound_limit")]
-fn an_initiator_with_an_invalid_inbound_limit_panics_when_built() {
+fn an_initiator_with_an_invalid_inbound_limit_is_refused_when_built() {
     let mut session = SessionConfig::new("FIX.4.4", "CLIENT");
     session.inbound_limit = Some(InboundLimit::Reject(RateLimit { messages: 1, per: Duration::ZERO }));
     let config = InitiatorConfig::new(session, "GATEWAY");
-    let _ = crate::Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+    let made =
+        crate::Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+    assert!(made.unwrap_err().to_string().starts_with("inbound_limit"));
 }
 
 // ---- Dictionary validation ----

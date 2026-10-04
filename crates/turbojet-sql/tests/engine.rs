@@ -57,14 +57,15 @@ async fn a_reconnected_client_gets_its_reports_resent_from_the_database() {
     let url = format!("sqlite://{}?mode=rwc", dir.path().join("venue.db").display());
     let storage = SqlStorage::connect(&url, SqlConfig::default()).await.unwrap();
     storage.migrate().await.unwrap();
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(storage), Arc::new(Venue));
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(storage), Arc::new(Venue)).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.clone().serve(listener));
 
     let (sender, mut events) = mpsc::unbounded_channel();
     let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE");
-    let initiator = Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), Arc::new(Client(sender)));
+    let initiator =
+        Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), Arc::new(Client(sender))).unwrap();
     let handle = initiator.handle();
 
     let first = tokio::spawn({

@@ -56,7 +56,7 @@ fn recorder() -> (Arc<Recorder>, mpsc::UnboundedReceiver<Event>) {
 
 async fn start_acceptor(config: SessionConfig) -> (String, mpsc::UnboundedReceiver<Event>) {
     let (app, events) = recorder();
-    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), app);
+    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));
@@ -84,7 +84,7 @@ async fn initiator_waits_for_its_session_to_start() {
     let (app, mut client) = recorder();
     let mut config = InitiatorConfig::new(session, "SERVER");
     config.reset_on_logon = true;
-    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app);
+    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap();
 
     let err = initiator.connect_once().await.unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::NotConnected);
@@ -114,7 +114,8 @@ async fn acceptor_logs_the_client_out_when_the_period_ends() {
     let mut client_config = SessionConfig::new("FIX.4.2", "CLIENT");
     client_config.max_latency = None;
     let initiator =
-        Initiator::new(addr, InitiatorConfig::new(client_config, "SERVER"), Arc::new(MemoryStorage::new()), app);
+        Initiator::new(addr, InitiatorConfig::new(client_config, "SERVER"), Arc::new(MemoryStorage::new()), app)
+            .unwrap();
     let handle = initiator.handle();
     let connection = tokio::spawn(async move { initiator.connect_once().await });
     assert_eq!(next(&mut client).await, Event::LoggedOn);
@@ -143,7 +144,7 @@ async fn initiator_waits_out_a_holiday() {
     let (app, mut client) = recorder();
     let mut config = InitiatorConfig::new(session, "SERVER");
     config.reset_on_logon = true;
-    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app);
+    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap();
 
     let err = initiator.connect_once().await.unwrap_err();
     assert!(err.to_string().contains("2026-12-25 is a holiday"), "{err}");
@@ -171,7 +172,8 @@ async fn acceptor_refuses_logons_on_a_holiday() {
     let mut client_config = SessionConfig::new("FIX.4.2", "CLIENT");
     client_config.max_latency = None;
     let initiator =
-        Initiator::new(addr, InitiatorConfig::new(client_config, "SERVER"), Arc::new(MemoryStorage::new()), app);
+        Initiator::new(addr, InitiatorConfig::new(client_config, "SERVER"), Arc::new(MemoryStorage::new()), app)
+            .unwrap();
     // The acceptor closes the connection before logon, which connect_once reports as a failure.
     let result =
         tokio::time::timeout(Duration::from_secs(5), initiator.connect_once()).await.expect("refused promptly");

@@ -88,7 +88,8 @@ async fn both_ends_agree_on_messages_and_bytes() {
     let dir = tempfile::tempdir().unwrap();
     let mut server = SessionConfig::new("FIX.4.2", "SERVER");
     server.latency_metrics = true;
-    let acceptor = Acceptor::new(server, Arc::new(DiskStorage::new(dir.path(), true).unwrap()), Arc::new(Acker));
+    let acceptor =
+        Acceptor::new(server, Arc::new(DiskStorage::new(dir.path(), true).unwrap()), Arc::new(Acker)).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));
@@ -100,7 +101,8 @@ async fn both_ends_agree_on_messages_and_bytes() {
         InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
         Arc::new(MemoryStorage::new()),
         Arc::new(Client { logged_on, acks: acks_tx }),
-    );
+    )
+    .unwrap();
     let handle = initiator.handle();
     let connection = tokio::spawn(async move { initiator.connect_once().await });
 

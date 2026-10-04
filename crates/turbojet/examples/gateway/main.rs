@@ -534,7 +534,13 @@ async fn main() -> ExitCode {
         "FIX gateway listening"
     );
 
-    let mut acceptor = Acceptor::new(config, storage, app);
+    let mut acceptor = match Acceptor::new(config, storage, app) {
+        Ok(acceptor) => acceptor,
+        Err(e) => {
+            error!("invalid configuration: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     if let Some(allowed) = &allowed {
         acceptor = acceptor.with_counterparties(Arc::new(only(allowed)));
     }

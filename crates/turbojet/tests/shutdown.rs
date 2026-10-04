@@ -48,7 +48,7 @@ fn acceptor(logout_timeout: Duration) -> (Acceptor, mpsc::UnboundedReceiver<Even
     let (app, events) = recorder();
     let mut config = SessionConfig::new("FIX.4.2", "SERVER");
     config.logout_timeout = logout_timeout;
-    (Acceptor::new(config, Arc::new(MemoryStorage::new()), app), events)
+    (Acceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap(), events)
 }
 
 /// Serves `acceptor` on a local port: the address, and the task running `serve`.
@@ -230,7 +230,7 @@ fn initiator(addr: &str, reconnect: Duration) -> (Initiator, mpsc::UnboundedRece
     let (app, events) = recorder();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.reconnect = turbojet::ReconnectPolicy::fixed(reconnect);
-    (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app), events)
+    (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap(), events)
 }
 
 #[tokio::test]

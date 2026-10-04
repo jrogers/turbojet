@@ -125,7 +125,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT1"), "GATEWAY");
     config.reset_on_logon = true;
     let mut initiator =
-        Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(ClientApp { events: tx }));
+        Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(ClientApp { events: tx }))?;
     for backup in args.failover {
         initiator = initiator.with_failover(backup);
     }

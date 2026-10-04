@@ -67,7 +67,7 @@ async fn message(rx: &mut mpsc::UnboundedReceiver<Event>) -> Message {
 }
 
 async fn start_acceptor(app: Arc<Recorder>) -> (Acceptor, String) {
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app);
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.clone().serve(listener));
@@ -77,7 +77,7 @@ async fn start_acceptor(app: Arc<Recorder>) -> (Acceptor, String) {
 fn initiator(addr: &str, app: Arc<Recorder>) -> Initiator {
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
-    Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app)
+    Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap()
 }
 
 fn order(cl_ord_id: &str) -> Message {

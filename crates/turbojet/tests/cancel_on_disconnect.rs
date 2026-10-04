@@ -76,7 +76,7 @@ fn acceptor(trigger: CancelTrigger) -> (Acceptor, Events) {
     let mut config = SessionConfig::new("FIX.4.2", "SERVER");
     config.logout_timeout = Duration::from_secs(2);
     cancelling(&mut config, trigger);
-    (Acceptor::new(config, Arc::new(MemoryStorage::new()), app), events)
+    (Acceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap(), events)
 }
 
 /// A counterparty driven by hand over an in-memory pipe, as `ours` talking to `theirs`.
@@ -268,7 +268,7 @@ fn initiator(target: &str, registry: Option<&Arc<SessionRegistry>>) -> (Initiato
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), target);
     config.session.logout_timeout = Duration::from_secs(2);
     cancelling(&mut config.session, CancelTrigger::Disconnect);
-    let initiator = Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), app);
+    let initiator = Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), app).unwrap();
     let initiator = match registry {
         Some(registry) => initiator.with_registry(registry.clone()),
         None => initiator,

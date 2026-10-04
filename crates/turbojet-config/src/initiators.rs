@@ -82,6 +82,7 @@ impl Initiators {
             Arc::new(turbojet::MemoryStorage::new()),
             self.app.clone(),
         )
+        .expect("checked when the file loaded")
         .with_registry(self.registry.clone());
         for backup in &endpoints[1..] {
             initiator = initiator.with_failover(backup.clone());

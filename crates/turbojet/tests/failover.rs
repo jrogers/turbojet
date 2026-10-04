@@ -66,7 +66,7 @@ impl Harness {
     /// Starts an acceptor on `addr` (or a free port) and returns its address.
     async fn acceptor(&self, name: &'static str, addr: Option<&str>, refuse_logon: bool) -> (Acceptor, String) {
         let config = SessionConfig::new("FIX.4.2", "SERVER");
-        let acceptor = Acceptor::new(config, self.acceptor_storage.clone(), self.app(name, refuse_logon));
+        let acceptor = Acceptor::new(config, self.acceptor_storage.clone(), self.app(name, refuse_logon)).unwrap();
         let listener = TcpListener::bind(addr.unwrap_or("127.0.0.1:0")).await.unwrap();
         let addr = listener.local_addr().unwrap().to_string();
         tokio::spawn(acceptor.clone().serve(listener));
@@ -77,7 +77,7 @@ impl Harness {
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
         config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
         config.connect_timeout = Duration::from_secs(2);
-        Initiator::new(primary, config, Arc::new(MemoryStorage::new()), self.app("client", false))
+        Initiator::new(primary, config, Arc::new(MemoryStorage::new()), self.app("client", false)).unwrap()
     }
 
     async fn next(&mut self) -> Event {
@@ -205,7 +205,8 @@ async fn failing_attempts_back_off() {
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.reconnect = turbojet::ReconnectPolicy::exponential(Duration::from_millis(100), Duration::from_millis(400));
     config.reconnect.jitter = false;
-    let initiator = Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), h.app("client", false));
+    let initiator =
+        Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), h.app("client", false)).unwrap();
     tokio::spawn(initiator.run());
     let mut at = Vec::new();
     for _ in 0..5 {

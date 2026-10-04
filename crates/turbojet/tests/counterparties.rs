@@ -44,6 +44,7 @@ async fn start_acceptor() -> (String, mpsc::UnboundedReceiver<String>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let acceptor =
         Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx)))
+            .unwrap()
             .with_counterparties(Arc::new(Rules));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -55,7 +56,7 @@ fn initiator(addr: &str, comp_id: &str, heartbeat: u64) -> Initiator {
     let (tx, _) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", comp_id), "SERVER");
     config.heartbeat_interval = Duration::from_secs(heartbeat);
-    Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx)))
+    Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx))).unwrap()
 }
 
 #[tokio::test]
@@ -80,7 +81,8 @@ async fn an_offline_change_reaches_the_counterpartys_store() {
     let broker = Arc::new(MemoryStorage::new());
     let storage = StorageByCounterparty::new(default.clone()).with("BROKER", broker.clone());
     let (tx, _) = mpsc::unbounded_channel();
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(storage), Arc::new(Recorder(tx)));
+    let acceptor =
+        Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(storage), Arc::new(Recorder(tx))).unwrap();
     acceptor.session("BROKER").set_next_outgoing(10).await.unwrap();
     let id = SessionId::new("FIX.4.4", "SERVER", "BROKER");
     assert_eq!(broker.open(&id).unwrap().next_outgoing(), 10);

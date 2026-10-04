@@ -126,14 +126,14 @@
 //!     let listener = TcpListener::bind("127.0.0.1:0").await?;
 //!     let addr = listener.local_addr()?.to_string();
 //!     let config = SessionConfig::new("FIX.4.4", "SERVER");
-//!     let server = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(OrderDesk));
+//!     let server = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(OrderDesk))?;
 //!     tokio::spawn(server.clone().serve(listener));
 //!
 //!     let (logons, mut logged_on) = mpsc::unbounded_channel();
 //!     let (messages, mut received) = mpsc::unbounded_channel();
 //!     let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
 //!     let app = Arc::new(Client { logons, messages });
-//!     let client = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app);
+//!     let client = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app)?;
 //!     tokio::spawn(client.clone().run());
 //!
 //!     let session = logged_on.recv().await.expect("logged on");

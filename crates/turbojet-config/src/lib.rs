@@ -299,6 +299,7 @@ impl SessionsFile {
         let (raw, part) = (loaded.raw.acceptor.as_ref()?, loaded.acceptor.as_ref()?);
         let storage = Arc::new(Router(self.current.clone()));
         let mut acceptor = Acceptor::new(part.base.clone(), storage, app)
+            .expect("checked when the file loaded")
             .with_counterparties(Arc::new(Resolver(self.current.clone())));
         if let Some(connections) = raw.max_connections {
             acceptor = acceptor.with_max_connections(connections);

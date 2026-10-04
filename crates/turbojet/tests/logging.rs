@@ -67,14 +67,15 @@ async fn round_trip_logging(filter: &str) -> Vec<String> {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     let acceptor =
-        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Server));
+        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Server))
+            .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));
     let (events, mut rx) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.password = Some("hunter2".into());
-    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(Client { events }));
+    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(Client { events })).unwrap();
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
 

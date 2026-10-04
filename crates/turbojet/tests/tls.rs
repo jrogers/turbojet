@@ -172,7 +172,8 @@ async fn start_acceptor_with(
     tls: tls::TlsAcceptor,
     (app, events): (Arc<Recorder>, mpsc::UnboundedReceiver<Event>),
 ) -> (String, mpsc::UnboundedReceiver<Event>, Arc<Recorder>) {
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app.clone());
+    let acceptor =
+        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app.clone()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve_tls(listener, tls));
@@ -190,7 +191,7 @@ fn initiator_with(addr: impl Into<Endpoint>) -> (Initiator, mpsc::UnboundedRecei
     config.session.logon_timeout = Duration::from_secs(2);
     // Each test initiator starts with fresh storage, so reset rather than resume sequence numbers.
     config.reset_on_logon = true;
-    (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app.clone()), events, app)
+    (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app.clone()).unwrap(), events, app)
 }
 
 /// Runs one connection attempt to completion and returns its result.
@@ -415,7 +416,8 @@ async fn application_can_refuse_a_trusted_certificate_for_the_wrong_identity() {
 #[tokio::test]
 async fn plain_tcp_connections_report_address_without_certificates() {
     let (app, mut events) = recorder();
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app.clone());
+    let acceptor =
+        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app.clone()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));
@@ -473,7 +475,7 @@ async fn pipelined_bursts_over_tls_do_not_stall() {
 async fn acceptor_shutdown_abandons_a_tls_handshake() {
     let pki = Pki::new();
     let (app, _events) = recorder();
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app);
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(acceptor.clone().serve_tls(listener, pki.acceptor(Auth::None)));
@@ -519,6 +521,7 @@ async fn a_connection_past_the_limit_gets_no_handshake() {
     let pki = Pki::new();
     let (app, _events) = recorder();
     let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app)
+        .unwrap()
         .with_max_connections(1);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -539,7 +542,7 @@ async fn a_connection_past_the_limit_gets_no_handshake() {
 /// Serves `server` on a free port with an acceptor that records events, returning the address.
 async fn serve(server: &tls::ServerTls) -> (String, mpsc::UnboundedReceiver<Event>) {
     let (app, events) = recorder();
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app);
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve_tls(listener, server.acceptor()));

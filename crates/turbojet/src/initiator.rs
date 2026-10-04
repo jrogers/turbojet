@@ -198,7 +198,7 @@ enum Attempt {
 impl Initiator {
     /// An initiator whose primary endpoint is `addr` (`host:port`).
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// If `config` is invalid; see [`InitiatorConfig::check`].
     pub fn new(
@@ -206,10 +206,10 @@ impl Initiator {
         config: InitiatorConfig,
         storage: Arc<dyn SessionStorage>,
         app: Arc<dyn Application>,
-    ) -> Self {
-        config.assert_valid();
+    ) -> Result<Self, ConfigError> {
+        config.check()?;
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.session.clock.clone()));
-        Self {
+        Ok(Self {
             plan: Arc::new(RwLock::new(Arc::new(Plan { endpoints: vec![addr.into()], config }))),
             registry,
             app,
@@ -218,7 +218,7 @@ impl Initiator {
             shutdown: Arc::new(Shutdown::new()),
             #[cfg(test)]
             unreachable: Vec::new(),
-        }
+        })
     }
 
     /// Adds a backup endpoint, tried after the primary and any earlier backups.
@@ -590,9 +590,20 @@ mod tests {
     fn initiator_with(primary: &str, adjust: impl FnOnce(&mut InitiatorConfig)) -> Initiator {
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
         adjust(&mut config);
-        let mut initiator = Initiator::new(primary, config, Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+        let mut initiator = Initiator::new(primary, config, Arc::new(MemoryStorage::new()), Arc::new(Nothing)).unwrap();
         initiator.unreachable.push(UNREACHABLE.to_string());
         initiator
+    }
+
+    #[test]
+    fn an_invalid_config_is_an_error_not_a_panic() {
+        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+        config.heartbeat_interval = Duration::ZERO;
+        let made = Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+        assert!(made.unwrap_err().to_string().contains("heartbeat_interval"));
+        let acceptor =
+            crate::Acceptor::new(SessionConfig::new("", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+        assert!(acceptor.unwrap_err().to_string().contains("begin_string"));
     }
 
     #[tokio::test]

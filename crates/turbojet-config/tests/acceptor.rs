@@ -83,7 +83,7 @@ impl Venue {
         let (tx, _) = mpsc::unbounded_channel();
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", comp_id), "VENUE");
         config.heartbeat_interval = Duration::from_secs(heartbeat);
-        Initiator::new(self.addr.clone(), config, Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx)))
+        Initiator::new(self.addr.clone(), config, Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx))).unwrap()
     }
 
     /// Logs `comp_id` on and leaves it connected.

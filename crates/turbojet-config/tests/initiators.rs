@@ -35,7 +35,8 @@ impl Venue {
             SessionConfig::new("FIX.4.4", "VENUE"),
             Arc::new(MemoryStorage::new()),
             Arc::new(Recorder(tx)),
-        );
+        )
+        .unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap().to_string();
         tokio::spawn(acceptor.clone().serve(listener));

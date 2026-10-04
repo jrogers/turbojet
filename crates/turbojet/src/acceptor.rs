@@ -16,7 +16,7 @@ use crate::connection;
 use crate::counterparty::Counterparties;
 use crate::peer::ConnectionInfo;
 use crate::registry::{SessionHandle, SessionRegistry};
-use crate::session::{Session, SessionConfig};
+use crate::session::{ConfigError, Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
 use crate::telemetry;
@@ -64,14 +64,18 @@ impl std::fmt::Debug for Acceptor {
 impl Acceptor {
     /// An acceptor serving `app`, keeping session state in `storage`.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// If `config` is invalid; see [`SessionConfig::check`].
-    pub fn new(config: SessionConfig, storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Self {
-        config.assert_valid();
+    pub fn new(
+        config: SessionConfig,
+        storage: Arc<dyn SessionStorage>,
+        app: Arc<dyn Application>,
+    ) -> Result<Self, ConfigError> {
+        config.check()?;
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.clock.clone()));
         let limits = Arc::new(Limits::new(DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP));
-        Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties: None }
+        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties: None })
     }
 
     /// Keeps at most `connections` connections open at once, closing any more as soon as they're
@@ -428,7 +432,8 @@ mod tests {
             io::Error::from_raw_os_error(24),                  // EMFILE: out of file descriptors
         ]);
         let acceptor =
-            Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+            Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing))
+                .unwrap();
         let serving = tokio::spawn(acceptor.serve_listener(FlakyListener { errors, inner }));
 
         let mut client = TcpStream::connect(addr).await.unwrap();
@@ -463,7 +468,7 @@ mod tests {
     }
 
     fn quiet_acceptor() -> Acceptor {
-        Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing))
+        Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing)).unwrap()
     }
 
     /// Whether the acceptor closed `client` at once: a read returns end-of-file rather than
@@ -510,7 +515,8 @@ mod tests {
     #[test]
     fn the_limits_are_bounded_by_default() {
         let acceptor =
-            Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+            Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing))
+                .unwrap();
         assert_eq!(
             (acceptor.limits.max_total, acceptor.limits.max_per_ip),
             (DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP)

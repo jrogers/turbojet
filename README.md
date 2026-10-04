@@ -147,13 +147,13 @@ impl Application for MyApp {
 }
 
 // Acceptor: many counterparties log on to us.
-let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), storage.clone(), Arc::new(MyApp));
+let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), storage.clone(), Arc::new(MyApp))?;
 tokio::spawn(acceptor.clone().serve(listener));
 acceptor.session("CLIENT").send(msg)?;          // queue for a connected counterparty
 
 // Initiator: we log on to one counterparty and reconnect as needed.
 let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
-let initiator = Initiator::new("host:9876", config, storage, Arc::new(MyApp));
+let initiator = Initiator::new("host:9876", config, storage, Arc::new(MyApp))?;
 tokio::spawn(initiator.clone().run());
 let seq = initiator.handle().send(msg)?.await?; // its MsgSeqNum, once stored
 ```
@@ -492,7 +492,7 @@ let counterparties = CounterpartyMap::new()
     .refuse_unknown(); // or admit others with the acceptor's own settings
 let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
     .with("FUND", Arc::new(DiskStorage::new("./store", true)?));
-let acceptor = Acceptor::new(config, Arc::new(storage), app).with_counterparties(Arc::new(counterparties));
+let acceptor = Acceptor::new(config, Arc::new(storage), app)?.with_counterparties(Arc::new(counterparties));
 ```
 
 Each counterparty starts from the acceptor's configuration. What's in use before Logon stays the
@@ -549,7 +549,7 @@ A venue that negotiates cancel on disconnect at logon, in Logon fields of its ow
 An initiator has a primary endpoint and any number of backups, tried in order:
 
 ```rust
-let initiator = Initiator::new("primary.example.com:9876", config, storage, app)
+let initiator = Initiator::new("primary.example.com:9876", config, storage, app)?
     .with_failover("dr.example.com:9876")
     .with_failover(Endpoint::new("10.1.2.3:9876").with_tls_server_name("dr2.example.com"))
     .with_tls(connector, "primary.example.com")?; // default TLS name; endpoints may override

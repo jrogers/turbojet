@@ -50,7 +50,8 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
         SessionConfig::new("FIX.4.2", "SERVER"),
         Arc::new(DiskStorage::new(dir.path(), false).unwrap()),
         Arc::new(Recorder(server_tx)),
-    );
+    )
+    .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.clone().serve(listener));
@@ -62,7 +63,8 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
         InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
         Arc::new(turbojet::MemoryStorage::new()),
         Arc::new(Recorder(client_tx)),
-    );
+    )
+    .unwrap();
     let client_handle = initiator.handle();
     let connection = tokio::spawn(async move { initiator.connect_once().await });
     assert!(matches!(next(&mut client).await, Event::LoggedOn));

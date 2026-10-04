@@ -151,7 +151,7 @@ fn typed_message_items_stay_unambiguous_under_a_glob_import() {
 #[tokio::test]
 async fn custom_messages_travel_through_a_session() {
     let acceptor =
-        Acceptor::new(SessionConfig::new("FIX.4.2", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(Venue));
+        Acceptor::new(SessionConfig::new("FIX.4.2", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(Venue)).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));
@@ -162,7 +162,8 @@ async fn custom_messages_travel_through_a_session() {
         InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE"),
         Arc::new(MemoryStorage::new()),
         Arc::new(Client { events }),
-    );
+    )
+    .unwrap();
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
     assert!(next(&mut rx).await.is_none(), "logged on");

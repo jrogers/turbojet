@@ -80,7 +80,7 @@ fn config(sender: &str, latency: bool) -> SessionConfig {
 /// Starts an acceptor storing to `storage` and a logged-on initiator. With `tls`, both use TLS;
 /// with `latency`, both record the latency histograms.
 async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, latency: bool) -> Connection {
-    let acceptor = Acceptor::new(config("GATEWAY", latency), storage, Arc::new(common::Acker::default()));
+    let acceptor = Acceptor::new(config("GATEWAY", latency), storage, Arc::new(common::Acker::default())).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
 
@@ -89,7 +89,7 @@ async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, l
     let mut config = InitiatorConfig::new(config("CLIENT", latency), "GATEWAY");
     config.reset_on_logon = true;
     let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
-    let initiator = Initiator::new(addr, config, Arc::new(common::DiscardStorage), client.clone());
+    let initiator = Initiator::new(addr, config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
 
     #[cfg(feature = "tls")]
     let initiator = if tls {
@@ -212,7 +212,8 @@ fn resend(c: &mut Criterion) {
             SessionConfig::new("FIX.4.2", "GATEWAY"),
             Arc::new(turbojet::MemoryStorage::new()),
             Arc::new(common::Acker::default()),
-        );
+        )
+        .unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(acceptor.serve(listener));
