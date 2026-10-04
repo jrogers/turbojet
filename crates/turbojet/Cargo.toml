@@ -2,7 +2,7 @@
 name = "turbojet"
 description = "Turbojet: a FIX session engine with typed messages, storage, TLS, and acceptor/initiator transports"
 # Released on its own when only the engine changes; the other crates keep the workspace version.
-version = "0.1.1"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

@@ -2,7 +2,10 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.2.0 (2026-10-04)
+
+Two new crates: `turbojet-config`, session configuration files, and `turbojet-sql`, session
+storage in SQLite or PostgreSQL. The other crates have breaking changes, marked below.
 
 ### `turbojet`
 

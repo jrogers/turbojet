@@ -4,7 +4,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 # File::try_lock (DiskStorage session locking) was stabilised in 1.89.
 rust-version = "1.89"
@@ -57,8 +57,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3"
 # Parses generated docs as rustdoc does, in turbojet-codegen's tests.
 pulldown-cmark = { version = "0.13", default-features = false }
-turbojet = { version = "0.1.0", path = "crates/turbojet" }
-turbojet-dictionary = { version = "0.1.0", path = "crates/turbojet-dictionary" }
+turbojet = { version = "0.2.0", path = "crates/turbojet" }
+turbojet-dictionary = { version = "0.2.0", path = "crates/turbojet-dictionary" }
 # Path only: turbojet dev-depends on it, and a version would force it onto crates.io first.
 turbojet-config = { path = "crates/turbojet-config" }
 turbojet-fix42 = { path = "crates/turbojet-fix42" }

@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "compact_str",
@@ -742,28 +742,28 @@ dependencies = [
 
 [[package]]
 name = "turbojet-fix42"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-fix43"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-fix44"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-fix50sp2"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "turbojet",
 ]
