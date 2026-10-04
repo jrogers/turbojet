@@ -202,10 +202,13 @@ in the session, the decoder, the connection driver and the code generator are sp
 parent that decides and helpers that compute; the few still marked
 `#[expect(clippy::too_many_lines)]` are a match arm per event or option, or a benchmark group.
 
-- **Assertion density** (M). Aim for about two assertions per function in `session`, `codec`,
-  `message` and the stores: preconditions, postconditions, and pairs across code paths. For
-  example, `MemoryStorage` checks a message's framing when it's stored but not when it's read
-  back for a resend, as `DiskStorage` does.
+- **Assertion density** (M). `session`, `codec`, `message` and the stores assert their
+  transitions and pairs (2026-10-04: a stored message is checked as stored and as read back, in
+  both stores and again by the session; BodyLength is checked as computed and as written; a
+  resend never reaches a number not yet sent; a store never reuses a number), about one assertion
+  per four functions, up from one per seven. The rest of the engine has fewer: the registry,
+  the connection driver, throttling, schedules and validation. Add checks where they state
+  something a reader relies on, not to reach a count.
 
 ## 6. Performance
 
