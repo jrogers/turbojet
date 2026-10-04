@@ -10,7 +10,7 @@ use tokio::time::timeout;
 use turbojet::message::tags;
 use turbojet::{
     Acceptor, Application, ConnectionInfo, Context, Disconnect, Endpoint, Initiator, InitiatorConfig, MemoryStorage,
-    Message, MessageReject, MsgType, SessionConfig, SessionHandle, SessionId, SessionStorage,
+    Message, MessageReject, MsgType, SessionConfig, SessionHandle, SessionStorage,
 };
 
 #[derive(Debug, PartialEq)]
@@ -28,15 +28,20 @@ struct Recorder {
 }
 
 impl Application for Recorder {
-    fn verify_logon(&self, _session: &SessionId, _logon: &Message, _connection: &ConnectionInfo) -> Result<(), String> {
+    fn verify_logon(
+        &self,
+        _session: &SessionHandle,
+        _logon: &Message,
+        _connection: &ConnectionInfo,
+    ) -> Result<(), String> {
         if self.refuse_logon { Err(format!("{} is not accepting logons", self.name)) } else { Ok(()) }
     }
 
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.events.send(Event::LoggedOn(self.name));
     }
 
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         let _ = self.events.send(Event::LoggedOut(self.name));
     }
 

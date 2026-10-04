@@ -15,7 +15,7 @@ use turbojet::{
 struct Recorder(mpsc::UnboundedSender<String>);
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
+    fn on_logon(&self, session: &SessionHandle) {
         let _ = self.0.send(session.id().target_comp_id.clone());
     }
 }

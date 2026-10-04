@@ -12,7 +12,7 @@ use turbojet::codec::{Decoded, decode, encode};
 use turbojet::message::{tags, utc_timestamp};
 use turbojet::{
     Acceptor, Application, ConnectionInfo, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MsgType,
-    SessionConfig, SessionHandle, SessionId,
+    SessionConfig, SessionHandle,
 };
 
 #[derive(Debug)]
@@ -26,11 +26,11 @@ struct Recorder {
 }
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
-        let _ = self.events.send(Event::LoggedOn(session));
+    fn on_logon(&self, session: &SessionHandle) {
+        let _ = self.events.send(Event::LoggedOn(session.clone()));
     }
 
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         let _ = self.events.send(Event::LoggedOut);
     }
 }

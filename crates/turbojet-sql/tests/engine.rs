@@ -32,7 +32,7 @@ impl Application for Venue {
 struct Client(mpsc::UnboundedSender<Option<(String, bool)>>);
 
 impl Application for Client {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.0.send(None);
     }
 

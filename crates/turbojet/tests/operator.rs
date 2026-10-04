@@ -9,7 +9,7 @@ use turbojet::message::tags;
 use turbojet::registry::{SequenceError, SequenceNumbers};
 use turbojet::{
     Acceptor, Application, Context, Disconnect, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject,
-    MsgType, SessionConfig, SessionHandle, SessionId, SessionRegistry,
+    MsgType, SessionConfig, SessionHandle, SessionRegistry,
 };
 
 #[derive(Debug)]
@@ -22,10 +22,10 @@ enum Event {
 struct Recorder(mpsc::UnboundedSender<Event>);
 
 impl Application for Recorder {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.0.send(Event::LoggedOn);
     }
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         let _ = self.0.send(Event::LoggedOut);
     }
     fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {

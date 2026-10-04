@@ -31,8 +31,8 @@ struct Recorder {
 }
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
-        let _ = self.events.send(Event::LoggedOn(session));
+    fn on_logon(&self, session: &SessionHandle) {
+        let _ = self.events.send(Event::LoggedOn(session.clone()));
     }
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {

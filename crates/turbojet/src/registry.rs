@@ -559,20 +559,20 @@ impl SessionRegistry {
     /// order. While they run, logons and endings of every session in the registry wait. Calling it
     /// early is harmless: it acts only on what is due. Calling it from inside
     /// `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
-    pub fn run_due_cancels(&self, now: Instant) {
-        self.cancels.run_due(now);
+    pub fn run_due_cancels(self: &Arc<Self>, now: Instant) {
+        self.cancels.run_due(|id| self.handle(id.clone()), now);
     }
 
     /// Fires every cancel-on-disconnect countdown under way, due or not, as a shutdown does.
     /// Calling it from inside `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
-    pub fn run_all_cancels(&self) {
-        self.cancels.run_all();
+    pub fn run_all_cancels(self: &Arc<Self>) {
+        self.cancels.run_all(|id| self.handle(id.clone()));
     }
 
     /// Fires the countdowns under way of the sessions `which` picks, due or not: those of an
     /// acceptor or initiator shutting down.
-    pub(crate) fn run_cancels_now(&self, which: impl Fn(&SessionId) -> bool) {
-        self.cancels.run_now(which);
+    pub(crate) fn run_cancels_now(self: &Arc<Self>, which: impl Fn(&SessionId) -> bool) {
+        self.cancels.run_now(|id| self.handle(id.clone()), which);
     }
 
     /// Spawns the task that fires the countdowns as they fall due, unless it's running already.
@@ -676,7 +676,21 @@ pub struct SessionHandle {
     registry: Arc<SessionRegistry>,
 }
 
+/// The session's ID, as [`SessionId`] displays it.
+impl fmt::Display for SessionHandle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.id, f)
+    }
+}
+
 impl SessionHandle {
+    /// A handle to `id` on a registry of its own, which no connection ever claims: its sends
+    /// report [`SendError::NotConnected`]. For unit-testing an [`Application`],
+    /// whose callbacks are each given a handle.
+    pub fn disconnected(id: SessionId) -> Self {
+        Arc::new(SessionRegistry::new(Arc::new(crate::MemoryStorage::new()))).handle(id)
+    }
+
     /// The session this handle sends on.
     pub fn id(&self) -> &SessionId {
         &self.id
@@ -1002,7 +1016,7 @@ mod tests {
     struct Counter(AtomicU64);
 
     impl Application for Counter {
-        fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {
+        fn on_cancel_on_disconnect(&self, _session: &SessionHandle, _ended: Disconnect) {
             self.0.fetch_add(1, Ordering::Relaxed);
         }
     }

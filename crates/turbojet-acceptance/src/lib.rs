@@ -14,7 +14,7 @@ use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::{
     ApplVerId, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message, MessageReject, Session,
-    SessionConfig, SessionId, SessionRegistry,
+    SessionConfig, SessionHandle, SessionRegistry,
 };
 use turbojet_dictionary::Dictionary;
 
@@ -269,11 +269,11 @@ impl Reflector {
 }
 
 impl Application for Reflector {
-    fn verify_logon(&self, session: &SessionId, _logon: &Message, _info: &ConnectionInfo) -> Result<(), String> {
-        if session.target_comp_id == self.counterparty { Ok(()) } else { Err("unknown counterparty".into()) }
+    fn verify_logon(&self, session: &SessionHandle, _logon: &Message, _info: &ConnectionInfo) -> Result<(), String> {
+        if session.id().target_comp_id == self.counterparty { Ok(()) } else { Err("unknown counterparty".into()) }
     }
 
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         self.orders.lock().unwrap().clear();
     }
 

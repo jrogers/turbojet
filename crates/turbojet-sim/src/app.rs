@@ -4,9 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use turbojet::message::tags;
-use turbojet::{
-    Application, Context, Disconnect, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle, SessionId,
-};
+use turbojet::{Application, Context, Disconnect, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle};
 
 use crate::time::{Clocks, SimTime};
 use crate::world::{PLANTED_AT, Plant};
@@ -135,12 +133,12 @@ pub fn id_of(msg: &Message) -> Option<&str> {
 }
 
 impl Application for RecordingApp {
-    fn on_logon(&self, session: SessionHandle) {
-        *self.handle.lock().unwrap() = Some(session);
+    fn on_logon(&self, session: &SessionHandle) {
+        *self.handle.lock().unwrap() = Some(session.clone());
         self.record(Lifecycle::LoggedOn);
     }
 
-    fn on_logout(&self, _session: &SessionId, ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, ended: Disconnect) {
         self.record(Lifecycle::LoggedOut(ended));
         if *self.crashing.lock().unwrap() {
             return;
@@ -153,7 +151,7 @@ impl Application for RecordingApp {
         }
     }
 
-    fn on_cancel_on_disconnect(&self, _session: &SessionId, ended: Disconnect) {
+    fn on_cancel_on_disconnect(&self, _session: &SessionHandle, ended: Disconnect) {
         if *self.crashing.lock().unwrap() {
             return;
         }

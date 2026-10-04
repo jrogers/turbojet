@@ -41,7 +41,7 @@ struct Client {
 }
 
 impl Application for Client {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.logged_on.send(());
     }
 

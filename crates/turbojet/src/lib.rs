@@ -111,8 +111,8 @@
 //! }
 //!
 //! impl Application for Client {
-//!     fn on_logon(&self, session: SessionHandle) {
-//!         let _ = self.logons.send(session);
+//!     fn on_logon(&self, session: &SessionHandle) {
+//!         let _ = self.logons.send(session.clone());
 //!     }
 //!
 //!     fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {

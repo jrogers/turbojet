@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::{
     Acceptor, Application, Clock, Disconnect, HolidayCalendar, Initiator, InitiatorConfig, MemoryStorage,
-    SessionConfig, SessionHandle, SessionId, SessionSchedule,
+    SessionConfig, SessionHandle, SessionSchedule,
 };
 
 #[derive(Clone)]
@@ -41,10 +41,10 @@ enum Event {
 struct Recorder(mpsc::UnboundedSender<Event>);
 
 impl Application for Recorder {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.0.send(Event::LoggedOn);
     }
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         let _ = self.0.send(Event::LoggedOut);
     }
 }

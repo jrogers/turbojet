@@ -12,7 +12,7 @@ use tracing_subscriber::EnvFilter;
 use turbojet::message::tags;
 use turbojet::{
     Acceptor, ApplVerId, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
-    MessageReject, MsgType, SessionConfig, SessionHandle, SessionId,
+    MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 
 use crate::mailbox::{Mailbox, Missing};
@@ -87,11 +87,11 @@ struct Recorder {
 }
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
-        let _ = self.events.send(TjEvent::LoggedOn(session));
+    fn on_logon(&self, session: &SessionHandle) {
+        let _ = self.events.send(TjEvent::LoggedOn(session.clone()));
     }
 
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         let _ = self.events.send(TjEvent::LoggedOut);
     }
 

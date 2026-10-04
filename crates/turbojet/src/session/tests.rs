@@ -45,7 +45,12 @@ impl TestApp {
 }
 
 impl Application for TestApp {
-    fn verify_logon(&self, _session: &SessionId, _logon: &Message, connection: &ConnectionInfo) -> Result<(), String> {
+    fn verify_logon(
+        &self,
+        _session: &SessionHandle,
+        _logon: &Message,
+        connection: &ConnectionInfo,
+    ) -> Result<(), String> {
         self.connections.lock().unwrap().push(connection.clone());
         if self.panic_in == Some("verify_logon") {
             panic!("verify_logon panicked");
@@ -53,7 +58,7 @@ impl Application for TestApp {
         if self.refuse_logon { Err("refused by test".into()) } else { Ok(()) }
     }
 
-    fn to_admin(&self, _session: &SessionId, msg: &mut Message) {
+    fn to_admin(&self, _session: &SessionHandle, msg: &mut Message) {
         if self.panic_in == Some("to_admin") && msg.msg_type() == MsgType::Heartbeat {
             panic!("to_admin panicked");
         }
@@ -62,14 +67,14 @@ impl Application for TestApp {
         }
     }
 
-    fn on_admin_message(&self, _session: &SessionId, msg: &Message) {
+    fn on_admin_message(&self, _session: &SessionHandle, msg: &Message) {
         self.admin.lock().unwrap().push(msg.clone());
         if self.panic_in == Some("on_admin_message") {
             panic!("on_admin_message panicked");
         }
     }
 
-    fn should_resend(&self, _session: &SessionId, msg: &Message) -> bool {
+    fn should_resend(&self, _session: &SessionHandle, msg: &Message) -> bool {
         let id = msg.get(tags::CL_ORD_ID).unwrap_or_default();
         self.resend_asked.lock().unwrap().push(id.to_string());
         if self.panic_in == Some("should_resend") {
@@ -78,23 +83,23 @@ impl Application for TestApp {
         !self.skip_resend.contains(&id)
     }
 
-    fn on_logon(&self, session: SessionHandle) {
+    fn on_logon(&self, session: &SessionHandle) {
         self.events.lock().unwrap().push(format!("logon {}", session.id().target_comp_id));
-        self.handles.lock().unwrap().push(session);
+        self.handles.lock().unwrap().push(session.clone());
         if self.panic_in == Some("on_logon") {
             panic!("on_logon panicked");
         }
     }
 
-    fn on_logout(&self, session: &SessionId, ended: Disconnect) {
-        self.events.lock().unwrap().push(format!("logout {} {ended:?}", session.target_comp_id));
+    fn on_logout(&self, session: &SessionHandle, ended: Disconnect) {
+        self.events.lock().unwrap().push(format!("logout {} {ended:?}", session.id().target_comp_id));
         if self.panic_in == Some("on_logout") {
             panic!("on_logout panicked");
         }
     }
 
-    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
-        self.events.lock().unwrap().push(format!("cancel {} {ended:?}", session.target_comp_id));
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: Disconnect) {
+        self.events.lock().unwrap().push(format!("cancel {} {ended:?}", session.id().target_comp_id));
     }
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
@@ -5091,8 +5096,8 @@ struct SendsOnCancel {
 }
 
 impl Application for SendsOnCancel {
-    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
-        let other = SessionId { target_comp_id: "OTHER".into(), ..session.clone() };
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: Disconnect) {
+        let other = SessionId { target_comp_id: "OTHER".into(), ..session.id().clone() };
         let sent = self.registry.handle(other).send(Message::new(MsgType::NewOrderSingle));
         let not_connected = matches!(sent, Err(SendError::NotConnected(_)));
         self.events.lock().unwrap().push(format!("cancel {ended:?}, not connected: {not_connected}"));
@@ -5121,12 +5126,12 @@ struct GatedCancel {
 }
 
 impl Application for GatedCancel {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         self.events.lock().unwrap().push("logon".into());
         self.logged_on.lock().unwrap().send(()).unwrap();
     }
 
-    fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_cancel_on_disconnect(&self, _session: &SessionHandle, _ended: Disconnect) {
         self.entered.lock().unwrap().send(()).unwrap();
         self.release.lock().unwrap().recv_timeout(Duration::from_secs(10)).expect("released");
         self.events.lock().unwrap().push("cancel".into());
@@ -5230,4 +5235,65 @@ fn an_admin_message_the_session_refuses_does_not_reach_on_admin_message() {
     let out = s.recv(client(1, MsgType::Heartbeat), h.t0);
     assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
     assert!(admin_types(&h.app).is_empty());
+}
+
+// ---- Handles given to callbacks ----
+
+/// Uses its handle in every callback: sends on it, and asks whether it's connected.
+#[derive(Default)]
+struct UsesHandles {
+    calls: Mutex<Vec<String>>,
+}
+
+impl UsesHandles {
+    fn note(&self, callback: &str, session: &SessionHandle) {
+        let connected = session.is_connected();
+        let sent = session.send(Message::new(MsgType::from_code("B"))).is_ok();
+        self.calls.lock().unwrap().push(format!("{callback} {session} connected={connected} sent={sent}"));
+    }
+}
+
+impl Application for UsesHandles {
+    fn verify_logon(&self, session: &SessionHandle, _: &Message, _: &ConnectionInfo) -> Result<(), String> {
+        self.note("verify_logon", session);
+        Ok(())
+    }
+    fn to_admin(&self, session: &SessionHandle, msg: &mut Message) {
+        if msg.msg_type() == MsgType::Heartbeat {
+            self.note("to_admin", session);
+        }
+    }
+    fn on_admin_message(&self, session: &SessionHandle, _: &Message) {
+        self.note("on_admin_message", session);
+    }
+    fn on_logon(&self, session: &SessionHandle) {
+        self.note("on_logon", session);
+    }
+    fn on_logout(&self, session: &SessionHandle, _: Disconnect) {
+        self.note("on_logout", session);
+    }
+    fn on_message(&self, ctx: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> {
+        self.note("on_message", ctx.session());
+        Ok(())
+    }
+}
+
+/// Every callback can use the handle it's given, inside the session, without deadlocking.
+#[test]
+fn callbacks_can_use_the_handle_they_are_given() {
+    let mut h = Harness::new();
+    let app = Arc::new(UsesHandles::default());
+    h.app = Arc::default();
+    let mut s = Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).0;
+    s.recv(logon(1), h.t0);
+    s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
+    s.recv(order(3, "A"), h.t0);
+    s.recv(client(4, MsgType::Logout), h.t0);
+    let calls = app.calls.lock().unwrap();
+    let callbacks: Vec<_> = calls.iter().map(|c| c.split(' ').next().unwrap()).collect();
+    assert_eq!(
+        callbacks,
+        ["verify_logon", "on_logon", "on_admin_message", "to_admin", "on_message", "on_admin_message", "on_logout"]
+    );
+    assert!(calls.iter().all(|c| c.contains("FIX.4.4:GATEWAY->CLIENT")), "{calls:?}");
 }

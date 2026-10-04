@@ -14,7 +14,7 @@ use turbojet::message::tags;
 use turbojet::tls;
 use turbojet::{
     Acceptor, Application, ConnectionInfo, Context, Endpoint, Initiator, InitiatorConfig, MemoryStorage, Message,
-    MessageReject, MsgType, SessionConfig, SessionHandle, SessionId,
+    MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 
 /// A CA plus a server certificate for `localhost` and a client certificate, as PEM files.
@@ -126,14 +126,19 @@ impl Recorder {
 }
 
 impl Application for Recorder {
-    fn verify_logon(&self, _session: &SessionId, _logon: &Message, connection: &ConnectionInfo) -> Result<(), String> {
+    fn verify_logon(
+        &self,
+        _session: &SessionHandle,
+        _logon: &Message,
+        connection: &ConnectionInfo,
+    ) -> Result<(), String> {
         self.verified.lock().unwrap().push(connection.clone());
         let Some(required) = self.required_cn else { return Ok(()) };
         let cn = connection.peer_certificate().and_then(|cert| cert.subject_common_name());
         if cn.as_deref() == Some(required) { Ok(()) } else { Err(format!("certificate CN {cn:?} is not {required}")) }
     }
 
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.events.send(Event::LoggedOn);
     }
 

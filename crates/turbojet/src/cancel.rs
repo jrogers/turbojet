@@ -10,6 +10,7 @@ use tokio::sync::Notify;
 use tracing::info;
 
 use crate::application::{Application, Disconnect, guarded};
+use crate::registry::SessionHandle;
 use crate::store::SessionId;
 
 /// Cancel on disconnect for a session: when it ends in a way `trigger` counts, the application is
@@ -144,23 +145,24 @@ impl CancelTracker {
     }
 
     /// Fires the countdowns that have ended by `now`.
-    pub(crate) fn run_due(&self, now: Instant) {
-        self.run(|_, p| p.deadline <= now);
+    pub(crate) fn run_due(&self, handle: impl Fn(&SessionId) -> SessionHandle, now: Instant) {
+        self.run(handle, |_, p| p.deadline <= now);
     }
 
     /// Fires every countdown under way, as when shutting down.
-    pub(crate) fn run_all(&self) {
-        self.run(|_, _| true);
+    pub(crate) fn run_all(&self, handle: impl Fn(&SessionId) -> SessionHandle) {
+        self.run(handle, |_, _| true);
     }
 
     /// Fires the countdowns under way of the sessions `which` picks, due or not, as when their
     /// acceptor or initiator shuts down.
-    pub(crate) fn run_now(&self, which: impl Fn(&SessionId) -> bool) {
-        self.run(|id, _| which(id));
+    pub(crate) fn run_now(&self, handle: impl Fn(&SessionId) -> SessionHandle, which: impl Fn(&SessionId) -> bool) {
+        self.run(handle, |id, _| which(id));
     }
 
-    /// Fires the countdowns `due` picks, in deadline order, then by session for ties.
-    fn run(&self, due: impl Fn(&SessionId, &Pending) -> bool) {
+    /// Fires the countdowns `due` picks, in deadline order, then by session for ties, giving each
+    /// application the handle `handle` makes for its session.
+    fn run(&self, handle: impl Fn(&SessionId) -> SessionHandle, due: impl Fn(&SessionId, &Pending) -> bool) {
         // The lock is held while the callbacks run, so a logon of the same session waits in
         // `logged_on` until its cancel has returned: the cancel can't come after that logon's
         // `on_logon`. It is never held across an await, and callbacks must not block.
@@ -172,7 +174,8 @@ impl CancelTracker {
         for (id, Pending { ended, trigger, app, .. }) in &fired {
             info!(session = %id, ?ended, "cancel on disconnect: the counterparty didn't log back on in time");
             crate::telemetry::cancel_on_disconnect(trigger.label());
-            guarded("on_cancel_on_disconnect", || app.on_cancel_on_disconnect(id, *ended));
+            let session = handle(id);
+            guarded("on_cancel_on_disconnect", || app.on_cancel_on_disconnect(&session, *ended));
         }
         drop(pending);
         // The applications are dropped only now, outside the lock: dropping the last reference to
@@ -201,8 +204,8 @@ mod tests {
     struct Recorder(Mutex<Vec<String>>);
 
     impl Application for Recorder {
-        fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
-            self.0.lock().unwrap().push(format!("cancel {} {ended:?}", session.target_comp_id));
+        fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: Disconnect) {
+            self.0.lock().unwrap().push(format!("cancel {} {ended:?}", session.id().target_comp_id));
         }
     }
 
@@ -214,6 +217,11 @@ mod tests {
 
     fn id(target: &str) -> SessionId {
         SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: target.into() }
+    }
+
+    /// A handle for `id`, for the callbacks.
+    fn handle(id: &SessionId) -> SessionHandle {
+        SessionHandle::disconnected(id.clone())
     }
 
     fn secs(n: u64) -> Duration {
@@ -233,11 +241,11 @@ mod tests {
     fn fires_once_after_the_grace_period() {
         let (tracker, app, t) = tracker();
         start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(5));
-        tracker.run_due(t + secs(4));
+        tracker.run_due(handle, t + secs(4));
         assert_eq!(app.take(), [] as [String; 0]);
-        tracker.run_due(t + secs(5));
+        tracker.run_due(handle, t + secs(5));
         assert_eq!(app.take(), ["cancel A ConnectionLost"]);
-        tracker.run_due(t + secs(6));
+        tracker.run_due(handle, t + secs(6));
         assert_eq!(app.take(), [] as [String; 0]);
         assert_eq!(tracker.next_deadline(), None);
     }
@@ -247,7 +255,7 @@ mod tests {
         let (tracker, app, t) = tracker();
         start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(5));
         tracker.logged_on(&id("A"));
-        tracker.run_due(t + secs(10));
+        tracker.run_due(handle, t + secs(10));
         assert_eq!(app.take(), [] as [String; 0]);
         assert_eq!(tracker.next_deadline(), None);
     }
@@ -260,9 +268,9 @@ mod tests {
         start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(5));
         start(&tracker, &app, "A", Disconnect::HeartbeatTimeout, t + secs(8));
         assert_eq!(tracker.next_deadline(), Some(t + secs(5)));
-        tracker.run_due(t + secs(5));
+        tracker.run_due(handle, t + secs(5));
         assert_eq!(app.take(), ["cancel A ConnectionLost"]);
-        tracker.run_due(t + secs(8));
+        tracker.run_due(handle, t + secs(8));
         assert_eq!(app.take(), [] as [String; 0]);
     }
 
@@ -274,7 +282,7 @@ mod tests {
         start(&tracker, &app, "B", Disconnect::ConnectionLost, t + secs(3));
         start(&tracker, &app, "C", Disconnect::ConnectionLost, t + secs(6));
         assert_eq!(tracker.next_deadline(), Some(t + secs(3)));
-        tracker.run_due(t + secs(3));
+        tracker.run_due(handle, t + secs(3));
         assert_eq!(tracker.next_deadline(), Some(t + secs(6)));
     }
 
@@ -284,7 +292,7 @@ mod tests {
         let (tracker, app, t) = tracker();
         start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(60));
         start(&tracker, &app, "B", Disconnect::Error, t + secs(3600));
-        tracker.run_all();
+        tracker.run_all(handle);
         assert_eq!(app.take(), ["cancel A ConnectionLost", "cancel B Error"]);
         assert_eq!(tracker.next_deadline(), None);
     }
@@ -295,7 +303,7 @@ mod tests {
         let (tracker, app, t) = tracker();
         start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(60));
         start(&tracker, &app, "B", Disconnect::ConnectionLost, t + secs(30));
-        tracker.run_now(|id| id.target_comp_id == "A");
+        tracker.run_now(handle, |id| id.target_comp_id == "A");
         assert_eq!(app.take(), ["cancel A ConnectionLost"]);
         assert_eq!(tracker.next_deadline(), Some(t + secs(30)));
     }
@@ -305,7 +313,7 @@ mod tests {
         let (tracker, app, t) = tracker();
         start(&tracker, &app, "A", Disconnect::CounterpartyLogout, t);
         start(&tracker, &app, "B", Disconnect::HeartbeatTimeout, t + secs(1));
-        tracker.run_due(t + secs(1));
+        tracker.run_due(handle, t + secs(1));
         assert_eq!(app.take(), ["cancel A CounterpartyLogout", "cancel B HeartbeatTimeout"]);
     }
 
@@ -317,7 +325,7 @@ mod tests {
         start(&tracker, &app, "C", Disconnect::ConnectionLost, t + secs(1));
         start(&tracker, &app, "B", Disconnect::ConnectionLost, t + secs(2));
         start(&tracker, &app, "A", Disconnect::ConnectionLost, t + secs(3));
-        tracker.run_due(t + secs(3));
+        tracker.run_due(handle, t + secs(3));
         assert_eq!(
             app.take(),
             [
@@ -336,7 +344,7 @@ mod tests {
         let second = Arc::<Recorder>::default();
         start(&tracker, &first, "A", Disconnect::ConnectionLost, t);
         start(&tracker, &second, "B", Disconnect::ConnectionLost, t);
-        tracker.run_due(t);
+        tracker.run_due(handle, t);
         assert_eq!(first.take(), ["cancel A ConnectionLost"]);
         assert_eq!(second.take(), ["cancel B ConnectionLost"]);
     }
@@ -346,14 +354,14 @@ mod tests {
     fn a_panicking_cancel_does_not_stop_the_rest() {
         struct Panics;
         impl Application for Panics {
-            fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {
+            fn on_cancel_on_disconnect(&self, _session: &SessionHandle, _ended: Disconnect) {
                 panic!("on_cancel_on_disconnect panicked");
             }
         }
         let (tracker, app, t) = tracker();
         tracker.start(id("A"), Disconnect::ConnectionLost, CancelTrigger::Disconnect, t, Arc::new(Panics));
         start(&tracker, &app, "B", Disconnect::ConnectionLost, t);
-        tracker.run_due(t);
+        tracker.run_due(handle, t);
         assert_eq!(app.take(), ["cancel B ConnectionLost"]);
         // The lock isn't poisoned.
         assert_eq!(tracker.next_deadline(), None);

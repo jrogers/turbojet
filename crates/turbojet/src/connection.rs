@@ -1503,8 +1503,8 @@ mod tests {
     }
 
     impl Application for Counter {
-        fn on_logon(&self, session: crate::SessionHandle) {
-            *self.handle.lock().unwrap() = Some(session);
+        fn on_logon(&self, session: &crate::SessionHandle) {
+            *self.handle.lock().unwrap() = Some(session.clone());
             self.logged_on.notify_one();
         }
 
@@ -1733,7 +1733,7 @@ mod tests {
     }
 
     impl Application for SpoilsHeartbeats {
-        fn to_admin(&self, _session: &SessionId, msg: &mut Message) {
+        fn to_admin(&self, _session: &crate::SessionHandle, msg: &mut Message) {
             if msg.msg_type() == MsgType::Heartbeat {
                 msg.set(tags::TEXT, "a\x01b");
                 if self.attempts.fetch_add(1, Ordering::SeqCst) == 100 {

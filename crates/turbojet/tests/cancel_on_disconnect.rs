@@ -14,7 +14,7 @@ use turbojet::codec::{Decoded, decode, encode};
 use turbojet::message::{tags, utc_timestamp};
 use turbojet::{
     Acceptor, Application, CancelOnDisconnect, CancelTrigger, ConnectionInfo, Disconnect, Initiator, InitiatorConfig,
-    MemoryStorage, Message, MsgType, SessionConfig, SessionHandle, SessionId, SessionRegistry,
+    MemoryStorage, Message, MsgType, SessionConfig, SessionHandle, SessionRegistry,
 };
 
 const GRACE: Duration = Duration::from_secs(5);
@@ -33,16 +33,16 @@ struct Recorder {
 }
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
+    fn on_logon(&self, session: &SessionHandle) {
         let _ = self.events.send(Event::LoggedOn(session.id().target_comp_id.clone()));
     }
 
-    fn on_logout(&self, session: &SessionId, ended: Disconnect) {
-        let _ = self.events.send(Event::LoggedOut(session.target_comp_id.clone(), ended));
+    fn on_logout(&self, session: &SessionHandle, ended: Disconnect) {
+        let _ = self.events.send(Event::LoggedOut(session.id().target_comp_id.clone(), ended));
     }
 
-    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
-        let _ = self.events.send(Event::Cancel(session.target_comp_id.clone(), ended, Instant::now()));
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: Disconnect) {
+        let _ = self.events.send(Event::Cancel(session.id().target_comp_id.clone(), ended, Instant::now()));
     }
 }
 

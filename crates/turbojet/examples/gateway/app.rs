@@ -6,9 +6,7 @@ use std::sync::Arc;
 use metrics::{Counter, counter, describe_counter};
 
 use tracing::{info, warn};
-use turbojet::{
-    Application, ConnectionInfo, Context, Disconnect, Message, MessageReject, MsgType, SessionHandle, SessionId,
-};
+use turbojet::{Application, ConnectionInfo, Context, Disconnect, Message, MessageReject, MsgType, SessionHandle};
 use turbojet_fix42::OrdStatus;
 
 use crate::orders::OrderManager;
@@ -69,8 +67,13 @@ impl GatewayApp {
 }
 
 impl Application for GatewayApp {
-    fn verify_logon(&self, session: &SessionId, _logon: &Message, connection: &ConnectionInfo) -> Result<(), String> {
-        let comp_id = &session.target_comp_id;
+    fn verify_logon(
+        &self,
+        session: &SessionHandle,
+        _logon: &Message,
+        connection: &ConnectionInfo,
+    ) -> Result<(), String> {
+        let comp_id = &session.id().target_comp_id;
         if self.match_certificate_comp_id
             && let Some(cert) = connection.peer_certificate()
         {
@@ -85,17 +88,17 @@ impl Application for GatewayApp {
     }
 
     // Callbacks run inside the connection's `session{id=...}` span, so the ID is already on these.
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         info!("counterparty logged on");
     }
 
-    fn on_logout(&self, _session: &SessionId, ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, ended: Disconnect) {
         info!(?ended, "session ended");
     }
 
     // Called from the engine's countdown task, outside any session span, so the ID is logged.
-    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
-        let canceled = self.orders.cancel_all(&session.target_comp_id);
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: Disconnect) {
+        let canceled = self.orders.cancel_all(&session.id().target_comp_id);
         info!(%session, ?ended, canceled, "canceled the open orders of a session that didn't come back");
     }
 
@@ -146,8 +149,8 @@ mod tests {
     use rcgen::{CertificateParams, DnType, KeyPair};
     use turbojet::PeerCertificate;
 
-    fn session(comp_id: &str) -> SessionId {
-        SessionId::new("FIX.4.2", "GATEWAY", comp_id)
+    fn session(comp_id: &str) -> SessionHandle {
+        SessionHandle::disconnected(turbojet::SessionId::new("FIX.4.2", "GATEWAY", comp_id))
     }
 
     /// A connection whose client presented a certificate with this CN and DNS names.

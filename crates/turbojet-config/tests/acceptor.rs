@@ -16,14 +16,14 @@ use turbojet_config::{Changes, SessionsFile};
 struct Recorder(mpsc::UnboundedSender<String>);
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
+    fn on_logon(&self, session: &SessionHandle) {
         let _ = self.0.send(format!("logon {}", session.id().target_comp_id));
     }
-    fn on_logout(&self, session: &SessionId, _ended: Disconnect) {
-        let _ = self.0.send(format!("logout {}", session.target_comp_id));
+    fn on_logout(&self, session: &SessionHandle, _ended: Disconnect) {
+        let _ = self.0.send(format!("logout {}", session.id().target_comp_id));
     }
-    fn on_cancel_on_disconnect(&self, session: &SessionId, _ended: Disconnect) {
-        let _ = self.0.send(format!("cancel {}", session.target_comp_id));
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, _ended: Disconnect) {
+        let _ = self.0.send(format!("cancel {}", session.id().target_comp_id));
     }
 }
 

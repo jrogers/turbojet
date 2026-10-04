@@ -67,7 +67,7 @@ struct Client {
 }
 
 impl Application for Client {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.logged_on.send(());
     }
     fn on_message(&self, _ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {

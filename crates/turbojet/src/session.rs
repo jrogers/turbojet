@@ -37,7 +37,7 @@ use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags
 use crate::peer::ConnectionInfo;
 use crate::registry::{
     Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
-    SessionRegistry, apply_sequence_command, command_queues,
+    SessionHandle, SessionRegistry, apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
@@ -404,6 +404,8 @@ enum Status {
 
 struct Peer {
     id: SessionId,
+    /// Given to the application's callbacks.
+    handle: SessionHandle,
     log: Box<dyn SessionLog>,
     heartbeat: Duration,
     metrics: SessionMetrics,
@@ -620,7 +622,7 @@ impl fmt::Debug for Session {
 
 impl Session {
     /// A session that waits for a counterparty's Logon. The receiver carries
-    /// [`SessionHandle`](crate::SessionHandle) commands and must be fed to [`Session::on_command`].
+    /// [`SessionHandle`] commands and must be fed to [`Session::on_command`].
     ///
     /// # Panics
     ///
@@ -1074,7 +1076,7 @@ impl Session {
         }
     }
 
-    /// Carries out a command from a [`SessionHandle`](crate::SessionHandle).
+    /// Carries out a command from a [`SessionHandle`].
     ///
     /// Commands that arrive while logon is in progress are queued and applied, in order, as soon
     /// as it completes. Once logout has started, sends are dropped and logged. With an
@@ -1409,7 +1411,8 @@ impl Session {
             warn!(session = %id, "refusing logon: {reason}");
             return self.close(Disconnect::Error, now);
         }
-        let verdict = guarded("verify_logon", || self.app.verify_logon(&id, msg, &self.connection));
+        let handle = self.registry.handle(id.clone());
+        let verdict = guarded("verify_logon", || self.app.verify_logon(&handle, msg, &self.connection));
         if let Err(reason) = verdict.unwrap_or_else(|| Err("verify_logon panicked".into())) {
             warn!(session = %id, "application refused logon: {reason}");
             return self.close(Disconnect::Error, now);
@@ -1506,7 +1509,7 @@ impl Session {
             warn!("refusing Logon reply: DefaultApplVerID(1137) must be '{expected}', not '{received}'");
             return self.close(Disconnect::Error, now);
         }
-        let verdict = guarded("verify_logon", || self.app.verify_logon(&self.peer().id, msg, &self.connection));
+        let verdict = guarded("verify_logon", || self.app.verify_logon(&self.peer().handle, msg, &self.connection));
         if let Err(reason) = verdict.unwrap_or_else(|| Err("verify_logon panicked".into())) {
             warn!("application refused Logon reply: {reason}");
             return self.close(Disconnect::Error, now);
@@ -1559,8 +1562,7 @@ impl Session {
             // A completed logon stops the countdown, not the claim, so a reconnect refused
             // after claiming the session doesn't. A cancel running now finishes first.
             self.registry.stop_cancel(&self.peer().id);
-            let handle = self.registry.handle(self.peer().id.clone());
-            guarded("on_logon", || self.app.on_logon(handle));
+            guarded("on_logon", || self.app.on_logon(&self.peer().handle));
             // Commands sent before logon completed go out first; anything the application sends
             // from on_logon arrives through the command channel afterwards.
             for command in std::mem::take(&mut self.pending) {
@@ -1708,7 +1710,8 @@ impl Session {
         let latency = false;
         let metrics = SessionMetrics::new(&id, latency);
         assert!(self.peer.is_none(), "the session is bound once");
-        self.peer = Some(Peer { id, log, heartbeat, metrics });
+        let handle = self.registry.handle(id.clone());
+        self.peer = Some(Peer { id, handle, log, heartbeat, metrics });
         if let Err(e) = self.start_period() {
             return self.storage_failed(e, now);
         }
@@ -2178,9 +2181,9 @@ impl Session {
             info!(seq_num, "delivering a message that may have been handled before a restart");
         }
         // Borrows the peer field alone (not `self.peer()`), so the application can be called
-        // without cloning the SessionId for every message.
-        let id = &self.peer.as_ref().expect("session is not bound before logon").id;
-        let mut ctx = Context::with_outbox(id, std::mem::take(&mut self.outbox));
+        // without cloning the handle for every message.
+        let handle = &self.peer.as_ref().expect("session is not bound before logon").handle;
+        let mut ctx = Context::with_outbox(handle, std::mem::take(&mut self.outbox));
         if redelivered {
             ctx = ctx.redelivery();
         }
@@ -2444,7 +2447,7 @@ impl Session {
 
     /// Whether the application has `msg` resent, as it does if it panics deciding.
     fn app_resends(&self, msg: &Message) -> bool {
-        guarded("should_resend", || self.app.should_resend(&self.peer().id, msg)).unwrap_or(true)
+        guarded("should_resend", || self.app.should_resend(&self.peer().handle, msg)).unwrap_or(true)
     }
 
     /// Stored messages `begin..=end`, parsed with the session's data fields: all of them, or an
@@ -2621,7 +2624,7 @@ impl Session {
     /// Shows the application an inbound admin message the session is about to act on.
     fn notify_admin(&self, msg: &Message) {
         debug_assert!(msg.msg_type().is_admin() && msg.msg_type() != MsgType::Logon);
-        guarded("on_admin_message", || self.app.on_admin_message(&self.peer().id, msg));
+        guarded("on_admin_message", || self.app.on_admin_message(&self.peer().handle, msg));
     }
 
     /// Tells the application a logged-on session has ended, at `now`, and starts its
@@ -2630,7 +2633,7 @@ impl Session {
         if !std::mem::take(&mut self.app_logged_on) {
             return;
         }
-        guarded("on_logout", || self.app.on_logout(&self.peer().id, reason));
+        guarded("on_logout", || self.app.on_logout(&self.peer().handle, reason));
         if let Some(CancelOnDisconnect { trigger, grace }) = self.config.cancel_on_disconnect
             && trigger.counts(reason)
         {
@@ -2685,7 +2688,7 @@ impl Session {
         }
         let admin = body.msg_type().is_admin();
         // A panic may have left the message half-modified: disconnect rather than send it.
-        if admin && guarded("to_admin", || self.app.to_admin(&self.peer().id, body)).is_none() {
+        if admin && guarded("to_admin", || self.app.to_admin(&self.peer().handle, body)).is_none() {
             self.close(Disconnect::Error, now);
             return Err(Dropped::Disconnected);
         }

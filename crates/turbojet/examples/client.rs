@@ -18,7 +18,7 @@ use turbojet::fields::UtcTimestamp;
 use turbojet::tls;
 use turbojet::{
     Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle, SessionId,
+    SessionConfig, SessionHandle,
 };
 use turbojet_fix42::{
     ExecutionReportRef, HandlInst, NewOrderSingle, OrdType, OrderCancelRejectRef, OrderCancelRequest, Side, TimeInForce,
@@ -36,11 +36,11 @@ struct ClientApp {
 }
 
 impl Application for ClientApp {
-    fn on_logon(&self, _session: SessionHandle) {
+    fn on_logon(&self, _session: &SessionHandle) {
         let _ = self.events.send(Event::LoggedOn);
     }
 
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {
         let _ = self.events.send(Event::LoggedOut);
     }
 

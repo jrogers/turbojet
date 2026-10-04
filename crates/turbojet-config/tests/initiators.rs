@@ -6,18 +6,18 @@ use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
-use turbojet::{Acceptor, Application, Disconnect, MemoryStorage, SessionConfig, SessionHandle, SessionId};
+use turbojet::{Acceptor, Application, Disconnect, MemoryStorage, SessionConfig, SessionHandle};
 use turbojet_config::{Changes, Initiators, SessionsFile};
 
 /// Reports logons and logouts by the counterparty's CompID.
 struct Recorder(mpsc::UnboundedSender<String>);
 
 impl Application for Recorder {
-    fn on_logon(&self, session: SessionHandle) {
+    fn on_logon(&self, session: &SessionHandle) {
         let _ = self.0.send(format!("logon {}", session.id().target_comp_id));
     }
-    fn on_logout(&self, session: &SessionId, _ended: Disconnect) {
-        let _ = self.0.send(format!("logout {}", session.target_comp_id));
+    fn on_logout(&self, session: &SessionHandle, _ended: Disconnect) {
+        let _ = self.0.send(format!("logout {}", session.id().target_comp_id));
     }
 }
 

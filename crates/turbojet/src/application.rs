@@ -14,6 +14,10 @@ use crate::store::SessionId;
 /// Callbacks run synchronously on the session's connection task and must not block. To do slow
 /// work, hand it off (e.g. to a spawned task) and send the result later with a [`SessionHandle`].
 ///
+/// Every callback is given the session's [`SessionHandle`] (`on_message` through its
+/// [`Context`]): its [`id`](SessionHandle::id), and a way to act on the session, to log it out
+/// after a Reject, say. Clone it to keep it.
+///
 /// A panicking callback doesn't end the connection. A panic in `on_message` is answered with a
 /// BusinessMessageReject (ApplicationNotAvailable) and any replies it queued are dropped; in
 /// `verify_logon` it refuses the logon; in `to_admin` it disconnects rather than send a message it
@@ -39,7 +43,12 @@ pub trait Application: Send + Sync + 'static {
     ///     }
     /// }
     /// ```
-    fn verify_logon(&self, _session: &SessionId, _logon: &Message, _connection: &ConnectionInfo) -> Result<(), String> {
+    fn verify_logon(
+        &self,
+        _session: &SessionHandle,
+        _logon: &Message,
+        _connection: &ConnectionInfo,
+    ) -> Result<(), String> {
         Ok(())
     }
 
@@ -47,7 +56,7 @@ pub trait Application: Send + Sync + 'static {
     /// Logon. Header fields are added afterwards and cannot be changed here. On FIXT.1.1 sessions,
     /// leave DefaultApplVerID(1137) to the engine and configure it with
     /// [`SessionConfig::with_appl_ver_id`](crate::SessionConfig::with_appl_ver_id).
-    fn to_admin(&self, _session: &SessionId, _msg: &mut Message) {}
+    fn to_admin(&self, _session: &SessionHandle, _msg: &mut Message) {}
 
     /// An inbound session-level message other than a Logon (which goes to `verify_logon`): a
     /// Heartbeat, TestRequest, ResendRequest, Reject, SequenceReset or Logout. Called once for
@@ -56,7 +65,7 @@ pub trait Application: Send + Sync + 'static {
     /// handles every one of them itself; this is so the application can see, for instance, that
     /// the counterparty rejected one of its messages (a Reject's RefSeqNum(45) and Text(58)), or
     /// why it logged out.
-    fn on_admin_message(&self, _session: &SessionId, _msg: &Message) {}
+    fn on_admin_message(&self, _session: &SessionHandle, _msg: &Message) {}
 
     /// Whether to resend `msg`, an application message we sent, which the counterparty has asked
     /// for again: return `false` to gap-fill it instead, for one that's stale by now (an order
@@ -64,18 +73,18 @@ pub trait Application: Send + Sync + 'static {
     /// each stored message a ResendRequest covers, in order; a run of messages declined, or not
     /// stored, is covered by one SequenceReset within each step of the resend (256 sequence
     /// numbers). The default resends every one.
-    fn should_resend(&self, _session: &SessionId, _msg: &Message) -> bool {
+    fn should_resend(&self, _session: &SessionHandle, _msg: &Message) -> bool {
         true
     }
 
-    /// The session is logged on. Keep the handle to send messages outside of callbacks.
-    fn on_logon(&self, _session: SessionHandle) {}
+    /// The session is logged on. Clone the handle to send messages outside of callbacks.
+    fn on_logon(&self, _session: &SessionHandle) {}
 
     /// A logged-on session has ended: it logged out, or the connection was lost. `ended` says
     /// which, so the application can tell a Logout, which both sides agreed to, from a session
     /// that stopped without one. Called once per logon, and never for a session that didn't log
     /// on.
-    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {}
+    fn on_logout(&self, _session: &SessionHandle, _ended: Disconnect) {}
 
     /// A session with [cancel on disconnect](crate::SessionConfig::cancel_on_disconnect) ended
     /// with `ended`, and the counterparty didn't log back on within the grace period: cancel its
@@ -88,7 +97,7 @@ pub trait Application: Send + Sync + 'static {
     /// block. Countdowns pending when the acceptor or initiator shuts down fire then; a
     /// process that stops without shutting down loses them, so after a restart, check orders you
     /// kept.
-    fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {}
+    fn on_cancel_on_disconnect(&self, _session: &SessionHandle, _ended: Disconnect) {}
 
     /// An application-level message arrived in sequence. Replies sent through `ctx` go out in
     /// order immediately after this returns. Returning `Err` sends the corresponding reject.
@@ -152,7 +161,7 @@ pub enum Disconnect {
 
 /// Passed to [`Application::on_message`] to reply on the same session.
 pub struct Context<'a> {
-    session: &'a SessionId,
+    session: &'a SessionHandle,
     outbox: Outbox,
     redelivered: bool,
 }
@@ -160,7 +169,7 @@ pub struct Context<'a> {
 impl std::fmt::Debug for Context<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Context")
-            .field("session", self.session)
+            .field("session", self.session.id())
             .field("redelivered", &self.redelivered)
             .finish_non_exhaustive()
     }
@@ -168,14 +177,15 @@ impl std::fmt::Debug for Context<'_> {
 
 impl<'a> Context<'a> {
     /// A context for `session`. The engine creates these; construct one yourself to unit-test an
-    /// [`Application`], then inspect what it sent with [`Context::replies`].
-    pub fn new(session: &'a SessionId) -> Self {
+    /// [`Application`], with a [`SessionHandle::disconnected`], then inspect what it sent with
+    /// [`Context::replies`].
+    pub fn new(session: &'a SessionHandle) -> Self {
         Self::with_outbox(session, Outbox::default())
     }
 
     /// A context whose replies go into `outbox`, which the session keeps between calls to reuse
     /// its allocations.
-    pub(crate) fn with_outbox(session: &'a SessionId, outbox: Outbox) -> Self {
+    pub(crate) fn with_outbox(session: &'a SessionHandle, outbox: Outbox) -> Self {
         debug_assert!(outbox.sent.is_empty(), "the session sends every reply before the next call");
         Self { session, outbox, redelivered: false }
     }
@@ -209,8 +219,13 @@ impl<'a> Context<'a> {
     }
 
     /// The session the message arrived on.
-    pub fn session_id(&self) -> &SessionId {
+    pub fn session(&self) -> &SessionHandle {
         self.session
+    }
+
+    /// The session the message arrived on: its ID.
+    pub fn session_id(&self) -> &SessionId {
+        self.session.id()
     }
 
     /// Queues an application message; the engine adds the standard header. A message with SOH
@@ -407,7 +422,7 @@ mod tests {
 
     #[test]
     fn typed_replies_are_built_in_spare_messages() {
-        let id = session_id();
+        let id = SessionHandle::disconnected(session_id());
         let mut outbox = Outbox::default();
         outbox.recycle(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "old"));
         let mut ctx = Context::with_outbox(&id, outbox);
