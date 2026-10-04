@@ -96,11 +96,13 @@ pub trait Application: Send + Sync + 'static {
 #[non_exhaustive]
 pub enum Disconnect {
     /// We logged out (through [`SessionHandle::logout`](crate::SessionHandle::logout)), and the
-    /// counterparty answered, or didn't within the logout timeout.
+    /// counterparty answered, didn't within the logout timeout, or closed the connection instead.
     Logout,
     /// The counterparty logged out.
     CounterpartyLogout,
-    /// The connection ended without a Logout: closed, reset, or failed.
+    /// The connection ended without a Logout: closed or reset by the counterparty, dropped by us
+    /// because the counterparty stopped reading, ended with the connection's task, or failed with
+    /// any other I/O error.
     ConnectionLost,
     /// The counterparty didn't answer a TestRequest.
     HeartbeatTimeout,

@@ -2003,6 +2003,32 @@ fn a_session_dropped_while_logging_out_keeps_the_reason() {
     assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Shutdown"]);
 }
 
+/// A logout's reason gives way to an explicit close: an error during a shutdown logout is an
+/// error.
+#[test]
+fn an_error_close_during_a_logout_reports_the_error() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.shutdown(None, h.t0);
+    let out = s.recv(client(2, MsgType::Heartbeat).with(tags::BEGIN_STRING, "FIX.4.2"), h.at(1));
+    assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Error"]);
+}
+
+/// The first logout's reason stands: a second logout over an error, while waiting for the reply
+/// to ours, doesn't change how the session ended.
+#[test]
+fn the_first_logouts_reason_stands() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.command(Command::Logout(None), h.t0);
+    // A stale SendingTime is rejected and logged out over, without closing.
+    let stale = client(2, MsgType::Heartbeat).with(tags::SENDING_TIME, "20010101-00:00:00");
+    assert_eq!(types(&s.recv(stale, h.at(1))), ["Reject", "Logout"]);
+    assert_eq!(types(&s.recv(client(3, MsgType::Logout), h.at(2))), ["DISCONNECT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Logout"]);
+}
+
 /// The transport ending once the session has closed changes nothing: it was already reported.
 #[test]
 fn a_disconnect_after_close_is_not_reported_again() {

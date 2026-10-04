@@ -960,6 +960,8 @@ impl Session {
     /// The transport ended (closed by the other end, reset or failed) while the session was open.
     /// Does nothing once the session has closed. A session logging out ends as its logout would
     /// have: the counterparty closing instead of answering is no different from not answering.
+    /// The second argument is when the transport ended. A driver that never calls this gets the
+    /// same `on_logout` when it drops the session.
     pub fn on_disconnect(&mut self, _now: Instant) {
         self.wall_clock.set(None);
         if self.status != Status::Closed {
@@ -1168,7 +1170,7 @@ impl Session {
             Status::LoggingOut { since } => {
                 if now.duration_since(since) >= self.config.logout_timeout {
                     warn!("no Logout reply received; disconnecting");
-                    self.close(self.ending.unwrap_or(Disconnect::Logout));
+                    self.close(self.ending.expect("LoggingOut is entered only through logout, which sets ending"));
                 }
             }
             // The counterparty's input waits while we resend, and we're sending anyway: Heartbeats,
@@ -1978,15 +1980,15 @@ impl Session {
 
     /// The counterparty's Logout: a request to answer, or the reply to ours.
     fn on_logout_message(&mut self, msg: &Message, now: Instant) {
-        if self.status == Status::Active {
+        // Only an established session gets here: a Logout answering an initiator's Logon is refused
+        // as a Logon reply.
+        let reason = if self.status == Status::Active {
             info!(text = ?msg.get(tags::TEXT), "counterparty logged out");
             self.send(Logout { text: None }.into(), now);
+            Disconnect::CounterpartyLogout
         } else {
             info!("logout confirmed");
-        }
-        let reason = match self.status {
-            Status::Active => Disconnect::CounterpartyLogout,
-            _ => self.ending.unwrap_or(Disconnect::Logout),
+            self.ending.expect("LoggingOut is entered only through logout, which sets ending")
         };
         self.close(reason);
     }
@@ -2449,7 +2451,8 @@ impl Session {
     }
 
     /// Sends Logout and waits for the reply. `reason` is what `on_logout` is told when the session
-    /// ends; the first logout's reason stands.
+    /// ends: the first logout's reason stands, unless the session is then closed for another
+    /// reason, which wins.
     fn logout(&mut self, text: Option<&str>, reason: Disconnect, now: Instant) {
         info!(text, "logging out");
         self.ending.get_or_insert(reason);
@@ -2466,6 +2469,8 @@ impl Session {
 
     /// Ends the session. The driver writes the output, then closes the connection, so nothing may
     /// add to the output once closed: `send` and `resend` check, and `emit` asserts it.
+    ///
+    /// `reason` reaches `on_logout` only once logged on; before that it is never reported.
     fn close(&mut self, reason: Disconnect) {
         if self.status != Status::Closed {
             self.status = Status::Closed;
