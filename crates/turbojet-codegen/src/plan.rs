@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use turbojet_dictionary::{Category, Dictionary, Field, FieldType, Member};
+use turbojet_dictionary::{Category, Dictionary, Field, FieldType, Member, Message};
 
 use crate::{Error, docs, naming};
 
@@ -148,10 +148,38 @@ pub(crate) struct Options<'a> {
 
 /// Plans the code for `dict`'s application messages. With `docs`, the dictionary's documentation
 /// goes into doc comments after our own `Name(tag).` lines.
-#[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
 pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error> {
-    let Options { skip, docs, lenient_all, lenient } = *options;
-    let mut tags: Vec<(String, String, u32)> = Vec::new();
+    let tags = field_tags(dict)?;
+    let messages = app_messages(dict, options.skip)?;
+    // Each message's borrowed twin is a type too.
+    let message_refs: Vec<String> = messages.iter().map(|(m, _)| naming::ref_type(&m.name)).collect();
+    let message_names = message_names(&messages, &message_refs)?;
+    let (enums, enum_types) = plan_enums(dict, &messages, options, &message_names)?;
+    let enum_names: HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
+
+    // Distinct group definitions, in first-use order, with the first message using each.
+    let mut defs: Vec<GroupDef> = Vec::new();
+    for (m, flat) in &messages {
+        collect_groups(flat, &m.name, &mut defs);
+    }
+    let group_names = group_names(&defs, &enum_names, &message_names)?;
+    let group_refs: Vec<String> = defs.iter().map(|d| naming::ref_type(&group_names[&d.key()])).collect();
+    let group_types = defs.iter().map(|d| group_names[&d.key()].as_str()).chain(group_refs.iter().map(String::as_str));
+    check_distinct(enums.iter().map(|e| e.name.as_str()).chain(group_types), &message_names)?;
+
+    let planner = SlotPlanner { dict, enum_types: &enum_types, group_names: &group_names, options };
+    let groups = defs
+        .iter()
+        .zip(group_refs)
+        .map(|(def, ref_name)| planner.group(def, group_names[&def.key()].clone(), ref_name))
+        .collect::<Result<_, Error>>()?;
+    let messages = messages.iter().map(|(m, flat)| planner.message(m, flat)).collect::<Result<_, Error>>()?;
+    Ok(Plan { tags, enums, groups, messages })
+}
+
+/// A constant for every field, by tag: (constant, dictionary name, tag).
+fn field_tags(dict: &Dictionary) -> Result<Vec<(String, String, u32)>, Error> {
+    let mut tags = Vec::with_capacity(dict.fields().len());
     let mut constants: HashMap<String, &str> = HashMap::new();
     for field in dict.fields() {
         let constant = naming::constant(&field.name);
@@ -161,7 +189,11 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
         tags.push((constant, field.name.clone(), field.tag));
     }
     tags.sort_by_key(|&(_, _, tag)| tag);
+    Ok(tags)
+}
 
+/// The application messages to generate, but those to `skip`, each with its members flattened.
+fn app_messages<'a>(dict: &'a Dictionary, skip: &[String]) -> Result<Vec<(&'a Message, Vec<Flat>)>, Error> {
     let messages: Vec<_> = dict
         .messages()
         .iter()
@@ -175,77 +207,126 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
     if let Some((m, _)) = messages.iter().find(|(m, _)| naming::type_in_use(&m.name)) {
         return Err(Error(format!("message {} would shadow a type generated code uses", m.name)));
     }
-    // Each message's borrowed twin is a type too. Messages keep their official names, so a
-    // message named like another's twin is an error.
-    let message_refs: Vec<String> = messages.iter().map(|(m, _)| naming::ref_type(&m.name)).collect();
-    if let Some(((m, _), twin)) = messages.iter().zip(&message_refs).find(|(_, twin)| naming::type_in_use(twin)) {
+    Ok(messages)
+}
+
+/// The names of the messages and their borrowed twins (`refs`, in the same order). Messages keep
+/// their official names, so a message named like another's twin, or a twin like a type generated
+/// code uses, is an error.
+fn message_names<'a>(messages: &'a [(&Message, Vec<Flat>)], refs: &'a [String]) -> Result<HashSet<&'a str>, Error> {
+    debug_assert_eq!(messages.len(), refs.len());
+    if let Some(((m, _), twin)) = messages.iter().zip(refs).find(|(_, twin)| naming::type_in_use(twin)) {
         return Err(Error(format!(
             "message {}'s borrowed twin {twin} would shadow a type generated code uses",
             m.name
         )));
     }
-    let mut message_names: HashSet<&str> = messages.iter().map(|(m, _)| m.name.as_str()).collect();
-    for ((m, _), twin) in messages.iter().zip(&message_refs) {
-        if !message_names.insert(twin) {
+    let mut names: HashSet<&str> = messages.iter().map(|(m, _)| m.name.as_str()).collect();
+    for ((m, _), twin) in messages.iter().zip(refs) {
+        if !names.insert(twin) {
             return Err(Error(format!("message {twin} is named like message {}'s borrowed twin", m.name)));
         }
     }
+    Ok(names)
+}
 
-    // Enums for the fields generated messages use, in dictionary order. One named like a message
-    // or its twin, or a type generated code uses, gets `Code`.
+/// Enums for the fields generated messages use, in dictionary order, and each enumerated field's
+/// type name. One named like a message or its twin, or a type generated code uses, gets `Code`.
+fn plan_enums<'a>(
+    dict: &'a Dictionary,
+    messages: &[(&Message, Vec<Flat>)],
+    options: &Options,
+    message_names: &HashSet<&str>,
+) -> Result<(Vec<EnumDef>, HashMap<&'a str, String>), Error> {
     let mut used = BTreeSet::new();
-    for (_, flat) in &messages {
+    for (_, flat) in messages {
         used_fields(flat, &mut used);
     }
     let mut enums: Vec<EnumDef> = Vec::new();
     let mut enum_types: HashMap<&str, String> = HashMap::new();
     for field in dict.fields().iter().filter(|f| used.contains(f.name.as_str()) && is_enum(f)) {
-        let mut def = enum_def(field, docs)?;
+        let mut def = enum_def(field, options.docs)?;
         if message_names.contains(def.name.as_str()) || naming::type_in_use(&def.name) {
             def.name.push_str("Code");
         }
         enum_types.insert(&field.name, def.name.clone());
         enums.push(def);
     }
-    if let Some(name) = lenient.iter().find(|name| !enum_types.contains_key(name.as_str())) {
+    if let Some(name) = options.lenient.iter().find(|name| !enum_types.contains_key(name.as_str())) {
         return Err(Error(format!(
             "{name} is not an enumerated field of the generated messages, so it can't be lenient"
         )));
     }
-    let enum_names: HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
+    Ok((enums, enum_types))
+}
 
-    // Distinct group definitions, in first-use order, with the first message using each.
-    let mut defs: Vec<GroupDef> = Vec::new();
-    for (m, flat) in &messages {
-        collect_groups(flat, &m.name, &mut defs);
-    }
-    let group_names = group_names(&defs, &enum_names, &message_names)?;
-    let group_refs: Vec<String> = defs.iter().map(|d| naming::ref_type(&group_names[&d.key()])).collect();
+/// Fails if two of the type `names` are the same, or one is a message's (or its twin's).
+fn check_distinct<'a>(names: impl Iterator<Item = &'a str>, message_names: &HashSet<&str>) -> Result<(), Error> {
     let mut taken: HashSet<&str> = HashSet::new();
-    let types = enums.iter().map(|e| e.name.as_str()).chain(defs.iter().map(|d| group_names[&d.key()].as_str()));
-    for name in types.chain(group_refs.iter().map(String::as_str)) {
+    for name in names {
         if !taken.insert(name) || message_names.contains(name) {
             return Err(Error(format!("two types would both be named {name}")));
         }
     }
+    Ok(())
+}
 
-    // A field repeated in one struct (through components, say) keeps its first slot, required if
-    // any occurrence is: parsing takes a tag's first occurrence, so a second slot would stay empty.
-    // A data field takes the Length field listed just before it (see `Dictionary::data_fields`)
-    // into its slot: it's written from the data's length.
-    let is_length_of_next = |members: &[Flat], i: usize| {
+/// Plans the slots of group entries and message bodies, from the names and types planned for
+/// enums and groups.
+struct SlotPlanner<'a> {
+    dict: &'a Dictionary,
+    enum_types: &'a HashMap<&'a str, String>,
+    group_names: &'a HashMap<GroupKey<'a>, String>,
+    options: &'a Options<'a>,
+}
+
+impl SlotPlanner<'_> {
+    /// A group's entry struct, named `type_name` and its twin `ref_name`.
+    fn group(&self, def: &GroupDef, type_name: String, ref_name: String) -> Result<Struct, Error> {
+        let mut entry = self.slots(&type_name, def.members)?;
+        // The first member delimits entries, so every entry must have it: a field is required, and
+        // a nested group (whose NumInGroup is then the delimiter) required with an entry.
+        let first = entry.first_mut().expect("the loader rejects empty groups");
+        first.presence = first.presence.required();
+        let tag = self.dict.field(def.count).expect("the loader checks references").tag;
+        let doc = format!("An entry of {}({tag}).", def.count);
+        Ok(Struct { name: type_name, ref_name, doc, slots: entry })
+    }
+
+    /// Message `m`'s body struct, from its flattened members.
+    fn message(&self, m: &Message, flat: &[Flat]) -> Result<MessageDef, Error> {
+        let slots = self.slots(&m.name, flat)?;
+        // `fix_message!` needs a field to parse; no official dictionary has such a message.
+        if slots.is_empty() {
+            return Err(Error(format!("message {} has no body fields, which fix_message! needs: skip it", m.name)));
+        }
+        let doc = with_doc(format!("{}({}).", m.name, m.msg_type), m.doc.as_deref().filter(|_| self.options.docs));
+        Ok(MessageDef {
+            def: Struct { name: m.name.clone(), ref_name: naming::ref_type(&m.name), doc, slots },
+            msg_type: m.msg_type.clone(),
+        })
+    }
+
+    /// Whether `members[i]` is the Length field of the data field after it.
+    fn is_length_of_next(&self, members: &[Flat], i: usize) -> bool {
         let field = |i: usize| match members.get(i) {
-            Some(Flat::Field { name, .. }) => dict.field(name),
+            Some(Flat::Field { name, .. }) => self.dict.field(name),
             _ => None,
         };
         field(i).is_some_and(|f| matches!(f.ty, FieldType::Length | FieldType::Int))
             && field(i + 1).is_some_and(|f| matches!(f.ty, FieldType::Data | FieldType::XmlData))
-    };
-    let slots = |owner: &str, members: &[Flat]| -> Result<Vec<Slot>, Error> {
+    }
+
+    /// The slots of struct `owner`, from its members. A field repeated in one struct (through
+    /// components, say) keeps its first slot, required if any occurrence is: parsing takes a
+    /// tag's first occurrence, so a second slot would stay empty. A data field takes the Length
+    /// field listed just before it (see `Dictionary::data_fields`) into its slot: it's written
+    /// from the data's length.
+    fn slots(&self, owner: &str, members: &[Flat]) -> Result<Vec<Slot>, Error> {
         let mut out: Vec<Slot> = Vec::new();
         let mut firsts: Vec<&Flat> = Vec::new();
         for (index, member) in members.iter().enumerate() {
-            if is_length_of_next(members, index) {
+            if self.is_length_of_next(members, index) {
                 continue;
             }
             if let Some(i) = firsts.iter().position(|f| f.name() == member.name()) {
@@ -257,95 +338,72 @@ pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error>
                 }
                 continue;
             }
-            let slot = match member {
-                Flat::Field { name, required } => {
-                    let field = dict.field(name).expect("the loader checks references");
-                    let length = index
-                        .checked_sub(1)
-                        .filter(|&before| is_length_of_next(members, before))
-                        .map(|before| naming::constant(members[before].name()));
-                    let ty = match enum_types.get(name.as_str()) {
-                        _ if length.is_some() => "Vec<u8>".to_string(),
-                        Some(ty) => {
-                            let ty =
-                                if lenient_all || lenient.contains(name) { format!("Code<{ty}>") } else { ty.clone() };
-                            // A multi-value field holds a list of codes.
-                            if is_multiple(&field.ty) { format!("Vec<{ty}>") } else { ty }
-                        }
-                        // Passwords print as *** so they can't leak into logs.
-                        None if matches!(field.tag, 554 | 925) => "Secret".to_string(),
-                        None => rust_type(&field.ty).to_string(),
-                    };
-                    let presence = match (length.is_some(), *required) {
-                        (true, true) => Presence::Data,
-                        (true, false) => Presence::OptData,
-                        (false, true) => Presence::Req,
-                        (false, false) => Presence::Opt,
-                    };
-                    Slot {
-                        ident: naming::field_ident(name),
-                        presence,
-                        ty,
-                        tag: naming::constant(name),
-                        length,
-                        doc: field_doc(field, docs),
-                    }
-                }
-                Flat::Group { name, official_name: group, required, members } => {
-                    let field = dict.field(name).expect("the loader checks references");
-                    Slot {
-                        ident: naming::group_field(name),
-                        presence: if *required { Presence::ReqGroup } else { Presence::Group },
-                        ty: group_names[&(name.as_str(), group.as_deref(), members.as_slice())].clone(),
-                        tag: naming::constant(name),
-                        length: None,
-                        doc: field_doc(field, docs),
-                    }
-                }
-            };
+            let slot = self.slot(members, index);
             if out.iter().any(|s| s.ident == slot.ident) {
                 return Err(Error(format!("{owner} has {} twice", slot.ident)));
             }
             out.push(slot);
             firsts.push(member);
         }
+        debug_assert_eq!(out.len(), firsts.len());
         Ok(out)
-    };
-
-    let mut groups = Vec::new();
-    for (def, ref_name) in defs.iter().zip(group_refs.iter().cloned()) {
-        let (name, members) = (def.count, def.members);
-        let type_name = group_names[&def.key()].clone();
-        let mut entry = slots(&type_name, members)?;
-        // The first member delimits entries, so every entry must have it: a field is required, and
-        // a nested group (whose NumInGroup is then the delimiter) required with an entry.
-        let first = entry.first_mut().expect("the loader rejects empty groups");
-        first.presence = first.presence.required();
-        let tag = dict.field(name).expect("the loader checks references").tag;
-        groups.push(Struct { name: type_name, ref_name, doc: format!("An entry of {name}({tag})."), slots: entry });
     }
 
-    let messages = messages
-        .iter()
-        .map(|(m, flat)| {
-            let slots = slots(&m.name, flat)?;
-            // `fix_message!` needs a field to parse; no official dictionary has such a message.
-            if slots.is_empty() {
-                return Err(Error(format!("message {} has no body fields, which fix_message! needs: skip it", m.name)));
+    /// The slot for `members[index]`.
+    fn slot(&self, members: &[Flat], index: usize) -> Slot {
+        let docs = self.options.docs;
+        match &members[index] {
+            Flat::Field { name, required } => {
+                let field = self.dict.field(name).expect("the loader checks references");
+                let length = index
+                    .checked_sub(1)
+                    .filter(|&before| self.is_length_of_next(members, before))
+                    .map(|before| naming::constant(members[before].name()));
+                let presence = match (length.is_some(), *required) {
+                    (true, true) => Presence::Data,
+                    (true, false) => Presence::OptData,
+                    (false, true) => Presence::Req,
+                    (false, false) => Presence::Opt,
+                };
+                Slot {
+                    ident: naming::field_ident(name),
+                    presence,
+                    ty: self.field_type(field, length.is_some()),
+                    tag: naming::constant(name),
+                    length,
+                    doc: field_doc(field, docs),
+                }
             }
-            Ok(MessageDef {
-                def: Struct {
-                    name: m.name.clone(),
-                    ref_name: naming::ref_type(&m.name),
-                    doc: with_doc(format!("{}({}).", m.name, m.msg_type), m.doc.as_deref().filter(|_| docs)),
-                    slots,
-                },
-                msg_type: m.msg_type.clone(),
-            })
-        })
-        .collect::<Result<_, Error>>()?;
+            Flat::Group { name, official_name: group, required, members } => {
+                let field = self.dict.field(name).expect("the loader checks references");
+                Slot {
+                    ident: naming::group_field(name),
+                    presence: if *required { Presence::ReqGroup } else { Presence::Group },
+                    ty: self.group_names[&(name.as_str(), group.as_deref(), members.as_slice())].clone(),
+                    tag: naming::constant(name),
+                    length: None,
+                    doc: field_doc(field, docs),
+                }
+            }
+        }
+    }
 
-    Ok(Plan { tags, enums, groups, messages })
+    /// The Rust type of `field`'s slot: bytes for a data field (one with a Length field before
+    /// it), its enum for an enumerated field, and otherwise its FIX type's.
+    fn field_type(&self, field: &Field, is_data: bool) -> String {
+        let Options { lenient_all, lenient, .. } = *self.options;
+        match self.enum_types.get(field.name.as_str()) {
+            _ if is_data => "Vec<u8>".to_string(),
+            Some(ty) => {
+                let ty = if lenient_all || lenient.contains(&field.name) { format!("Code<{ty}>") } else { ty.clone() };
+                // A multi-value field holds a list of codes.
+                if is_multiple(&field.ty) { format!("Vec<{ty}>") } else { ty }
+            }
+            // Passwords print as *** so they can't leak into logs.
+            None if matches!(field.tag, 554 | 925) => "Secret".to_string(),
+            None => rust_type(&field.ty).to_string(),
+        }
+    }
 }
 
 /// Expands components. A component's fields are required only if it and they are; a group's
