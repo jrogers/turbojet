@@ -45,7 +45,11 @@ later, with:
   than discarded, and an unanswered ResendRequest re-sent once and then ended with a Logout;
 - a long resend sent in steps of 256 sequence numbers, each written before the next is read from
   the store, so a ResendRequest for everything never holds the whole range in memory; nothing
-  new goes out, and what the counterparty sends is read but not processed, until it ends;
+  new goes out, and what the counterparty sends is read but not processed, until it ends; each
+  step gap-fills what it doesn't resend, so a long run of numbers not stored shows progress;
+- the application asked about each message before it's resent (`Application::should_resend`),
+  gap-filling those it declines, and ResendRequests in chunks of a configured size for
+  counterparties that cap them (`SessionConfig::resend_request_chunk`);
 - the connection driver reading while its output waits to be written, so two ends writing to
   each other at once never each wait for the other to read, and disconnecting a counterparty that
   has stopped reading altogether (16 MiB of output waiting for it);

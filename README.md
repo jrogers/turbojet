@@ -201,6 +201,11 @@ receives other than a Logon (which goes to `verify_logon`) through `on_admin_mes
 acting on it: a counterparty's Reject of one of our messages (RefSeqNum and Text say which and
 why), a Logout's Text, and Heartbeats, TestRequests, ResendRequests and SequenceResets.
 
+When the counterparty asks for messages again, `should_resend` is asked about each stored one, as
+stored; returning `false` gap-fills it instead, for an order the market has moved past, say. A
+run of messages declined or not stored is covered by one SequenceReset within each step of the
+resend (256 sequence numbers).
+
 For the lowest latency, send from the callback. `Context::send` in `on_message` is written with
 the same wake-up of the connection task, while a `SessionHandle` send from another task wakes the
 connection's task to take it: over localhost, an order sent and its acknowledgement received
@@ -337,6 +342,11 @@ NextExpectedMsgSeqNum(789), the FIX 4.4 way to recover a gap at logon: each side
 other missed straight after logon, with no ResendRequest. An acceptor honours 789 whenever a
 counterparty sends it and answers with its own; a 789 beyond what was ever sent is answered with a
 Logout.
+
+A gap is asked for with one ResendRequest to the end (EndSeqNo 0). For a counterparty that caps
+how many messages a ResendRequest may ask for, `SessionConfig::resend_request_chunk` (in
+configuration files, `resend_request_chunk`) asks for at most that many at once, and for the next
+chunk once they have all arrived.
 
 ## Session checks
 

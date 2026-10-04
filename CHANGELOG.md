@@ -14,6 +14,15 @@ Notable changes to the published crates.
 - `InitiatorConfig::local_addr` connects an initiator from a chosen local address (and port, or 0
   for any), trying only its endpoints' addresses of the same family. Breaking for an
   `InitiatorConfig` built as a struct literal: it has the new field.
+- `Application::should_resend` is asked about each stored application message a ResendRequest
+  covers; one it declines is gap-filled instead. The default resends everything.
+- `SessionConfig::resend_request_chunk` asks for a gap at most that many messages at a time, for
+  counterparties that cap ResendRequests. Breaking for a `SessionConfig` built as a struct
+  literal: it has the new field.
+- Fixed: a resend over a long run of numbers the store doesn't hold wrote nothing until the run
+  ended, so if reading through it took longer than the counterparty's resend timeout, the
+  counterparty logged out, and did again on every reconnect. Each step of a resend now gap-fills
+  what it doesn't resend.
 - Cancel on disconnect: `SessionConfig::cancel_on_disconnect` takes a `CancelOnDisconnect`, a
   `CancelTrigger` (`Disconnect`, endings without a Logout, or `DisconnectOrLogout`) and a grace
   period of up to `MAX_CANCEL_GRACE` (an hour), set per counterparty through `Counterparties`.
@@ -40,6 +49,7 @@ Notable changes to the published crates.
 
 - `local_address` in an initiator's section: the IP address to connect from, with or without a
   port.
+- `resend_request_chunk`, in `[defaults]`, a counterparty's section or an initiator's.
 - `cancel_on_disconnect` (`"off"`, the default, `"disconnect"` or `"disconnect_or_logout"`, under
   which Logouts from either side count too) and `cancel_grace` (`0s`, the default, up to `1h`), in
   `[defaults]`, a counterparty's section or an initiator's. Stopping an initiator, removed or
