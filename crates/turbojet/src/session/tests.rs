@@ -759,6 +759,17 @@ fn inaccurate_sending_time_is_rejected_then_logged_out() {
     assert!(s.recv(at_offset(client(2, MsgType::Heartbeat), -3600), h.t0).is_empty());
 }
 
+/// More stale messages after the first are each rejected and logged out over, but the logout
+/// timeout still counts from the first Logout, so they can't put it off.
+#[test]
+fn stale_messages_while_logging_out_do_not_put_off_the_logout_timeout() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.recv(at_offset(client(2, MsgType::Heartbeat), 121), h.at(1))), ["Reject", "Logout"]);
+    assert_eq!(types(&s.recv(at_offset(client(3, MsgType::Heartbeat), 121), h.at(2))), ["Reject", "Logout"]);
+    assert_eq!(s.next_deadline(), Some(h.at(1) + h.config.logout_timeout));
+}
+
 /// Session test case 1d: a Logon with an inaccurate SendingTime is refused.
 #[test]
 fn logon_with_inaccurate_sending_time_is_refused() {

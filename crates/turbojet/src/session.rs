@@ -2548,7 +2548,9 @@ impl Session {
             self.finish_replay(now);
         }
         self.send(Logout { text: text.map(CompactString::from) }.into(), now);
-        if self.status != Status::Closed {
+        // The timeout counts from the first Logout: a counterparty that keeps sending messages we
+        // log out over (stale ones, after a long stall) doesn't put it off.
+        if matches!(self.status, Status::Active | Status::AwaitingLogon) {
             self.status = Status::LoggingOut { since: now };
         }
     }
