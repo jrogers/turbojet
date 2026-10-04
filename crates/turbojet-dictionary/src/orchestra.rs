@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 use roxmltree::{Document, Node};
 
 use crate::load::{self, Error};
-use crate::model::*;
+use crate::model::{
+    Category, Component, Dictionary, Field, FieldType, Member, Message, Protocol, Release, Value, Version,
+};
 
 /// The Orchestra repository namespace.
 const NS: &str = "http://fixprotocol.io/2020/orchestra/repository";

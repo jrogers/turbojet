@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use roxmltree::{Document, Node};
 
-use crate::model::*;
+use crate::model::{
+    Category, Component, Dictionary, Field, FieldType, Member, Message, Protocol, Release, Value, Version,
+};
 use crate::orchestra;
 
 /// Why a dictionary couldn't be loaded or merged.
