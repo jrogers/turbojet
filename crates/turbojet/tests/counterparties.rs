@@ -5,9 +5,10 @@ use std::time::Duration;
 
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use turbojet::store::StorageByCounterparty;
 use turbojet::{
     Acceptor, Application, ConnectionInfo, Counterparties, Counterparty, Initiator, InitiatorConfig, MemoryStorage,
-    Message, SessionConfig, SessionHandle, SessionId,
+    Message, SessionConfig, SessionHandle, SessionId, SessionStorage,
 };
 
 /// Reports each logon by the counterparty's CompID.
@@ -70,4 +71,19 @@ async fn each_counterparty_logs_on_under_its_own_settings() {
     assert!(logons.try_recv().is_err(), "only CLIENT logged on");
     handle.logout(None).unwrap();
     connection.await.unwrap().unwrap();
+}
+
+/// An operator's change to a disconnected session reaches its counterparty's own store.
+#[tokio::test]
+async fn an_offline_change_reaches_the_counterpartys_store() {
+    let default = Arc::new(MemoryStorage::new());
+    let broker = Arc::new(MemoryStorage::new());
+    let storage = StorageByCounterparty::new(default.clone()).with("BROKER", broker.clone());
+    let (tx, _) = mpsc::unbounded_channel();
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(storage), Arc::new(Recorder(tx)));
+    acceptor.session("BROKER").set_next_outgoing(10).await.unwrap();
+    let id =
+        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "SERVER".into(), target_comp_id: "BROKER".into() };
+    assert_eq!(broker.open(&id).unwrap().next_outgoing(), 10);
+    assert_eq!(default.open(&id).unwrap().next_outgoing(), 1);
 }

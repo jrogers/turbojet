@@ -87,9 +87,9 @@ impl Acceptor {
     /// this acceptor's configuration, or refuses it; see [`Counterparties`]. Set it before
     /// serving or cloning: connections accepted by a clone made earlier don't use it.
     ///
-    /// To give counterparties different stores, use a store that routes by CompID: a store is
-    /// opened for operator changes to disconnected sessions too, when there's no Logon to
-    /// resolve.
+    /// To give counterparties different stores, use a store that routes by CompID, such as
+    /// [`StorageByCounterparty`](crate::store::StorageByCounterparty): a store is opened for
+    /// operator changes to disconnected sessions too, when there's no Logon to resolve.
     #[must_use]
     pub fn with_counterparties(mut self, counterparties: Arc<dyn Counterparties>) -> Self {
         self.counterparties = Some(counterparties);

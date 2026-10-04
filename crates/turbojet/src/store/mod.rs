@@ -1,6 +1,7 @@
 //! Session persistence: sequence numbers and sent application messages, kept per session so a
 //! counterparty can reconnect and recover missed messages.
 
+mod by_counterparty;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 pub(crate) mod disk;
@@ -11,6 +12,7 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 
+pub use by_counterparty::StorageByCounterparty;
 pub use disk::DiskStorage;
 pub use memory::MemoryStorage;
 
