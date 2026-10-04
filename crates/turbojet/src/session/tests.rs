@@ -3437,6 +3437,18 @@ fn an_unanswered_chunk_is_asked_for_again() {
     assert_eq!(resend_requests(&s.timer(h.at(60))), ["2..3"]);
 }
 
+/// Any BeginString that can be sent is accepted, a venue's own included; one that can't isn't.
+#[test]
+fn a_begin_string_that_cannot_be_sent_is_refused() {
+    for ok in ["FIX.4.2", "FIX.4.3", "FIX.4.4.VENUE"] {
+        assert_eq!(SessionConfig::new(ok, "GATEWAY").check(), Ok(()), "{ok}");
+    }
+    for bad in ["", "FIX.4.4\x01", "FIX=4.4"] {
+        let err = SessionConfig::new(bad, "GATEWAY").check().unwrap_err();
+        assert!(err.to_string().starts_with("begin_string"), "{bad:?}: {err}");
+    }
+}
+
 #[test]
 fn a_resend_request_chunk_of_zero_is_refused() {
     let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");

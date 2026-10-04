@@ -291,7 +291,8 @@ impl SessionConfig {
     ///
     /// # Errors
     ///
-    /// The first problem found: a rate limit out of bounds (see [`RateLimit`]), a cancel grace over
+    /// The first problem found: a BeginString that can't be sent (empty, or containing SOH or
+    /// `=`; any other, a venue's own included, is fine), a rate limit out of bounds (see [`RateLimit`]), a cancel grace over
     /// [`MAX_CANCEL_GRACE`], a resend request chunk of 0, or a FIXT session without an
     /// application version, or with one twice, or a FIX 4.x session with one.
     pub fn check(&self) -> Result<(), ConfigError> {
@@ -300,6 +301,12 @@ impl SessionConfig {
 
     /// [`check`](Self::check), as text, for checks that build on it.
     pub(crate) fn first_problem(&self) -> Result<(), String> {
+        if self.begin_string.is_empty() || self.begin_string.contains(['\x01', '=']) {
+            return Err(format!(
+                "begin_string {:?} can't be sent: it's empty, or has SOH or '=' in it",
+                self.begin_string
+            ));
+        }
         if self.resend_request_chunk == Some(0) {
             return Err("resend_request_chunk must be at least 1".into());
         }
