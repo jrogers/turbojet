@@ -388,9 +388,12 @@ impl Initiator {
     /// after that the connection is closed regardless.
     ///
     /// Then the session's [cancel-on-disconnect](SessionConfig::cancel_on_disconnect) countdown,
-    /// if one is under way, fires at once, as nothing will be left to fire it when it's due;
-    /// those of other initiators sharing its [registry](Self::with_registry) carry on. A logout
-    /// for the shutdown doesn't start one: our side chose to end the session.
+    /// if one is under way, fires at once rather than wait out its grace period, even if the
+    /// [registry](Self::with_registry) lives on. So replacing an initiator with another for the
+    /// same session (on a configuration reload, say) during a grace period cancels early: that
+    /// errs on the side of orders cancelled rather than left working. Countdowns of other
+    /// initiators sharing the registry carry on. A logout for the shutdown doesn't start one: our
+    /// side chose to end the session.
     ///
     /// Shutdown is permanent. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {

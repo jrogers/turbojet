@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use tokio::sync::{Notify, mpsc, oneshot};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::application::{Application, Disconnect};
 use crate::cancel::{CancelTracker, CancelTrigger};
@@ -412,9 +412,10 @@ pub struct SessionRegistry {
     /// Locked on its own. Nothing takes its lock with `sessions` held; a cancel callback may
     /// take `sessions` under it (sending through a `SessionHandle`), which is the only order.
     cancels: CancelTracker,
-    /// Whether the task driving `cancels` has been spawned: one per registry, however many
-    /// acceptors and initiators share it, so the wake has one waiter.
-    cancel_task: AtomicBool,
+    /// Whether the task driving `cancels` is running: one per registry, however many acceptors
+    /// and initiators share it, so the wake has one waiter. Shared with the task, which clears it
+    /// as it goes (see `Driving`).
+    cancel_task: Arc<AtomicBool>,
 }
 
 impl Default for SessionRegistry {
@@ -432,7 +433,7 @@ impl SessionRegistry {
             sessions: Mutex::default(),
             clock: Clock::system(),
             cancels: CancelTracker::new(),
-            cancel_task: AtomicBool::new(false),
+            cancel_task: Arc::default(),
         }
     }
 
@@ -566,19 +567,30 @@ impl SessionRegistry {
 
     /// Spawns the task that fires the countdowns as they fall due, unless it's running already.
     /// The acceptor and initiator call it as each connection starts, so a countdown, which only a
-    /// session ending can start, always has the task to fire it. Needs a tokio runtime.
+    /// session ending can start, has the task to fire it while the runtime of the connection that
+    /// spawned it runs. Needs a tokio runtime.
+    ///
+    /// The countdowns run on that runtime. If it shuts down, or the task ends some other way (a
+    /// panic outside the guarded callbacks), the task is gone; the next connection, on whatever
+    /// runtime, spawns another, which fires anything that fell due meanwhile. Until then nothing
+    /// does.
     ///
     /// The task holds the registry only while it fires what's due, so it doesn't keep it alive.
     /// It ends once the registry has gone, woken by the registry's `Drop`. It runs application
     /// callbacks, which must not block, on the runtime like any other task, and reads tokio's
     /// clock, as the connections do, so that paused time in tests moves the deadlines too.
     pub(crate) fn spawn_cancel_task(self: &Arc<Self>) {
-        if self.cancel_task.swap(true, Ordering::AcqRel) {
+        // Relaxed: the flag only picks which caller spawns; it guards no data.
+        if self.cancel_task.swap(true, Ordering::Relaxed) {
             return;
         }
+        // Made before spawning and moved into the task: a runtime shutting down drops a future
+        // spawned on it without polling it, and the flag must still be cleared then.
+        let driving = Driving(self.cancel_task.clone());
         let registry = Arc::downgrade(self);
         let wake: Arc<Notify> = self.cancels.wake.clone();
         tokio::spawn(async move {
+            let _driving = driving;
             loop {
                 // Not held across the wait, so the registry can go meanwhile.
                 let deadline = match registry.upgrade() {
@@ -614,12 +626,28 @@ impl SessionRegistry {
     }
 }
 
+/// Marks the task driving a registry's countdowns as running, until it's dropped: when the task
+/// ends, or its runtime drops it, so the next connection spawns another.
+struct Driving(Arc<AtomicBool>);
+
+impl Drop for Driving {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
 impl Drop for SessionRegistry {
     fn drop(&mut self) {
-        // Wakes the task driving the countdowns, if any, to find the registry gone and end.
+        // Wakes the task driving the countdowns, if any, to find the registry gone and end: a
+        // permit if it's between waits, and waking it if it's waiting.
+        self.cancels.wake.notify_one();
+        self.cancels.wake.notify_waiters();
         // Countdowns still pending go with it: the acceptor or initiator that would fire them, and
         // every session that could log back on, have gone too.
-        self.cancels.wake.notify_one();
+        let lost = self.cancels.count();
+        if lost > 0 {
+            warn!(lost, "session registry dropped with cancel-on-disconnect countdowns pending; they won't fire");
+        }
     }
 }
 
@@ -948,12 +976,56 @@ mod tests {
         let wake = Arc::downgrade(&registry.cancels.wake);
         registry.spawn_cancel_task();
         registry.spawn_cancel_task();
-        tokio::task::yield_now().await;
         assert_eq!(wake.strong_count(), 2, "the tracker's and one task's");
         drop(registry);
         for _ in 0..10 {
             tokio::task::yield_now().await;
         }
         assert_eq!(wake.strong_count(), 0, "the task has ended");
+    }
+
+    /// Counts the cancels it's told of.
+    #[derive(Default)]
+    struct Counter(AtomicU64);
+
+    impl Application for Counter {
+        fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap()
+    }
+
+    fn start(registry: &SessionRegistry, target: &str, app: &Arc<Counter>, grace: Duration) {
+        let id =
+            SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "US".into(), target_comp_id: target.into() };
+        let deadline = tokio::time::Instant::now().into_std() + grace;
+        registry.start_cancel(id, Disconnect::ConnectionLost, CancelTrigger::Disconnect, deadline, app.clone());
+    }
+
+    /// The runtime the task ran on shuts down with a countdown pending; the next connection, on
+    /// another runtime, spawns another task, which fires it, and those started since, when due.
+    #[test]
+    fn the_cancel_task_is_spawned_again_after_its_runtime_goes() {
+        let registry = Arc::new(SessionRegistry::default());
+        let app = Arc::<Counter>::default();
+        let first = runtime();
+        first.block_on(async {
+            registry.spawn_cancel_task();
+            start(&registry, "A", &app, Duration::from_secs(5));
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        });
+        drop(first);
+        assert_eq!(app.0.load(Ordering::Relaxed), 0);
+
+        runtime().block_on(async {
+            registry.spawn_cancel_task();
+            start(&registry, "B", &app, Duration::from_secs(5));
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        });
+        assert_eq!(app.0.load(Ordering::Relaxed), 2, "both fired");
+        assert_eq!(registry.next_cancel_deadline(), None);
     }
 }

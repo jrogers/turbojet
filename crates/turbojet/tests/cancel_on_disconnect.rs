@@ -190,36 +190,40 @@ async fn logging_back_on_within_the_grace_period_stops_the_cancel() {
 }
 
 /// The client logs out, and the acceptor answers. `trigger` says whether that counts. The
-/// acceptor is kept, as the countdowns go with it.
-async fn log_out(trigger: CancelTrigger) -> (Acceptor, Events) {
+/// acceptor is kept, as the countdowns go with it; and when the Logout was sent.
+async fn log_out(trigger: CancelTrigger) -> (Acceptor, Events, Instant) {
     let (acceptor, mut events) = acceptor(trigger);
     let (mut client, task) = log_on(&acceptor, "CLIENT").await;
     assert_eq!(events.next().await, Event::LoggedOn("CLIENT".into()));
+    let sent = Instant::now();
     client.send(Message::new(MsgType::Logout)).await;
     client.expect(MsgType::Logout).await;
     task.await.unwrap().unwrap();
     assert_eq!(events.next().await, Event::LoggedOut("CLIENT".into(), Disconnect::CounterpartyLogout));
-    (acceptor, events)
+    (acceptor, events, sent)
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_logout_is_not_a_disconnect() {
-    let (_acceptor, mut events) = log_out(CancelTrigger::Disconnect).await;
+    let (_acceptor, mut events, _) = log_out(CancelTrigger::Disconnect).await;
     sleep(GRACE * 4).await;
     events.assert_none();
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_logout_counts_when_the_trigger_says_so() {
-    let (_acceptor, mut events) = log_out(CancelTrigger::DisconnectOrLogout).await;
+    let (_acceptor, mut events, sent) = log_out(CancelTrigger::DisconnectOrLogout).await;
     let logged_out = Instant::now();
     let Event::Cancel(client, ended, at) = events.next().await else { panic!("expected a cancel") };
     assert_eq!((client.as_str(), ended), ("CLIENT", Disconnect::CounterpartyLogout));
-    assert!(at >= logged_out + GRACE, "{:?} early", logged_out + GRACE - at);
+    // The countdown starts as the acceptor takes the Logout: between sending it and hearing back.
+    assert!(at >= sent + GRACE, "{:?} early", sent + GRACE - at);
+    // The timer rounds up to the millisecond.
+    assert!(at <= logged_out + GRACE + Duration::from_millis(1), "{:?} late", at - logged_out - GRACE);
 }
 
-/// Shutting down fires the countdowns pending at once, rather than when they're due: nothing
-/// will be left to fire them.
+/// Shutting down fires its own pending countdowns at once, rather than leave them to the grace
+/// period: that errs on the side of orders cancelled rather than left working.
 #[tokio::test(start_paused = true)]
 async fn shutdown_fires_pending_cancels_at_once() {
     let (acceptor, mut events) = acceptor(CancelTrigger::Disconnect);

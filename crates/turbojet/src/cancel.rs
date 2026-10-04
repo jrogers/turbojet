@@ -124,6 +124,11 @@ impl CancelTracker {
         }
     }
 
+    /// How many countdowns are under way. Fine while panicking, as from a `Drop`.
+    pub(crate) fn count(&self) -> usize {
+        self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len()
+    }
+
     /// When the next countdown ends, if any is under way.
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
         self.lock().values().map(|p| p.deadline).min()

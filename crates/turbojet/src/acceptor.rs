@@ -244,16 +244,20 @@ impl Acceptor {
     /// counterparty that has stopped reading, say) is closed regardless.
     ///
     /// Then the [cancel-on-disconnect](SessionConfig::cancel_on_disconnect) countdowns still
-    /// under way for this acceptor's sessions fire at once, as nothing will be left to fire them
-    /// when they're due; those of other sessions in a shared registry carry on. Sessions it logs
-    /// out don't start one: our side chose to end them.
+    /// under way for this acceptor's sessions fire at once, rather than wait out their grace
+    /// periods: that errs on the side of orders cancelled rather than left working. Those of other
+    /// sessions in a shared registry carry on. Sessions it logs out don't start one: our side
+    /// chose to end them.
     ///
     /// Shutdown is permanent: [`serve`](Acceptor::serve) returns, and connections made later are
     /// closed without logging on. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {
         self.shutdown.run(text, self.config.logout_timeout).await;
-        // Every connection has closed, so no more countdowns start here. A counterparty's own
-        // settings keep this BeginString and SenderCompID (see `Counterparties`).
+        // Every connection has closed, so no more countdowns start here. An acceptor's registry
+        // is its own, never shared, so today this matches every countdown in it. Matching on the
+        // session is still the right filter: it names what's ours whatever else comes to share
+        // the registry, and every session this acceptor runs has this BeginString and
+        // SenderCompID, which a counterparty's own settings can't change (see `Counterparties`).
         let (begin_string, sender_comp_id) = (&self.config.begin_string, &self.config.sender_comp_id);
         self.registry.run_cancels_now(|id| id.begin_string == *begin_string && id.sender_comp_id == *sender_comp_id);
     }
