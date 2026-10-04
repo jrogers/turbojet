@@ -81,7 +81,8 @@
 //! the primary first, then failover), `begin_string` and `sender_comp_id` (the acceptor's by
 //! default; needed without one), `heartbeat_interval`, `reset_on_logon`,
 //! `next_expected_msg_seq_num`, `username`, `password_env` (the environment variable holding the
-//! password: a password isn't kept in the file), `connect_timeout`, `logon_timeout`, `send_queue`,
+//! password: a password isn't kept in the file), `connect_timeout`, `local_address` (the IP address
+//! to connect from, with or without a port), `logon_timeout`, `send_queue`,
 //! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, cert, key, server_name }`
 //! (feature `tls`; `server_name` is the first address's host by default), and every session key
 //! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators

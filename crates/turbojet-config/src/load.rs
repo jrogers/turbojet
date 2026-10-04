@@ -3,6 +3,7 @@
 //! initiator's connection.
 
 use std::collections::{BTreeMap, HashMap};
+use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 #[cfg(feature = "validation")]
 use std::path::PathBuf;
@@ -347,6 +348,11 @@ fn resolve_initiator(
     }
     if let Some(timeout) = &own.connect_timeout {
         config.connect_timeout = parse_duration(timeout).map_err(|e| at("connect_timeout", e))?;
+    }
+    if let Some(local) = &own.local_address {
+        // An address alone leaves the port to the system.
+        let parsed = local.parse().or_else(|_| local.parse::<IpAddr>().map(|ip| SocketAddr::new(ip, 0)));
+        config.local_addr = Some(parsed.map_err(|_| at("local_address", format!("'{local}' isn't an IP address")))?);
     }
     if let Some(reconnect) = &own.reconnect {
         let duration = |text: &str| parse_duration(text).map_err(|e| at("reconnect", e));
@@ -977,7 +983,7 @@ mod tests {
     #[test]
     fn an_initiator_takes_the_acceptors_identity_and_the_defaults() {
         let loaded = load_text(&format!(
-            "[defaults]\nmax_latency = \"30s\"\nstore = \"memory\"\n{INITIATOR}heartbeat_interval = \"20s\"\nreset_on_logon = true\nusername = \"firm\"\npassword_env = \"PATH\"\nreconnect = {{ initial = \"100ms\", max = \"5s\", jitter = false }}"
+            "[defaults]\nmax_latency = \"30s\"\nstore = \"memory\"\n{INITIATOR}heartbeat_interval = \"20s\"\nreset_on_logon = true\nusername = \"firm\"\npassword_env = \"PATH\"\nreconnect = {{ initial = \"100ms\", max = \"5s\", jitter = false }}\nlocal_address = \"10.0.0.5\""
         ))
         .unwrap();
         let lse = &loaded.initiators["LSE"];
@@ -990,6 +996,9 @@ mod tests {
         assert_eq!(lse.config.reconnect.initial, Duration::from_millis(100));
         assert!(!lse.config.reconnect.jitter);
         assert_eq!(lse.endpoints, [Endpoint::new("primary:9876"), Endpoint::new("backup:9876")]);
+        assert_eq!(lse.config.local_addr, Some("10.0.0.5:0".parse().unwrap()));
+        let loaded = load_text(&format!("{INITIATOR}local_address = \"[::1]:4000\"")).unwrap();
+        assert_eq!(loaded.initiators["LSE"].config.local_addr, Some("[::1]:4000".parse().unwrap()));
     }
 
     #[test]
@@ -1058,6 +1067,10 @@ mod tests {
                 "initiator LSE: password_env: environment variable",
             ),
             (format!("{INITIATOR}store = \"tape\""), "initiator LSE: store: no store named 'tape'"),
+            (
+                format!("{INITIATOR}local_address = \"eth0\""),
+                "initiator LSE: local_address: 'eth0' isn't an IP address",
+            ),
             (
                 INITIATOR.replace("[\"primary:9876\", \"backup:9876\"]", "[]"),
                 "initiator LSE: connect: needs an address",
