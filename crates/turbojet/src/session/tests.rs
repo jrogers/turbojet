@@ -3381,6 +3381,58 @@ fn an_unanswered_resend_request_is_retried_once_then_the_session_logs_out() {
     assert!(logout.get(tags::TEXT).unwrap().contains("ResendRequest from 2 unanswered"));
 }
 
+/// The ResendRequests among `actions`, as `begin..end`.
+fn resend_requests(actions: &[Action]) -> Vec<String> {
+    sent(actions)
+        .into_iter()
+        .filter(|m| m.msg_type() == MsgType::ResendRequest)
+        .map(|m| format!("{}..{}", m.get(tags::BEGIN_SEQ_NO).unwrap(), m.get(tags::END_SEQ_NO).unwrap()))
+        .collect()
+}
+
+/// A logged-on session that asks for at most `chunk` messages per ResendRequest.
+fn chunking(chunk: u64) -> (Harness, Session) {
+    let mut h = Harness::new();
+    h.config.resend_request_chunk = Some(chunk);
+    let s = h.logged_on();
+    (h, s)
+}
+
+#[test]
+fn resend_requests_ask_for_a_chunk_at_a_time() {
+    let (h, mut s) = chunking(2);
+    // 2..6 are missing: the first chunk, then the next as each arrives, the last to the end.
+    assert_eq!(resend_requests(&s.recv(order(7, "G"), h.t0)), ["2..3"]);
+    assert!(resend_requests(&s.recv(resend_of(order(2, "B")), h.t0)).is_empty());
+    assert_eq!(resend_requests(&s.recv(resend_of(order(3, "C")), h.t0)), ["4..5"]);
+    s.recv(resend_of(order(4, "D")), h.t0);
+    assert_eq!(resend_requests(&s.recv(resend_of(order(5, "E")), h.t0)), ["6..0"]);
+    let out = s.recv(resend_of(order(6, "F")), h.t0);
+    assert!(resend_requests(&out).is_empty());
+    assert_eq!(h.app.received(), 6, "2 to 7, the queued 7 included");
+}
+
+#[test]
+fn a_gap_fill_past_the_chunk_asks_for_the_next_from_where_it_ends() {
+    let (h, mut s) = chunking(2);
+    s.recv(order(9, "I"), h.t0); // 2..3 asked for
+    assert_eq!(resend_requests(&s.recv(gap_fill(2, 5), h.t0)), ["5..6"]);
+}
+
+#[test]
+fn an_unanswered_chunk_is_asked_for_again() {
+    let (h, mut s) = chunking(2);
+    s.recv(order(7, "G"), h.t0);
+    assert_eq!(resend_requests(&s.timer(h.at(60))), ["2..3"]);
+}
+
+#[test]
+fn a_resend_request_chunk_of_zero_is_refused() {
+    let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
+    config.resend_request_chunk = Some(0);
+    assert!(config.check().unwrap_err().contains("resend_request_chunk"));
+}
+
 #[test]
 fn progress_restarts_the_resend_timeout() {
     let h = Harness::new();

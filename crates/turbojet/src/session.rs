@@ -98,6 +98,11 @@ pub struct SessionConfig {
     /// may wait while the [`outbound_limit`](Self::outbound_limit)'s window is full: the
     /// connection holds the first to arrive, to know that one waits. 10,000 by default.
     pub send_queue: usize,
+    /// At most this many messages to ask for in one ResendRequest, for a counterparty that
+    /// caps them: a gap is then asked for a chunk at a time, the next once the last has arrived,
+    /// and the last chunk to the end (EndSeqNo 0). `None` (the default) asks for the whole gap at
+    /// once.
+    pub resend_request_chunk: Option<u64>,
     /// At most this many application messages sent per window (see [`RateLimit`]).
     /// [`SessionHandle::send`](crate::SessionHandle::send)s beyond it wait in the send queue
     /// until the window allows them, so a full queue hands them back as usual. Replies the
@@ -202,6 +207,7 @@ impl SessionConfig {
             timestamp_precision: Precision::Millis,
             data_fields: DataFields::standard(),
             send_queue: 10_000,
+            resend_request_chunk: None,
             outbound_limit: None,
             inbound_limit: None,
             cancel_on_disconnect: None,
@@ -265,6 +271,9 @@ impl SessionConfig {
     /// [`RateLimit`]), a cancel grace over [`MAX_CANCEL_GRACE`], or a FIXT session without an
     /// application version, or with one twice, or a FIX 4.x session with one.
     pub fn check(&self) -> Result<(), String> {
+        if self.resend_request_chunk == Some(0) {
+            return Err("resend_request_chunk must be at least 1".into());
+        }
         if let Some(limit) = &self.outbound_limit {
             limit.check().map_err(|e| format!("outbound_limit: {e}"))?;
         }
@@ -457,6 +466,9 @@ struct Resend {
     seen: u64,
     /// Whether it has been sent again after a timeout.
     retried: bool,
+    /// The last MsgSeqNum asked for, if not to the end: once it's been received, the next chunk
+    /// is (see [`SessionConfig::resend_request_chunk`]).
+    asked_through: Option<u64>,
 }
 
 /// One FIX session over one connection.
@@ -1131,6 +1143,7 @@ impl Session {
                     resend.seen = seq;
                     resend.progress_at = now;
                     resend.retried = false;
+                    self.ask_next_chunk(seq, now);
                 }
             }
             if request != SequenceCommand::Get {
@@ -1281,7 +1294,11 @@ impl Session {
         resend.retried = true;
         resend.progress_at = now;
         warn!(expected = next, "ResendRequest unanswered; requesting again");
-        self.send(ResendRequest { begin_seq_no: next, end_seq_no: 0 }.into(), now);
+        let target = resend.target;
+        let asked_through = self.ask_resend(next, target, now);
+        if let Some(resend) = &mut self.resend {
+            resend.asked_through = asked_through;
+        }
     }
 
     // ---- Logon ----
@@ -2073,6 +2090,9 @@ impl Session {
                 resend.retried = false;
             }
         }
+        if matches!(self.status, Status::Active | Status::LoggingOut { .. }) {
+            self.ask_next_chunk(next, now);
+        }
         if self.resend.is_none()
             && !self.drain_waiting
             && matches!(self.status, Status::Active | Status::LoggingOut { .. })
@@ -2429,8 +2449,32 @@ impl Session {
         debug_assert!(from < received, "a gap lies before the message that revealed it");
         warn!(expected = from, received, "sequence gap detected; requesting resend");
         self.peer().metrics.sequence_gap();
-        self.send(ResendRequest { begin_seq_no: from, end_seq_no: 0 }.into(), now);
-        self.resend = Some(Resend { target: received, progress_at: now, seen: from, retried: false });
+        let asked_through = self.ask_resend(from, received, now);
+        self.resend = Some(Resend { target: received, progress_at: now, seen: from, retried: false, asked_through });
+    }
+
+    /// Sends a ResendRequest from `from` for a gap that `target` revealed: a chunk if the session
+    /// asks for them and the gap is longer, otherwise everything to the end. Returns the last
+    /// MsgSeqNum asked for, if not to the end.
+    fn ask_resend(&mut self, from: u64, target: u64, now: Instant) -> Option<u64> {
+        debug_assert!(from < target, "a gap lies before the message that revealed it");
+        let through = self.config.resend_request_chunk.map(|chunk| from + chunk - 1).filter(|&last| last + 1 < target);
+        self.send(ResendRequest { begin_seq_no: from, end_seq_no: through.unwrap_or(0) }.into(), now);
+        through
+    }
+
+    /// Asks for the next chunk of the gap once everything asked for has been received, `next`
+    /// being the MsgSeqNum now expected.
+    fn ask_next_chunk(&mut self, next: u64, now: Instant) {
+        let Some(resend) = &self.resend else { return };
+        if resend.asked_through.is_none_or(|through| next <= through) || next >= resend.target {
+            return;
+        }
+        let target = resend.target;
+        let asked_through = self.ask_resend(next, target, now);
+        if let Some(resend) = &mut self.resend {
+            resend.asked_through = asked_through;
+        }
     }
 
     fn reject(
