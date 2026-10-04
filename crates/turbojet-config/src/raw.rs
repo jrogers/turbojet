@@ -185,6 +185,8 @@ pub(crate) struct RawSettings {
     pub latency_metrics: Option<bool>,
     pub heartbeat: Option<RawHeartbeat>,
     pub require_client_certificate: Option<bool>,
+    pub cancel_on_disconnect: Option<RawCancelTrigger>,
+    pub cancel_grace: Option<String>,
 }
 
 /// Field by field, `self`'s keys over `defaults`'.
@@ -217,6 +219,8 @@ impl RawSettings {
             latency_metrics,
             heartbeat,
             require_client_certificate,
+            cancel_on_disconnect,
+            cancel_grace,
         )
     }
 }
@@ -235,6 +239,17 @@ pub(crate) enum RawPrecision {
 pub(crate) enum OverLimit {
     Delay,
     Reject,
+}
+
+/// `cancel_on_disconnect`: which endings of a session count, if any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RawCancelTrigger {
+    Off,
+    /// Endings without a Logout.
+    Disconnect,
+    /// Those, and Logouts.
+    Logout,
 }
 
 /// An application version: its ApplVerID code, or the code and a dictionary to check its
@@ -334,6 +349,8 @@ mod tests {
             latency_metrics = true
             heartbeat = { min = "10s", max = "60s" }
             require_client_certificate = true
+            cancel_on_disconnect = "logout"
+            cancel_grace = "5s"
 
             [counterparty.FUND]
             appl_versions = ["9", { id = "8", dictionary = "FIX50SP1.xml" }]
@@ -346,6 +363,8 @@ mod tests {
         assert_eq!(file.store["scratch"], RawStore::Memory);
         assert_eq!(file.defaults.timestamp_precision, Some(RawPrecision::Micros));
         assert_eq!(file.defaults.data_fields, Some(vec![[5000, 5001]]));
+        assert_eq!(file.defaults.cancel_on_disconnect, Some(RawCancelTrigger::Logout));
+        assert_eq!(file.defaults.cancel_grace.as_deref(), Some("5s"));
         assert_eq!(
             file.counterparty["FUND"].appl_versions,
             Some(vec![
@@ -374,11 +393,26 @@ mod tests {
         for extra in [
             "\n[defaults]\ncheck_header_order = \"yes\"",
             "\n[defaults]\ntimestamp_precision = \"picos\"",
+            "\n[defaults]\ncancel_on_disconnect = true",
             "\nunknown = \"maybe\"",
             "\n[store.x]\nkind = \"tape\"",
         ] {
             assert!(parse(&format!("{MINIMAL}{extra}")).is_err(), "{extra}");
         }
+    }
+
+    #[test]
+    fn cancel_on_disconnect_is_off_disconnect_or_logout() {
+        for (value, trigger) in [
+            ("off", RawCancelTrigger::Off),
+            ("disconnect", RawCancelTrigger::Disconnect),
+            ("logout", RawCancelTrigger::Logout),
+        ] {
+            let file = parse(&format!("{MINIMAL}\n[defaults]\ncancel_on_disconnect = \"{value}\"")).unwrap();
+            assert_eq!(file.defaults.cancel_on_disconnect, Some(trigger), "{value}");
+        }
+        let error = parse(&format!("{MINIMAL}\n[defaults]\ncancel_on_disconnect = \"always\"")).unwrap_err();
+        assert!(error.contains("cancel_on_disconnect") && error.contains("always"), "{error}");
     }
 
     #[test]

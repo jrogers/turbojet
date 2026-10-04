@@ -12,7 +12,7 @@ use turbojet::{
 };
 use turbojet_config::{Changes, SessionsFile};
 
-/// Reports logons and logouts by the counterparty's CompID.
+/// Reports logons, logouts and cancels on disconnect by the counterparty's CompID.
 struct Recorder(mpsc::UnboundedSender<String>);
 
 impl Application for Recorder {
@@ -21,6 +21,9 @@ impl Application for Recorder {
     }
     fn on_logout(&self, session: &SessionId, _ended: Disconnect) {
         let _ = self.0.send(format!("logout {}", session.target_comp_id));
+    }
+    fn on_cancel_on_disconnect(&self, session: &SessionId, _ended: Disconnect) {
+        let _ = self.0.send(format!("cancel {}", session.target_comp_id));
     }
 }
 
@@ -120,6 +123,21 @@ async fn a_reload_applies_from_the_next_logon() {
     assert_eq!(changes, Changes { changed: vec!["FUND".into()], ..Changes::default() });
     assert!(venue.initiator("FUND", 30).connect_once().await.is_err(), "30 s is now outside its range");
     venue.log_on("BROKER").await;
+}
+
+#[tokio::test]
+async fn cancel_on_disconnect_reloaded_applies_from_the_next_logon() {
+    let mut venue = Venue::start(FILE).await;
+    venue.rewrite(&FILE.replace("[counterparty.FUND]", "[counterparty.FUND]\ncancel_on_disconnect = \"logout\""));
+    assert_eq!(venue.reload().unwrap(), Changes { changed: vec!["FUND".into()], ..Changes::default() });
+    venue.log_on("BROKER").await.logout(None).unwrap();
+    assert_eq!(venue.next().await, "logout BROKER");
+    venue.log_on("FUND").await.logout(None).unwrap();
+    // FUND's grace is the default, none: its cancel comes at once. BROKER's Logout cancelled
+    // nothing: a cancel for it would come before FUND's events.
+    let mut events = [venue.next().await, venue.next().await];
+    events.sort();
+    assert_eq!(events, ["cancel FUND", "logout FUND"]);
 }
 
 #[tokio::test]

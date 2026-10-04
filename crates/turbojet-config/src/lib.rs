@@ -67,8 +67,13 @@
 //! data], ...]`), `outbound_limit` and `inbound_limit` (`100/1s` or `off`), `over_limit`
 //! (`delay`, the default, or `reject`), `appl_versions` (ApplVerID codes, or `{ id, dictionary
 //! }`), `dictionary` (feature `validation`), `latency_metrics` (feature `metrics`), `heartbeat =
-//! { min, max }` (the HeartBtInt a counterparty may ask for), and `require_client_certificate`.
-//! Durations are a whole number and `ms`, `s`, `m` or `h`. Paths are relative to the file.
+//! { min, max }` (the HeartBtInt a counterparty may ask for), `require_client_certificate`,
+//! `cancel_on_disconnect` (`off`, the default, `disconnect`, or `logout`, under which Logouts
+//! from either side count too; see [`CancelOnDisconnect`](turbojet::CancelOnDisconnect)) and
+//! `cancel_grace` (how long the counterparty has to log back on before the cancel: `0s`, the
+//! default, up to `1h`; only with `cancel_on_disconnect` on). The application's
+//! [`on_cancel_on_disconnect`](turbojet::Application::on_cancel_on_disconnect) does the
+//! cancelling. Durations are a whole number and `ms`, `s`, `m` or `h`. Paths are relative to the file.
 //!
 //! `[initiator.NAME]`, NAME being for logs and errors: `target_comp_id`, `connect` (addresses,
 //! the primary first, then failover), `begin_string` and `sender_comp_id` (the acceptor's by
@@ -93,7 +98,8 @@
 //! each initiator's next connection: sessions connected keep theirs. Under `unknown = "refuse"`,
 //! connected counterparties the file no longer lists are logged out. Added initiators start, and
 //! removed ones are logged out and stopped; one that now logs on to another session, or turns TLS
-//! on or off, is stopped and started again. What's fixed until a restart can't change: whether
+//! on or off, is stopped and started again; stopping one fires a cancel-on-disconnect countdown
+//! under way at once, without waiting out its grace. What's fixed until a restart can't change: whether
 //! there's an `[acceptor]`, its keys other than `unknown` and the TLS files, a store's
 //! definition, and which store a counterparty's or an initiator's sessions are kept in.
 

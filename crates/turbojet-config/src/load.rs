@@ -7,11 +7,13 @@ use std::path::Path;
 #[cfg(feature = "validation")]
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use turbojet::fields::{ApplVerId, FromFix, Precision};
 use turbojet::{
-    Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar, InboundLimit, InitiatorConfig, MemoryStorage,
-    RateLimit, ReconnectPolicy, SessionConfig, SessionId, SessionSchedule, SessionStorage,
+    CancelOnDisconnect, CancelTrigger, Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar, InboundLimit,
+    InitiatorConfig, MemoryStorage, RateLimit, ReconnectPolicy, SessionConfig, SessionId, SessionSchedule,
+    SessionStorage,
 };
 
 use crate::Error;
@@ -20,8 +22,8 @@ use crate::raw::ClientCertificate;
 #[cfg(feature = "tls")]
 use crate::raw::RawInitiatorKeys;
 use crate::raw::{
-    OverLimit, RawAcceptor, RawApplVersion, RawFile, RawInitiator, RawPrecision, RawSettings, RawStore, Unknown,
-    parse_duration,
+    OverLimit, RawAcceptor, RawApplVersion, RawCancelTrigger, RawFile, RawInitiator, RawPrecision, RawSettings,
+    RawStore, Unknown, parse_duration,
 };
 
 /// The store every file has, without defining it.
@@ -187,6 +189,7 @@ fn load_acceptor(
     #[cfg(not(feature = "tls"))]
     refuse_tls(acceptor.tls.is_some(), "acceptor")?;
     let mut base = fixed.clone();
+    grace_needs_cancel(&raw.defaults, &raw.defaults, "defaults")?;
     apply(&raw.defaults, &mut base, "defaults", context.dir, dictionaries)?;
     base.check().map_err(|e| Error::at("defaults", "settings", e))?;
     let unlisted = resolve(&raw.defaults, &fixed, "defaults", context, stores, dictionaries)?;
@@ -194,6 +197,7 @@ fn load_acceptor(
     for (comp_id, settings) in &raw.counterparty {
         let section = format!("counterparty {comp_id}");
         let merged = settings.or(&raw.defaults);
+        grace_needs_cancel(settings, &merged, &section)?;
         let resolved = resolve(&merged, &fixed, &section, context, stores, dictionaries)?;
         listed.insert(comp_id.clone(), resolved);
     }
@@ -328,6 +332,7 @@ fn resolve_initiator(
     session.clock = context.clock.clone();
     fixed_keys(&mut session, &section, own.logon_timeout.as_ref(), own.send_queue)?;
     let merged = settings.or(&raw.defaults);
+    grace_needs_cancel(settings, &merged, &section)?;
     apply(&merged, &mut session, &section, context.dir, dictionaries)?;
     let mut config = InitiatorConfig::new(session, &own.target_comp_id);
     if let Some(interval) = &own.heartbeat_interval {
@@ -472,6 +477,7 @@ fn apply(
         config.outbound_limit = off_or(limit, str::parse::<RateLimit>).map_err(|e| at("outbound_limit", e))?;
     }
     config.inbound_limit = inbound_limit(settings, section)?;
+    config.cancel_on_disconnect = cancel_on_disconnect(settings, section)?;
     validation(settings, config, section, dir, dictionaries)?;
     if let Some(latency) = settings.latency_metrics {
         #[cfg(feature = "metrics")]
@@ -521,6 +527,34 @@ fn inbound_limit(settings: &RawSettings, section: &str) -> Result<Option<Inbound
         Some(OverLimit::Reject) => InboundLimit::Reject(limit),
         Some(OverLimit::Delay) | None => InboundLimit::Delay(limit),
     }))
+}
+
+/// Cancel on disconnect, from `settings` already merged over the defaults. The grace is
+/// checked against [`MAX_CANCEL_GRACE`](turbojet::MAX_CANCEL_GRACE) with the rest of the
+/// session's settings.
+fn cancel_on_disconnect(settings: &RawSettings, section: &str) -> Result<Option<CancelOnDisconnect>, Error> {
+    let trigger = match settings.cancel_on_disconnect {
+        None | Some(RawCancelTrigger::Off) => return Ok(None),
+        Some(RawCancelTrigger::Disconnect) => CancelTrigger::Disconnect,
+        Some(RawCancelTrigger::Logout) => CancelTrigger::DisconnectOrLogout,
+    };
+    let grace = match &settings.cancel_grace {
+        Some(text) => parse_duration(text).map_err(|e| Error::at(section, "cancel_grace", e))?,
+        None => Duration::ZERO,
+    };
+    Ok(Some(CancelOnDisconnect { trigger, grace }))
+}
+
+/// A section's own `cancel_grace` with cancel on disconnect off, its own setting or the
+/// defaults', is an error: the grace would do nothing. A grace in `[defaults]` that a
+/// counterparty or initiator turning cancel on disconnect off leaves unused isn't: the defaults
+/// are for those that keep it on.
+fn grace_needs_cancel(own: &RawSettings, merged: &RawSettings, section: &str) -> Result<(), Error> {
+    let on = !matches!(merged.cancel_on_disconnect, None | Some(RawCancelTrigger::Off));
+    match own.cancel_grace {
+        Some(_) if !on => Err(Error::at(section, "cancel_grace", "needs cancel_on_disconnect on")),
+        _ => Ok(()),
+    }
 }
 
 /// Dictionaries loaded so far, by path, so each file is read once per load.
@@ -724,6 +758,84 @@ mod tests {
     }
 
     #[test]
+    fn cancel_on_disconnect_converts_and_a_counterparty_overrides_it() {
+        let loaded = load_text(
+            r#"
+            [defaults]
+            cancel_on_disconnect = "disconnect"
+            cancel_grace = "5s"
+
+            [counterparty.BROKER]
+            cancel_on_disconnect = "logout"
+
+            [counterparty.FUND]
+            cancel_on_disconnect = "off"
+
+            [counterparty.DESK]
+            cancel_grace = "500ms"
+            "#,
+        )
+        .unwrap();
+        let cancel = |comp_id| loaded.acceptor().settings(comp_id).counterparty.config.cancel_on_disconnect;
+        let grace = |grace| Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace });
+        assert_eq!(loaded.acceptor().base.cancel_on_disconnect, grace(Duration::from_secs(5)));
+        assert_eq!(
+            cancel("BROKER"),
+            Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::from_secs(5) })
+        );
+        assert_eq!(cancel("FUND"), None, "turned off, the defaults' grace unused");
+        assert_eq!(cancel("DESK"), grace(Duration::from_millis(500)));
+        assert_eq!(cancel("OTHER"), grace(Duration::from_secs(5)), "unlisted: the defaults");
+
+        let loaded = load_text("[counterparty.A]\ncancel_on_disconnect = \"logout\"\n[counterparty.B]").unwrap();
+        let a = loaded.acceptor().settings("A").counterparty.config.cancel_on_disconnect;
+        assert_eq!(a, Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::ZERO }));
+        assert_eq!(loaded.acceptor().settings("B").counterparty.config.cancel_on_disconnect, None, "off by default");
+    }
+
+    #[test]
+    fn cancel_on_disconnect_errors_name_the_section_and_key() {
+        let cases = [
+            ("[defaults]\ncancel_grace = \"5s\"", "defaults: cancel_grace: needs cancel_on_disconnect on"),
+            (
+                "[counterparty.A]\ncancel_on_disconnect = \"off\"\ncancel_grace = \"5s\"",
+                "counterparty A: cancel_grace: needs cancel_on_disconnect on",
+            ),
+            (
+                "[defaults]\ncancel_on_disconnect = \"off\"\n[counterparty.A]\ncancel_grace = \"5s\"",
+                "counterparty A: cancel_grace: needs cancel_on_disconnect on",
+            ),
+            (
+                "[defaults]\ncancel_on_disconnect = \"disconnect\"\n[counterparty.A]\ncancel_on_disconnect = \"off\"\ncancel_grace = \"5s\"",
+                "counterparty A: cancel_grace: needs cancel_on_disconnect on",
+            ),
+            (
+                "[counterparty.A]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"soon\"",
+                "counterparty A: cancel_grace: invalid duration 'soon'",
+            ),
+            (
+                "[defaults]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"61m\"",
+                "defaults: settings: cancel_on_disconnect: grace 3660s is over 3600s",
+            ),
+            (
+                "[counterparty.A]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"2h\"",
+                "counterparty A: settings: cancel_on_disconnect: grace 7200s is over 3600s",
+            ),
+        ];
+        for (text, expected) in cases {
+            let error = error(text);
+            assert!(error.starts_with(expected), "{text}\n  gave {error}\n  not {expected}");
+        }
+        let error = error("[counterparty.A]\ncancel_on_disconnect = \"always\"");
+        assert!(error.contains("cancel_on_disconnect") && error.contains("always"), "{error}");
+        let hour = "[defaults]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"1h\"";
+        assert_eq!(
+            load_text(hour).unwrap().acceptor().base.cancel_on_disconnect.unwrap().grace,
+            turbojet::MAX_CANCEL_GRACE
+        );
+    }
+
+    #[test]
     fn errors_name_the_section_and_key() {
         let cases = [
             ("[defaults]\nmax_latency = \"soon\"", "defaults: max_latency: invalid duration 'soon'"),
@@ -865,6 +977,22 @@ mod tests {
         assert_eq!(lse.config.reconnect.initial, Duration::from_millis(100));
         assert!(!lse.config.reconnect.jitter);
         assert_eq!(lse.endpoints, [Endpoint::new("primary:9876"), Endpoint::new("backup:9876")]);
+    }
+
+    #[test]
+    fn an_initiators_cancel_on_disconnect_is_over_the_defaults() {
+        let defaults = "[defaults]\ncancel_on_disconnect = \"disconnect\"\ncancel_grace = \"5s\"\n";
+        let loaded = load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"logout\"")).unwrap();
+        assert_eq!(
+            loaded.initiators["LSE"].config.session.cancel_on_disconnect,
+            Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::from_secs(5) })
+        );
+        let loaded = load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"off\"")).unwrap();
+        assert_eq!(loaded.initiators["LSE"].config.session.cancel_on_disconnect, None);
+        let unused = error(&format!("{INITIATOR}cancel_grace = \"5s\""));
+        assert_eq!(unused, "initiator LSE: cancel_grace: needs cancel_on_disconnect on");
+        let long = error(&format!("{INITIATOR}cancel_on_disconnect = \"logout\"\ncancel_grace = \"2h\""));
+        assert!(long.starts_with("initiator LSE: settings: cancel_on_disconnect: grace"), "{long}");
     }
 
     #[test]
