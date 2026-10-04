@@ -28,6 +28,10 @@ struct TestApp {
     redelivered: Mutex<Vec<bool>>,
     /// The messages `on_admin_message` saw.
     admin: Mutex<Vec<Message>>,
+    /// ClOrdIDs whose ExecutionReports `should_resend` declines.
+    skip_resend: Vec<&'static str>,
+    /// The ClOrdIDs of the messages `should_resend` was asked about.
+    resend_asked: Mutex<Vec<String>>,
 }
 
 impl TestApp {
@@ -63,6 +67,15 @@ impl Application for TestApp {
         if self.panic_in == Some("on_admin_message") {
             panic!("on_admin_message panicked");
         }
+    }
+
+    fn should_resend(&self, _session: &SessionId, msg: &Message) -> bool {
+        let id = msg.get(tags::CL_ORD_ID).unwrap_or_default();
+        self.resend_asked.lock().unwrap().push(id.to_string());
+        if self.panic_in == Some("should_resend") {
+            panic!("should_resend panicked");
+        }
+        !self.skip_resend.contains(&id)
     }
 
     fn on_logon(&self, session: SessionHandle) {
@@ -1536,6 +1549,36 @@ fn with_reports(h: &Harness, n: u64, batch: u64) -> Session {
 
 fn resend_request(seq: u64, begin: u64) -> Message {
     client(seq, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, begin).with(tags::END_SEQ_NO, "0")
+}
+
+/// Messages the application declines to resend are gap-filled, a run of them together with what
+/// wasn't stored.
+#[test]
+fn messages_the_application_declines_to_resend_are_gap_filled() {
+    let mut h = Harness::new();
+    h.app = Arc::new(TestApp { skip_resend: vec!["O1", "O2"], ..TestApp::default() });
+    let mut s = with_reports(&h, 4, 100); // our 2 to 5: ExecutionReports for O0 to O3
+    let out = s.recv(resend_request(6, 1), h.t0);
+    let msgs = sent(&out);
+    let summary: Vec<_> = msgs
+        .iter()
+        .map(|m| match m.msg_type() {
+            MsgType::SequenceReset => {
+                format!("fill {}..{}", m.get(tags::MSG_SEQ_NUM).unwrap(), m.get(tags::NEW_SEQ_NO).unwrap())
+            }
+            _ => format!("resend {}", m.get(tags::CL_ORD_ID).unwrap()),
+        })
+        .collect();
+    assert_eq!(summary, ["fill 1..2", "resend O0", "fill 3..5", "resend O3"]);
+    assert_eq!(*h.app.resend_asked.lock().unwrap(), ["O0", "O1", "O2", "O3"], "asked once each, not about the Logon");
+}
+
+#[test]
+fn a_panic_in_should_resend_resends_the_message() {
+    let h = panicking("should_resend");
+    let mut s = with_reports(&h, 1, 100);
+    let out = s.recv(resend_request(3, 2), h.t0);
+    assert_eq!(types(&out), ["ExecutionReport"]);
 }
 
 /// The sequence numbers each message sent covers: its own, or a gap fill's whole range.

@@ -17,7 +17,7 @@ use crate::store::SessionId;
 /// A panicking callback doesn't end the connection. A panic in `on_message` is answered with a
 /// BusinessMessageReject (ApplicationNotAvailable) and any replies it queued are dropped; in
 /// `verify_logon` it refuses the logon; in `to_admin` it disconnects rather than send a message it
-/// may have half-modified; in `on_admin_message`, `on_logon`, `on_logout` or `on_cancel_on_disconnect`
+/// may have half-modified; in `should_resend` the message is resent; in `on_admin_message`, `on_logon`, `on_logout` or `on_cancel_on_disconnect`
 /// it is only logged. Each panic is logged and counted (`turbojet_application_panics_total`). With
 /// `panic = "abort"` the process stops.
 pub trait Application: Send + Sync + 'static {
@@ -57,6 +57,15 @@ pub trait Application: Send + Sync + 'static {
     /// the counterparty rejected one of its messages (a Reject's RefSeqNum(45) and Text(58)), or
     /// why it logged out.
     fn on_admin_message(&self, _session: &SessionId, _msg: &Message) {}
+
+    /// Whether to resend `msg`, an application message we sent, which the counterparty has asked
+    /// for again: return `false` to gap-fill it instead, for one that's stale by now (an order
+    /// the market has moved past, say). `msg` is as stored, with its original header. Called for
+    /// each stored message a ResendRequest covers, in order; a run of messages declined, or not
+    /// stored, is covered by one SequenceReset. The default resends every one.
+    fn should_resend(&self, _session: &SessionId, _msg: &Message) -> bool {
+        true
+    }
 
     /// The session is logged on. Keep the handle to send messages outside of callbacks.
     fn on_logon(&self, _session: SessionHandle) {}

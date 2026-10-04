@@ -2345,6 +2345,10 @@ impl Session {
         let now_ts = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision).to_fix();
         let sent_any = !originals.is_empty() || to == end;
         for (seq, original) in originals {
+            // Declined: the gap fill before the next message resent covers it.
+            if !self.app_resends(&original) {
+                continue;
+            }
             if seq > next {
                 self.send_gap_fill(next, seq, &now_ts);
             }
@@ -2367,6 +2371,11 @@ impl Session {
         if sent_any {
             self.last_sent = now;
         }
+    }
+
+    /// Whether the application has `msg` resent, as it does if it panics deciding.
+    fn app_resends(&self, msg: &Message) -> bool {
+        guarded("should_resend", || self.app.should_resend(&self.peer().id, msg)).unwrap_or(true)
     }
 
     /// Stored messages `begin..=end`, parsed with the session's data fields: all of them, or an
