@@ -46,7 +46,10 @@ impl Application for Client {
     }
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
-        if self.chain.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1)).is_ok() {
+        // Only this task counts it down, and the benchmark sets it only while nothing is in flight.
+        let chain = self.chain.load(Ordering::Relaxed);
+        if chain > 0 {
+            self.chain.store(chain - 1, Ordering::Relaxed);
             ctx.send(common::new_order_single(self.next_id.fetch_add(1, Ordering::Relaxed)));
         } else {
             let _ = self.received.send(msg.clone());
