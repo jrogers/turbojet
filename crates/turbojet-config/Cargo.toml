@@ -1,0 +1,38 @@
+[package]
+name = "turbojet-config"
+description = "Session configuration files for Turbojet: an acceptor, its counterparties and stores from TOML, reloaded while running"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "configuration"]
+categories = ["config", "finance"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+serde.workspace = true
+toml.workspace = true
+tracing.workspace = true
+turbojet.workspace = true
+turbojet-dictionary = { workspace = true, optional = true }
+
+[features]
+# An [acceptor.tls] section: TLS with optional mutual authentication.
+tls = ["turbojet/tls"]
+# Named IANA time zones in schedules.
+tz = ["turbojet/tz"]
+# A dictionary key: inbound messages checked against a data dictionary.
+validation = ["turbojet/validation", "dep:turbojet-dictionary"]
+# The latency_metrics key.
+metrics = ["turbojet/metrics"]
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
