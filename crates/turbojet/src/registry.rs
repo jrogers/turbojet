@@ -5,10 +5,13 @@ use std::fmt;
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::info;
 
+use crate::application::{Application, Disconnect};
+use crate::cancel::{CancelTracker, CancelTrigger};
 use crate::fields::ApplVerId;
 use crate::message::Message;
 use crate::schedule::Clock;
@@ -398,13 +401,17 @@ struct Entry {
 }
 
 /// Opens session logs from storage, ensures each session runs on at most one connection at a
-/// time, and routes [`SessionHandle`] commands to that connection.
+/// time, routes [`SessionHandle`] commands to that connection, and keeps the
+/// [cancel-on-disconnect](crate::SessionConfig::cancel_on_disconnect) countdowns of its sessions.
 pub struct SessionRegistry {
     storage: Arc<dyn SessionStorage>,
     /// Connected sessions only: an entry is removed when its connection releases it.
     sessions: Mutex<HashMap<SessionId, Entry>>,
     /// For creation times recorded by operator resets of disconnected sessions.
     clock: Clock,
+    /// Locked on its own. Nothing takes its lock with `sessions` held; a cancel callback may
+    /// take `sessions` under it (sending through a `SessionHandle`), which is the only order.
+    cancels: CancelTracker,
 }
 
 impl Default for SessionRegistry {
@@ -417,7 +424,7 @@ impl SessionRegistry {
     /// A registry opening session logs from `storage`. The [`Default`] registry keeps them in
     /// memory.
     pub fn new(storage: Arc<dyn SessionStorage>) -> Self {
-        Self { storage, sessions: Mutex::default(), clock: Clock::system() }
+        Self { storage, sessions: Mutex::default(), clock: Clock::system(), cancels: CancelTracker::new() }
     }
 
     /// Uses `clock` for creation times recorded by operator resets (normally the sessions'
@@ -492,6 +499,59 @@ impl SessionRegistry {
 
     pub(crate) fn release(&self, id: &SessionId) {
         self.lock().remove(id);
+    }
+
+    // ---- Cancel on disconnect ----
+    //
+    // The registry keeps the countdowns, rather than each session, because a countdown outlives
+    // the connection that started it, and the next connection for the session must stop it.
+    // `Acceptor` and `Initiator` drive them on a task of their own and fire every one pending
+    // when they shut down. A custom driver, or a simulation, drives them with the three public
+    // methods below, as it drives a `Session`.
+
+    /// Starts the cancel-on-disconnect countdown for `id`, which ended with `ended`, to fire at
+    /// `deadline` on `app`. A countdown already under way for `id` keeps its deadline.
+    pub(crate) fn start_cancel(
+        &self,
+        id: SessionId,
+        ended: Disconnect,
+        trigger: CancelTrigger,
+        deadline: Instant,
+        app: Arc<dyn Application>,
+    ) {
+        self.cancels.start(id, ended, trigger, deadline, app);
+    }
+
+    /// `id` has logged on: its countdown, if any, stops. Waits for its cancel if one is running.
+    pub(crate) fn stop_cancel(&self, id: &SessionId) {
+        self.cancels.logged_on(id);
+    }
+
+    /// When the next cancel-on-disconnect countdown ends, if one is under way: when to call
+    /// [`run_due_cancels`](Self::run_due_cancels) next.
+    pub fn next_cancel_deadline(&self) -> Option<Instant> {
+        self.cancels.next_deadline()
+    }
+
+    /// Fires the cancel-on-disconnect countdowns that have ended by `now`, calling
+    /// [`on_cancel_on_disconnect`](Application::on_cancel_on_disconnect) for each, in deadline
+    /// order. A logon of one of these sessions waits until its callback has returned. Calling it
+    /// early is harmless: it acts only on what is due. Not from inside an application callback:
+    /// one running here would wait for itself.
+    pub fn run_due_cancels(&self, now: Instant) {
+        self.cancels.run_due(now);
+    }
+
+    /// Fires every cancel-on-disconnect countdown under way, due or not, as a shutdown does.
+    pub fn run_all_cancels(&self) {
+        self.cancels.run_all();
+    }
+
+    /// Notified whenever a countdown starts, so the task driving them can wake for a deadline
+    /// sooner than the one it waits for.
+    #[expect(dead_code, reason = "the acceptor's and initiator's cancel tasks wait on it")]
+    pub(crate) fn cancel_wake(&self) -> Arc<Notify> {
+        self.cancels.wake.clone()
     }
 
     fn sender(&self, id: &SessionId) -> Option<CommandSender> {

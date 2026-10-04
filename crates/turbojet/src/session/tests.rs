@@ -71,6 +71,10 @@ impl Application for TestApp {
         }
     }
 
+    fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {
+        self.events.lock().unwrap().push(format!("cancel {} {ended:?}", session.target_comp_id));
+    }
+
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         self.redelivered.lock().unwrap().push(ctx.maybe_redelivered());
         if msg.msg_type() != MsgType::NewOrderSingle {
@@ -4781,4 +4785,150 @@ mod counterparty_tests {
         assert_eq!(types(&s.recv(logon(1), h.t0)), ["DISCONNECT"]);
         assert!(h.app.events().is_empty());
     }
+}
+
+// ---- Cancel on disconnect ----
+
+/// A harness whose sessions cancel on disconnect with `trigger` and `grace`.
+fn cancelling(trigger: CancelTrigger, grace: Duration) -> Harness {
+    let mut h = Harness::new();
+    h.config.cancel_on_disconnect = Some(CancelOnDisconnect { trigger, grace });
+    h
+}
+
+#[test]
+fn a_dropped_connection_starts_the_countdown() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let mut s = h.logged_on();
+    s.on_disconnect(h.at(10));
+    assert_eq!(h.registry.next_cancel_deadline(), Some(h.at(15)));
+    h.registry.run_due_cancels(h.at(14));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost"]);
+    h.registry.run_due_cancels(h.at(15));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "cancel CLIENT ConnectionLost"]);
+    drop(s);
+    h.registry.run_due_cancels(h.at(30));
+    assert_eq!(h.app.events().len(), 3, "dropping the closed session starts nothing more");
+}
+
+#[test]
+fn logging_back_on_stops_it() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let mut first = h.logged_on();
+    first.on_disconnect(h.at(10));
+    drop(first);
+    let mut second = h.session();
+    assert_eq!(types(&second.recv(logon(2), h.at(12))), ["Logon"]);
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+    h.registry.run_due_cancels(h.at(20));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "logon CLIENT"]);
+}
+
+/// A reconnect refused after claiming the session (MsgSeqNum too low) didn't log on, so the
+/// countdown goes on.
+#[test]
+fn a_refused_reconnect_does_not_stop_it() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let mut first = h.logged_on();
+    first.recv(client(2, MsgType::Heartbeat), h.t0);
+    first.on_disconnect(h.at(10));
+    drop(first);
+    let mut second = h.session();
+    assert_eq!(types(&second.recv(logon(1), h.at(12))), ["Logout", "DISCONNECT"]);
+    drop(second);
+    h.registry.run_due_cancels(h.at(15));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "cancel CLIENT ConnectionLost"]);
+}
+
+#[test]
+fn a_clean_logout_does_not_count_under_disconnect() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.recv(client(2, MsgType::Logout), h.at(10))), ["Logout", "DISCONNECT"]);
+    s.on_disconnect(h.at(10));
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+    h.registry.run_due_cancels(h.at(100));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT CounterpartyLogout"]);
+}
+
+#[test]
+fn a_clean_logout_counts_under_disconnect_or_logout() {
+    let h = cancelling(CancelTrigger::DisconnectOrLogout, Duration::from_secs(5));
+    let mut s = h.logged_on();
+    s.recv(client(2, MsgType::Logout), h.at(10));
+    s.on_disconnect(h.at(10));
+    h.registry.run_due_cancels(h.at(15));
+    assert_eq!(
+        h.app.events(),
+        ["logon CLIENT", "logout CLIENT CounterpartyLogout", "cancel CLIENT CounterpartyLogout"]
+    );
+}
+
+/// Our own shutdown never counts, whatever the trigger.
+#[test]
+fn a_shutdown_does_not_count() {
+    let h = cancelling(CancelTrigger::DisconnectOrLogout, Duration::from_secs(5));
+    let mut s = h.logged_on();
+    s.shutdown(None, h.at(10));
+    s.recv(client(2, MsgType::Logout), h.at(11));
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Shutdown"]);
+}
+
+#[test]
+fn a_session_that_never_logged_on_does_not_count() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let mut s = h.session();
+    s.on_disconnect(h.at(10));
+    drop(s);
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+    h.registry.run_all_cancels();
+    assert!(h.app.events().is_empty());
+}
+
+/// With no grace period the cancel fires on the connection's own call, with nothing to drive.
+#[test]
+fn no_grace_cancels_at_once() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::ZERO);
+    let mut s = h.logged_on();
+    s.on_disconnect(h.at(10));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "cancel CLIENT ConnectionLost"]);
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+}
+
+#[test]
+fn off_by_default() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.on_disconnect(h.at(10));
+    assert_eq!(h.registry.next_cancel_deadline(), None);
+    h.registry.run_all_cancels();
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost"]);
+}
+
+/// The application hears that the session ended before it's told to cancel, for every ending
+/// that counts.
+#[test]
+fn the_cancel_comes_after_on_logout() {
+    let h = cancelling(CancelTrigger::DisconnectOrLogout, Duration::ZERO);
+    let mut s = h.logged_on();
+    s.timer(h.at(36));
+    s.timer(h.at(66));
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT HeartbeatTimeout", "cancel CLIENT HeartbeatTimeout"]);
+}
+
+/// A session dropped without `on_disconnect` (its task aborted) starts the countdown from when
+/// it's dropped, read from the system clock.
+#[test]
+fn a_dropped_session_starts_the_countdown_too() {
+    let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
+    let s = h.logged_on();
+    let before = Instant::now();
+    drop(s);
+    let after = Instant::now();
+    let deadline = h.registry.next_cancel_deadline().expect("a countdown started");
+    assert!(deadline >= before + Duration::from_secs(5), "{deadline:?} {before:?}");
+    assert!(deadline <= after + Duration::from_secs(5), "{deadline:?} {after:?}");
+    h.registry.run_due_cancels(deadline);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost", "cancel CLIENT ConnectionLost"]);
 }

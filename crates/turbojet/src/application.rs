@@ -1,5 +1,7 @@
 //! The interface between the engine and the code using it.
 
+use tracing::error;
+
 use crate::fields::{BusinessRejectReason, SessionRejectReason};
 use crate::message::{FieldError, FixMessage, Message};
 use crate::peer::ConnectionInfo;
@@ -15,8 +17,9 @@ use crate::store::SessionId;
 /// A panicking callback doesn't end the connection. A panic in `on_message` is answered with a
 /// BusinessMessageReject (ApplicationNotAvailable) and any replies it queued are dropped; in
 /// `verify_logon` it refuses the logon; in `to_admin` it disconnects rather than send a message it
-/// may have half-modified; in `on_logon` or `on_logout` it is only logged. Each panic is logged
-/// and counted (`turbojet_application_panics_total`). With `panic = "abort"` the process stops.
+/// may have half-modified; in `on_logon`, `on_logout` or `on_cancel_on_disconnect` it is only
+/// logged. Each panic is logged and counted (`turbojet_application_panics_total`). With
+/// `panic = "abort"` the process stops.
 pub trait Application: Send + Sync + 'static {
     /// Inspects an inbound Logon before it is accepted: the counterparty's request on an
     /// acceptor, or the reply on an initiator. `connection` describes the transport it arrived
@@ -55,6 +58,16 @@ pub trait Application: Send + Sync + 'static {
     /// on.
     fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {}
 
+    /// A session with [cancel on disconnect](crate::SessionConfig::cancel_on_disconnect) ended
+    /// with `ended`, and the counterparty didn't log back on within the grace period: cancel its
+    /// resting orders. Called once per ending, after `on_logout`, from the task that keeps the
+    /// countdowns (or, with no grace period, the connection's). A logon of the same session waits
+    /// for this to return, so it never comes after that logon's `on_logon`. Like every callback it
+    /// must not block. Countdowns pending when the acceptor or initiator shuts down fire then; a
+    /// process that stops without shutting down loses them, so after a restart, check orders you
+    /// kept.
+    fn on_cancel_on_disconnect(&self, _session: &SessionId, _ended: Disconnect) {}
+
     /// An application-level message arrived in sequence. Replies sent through `ctx` go out in
     /// order immediately after this returns. Returning `Err` sends the corresponding reject.
     ///
@@ -91,7 +104,8 @@ pub trait Application: Send + Sync + 'static {
     }
 }
 
-/// How a logged-on session ended, given to [`Application::on_logout`].
+/// How a logged-on session ended, given to [`Application::on_logout`] and
+/// [`Application::on_cancel_on_disconnect`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Disconnect {
@@ -298,6 +312,25 @@ impl MessageReject {
 impl From<FieldError> for MessageReject {
     fn from(e: FieldError) -> Self {
         Self::Session { ref_tag: Some(e.tag), reason: e.reject_reason(), text: e.to_string() }
+    }
+}
+
+/// Runs an application callback, catching a panic so that one failing callback can't end the
+/// connection (and lose the message it was handling). Returns `None`, having logged and counted
+/// the panic, if it panicked. With `panic = "abort"` the process stops instead.
+pub(crate) fn guarded<R>(callback: &'static str, f: impl FnOnce() -> R) -> Option<R> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => Some(value),
+        Err(payload) => {
+            let text = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("(no message)");
+            error!(callback, panic = text, "application panicked");
+            crate::telemetry::application_panic(callback);
+            None
+        }
     }
 }
 

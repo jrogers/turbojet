@@ -34,6 +34,8 @@
 //! | `turbojet_throttled_total` | counter | `session`, `direction` (`inbound` or `outbound`) |
 //! | `turbojet_garbled_messages_total` | counter | |
 //! | `turbojet_connections_refused_total` | counter | `reason` (`total` or `per_ip`) |
+//! | `turbojet_cancel_on_disconnect_total` | counter | `trigger` (`disconnect` or `disconnect_or_logout`) |
+//! | `turbojet_cancels_pending` | gauge | |
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |
 //! | `turbojet_next_incoming_seq` | gauge | `session` |
 //! | `turbojet_next_outgoing_seq` | gauge | `session` |
@@ -42,6 +44,11 @@
 //! | `turbojet_read_to_write_seconds` | histogram, opt-in | `session` |
 //!
 //! `session` is the session ID, e.g. `FIX.4.2:GATEWAY->CLIENT1`.
+//!
+//! `turbojet_cancel_on_disconnect_total` counts calls to
+//! [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), by the session's
+//! [trigger](crate::CancelTrigger); `turbojet_cancels_pending` is the countdowns under way, in
+//! the registry that last changed (a process usually has one per acceptor or initiator).
 //!
 //! ## Latency histograms
 //!
@@ -76,7 +83,10 @@
 //!   the window, which holds input until it frees up. What the counterparty sends meanwhile waits
 //!   unread, in the transport, so it can't be counted message by message.
 
-pub(crate) use imp::{LatencyMetrics, SessionMetrics, application_panic, connection_refused, garbled_message};
+pub(crate) use imp::{
+    LatencyMetrics, SessionMetrics, application_panic, cancel_on_disconnect, cancels_pending, connection_refused,
+    garbled_message,
+};
 
 #[cfg(feature = "metrics")]
 pub use imp::describe_metrics;
@@ -118,6 +128,11 @@ mod imp {
             "Application messages that waited for, or were rejected by, a rate limit; inbound Delay counts holds"
         );
         describe_counter!("turbojet_application_panics_total", "Application callbacks that panicked, by callback");
+        describe_counter!(
+            "turbojet_cancel_on_disconnect_total",
+            "Sessions whose orders the application was told to cancel, by cancel-on-disconnect trigger"
+        );
+        describe_gauge!("turbojet_cancels_pending", "Cancel-on-disconnect countdowns under way");
         describe_gauge!("turbojet_session_logged_on", "1 while the session is logged on, else 0");
         describe_gauge!("turbojet_next_incoming_seq", "Next expected inbound MsgSeqNum");
         describe_gauge!("turbojet_next_outgoing_seq", "Next outbound MsgSeqNum");
@@ -148,6 +163,14 @@ mod imp {
 
     pub(crate) fn connection_refused(reason: &'static str) {
         counter!("turbojet_connections_refused_total", "reason" => reason).increment(1);
+    }
+
+    pub(crate) fn cancel_on_disconnect(trigger: &'static str) {
+        counter!("turbojet_cancel_on_disconnect_total", "trigger" => trigger).increment(1);
+    }
+
+    pub(crate) fn cancels_pending(count: usize) {
+        gauge!("turbojet_cancels_pending").set(count as f64);
     }
 
     pub(crate) struct SessionMetrics {
@@ -313,6 +336,12 @@ mod imp {
 
     #[inline(always)]
     pub(crate) fn connection_refused(_reason: &'static str) {}
+
+    #[inline(always)]
+    pub(crate) fn cancel_on_disconnect(_trigger: &'static str) {}
+
+    #[inline(always)]
+    pub(crate) fn cancels_pending(_count: usize) {}
 
     /// No-op stand-in when the `metrics` feature is off.
     pub(crate) struct SessionMetrics;
