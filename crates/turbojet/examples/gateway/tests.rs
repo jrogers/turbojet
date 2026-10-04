@@ -516,6 +516,18 @@ fn gateway_requires_an_allow_list_unless_told_to_accept_anyone() {
 }
 
 #[test]
+fn a_sessions_file_replaces_the_session_options() {
+    let parsed = crate::parse_args(args(&["--config", "sessions.toml", "--metrics-listen", "127.0.0.1:0"])).unwrap();
+    assert_eq!(parsed.config_file, Some("sessions.toml".into()), "no --allow needed");
+    for option in [&["--allow", "CLIENT1"][..], &["--listen", "127.0.0.1:0"], &["--fsync"], &["--latency-metrics"]] {
+        let mut given = args(&["--config", "sessions.toml", "--metrics-listen", "127.0.0.1:0"]);
+        given.extend(args(option));
+        let err = crate::parse_args(given).err().expect("refused");
+        assert!(err.starts_with(&format!("--config replaces {}", option[0])), "{err}");
+    }
+}
+
+#[test]
 fn gateway_reads_holidays_for_its_schedule() {
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("holidays.txt");

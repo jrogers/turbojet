@@ -2728,6 +2728,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "tracing-subscriber",
+ "turbojet-config",
  "turbojet-dictionary",
  "turbojet-fix42",
  "turbojet-fix43",

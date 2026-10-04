@@ -22,6 +22,7 @@ use turbojet::{
     Acceptor, CounterpartyMap, DiskStorage, HolidayCalendar, InboundLimit, MemoryStorage, RateLimit, SequenceError,
     SessionConfig, SessionId, SessionRegistry, SessionSchedule, SessionStorage, tls,
 };
+use turbojet_config::SessionsFile;
 
 use app::GatewayApp;
 use orders::OrderManager;
@@ -30,6 +31,11 @@ const USAGE: &str = "\
 Usage: gateway [OPTIONS]
 
 Options:
+  --config FILE        Read the listen address, CompIDs, counterparties, stores, TLS and session
+                       settings from a sessions file (see turbojet-config) instead of the options
+                       below up to --over-limit. On Unix, SIGHUP reloads it: changed settings
+                       apply from each counterparty's next logon, and counterparties no longer
+                       listed are logged out
   --listen ADDR        Address to listen on (default 0.0.0.0:9876)
   --comp-id ID         Our SenderCompID (default GATEWAY)
   --allow ID[,ID...]   Accept logons only from these counterparty CompIDs (required, unless
@@ -87,6 +93,8 @@ Options:
 Changes are applied in the order: reset, incoming, outgoing.";
 
 struct Args {
+    /// `--config`: the sessions file, in place of the session options.
+    config_file: Option<PathBuf>,
     listen: String,
     config: SessionConfig,
     allowed: Option<HashSet<String>>,
@@ -126,10 +134,17 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut json_logs = false;
     let mut holidays = None;
     let (mut inbound_limit, mut over_limit) = (None, None);
+    let mut config_file = None;
+    // Options a sessions file replaces, as given.
+    let mut session_options = Vec::new();
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
+        if SESSION_OPTIONS.contains(&arg.as_str()) {
+            session_options.push(arg.clone());
+        }
         let mut value = || args.next().ok_or(format!("{arg} requires a value"));
         match arg.as_str() {
+            "--config" => config_file = Some(PathBuf::from(value()?)),
             "--listen" => listen = value()?,
             "--comp-id" => config.sender_comp_id = value()?,
             "--allow" => {
@@ -187,7 +202,16 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             other => return Err(format!("unknown argument '{other}'")),
         }
     }
+    if config_file.is_some() {
+        if let Some(option) = session_options.first() {
+            return Err(format!("--config replaces {option}: set it in the sessions file"));
+        }
+        if latency_metrics {
+            return Err("--config replaces --latency-metrics: set latency_metrics in the sessions file".into());
+        }
+    }
     match (&allowed, allow_any) {
+        _ if config_file.is_some() => {}
         (None, false) => {
             return Err("--allow is required: list the counterparty CompIDs that may log on (or pass \
                         --allow-any to accept any CompID)"
@@ -215,7 +239,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     if tls_client_auth.is_some() && tls_client_ca.is_none() {
         return Err("--tls-client-auth requires --tls-client-ca".into());
     }
-    if tls_match_comp_id && tls_client_ca.is_none() {
+    if tls_match_comp_id && tls_client_ca.is_none() && config_file.is_none() {
         return Err("--tls-match-comp-id requires --tls-client-ca".into());
     }
     let tls = match (tls_cert, tls_key) {
@@ -226,8 +250,37 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
         (None, None) => None,
         _ => return Err("--tls-cert and --tls-key must be given together".into()),
     };
-    Ok(Args { listen, config, allowed, store_dir, fsync, tls, tls_match_comp_id, metrics_listen, json_logs })
+    Ok(Args {
+        config_file,
+        listen,
+        config,
+        allowed,
+        store_dir,
+        fsync,
+        tls,
+        tls_match_comp_id,
+        metrics_listen,
+        json_logs,
+    })
 }
+
+/// The options a sessions file (`--config`) replaces.
+const SESSION_OPTIONS: &[&str] = &[
+    "--listen",
+    "--comp-id",
+    "--allow",
+    "--allow-any",
+    "--store-dir",
+    "--fsync",
+    "--tls-cert",
+    "--tls-key",
+    "--tls-client-ca",
+    "--tls-client-auth",
+    "--schedule",
+    "--holidays",
+    "--inbound-limit",
+    "--over-limit",
+];
 
 /// Reads `--holidays FILE`, naming the file in any error.
 fn read_holidays(path: &Path) -> Result<HolidayCalendar, String> {
@@ -373,14 +426,24 @@ async fn main() -> ExitCode {
         return seqnums(&args[2..]).await;
     }
 
-    let Args { listen, config, allowed, store_dir, fsync, tls, tls_match_comp_id, metrics_listen, json_logs } =
-        match parse_args(args[1..].iter().cloned()) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("error: {e}\n\n{USAGE}");
-                return ExitCode::FAILURE;
-            }
-        };
+    let Args {
+        config_file,
+        listen,
+        config,
+        allowed,
+        store_dir,
+        fsync,
+        tls,
+        tls_match_comp_id,
+        metrics_listen,
+        json_logs,
+    } = match parse_args(args[1..].iter().cloned()) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("error: {e}\n\n{USAGE}");
+            return ExitCode::FAILURE;
+        }
+    };
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     if json_logs {
         tracing_subscriber::fmt().json().with_env_filter(filter).init();
@@ -397,6 +460,11 @@ async fn main() -> ExitCode {
         turbojet::describe_metrics();
         app::describe_metrics();
         info!(%addr, "serving Prometheus metrics at /metrics");
+    }
+    let app =
+        Arc::new(GatewayApp::new(Arc::new(OrderManager::new())).with_certificate_comp_id_match(tls_match_comp_id));
+    if let Some(path) = config_file {
+        return serve_file(&path, app).await;
     }
     let storage: Arc<dyn SessionStorage> = match &store_dir {
         Some(dir) => match DiskStorage::new(dir, fsync) {
@@ -449,12 +517,16 @@ async fn main() -> ExitCode {
         "FIX gateway listening"
     );
 
-    let app =
-        Arc::new(GatewayApp::new(Arc::new(OrderManager::new())).with_certificate_comp_id_match(tls_match_comp_id));
     let mut acceptor = Acceptor::new(config, storage, app);
     if let Some(allowed) = &allowed {
         acceptor = acceptor.with_counterparties(Arc::new(only(allowed)));
     }
+    run(acceptor, listener, tls).await
+}
+
+/// Serves `acceptor` on `listener` (with TLS, if given) until a shutdown signal, then logs its
+/// sessions out.
+async fn run(acceptor: Acceptor, listener: TcpListener, tls: Option<tls::TlsAcceptor>) -> ExitCode {
     let serve = {
         let acceptor = acceptor.clone();
         async move {
@@ -479,6 +551,76 @@ async fn main() -> ExitCode {
         () = shutdown_signal() => warn!("exiting without waiting for sessions to log out"),
     }
     ExitCode::SUCCESS
+}
+
+/// Serves the acceptor the sessions file at `path` describes, reloading the file on SIGHUP.
+async fn serve_file(path: &Path, app: Arc<GatewayApp>) -> ExitCode {
+    let sessions = match SessionsFile::load(path) {
+        Ok(sessions) => sessions,
+        Err(e) => {
+            error!("cannot use the sessions file: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let base = sessions.base();
+    // The application parses FIX 4.2 messages.
+    if base.begin_string != "FIX.4.2" {
+        error!("the gateway speaks FIX.4.2, but {} has begin_string {}", path.display(), base.begin_string);
+        return ExitCode::FAILURE;
+    }
+    let tls = match sessions.server_tls() {
+        Ok(server) => server.map(|server| server.acceptor()),
+        Err(e) => {
+            error!("cannot load TLS configuration: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let listen = sessions.listen();
+    let listener = match TcpListener::bind(&listen).await {
+        Ok(l) => l,
+        Err(e) => {
+            error!("failed to bind {listen}: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    info!(
+        addr = %listener.local_addr().map(|a| a.to_string()).unwrap_or(listen),
+        comp_id = %base.sender_comp_id,
+        file = %path.display(),
+        counterparties = ?sessions.counterparties(),
+        unknown = ?sessions.unknown(),
+        tls = tls.is_some(),
+        "FIX gateway listening"
+    );
+    let acceptor = sessions.acceptor(app);
+    reload_file_on_hangup(Arc::new(sessions), acceptor.clone());
+    run(acceptor, listener, tls).await
+}
+
+/// On Unix, reloads the sessions file on each SIGHUP, keeping the one in use if it doesn't load.
+fn reload_file_on_hangup(sessions: Arc<SessionsFile>, acceptor: Acceptor) {
+    #[cfg(unix)]
+    tokio::spawn(async move {
+        use tokio::signal::unix::{SignalKind, signal};
+        let Ok(mut hangup) = signal(SignalKind::hangup()) else {
+            warn!("cannot listen for SIGHUP; the sessions file won't be reloaded");
+            return;
+        };
+        while hangup.recv().await.is_some() {
+            match sessions.reload(&acceptor) {
+                Ok(changes) => info!(
+                    added = ?changes.added,
+                    changed = ?changes.changed,
+                    removed = ?changes.removed,
+                    logged_out = ?changes.logged_out,
+                    "reloaded the sessions file"
+                ),
+                Err(e) => warn!("keeping the sessions file in use: {e}"),
+            }
+        }
+    });
+    #[cfg(not(unix))]
+    let _ = (sessions, acceptor);
 }
 
 /// On Unix, reloads the TLS certificates from their files on each SIGHUP, the usual signal for
