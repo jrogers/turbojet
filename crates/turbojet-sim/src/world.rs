@@ -1527,9 +1527,12 @@ impl World {
         }
         for side in [Side::Initiator, Side::Acceptor] {
             let received: BTreeSet<&str> = self.checker.received_ids(side.other()).collect();
-            if let Some(missing) = self.checker.committed(side).find(|id| !received.contains(id)) {
+            let undelivered = self.checker.committed(side).filter(|id| !received.contains(id));
+            for missing in undelivered {
                 let seq = self.checker.seq_of(side, missing).unwrap_or(0);
-                return fail(format!("{side:?} sent {missing} as {seq}, never delivered"));
+                if !self.checker.rejected_late(side, seq) {
+                    return fail(format!("{side:?} sent {missing} as {seq}, never delivered"));
+                }
             }
             // As each store last recorded them (a disk store can't be opened while its session is).
             let (ours, theirs) = (self.checker.numbers(side).0, self.checker.numbers(side.other()).1);

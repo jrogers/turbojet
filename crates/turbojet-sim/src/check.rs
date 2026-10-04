@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use turbojet::codec::{Decoded, decode};
+use turbojet::fields::SessionRejectReason;
 use turbojet::message::tags;
 use turbojet::{CancelOnDisconnect, CancelTrigger, Disconnect, Message, MsgType};
 
@@ -70,6 +71,9 @@ struct Sent {
     /// Operators are moving the next outgoing number forward to these: the store may record the
     /// number before one as used, skipping those between. Several can be under way at once.
     skip_to: BTreeSet<u64>,
+    /// MsgSeqNums the counterparty rejected for SendingTime accuracy: delayed past its
+    /// `max_latency` (a long stall), they're rejected, not delivered, as the spec says.
+    rejected_late: BTreeSet<u64>,
 }
 
 impl Sent {
@@ -162,6 +166,7 @@ impl Default for Sent {
             evicted: BTreeMap::new(),
             uncertain_skips: BTreeSet::new(),
             skip_to: BTreeSet::new(),
+            rejected_late: BTreeSet::new(),
             previous: BTreeMap::new(),
         }
     }
@@ -369,6 +374,11 @@ impl Checker {
         }
     }
 
+    /// Whether the other side rejected `side`'s `seq`, of this epoch, for SendingTime accuracy.
+    pub fn rejected_late(&self, side: Side, seq: u64) -> bool {
+        self.sent[side.index()].rejected_late.contains(&seq)
+    }
+
     /// Application messages `side` has committed to sending, by id.
     pub fn committed(&self, side: Side) -> impl Iterator<Item = &str> {
         self.sent[side.index()].recorded.values().flatten().filter_map(id_of)
@@ -460,6 +470,11 @@ impl Checker {
     }
 
     fn sent_message(&mut self, side: Side, msg: &Message) -> Result<(), Violation> {
+        if msg.msg_type() == MsgType::Reject
+            && msg.get(tags::SESSION_REJECT_REASON) == Some(SessionRejectReason::SendingTimeAccuracyProblem.code())
+        {
+            self.sent[side.other().index()].rejected_late.insert(number(msg, tags::REF_SEQ_NUM));
+        }
         let sent = &mut self.sent[side.index()];
         let seq = number(msg, tags::MSG_SEQ_NUM);
         let Some(recorded) = sent.recorded.get(&seq) else {
