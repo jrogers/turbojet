@@ -195,6 +195,14 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 `Application` callbacks run on the session's connection task and must not block; hand slow work
 to another task and send the result with a `SessionHandle`.
 
+For the lowest latency, send from the callback. `Context::send` in `on_message` is written with
+the same wake-up of the connection task, while a `SessionHandle` send from another task wakes the
+connection's task to take it: over localhost, an order sent and its acknowledgement received
+through another task took 26.5 µs, against 16.3 µs from `on_message` (see Benchmarks). Turbojet
+runs on a current-thread tokio runtime as well as a multi-threaded one; on a current-thread one,
+a `SessionHandle` send from a task on the same thread wakes no other thread, which makes the
+hop cheaper.
+
 ### Typed messages
 
 Messages, groups and enums are generated from their FIX definitions by three exported macros,
