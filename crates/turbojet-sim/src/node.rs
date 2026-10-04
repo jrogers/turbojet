@@ -10,7 +10,7 @@ use turbojet::codec::{DecodedInto, decode_into};
 use turbojet::message::DataFields;
 use turbojet::registry::CommandReceiver;
 use turbojet::store::{Commit, Job, SentMessages, SessionLog};
-use turbojet::{InitiatorConfig, Message, Session, SessionConfig, SessionRegistry};
+use turbojet::{CancelOnDisconnect, InitiatorConfig, Message, Session, SessionConfig, SessionRegistry};
 
 use crate::Side;
 use crate::app::RecordingApp;
@@ -123,6 +123,14 @@ impl Node {
 
     pub fn sessions_by_conn(&self, conn: ConnId) -> Option<&Session> {
         self.running.get(&conn).map(|r| &r.session)
+    }
+
+    /// The session's cancel-on-disconnect setting.
+    pub fn cancel_on_disconnect(&self) -> Option<CancelOnDisconnect> {
+        match &self.role {
+            Role::Initiator(config) => config.session.cancel_on_disconnect,
+            Role::Acceptor(config) => config.cancel_on_disconnect,
+        }
     }
 
     pub fn initiator_config(&self) -> Option<&InitiatorConfig> {
@@ -306,9 +314,9 @@ impl Node {
     /// process's registry; the connections it had are returned for the OS to reset. A restart
     /// comes with a new registry.
     pub fn crash(&mut self) -> Vec<ConnId> {
-        self.app.crash();
         let conns = self.running.keys().copied().collect();
-        self.running.clear();
+        let app = self.app.clone();
+        app.crash(|| self.running.clear());
         self.logged_on.clear();
         conns
     }
@@ -316,7 +324,6 @@ impl Node {
     pub fn restart(&mut self, registry: Arc<SessionRegistry>) {
         assert!(self.running.is_empty(), "a crashed node has no sessions");
         self.registry = registry;
-        self.app.restart();
     }
 
     /// The session closed and its output has gone: the driver returns. A session closed already

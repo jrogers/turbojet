@@ -29,20 +29,21 @@ rules:
 7. A send's receipt says truly whether the store recorded it, and as which MsgSeqNum.
 8. On seeds with cancel on disconnect (either side, either trigger, a grace period of up to 30 s),
    an application is told to cancel exactly when a logged-on session ended in a way the trigger
-   counts and didn't log on again within the grace period, at its end. The first ending's
-   countdown runs until a logon; a crash takes it with the process's registry.
+   counts and didn't log on again within the grace period, at its end (with no grace period, in
+   the same call that ended it). A session ends once per logon, and every countdown runs out
+   before a run ends; a crash takes the countdown under way with the process's registry.
 
 When the workload and faults stop, the sessions have until the slowest recovery could take to
 settle: one connection, both sides logged on over it, every application message stored delivered,
 and each side's next outgoing number the other's next expected.
 
 Half the seeds keep state in memory (standing for files that survive a process crash), the rest in
-`DiskStorage`. Either node's process can crash, between events or inside a store call (which
-either takes effect or not); a store call can also just fail. A crash between the application
-handling a message and the session recording it is redelivered, marked `maybe_redelivered`. Disk
-seeds lose power too: with sync, the call in progress is torn at a byte (on some seeds within a
-sector, mixing old and new bytes); without it, the files go back to what the OS had written back,
-a loss `DiskStorage` documents, after which only rule 1 and "the store reopens" are checked. On
+`DiskStorage`. Either node's process can crash, between events or inside a store call (which either
+takes effect or not); a store call can also just fail. A crash between the application handling a
+message and the session recording it is redelivered, marked `maybe_redelivered`. Disk seeds lose
+power too: with sync, the call in progress is torn at a byte (on some seeds within a sector, mixing
+old and new bytes); without it, the files go back to what the OS had written back, a loss
+`DiskStorage` documents, after which only rule 1, "the store reopens" and rule 8 are checked. On
 half the seeds the stores are slow, as a networked one is: they hand each commit, resend read and
 opening of a session's log to the driver as a job, which finishes up to 5 ms later (now and then
 50 ms), and the session waits for it.
@@ -62,7 +63,7 @@ rule holds there too.
 A checker that passes everything proves nothing. `Options::plant` plants a bug in the simulator
 standing for one in the engine: the application missing a delivery or seeing one twice, a store
 that keeps a message's number but not the message, a resend that arrives altered, a cancel on
-disconnect missed or run late. A test per
+disconnect missed, run late or made up. A test per
 plant runs seeds until the checker catches it, by the rule expected.
 
 ## Known failures

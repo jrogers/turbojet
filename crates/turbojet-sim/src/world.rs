@@ -64,6 +64,9 @@ pub enum Plant {
     SkipCancel,
     /// The acceptor's cancel-on-disconnect countdowns are run a millisecond after they end.
     LateCancel,
+    /// The acceptor's application is told to cancel as its first session ends, whatever the
+    /// trigger and grace.
+    SpuriousCancel,
 }
 
 impl Options {
@@ -440,10 +443,12 @@ fn limits(seed: u64) -> (Option<RateLimit>, Option<InboundLimit>) {
 /// trigger, with a grace period of up to 30 s, zero on some. Drawn apart from the world's random
 /// stream so that seeds keep the faults they had before.
 fn cancels(seed: u64) -> [Option<CancelOnDisconnect>; 2] {
+    const _: () = assert!(MAX_GRACE.as_secs() <= turbojet::MAX_CANCEL_GRACE.as_secs());
     let mut rng = Rng::new(seed ^ 0xca2c_e100);
     [(); 2].map(|()| {
         let trigger = rng.pick(&[None, Some(CancelTrigger::Disconnect), Some(CancelTrigger::DisconnectOrLogout)])?;
-        let grace = if rng.chance(200_000) { Duration::ZERO } else { Duration::from_millis(rng.between(1, 30_000)) };
+        let most = u64::try_from(MAX_GRACE.as_millis()).expect("short");
+        let grace = if rng.chance(200_000) { Duration::ZERO } else { Duration::from_millis(rng.between(1, most)) };
         Some(CancelOnDisconnect { trigger, grace })
     })
 }
@@ -662,8 +667,9 @@ impl World {
         if let Some(InboundLimit::Delay(limit)) = inbound {
             header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
         }
-        for (side, cancel) in [Side::Initiator, Side::Acceptor].into_iter().zip(cancels(self.options.seed)) {
-            if let Some(CancelOnDisconnect { trigger, grace }) = cancel {
+        for node in &self.nodes {
+            if let Some(CancelOnDisconnect { trigger, grace }) = node.cancel_on_disconnect() {
+                let side = node.side;
                 header.push_str(&format!(", {side:?} cancels on {trigger:?} after {grace:?}"));
             }
         }
@@ -717,7 +723,9 @@ impl World {
     fn run(&mut self) -> Result<(), Violation> {
         let busy_end = self.busy_end;
         let end = busy_end.after(self.options.quiet);
-        let limit = end.after(self.faults.settle_limit(self.reconnect_policy().max, self.heartbeat()));
+        // With time for a countdown started as the sessions settle to end.
+        let settle = self.faults.settle_limit(self.reconnect_policy().max, self.heartbeat());
+        let limit = end.after(settle + MAX_GRACE);
         let mut same_time = (SimTime(0), 0u64);
         while let Some(at) = self.queue.peek_time() {
             same_time = if at == same_time.0 { (at, same_time.1 + 1) } else { (at, 1) };
@@ -727,9 +735,11 @@ impl World {
                     detail: format!("{} events, {} at {at}", self.events, same_time.1),
                 });
             }
-            if at > end && (self.checker.is_lossy() || self.idle() && self.check_settled().is_ok()) {
+            // Countdowns under way run out first, so every one is checked.
+            let counting_down = self.cancels_at.iter().any(Option::is_some);
+            if at > end && !counting_down && (self.checker.is_lossy() || self.idle() && self.check_settled().is_ok()) {
                 // A seed that lost data to a power loss isn't required to settle.
-                return Ok(());
+                return self.checker.no_countdowns();
             }
             if at > limit {
                 let reason = self.check_settled().err().map_or_else(|| "still busy".into(), |v| v.detail);
@@ -1531,6 +1541,9 @@ impl World {
         }
     }
 }
+
+/// The longest cancel-on-disconnect grace period a seed draws.
+const MAX_GRACE: Duration = Duration::from_secs(30);
 
 /// Where a planted bug strikes: the 10th delivery or stored message.
 pub(crate) const PLANTED_AT: u64 = 10;

@@ -107,3 +107,8 @@ fn a_missed_cancel_on_disconnect_is_caught() {
 fn a_late_cancel_on_disconnect_is_caught() {
     caught(Plant::LateCancel, &["8 cancel"]);
 }
+
+#[test]
+fn a_spurious_cancel_on_disconnect_is_caught() {
+    caught(Plant::SpuriousCancel, &["8 cancel"]);
+}

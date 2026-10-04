@@ -45,13 +45,14 @@ pub struct RecordingApp {
     /// Logons, endings, cancels and crashes, each when it happened.
     pub lifecycle: Mutex<Vec<(SimTime, Lifecycle)>>,
     clocks: Clocks,
-    /// The process is down after a crash, until it restarts. Its sessions, dropped as it crashes,
-    /// still tell it they ended, which a dead process never hears: those calls are ignored.
-    down: Mutex<bool>,
+    /// The process is crashing: its sessions, dropped as it does, still tell it they ended, which
+    /// a dead process never hears, so those calls are ignored.
+    crashing: Mutex<bool>,
     /// A planted bug for the checker's self-tests, and the deliveries counted towards it.
     plant: Option<Plant>,
     delivered: Mutex<u64>,
     cancels: Mutex<u64>,
+    logouts: Mutex<u64>,
 }
 
 impl RecordingApp {
@@ -63,20 +64,18 @@ impl RecordingApp {
         Arc::new(Self { clocks, ..Self::default() })
     }
 
-    /// The process crashed: the handle went with it. What it recorded survives.
-    pub fn crash(&self) {
+    /// The process crashes, `drop_sessions` dropping its sessions: the handle goes with it, and
+    /// what they tell it as they go is never heard. What it recorded survives.
+    pub fn crash(&self, drop_sessions: impl FnOnce()) {
         *self.handle.lock().unwrap() = None;
         self.record(Lifecycle::Crashed);
-        *self.down.lock().unwrap() = true;
-    }
-
-    /// The process restarted.
-    pub fn restart(&self) {
-        *self.down.lock().unwrap() = false;
+        *self.crashing.lock().unwrap() = true;
+        drop_sessions();
+        *self.crashing.lock().unwrap() = false;
     }
 
     fn record(&self, event: Lifecycle) {
-        if !*self.down.lock().unwrap() {
+        if !*self.crashing.lock().unwrap() {
             self.lifecycle.lock().unwrap().push((self.clocks.now(), event));
         }
     }
@@ -142,10 +141,19 @@ impl Application for RecordingApp {
 
     fn on_logout(&self, _session: &SessionId, ended: Disconnect) {
         self.record(Lifecycle::LoggedOut(ended));
+        if *self.crashing.lock().unwrap() {
+            return;
+        }
+        let mut logouts = self.logouts.lock().unwrap();
+        *logouts += 1;
+        // The planted bug: a cancel as the first session ends, whatever the trigger and grace.
+        if self.plant == Some(Plant::SpuriousCancel) && *logouts == 1 {
+            self.record(Lifecycle::Cancel(ended));
+        }
     }
 
     fn on_cancel_on_disconnect(&self, _session: &SessionId, ended: Disconnect) {
-        if *self.down.lock().unwrap() {
+        if *self.crashing.lock().unwrap() {
             return;
         }
         let mut cancels = self.cancels.lock().unwrap();

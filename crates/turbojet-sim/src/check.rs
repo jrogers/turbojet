@@ -184,11 +184,17 @@ struct Cancels {
     seen: usize,
     /// The countdown under way: when it ends, and the ending that started it.
     pending: Option<(SimTime, Disconnect)>,
+    /// An ending with no grace period: the session cancels as it ends, so the next event is the
+    /// cancel.
+    cancel_now: bool,
 }
 
 impl Cancels {
     /// Rule 8 on one lifecycle event at `at`.
     fn apply(&mut self, side: Side, at: SimTime, event: Lifecycle) -> Result<(), Violation> {
+        if self.cancel_now && !matches!(event, Lifecycle::Cancel(_)) {
+            return Err(violation("8 cancel", format!("{side:?} ended with no grace period, then {event:?} at {at}")));
+        }
         match event {
             Lifecycle::LoggedOn => {
                 // A logon at the very end of the grace period may beat the cancel or not.
@@ -202,29 +208,43 @@ impl Cancels {
                 }
             }
             Lifecycle::LoggedOut(ended) => {
-                // The first ending's countdown runs on until a logon, however often it ends again.
+                // Only a session that logged on ends, and its logon stopped any countdown before.
+                if let Some((deadline, first)) = self.pending {
+                    return Err(violation(
+                        "8 cancel",
+                        format!(
+                            "{side:?} ended with {ended:?} at {at} without a logon since it ended with {first:?}, \
+                             its cancel due at {deadline}"
+                        ),
+                    ));
+                }
                 if let Some(CancelOnDisconnect { trigger, grace }) = self.config
                     && counts(trigger, ended)
-                    && self.pending.is_none()
                 {
                     self.pending = Some((at.after(grace), ended));
+                    self.cancel_now = grace.is_zero();
                 }
             }
-            Lifecycle::Cancel(ended) => match self.pending.take() {
-                Some(expected) if expected == (at, ended) => {}
-                Some((deadline, expected)) => {
-                    return Err(violation(
-                        "8 cancel",
-                        format!("{side:?} cancelled at {at} for {ended:?}; expected at {deadline} for {expected:?}"),
-                    ));
+            Lifecycle::Cancel(ended) => {
+                self.cancel_now = false;
+                match self.pending.take() {
+                    Some(expected) if expected == (at, ended) => {}
+                    Some((deadline, expected)) => {
+                        return Err(violation(
+                            "8 cancel",
+                            format!(
+                                "{side:?} cancelled at {at} for {ended:?}; expected at {deadline} for {expected:?}"
+                            ),
+                        ));
+                    }
+                    None => {
+                        return Err(violation(
+                            "8 cancel",
+                            format!("{side:?} cancelled at {at} for {ended:?} with no countdown under way"),
+                        ));
+                    }
                 }
-                None => {
-                    return Err(violation(
-                        "8 cancel",
-                        format!("{side:?} cancelled at {at} for {ended:?} with no countdown under way"),
-                    ));
-                }
-            },
+            }
             // The countdown went with the process's registry.
             Lifecycle::Crashed => self.pending = None,
         }
@@ -282,12 +302,32 @@ impl Checker {
             cancels.apply(side, *at, *event)?;
             cancels.seen += 1;
         }
+        // A session with no grace period cancels in the same call that ends it.
+        if cancels.cancel_now {
+            return Err(violation(
+                "8 cancel",
+                format!("{side:?} ended with no grace period, and didn't cancel at once"),
+            ));
+        }
         match cancels.pending {
             Some((deadline, ended)) if deadline < now => {
                 Err(violation("8 cancel", format!("{side:?} had no cancel for {ended:?} by {now}, due at {deadline}")))
             }
             _ => Ok(()),
         }
+    }
+
+    /// Rule 8 as a run ends: every countdown has run out, with a cancel or a logon.
+    pub fn no_countdowns(&self) -> Result<(), Violation> {
+        for side in [Side::Initiator, Side::Acceptor] {
+            if let Some((deadline, ended)) = self.cancels[side.index()].pending {
+                return Err(violation(
+                    "8 cancel",
+                    format!("{side:?}'s countdown for {ended:?}, due at {deadline}, still under way as the run ends"),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// The MsgSeqNum `side` stored application message `id` as, in this epoch.
@@ -677,9 +717,9 @@ mod tests {
     }
 
     /// Runs `events` (seconds, event) past a checker whose acceptor cancels on `trigger` after
-    /// 5 s, then checks at `now` seconds.
-    fn cancels(trigger: CancelTrigger, events: &[(u64, Lifecycle)], now: u64) -> Result<(), &'static str> {
-        let config = CancelOnDisconnect { trigger, grace: std::time::Duration::from_secs(5) };
+    /// `grace` seconds, then checks at `now` seconds.
+    fn cancels(trigger: CancelTrigger, grace: u64, events: &[(u64, Lifecycle)], now: u64) -> Result<(), &'static str> {
+        let config = CancelOnDisconnect { trigger, grace: std::time::Duration::from_secs(grace) };
         let mut checker = Checker::new([None, Some(config)]);
         let at = |secs: u64| SimTime::from_duration(std::time::Duration::from_secs(secs));
         let events: Vec<_> = events.iter().map(|(secs, event)| (at(*secs), *event)).collect();
@@ -689,27 +729,47 @@ mod tests {
     #[test]
     fn a_cancel_comes_at_the_end_of_the_grace_period_unless_the_session_logs_on_breaking_rule_8() {
         use CancelTrigger::{Disconnect as OnDisconnect, DisconnectOrLogout};
-        use Disconnect::{ConnectionLost, Logout};
+        use Disconnect::{ConnectionLost, CounterpartyLogout, Error, HeartbeatTimeout, Logout, Shutdown};
         use Lifecycle::{Cancel, Crashed, LoggedOn, LoggedOut};
+        let check = |trigger, events: &[(u64, Lifecycle)], now| cancels(trigger, 5, events, now);
         let lost = [(0, LoggedOn), (10, LoggedOut(ConnectionLost))];
-        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (15, Cancel(ConnectionLost))], 20), Ok(()));
-        assert_eq!(cancels(OnDisconnect, &lost, 15), Ok(()), "due now");
-        assert_eq!(cancels(OnDisconnect, &lost, 16), Err("8 cancel"), "missed");
-        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (16, Cancel(ConnectionLost))], 16), Err("8 cancel"));
-        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (15, LoggedOn)], 30), Ok(()), "logged on in time");
-        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (16, LoggedOn)], 16), Err("8 cancel"));
-        assert_eq!(cancels(OnDisconnect, &[lost[0], lost[1], (12, Crashed)], 30), Ok(()), "lost in a crash");
-        // The first ending's countdown runs on.
-        let again = [lost[0], lost[1], (12, LoggedOut(ConnectionLost)), (15, Cancel(ConnectionLost))];
-        assert_eq!(cancels(OnDisconnect, &again, 30), Ok(()));
+        assert_eq!(check(OnDisconnect, &[lost[0], lost[1], (15, Cancel(ConnectionLost))], 20), Ok(()));
+        assert_eq!(check(OnDisconnect, &lost, 15), Ok(()), "due now");
+        assert_eq!(check(OnDisconnect, &lost, 16), Err("8 cancel"), "missed");
+        assert_eq!(check(OnDisconnect, &[lost[0], lost[1], (16, Cancel(ConnectionLost))], 16), Err("8 cancel"));
+        assert_eq!(check(OnDisconnect, &[lost[0], lost[1], (15, LoggedOn)], 30), Ok(()), "logged on in time");
+        assert_eq!(check(OnDisconnect, &[lost[0], lost[1], (16, LoggedOn)], 16), Err("8 cancel"));
+        assert_eq!(check(OnDisconnect, &[lost[0], lost[1], (12, Crashed)], 30), Ok(()), "lost in a crash");
+        let again = [lost[0], lost[1], (12, LoggedOut(ConnectionLost))];
+        assert_eq!(check(OnDisconnect, &again, 12), Err("8 cancel"), "ended twice without a logon");
+        for ended in [HeartbeatTimeout, Error] {
+            assert_eq!(check(OnDisconnect, &[(0, LoggedOn), (10, LoggedOut(ended)), (15, Cancel(ended))], 20), Ok(()));
+            assert_eq!(check(OnDisconnect, &[(0, LoggedOn), (10, LoggedOut(ended))], 20), Err("8 cancel"));
+        }
         let logout = [(0, LoggedOn), (10, LoggedOut(Logout))];
-        assert_eq!(cancels(OnDisconnect, &logout, 30), Ok(()), "a logout doesn't count");
-        assert_eq!(cancels(OnDisconnect, &[logout[0], logout[1], (15, Cancel(Logout))], 30), Err("8 cancel"));
-        assert_eq!(cancels(DisconnectOrLogout, &logout, 30), Err("8 cancel"), "it does now");
+        assert_eq!(check(OnDisconnect, &logout, 30), Ok(()), "a logout doesn't count");
+        assert_eq!(check(OnDisconnect, &[logout[0], logout[1], (15, Cancel(Logout))], 30), Err("8 cancel"));
+        assert_eq!(check(DisconnectOrLogout, &logout, 30), Err("8 cancel"), "it does now");
         assert_eq!(
-            cancels(DisconnectOrLogout, &[logout[0], logout[1], (15, Cancel(ConnectionLost))], 30),
+            check(DisconnectOrLogout, &[logout[0], logout[1], (15, Cancel(ConnectionLost))], 30),
             Err("8 cancel")
         );
+        let theirs = [(0, LoggedOn), (10, LoggedOut(CounterpartyLogout)), (15, Cancel(CounterpartyLogout))];
+        assert_eq!(check(DisconnectOrLogout, &theirs, 30), Ok(()));
+        assert_eq!(check(OnDisconnect, &theirs, 30), Err("8 cancel"));
+        assert_eq!(check(DisconnectOrLogout, &[(0, LoggedOn), (10, LoggedOut(Shutdown))], 30), Ok(()), "ours");
+    }
+
+    /// With no grace period, the cancel is the very next thing the application hears.
+    #[test]
+    fn with_no_grace_period_the_cancel_comes_at_once_or_rule_8_breaks() {
+        use Disconnect::ConnectionLost;
+        use Lifecycle::{Cancel, LoggedOn, LoggedOut};
+        let check = |events: &[(u64, Lifecycle)], now| cancels(CancelTrigger::Disconnect, 0, events, now);
+        let lost = [(0, LoggedOn), (10, LoggedOut(ConnectionLost))];
+        assert_eq!(check(&[lost[0], lost[1], (10, Cancel(ConnectionLost)), (10, LoggedOn)], 10), Ok(()));
+        assert_eq!(check(&lost, 10), Err("8 cancel"), "not at once");
+        assert_eq!(check(&[lost[0], lost[1], (10, LoggedOn)], 10), Err("8 cancel"), "a logon first");
     }
 
     #[test]
