@@ -10,6 +10,7 @@
 //! Application messages are delivered to an [`Application`].
 
 use std::cell::Cell;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
@@ -1686,27 +1687,46 @@ impl Session {
 
     /// An inbound message on an established session. `arrived` is false for one taken from the
     /// queue, which was checked for SendingTime when it arrived.
-    #[expect(clippy::too_many_lines, reason = "see ROADMAP: split long functions")]
     fn on_session_message(&mut self, msg: &Message, now: Instant, arrived: bool) {
+        let Some(seq_num) = self.check_arrival(msg, now, arrived) else { return };
+        let mtype = msg.msg_type();
+        if self.handle_unsequenced(msg, &mtype, seq_num, now) {
+            return;
+        }
+        let expected = self.peer().log.next_incoming();
+        match seq_num.cmp(&expected) {
+            Ordering::Greater => self.handle_ahead(msg, &mtype, seq_num, expected, now),
+            Ordering::Less => self.handle_behind(msg, seq_num, expected, now),
+            Ordering::Equal => self.handle_expected(msg, &mtype, seq_num, now, arrived),
+        }
+    }
+
+    /// The checks on a message before its sequence number counts: its header's BeginString and
+    /// CompIDs, its MsgSeqNum, and (if it has just `arrived`) its SendingTime. Returns its
+    /// MsgSeqNum, or `None` once it has been answered with a Logout.
+    fn check_arrival(&mut self, msg: &Message, now: Instant, arrived: bool) -> Option<u64> {
         match self.check_header(msg) {
             Ok(()) => {}
             // Session test case 2i: Logout, without a Reject.
             Err(HeaderMismatch::BeginString(text)) => {
                 warn!("{text}; logging out");
                 self.logout(Some(&text), now);
-                return self.close();
+                self.close();
+                return None;
             }
             // Session test case 2k: Reject, then Logout.
             Err(HeaderMismatch::CompId(text)) => {
                 warn!("{text}; logging out");
                 self.reject(msg, None, Some(SessionRejectReason::CompIDProblem), &text, now);
                 self.logout(Some(&text), now);
-                return self.close();
+                self.close();
+                return None;
             }
         }
         let Ok(seq_num) = msg.field::<u64>(tags::MSG_SEQ_NUM) else {
             self.logout(Some("MsgSeqNum(34) missing or invalid"), now);
-            return self.close();
+            self.close();
+            return None;
         };
         // Session test case 2o: Reject, then Logout. The message still takes its number.
         if arrived && let Some(text) = self.sending_time_problem(msg) {
@@ -1716,61 +1736,77 @@ impl Session {
             if seq_num == self.peer().log.next_incoming() {
                 self.set_next_incoming(seq_num + 1);
             }
-            return self.logout(Some(&text), now);
+            self.logout(Some(&text), now);
+            return None;
         }
-        let mtype = msg.msg_type();
+        Some(seq_num)
+    }
+
+    /// Handles the messages whose MsgSeqNum doesn't follow the sequence: an intraday reset, and a
+    /// SequenceReset in reset mode. Returns whether `msg` was one.
+    fn handle_unsequenced(&mut self, msg: &Message, mtype: &MsgType, seq_num: u64, now: Instant) -> bool {
         // Intraday reset: a Logon with ResetSeqNumFlag=Y and MsgSeqNum 1 while logged on. Any
         // other Logon goes on to be refused as usual.
-        if mtype == MsgType::Logon
+        if *mtype == MsgType::Logon
             && seq_num == 1
             && msg.flag(tags::RESET_SEQ_NUM_FLAG)
             && self.status == Status::Active
             && msg.defect().is_none()
         {
-            return self.intraday_reset(msg, now);
+            self.intraday_reset(msg, now);
+            return true;
         }
         // Reset mode ignores MsgSeqNum entirely.
-        if mtype == MsgType::SequenceReset && !msg.flag(tags::GAP_FILL_FLAG) {
-            if self.reject_defect(msg, now) {
-                return;
+        if *mtype == MsgType::SequenceReset && !msg.flag(tags::GAP_FILL_FLAG) {
+            if !self.reject_defect(msg, now) {
+                self.on_sequence_reset(msg, now);
             }
-            return self.on_sequence_reset(msg, now);
+            return true;
         }
+        false
+    }
 
-        let expected = self.peer().log.next_incoming();
-        if seq_num > expected {
-            // Session test case 1a: a counterparty that's leaving is unlikely to resend first,
-            // so its Logout is answered now. The next logon finds the gap again.
-            if mtype == MsgType::Logout {
-                return self.on_logout_message(msg, now);
-            }
-            // Answer their ResendRequest now so both sides can recover from a mutual gap.
-            let answered = mtype == MsgType::ResendRequest && msg.defect().is_none();
-            if answered {
-                self.on_resend_request(msg, now);
-            }
-            self.queue(seq_num, msg, answered);
-            if self.resend.is_none() {
-                self.request_resend(expected, seq_num, now);
+    /// A message ahead of the sequence: there's a gap before it. It waits in the queue for the
+    /// gap to be filled, a resend asked for if one isn't under way.
+    fn handle_ahead(&mut self, msg: &Message, mtype: &MsgType, seq_num: u64, expected: u64, now: Instant) {
+        debug_assert!(seq_num > expected);
+        // Session test case 1a: a counterparty that's leaving is unlikely to resend first, so its
+        // Logout is answered now. The next logon finds the gap again.
+        if *mtype == MsgType::Logout {
+            return self.on_logout_message(msg, now);
+        }
+        // Answer their ResendRequest now so both sides can recover from a mutual gap.
+        let answered = *mtype == MsgType::ResendRequest && msg.defect().is_none();
+        if answered {
+            self.on_resend_request(msg, now);
+        }
+        self.queue(seq_num, msg, answered);
+        if self.resend.is_none() {
+            self.request_resend(expected, seq_num, now);
+        }
+    }
+
+    /// A message behind the sequence: a possible duplicate is checked and ignored; anything else
+    /// means the counterparty lost messages it had sent, and the session logs out.
+    fn handle_behind(&mut self, msg: &Message, seq_num: u64, expected: u64, now: Instant) {
+        debug_assert!(seq_num < expected);
+        if msg.flag(tags::POSS_DUP_FLAG) {
+            // Session test cases 2f and 2g: a duplicate is still checked, but doesn't take a
+            // number.
+            if !self.reject_orig_sending_time(msg, now) {
+                debug!(seq_num, "ignoring possible duplicate");
             }
             return;
         }
-        if seq_num < expected {
-            if msg.flag(tags::POSS_DUP_FLAG) {
-                // Session test cases 2f and 2g: a duplicate is still checked, but doesn't take a
-                // number.
-                if self.reject_orig_sending_time(msg, now) {
-                    return;
-                }
-                debug!(seq_num, "ignoring possible duplicate");
-                return;
-            }
-            self.logout(Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")), now);
-            return self.close();
-        }
+        self.logout(Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")), now);
+        self.close();
+    }
 
+    /// The message the sequence expects: handled, then its number saved.
+    fn handle_expected(&mut self, msg: &Message, mtype: &MsgType, seq_num: u64, now: Instant, arrived: bool) {
+        debug_assert_eq!(seq_num, self.peer().log.next_incoming());
         // A defective gap fill falls through: it uses its number and is rejected like any other.
-        if mtype == MsgType::SequenceReset && msg.defect().is_none() {
+        if *mtype == MsgType::SequenceReset && msg.defect().is_none() {
             return self.on_gap_fill(msg, seq_num, now);
         }
         self.handle_in_sequence(msg, seq_num, now, arrived);
@@ -1778,7 +1814,7 @@ impl Session {
         // the process stops first, the counterparty resends it (at-least-once delivery). Not once
         // the store has failed, when an application message may not have been delivered.
         if !self.store_failed {
-            self.set_next_incoming(expected + 1);
+            self.set_next_incoming(seq_num + 1);
         }
     }
 
