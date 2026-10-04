@@ -72,6 +72,10 @@ Notable changes to the published crates.
   `#[non_exhaustive]`.
 - `Session::on_disconnect` tells a session driven directly that its transport ended, and when,
   so a cancel-on-disconnect countdown starts from then.
+- A busy-polling driver: `connection::run_spinning`, `Acceptor::accept_spinning` and
+  `Initiator::run_spinning` drive a session on the calling thread without waiting, over a
+  `connection::SpinningStream` (a non-blocking TCP socket read and written on each poll). It
+  keeps a core busy; store jobs and cancel-on-disconnect still run on the tokio runtime given.
 
 ### `turbojet-config`
 

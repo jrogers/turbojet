@@ -217,6 +217,15 @@ runs on a current-thread tokio runtime as well as a multi-threaded one; on a cur
 a `SessionHandle` send from a task on the same thread wakes no other thread, which makes the
 hop cheaper.
 
+To go lower at the cost of a core per connection, drive the session with
+`Acceptor::accept_spinning` or `Initiator::run_spinning` (or `connection::run_spinning`) over a
+`connection::SpinningStream`. They run on the calling thread and never wait: each time round they
+read and write the non-blocking socket directly, and check the handle's commands and the timer,
+rather than waiting for tokio's reactor to wake them. Store jobs and cancel-on-disconnect still
+run on the tokio runtime passed in. Over localhost on macOS, with both ends spinning, the round
+trip from `on_message` took 10.3 µs against 16.3 µs (see Benchmarks). Give each spinning
+connection a thread, and on Linux a core, of its own. TLS isn't supported over it.
+
 ### Typed messages
 
 Messages, groups and enums are generated from their FIX definitions by three exported macros,
@@ -801,6 +810,7 @@ to partition the crate.
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, one at a time, replying from `on_message`⁷ | 16.3 µs | 61.4k/s |
+| The same, both ends spinning (`run_spinning`)⁸ | 10.3 µs | 96.7k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
 | Round trip over localhost TLS, one at a time, replying from `on_message`⁷ | 20.4 µs | 49.0k/s |
@@ -835,6 +845,8 @@ between tasks each way, on a multi-threaded runtime. Here the initiator's applic
 next order from `on_message`. On the same day, the round trips through the benchmark's task took
 26.5 µs (TCP) and 28.3 µs (TLS). Of the 16.3 µs, about 13 µs is the operating system: the same
 sizes ping-ponged between two threads over plain blocking sockets took 12.9 µs.
+⁸ Measured 2026-10-04, each end on a thread of its own; 16.45 µs without spinning in the same run.
+Raw sockets with both ends spinning took 6.8 µs for the same sizes.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:

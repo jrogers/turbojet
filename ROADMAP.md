@@ -282,16 +282,22 @@ From the benchmarks.
   there is nothing to build; the README says to reply from `on_message`. Busy-polling and CPU
   pinning moved to the next item.
 - **Kernel bypass, busy-polling and hardware timestamps** (L, research). What's left is mostly the
-  kernel. Busy-polling the socket halves the operating system's share (12.9 µs to 6.8 µs with both
-  ends of a plain socket spinning), but tokio can't do it: its `try_read` answers from readiness
-  cached by the reactor, so it reports nothing to read until the reactor runs, and a spinning read
-  needs the raw socket. Keeping a tokio runtime awake with a `yield_now` loop made the round trip
-  slower, and spinning on the acceptor's raw socket alone gained nothing through Turbojet. Pinning
-  can't be measured on macOS, which has no thread affinity API. Beyond that, the lowest latencies
-  come from bypassing the kernel's network stack (OpenOnload or ef_vi on Solarflare cards, DPDK)
-  and from network cards that timestamp packets in hardware. All of these need a transport that
-  isn't a tokio `TcpStream`, and a Linux machine with isolated cores to measure them, so they
-  follow the zero-copy work.
+  kernel. Busy-polling is done where it can be measured here: `run_spinning` (with
+  `Acceptor::accept_spinning` and `Initiator::run_spinning`) drives a session on its own thread
+  without waiting, over a `SpinningStream` that reads and writes the non-blocking socket on every
+  poll, since tokio's `try_read` answers from readiness its reactor caches. With both ends
+  spinning, the no-hop round trip over localhost on an Apple M3 fell from 16.45 µs to 10.34 µs
+  (2026-10-04); raw sockets with both ends spinning take 6.8 µs. TLS isn't supported over it (its
+  handshake would need driving by polling too). What remains needs a Linux machine with isolated
+  cores, which hasn't been available:
+  - measure the tokio driver and the spinning one under `net.core.busy_poll`/`busy_read`,
+    `taskset` and isolated cores (macOS has no thread affinity API), and under OpenOnload, which
+    accelerates sockets and epoll without code changes (on Solarflare/X2 cards, or its AF_XDP
+    mode, to check on the cloud machine chosen);
+  - only if those numbers call for it, a crate of its own (as `turbojet-sql`, since FFI needs
+    `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
+    AF_XDP would need a userspace TCP stack, so stay parked;
+  - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
 - **Aeron and SBE** (L, research). Low-latency venues and in-house systems increasingly use binary
   encodings over messaging rather than tag=value over TCP: SBE (Simple Binary Encoding, the FIX
   Trading Community's binary standard) for messages, under FIXP for the session, and Aeron (reliable
