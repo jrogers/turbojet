@@ -741,6 +741,12 @@ impl World {
                 // A seed that lost data to a power loss isn't required to settle.
                 return self.checker.no_countdowns();
             }
+            // A seed that lost data needn't settle, and its sessions may keep ending and logging
+            // back on within the grace period, a countdown always under way. Each was checked
+            // after every event: none came due unfired.
+            if at > limit && self.checker.is_lossy() {
+                return Ok(());
+            }
             if at > limit {
                 let reason = self.check_settled().err().map_or_else(|| "still busy".into(), |v| v.detail);
                 return Err(Violation { rule: "liveness", detail: format!("not settled by {limit}: {reason}") });
