@@ -97,7 +97,7 @@ impl Venue {
 }
 
 fn id(comp_id: &str) -> SessionId {
-    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "VENUE".into(), target_comp_id: comp_id.into() }
+    SessionId::new("FIX.4.4", "VENUE", comp_id)
 }
 
 #[tokio::test]

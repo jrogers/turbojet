@@ -67,7 +67,7 @@ fn recorder() -> (Arc<Recorder>, Events) {
 }
 
 fn cancelling(config: &mut SessionConfig, trigger: CancelTrigger) {
-    config.cancel_on_disconnect = Some(CancelOnDisconnect { trigger, grace: GRACE });
+    config.cancel_on_disconnect = Some(CancelOnDisconnect::new(trigger, GRACE));
 }
 
 /// An acceptor, SERVER, cancelling its sessions' orders on `trigger`.

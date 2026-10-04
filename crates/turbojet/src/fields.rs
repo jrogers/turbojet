@@ -23,6 +23,7 @@ pub use time::{
 
 /// Why a raw field value could not be converted to its type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ValueError {
     /// Well-formed, but not a permitted value, e.g. an unknown enum code.
     Incorrect,

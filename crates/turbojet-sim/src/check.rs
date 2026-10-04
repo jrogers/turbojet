@@ -223,7 +223,7 @@ impl Cancels {
                         ),
                     ));
                 }
-                if let Some(CancelOnDisconnect { trigger, grace }) = self.config
+                if let Some(CancelOnDisconnect { trigger, grace, .. }) = self.config
                     && counts(trigger, ended)
                 {
                     self.pending = Some((at.after(grace), ended));
@@ -734,7 +734,7 @@ mod tests {
     /// Runs `events` (seconds, event) past a checker whose acceptor cancels on `trigger` after
     /// `grace` seconds, then checks at `now` seconds.
     fn cancels(trigger: CancelTrigger, grace: u64, events: &[(u64, Lifecycle)], now: u64) -> Result<(), &'static str> {
-        let config = CancelOnDisconnect { trigger, grace: std::time::Duration::from_secs(grace) };
+        let config = CancelOnDisconnect::new(trigger, std::time::Duration::from_secs(grace));
         let mut checker = Checker::new([None, Some(config)]);
         let at = |secs: u64| SimTime::from_duration(std::time::Duration::from_secs(secs));
         let events: Vec<_> = events.iter().map(|(secs, event)| (at(*secs), *event)).collect();

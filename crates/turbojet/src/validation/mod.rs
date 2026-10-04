@@ -60,6 +60,7 @@ type FastSet<T> = HashSet<T, Fast>;
 
 /// Which checks a [`Validator`] makes; all on by default, except allowing user-defined tags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ValidationOptions {
     /// Reject a MsgType the dictionary doesn't define (SessionRejectReason 11).
     pub unknown_msg_types: bool,

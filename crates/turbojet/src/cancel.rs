@@ -17,6 +17,7 @@ use crate::store::SessionId;
 /// [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), unless the
 /// counterparty logs back on within `grace`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CancelOnDisconnect {
     /// Which endings count.
     pub trigger: CancelTrigger,
@@ -25,8 +26,16 @@ pub struct CancelOnDisconnect {
     pub grace: Duration,
 }
 
+impl CancelOnDisconnect {
+    /// Cancel on disconnect for the endings `trigger` counts, after `grace`.
+    pub const fn new(trigger: CancelTrigger, grace: Duration) -> Self {
+        Self { trigger, grace }
+    }
+}
+
 /// Which endings of a session count for [`CancelOnDisconnect`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CancelTrigger {
     /// Endings without a Logout: the connection lost, a heartbeat timeout, an error.
     Disconnect,

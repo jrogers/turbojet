@@ -92,11 +92,8 @@ pub(crate) struct ClientTlsFiles {
 impl ResolvedInitiator {
     /// The session it logs on to.
     pub fn id(&self) -> SessionId {
-        SessionId {
-            begin_string: self.config.session.begin_string.clone(),
-            sender_comp_id: self.config.session.sender_comp_id.clone(),
-            target_comp_id: self.config.target_comp_id.clone(),
-        }
+        let session = &self.config.session;
+        SessionId::new(&session.begin_string, &session.sender_comp_id, &self.config.target_comp_id)
     }
 
     /// Whether it connects over TLS.
@@ -559,7 +556,7 @@ fn cancel_on_disconnect(settings: &RawSettings, section: &str) -> Result<Option<
         Some(RawCancelTrigger::Disconnect) => CancelTrigger::Disconnect,
         Some(RawCancelTrigger::DisconnectOrLogout) => CancelTrigger::DisconnectOrLogout,
     };
-    Ok(Some(CancelOnDisconnect { trigger, grace }))
+    Ok(Some(CancelOnDisconnect::new(trigger, grace)))
 }
 
 /// A counterparty's or initiator's own `cancel_grace` with cancel on disconnect off, its own
@@ -795,11 +792,11 @@ mod tests {
         )
         .unwrap();
         let cancel = |comp_id| loaded.acceptor().settings(comp_id).counterparty.config.cancel_on_disconnect;
-        let grace = |grace| Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace });
+        let grace = |grace| Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, grace));
         assert_eq!(loaded.acceptor().base.cancel_on_disconnect, grace(Duration::from_secs(5)));
         assert_eq!(
             cancel("BROKER"),
-            Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::from_secs(5) })
+            Some(CancelOnDisconnect::new(CancelTrigger::DisconnectOrLogout, Duration::from_secs(5)))
         );
         assert_eq!(cancel("FUND"), None, "turned off, the defaults' grace unused");
         assert_eq!(cancel("DESK"), grace(Duration::from_millis(500)));
@@ -808,14 +805,14 @@ mod tests {
         let loaded =
             load_text("[counterparty.A]\ncancel_on_disconnect = \"disconnect_or_logout\"\n[counterparty.B]").unwrap();
         let a = loaded.acceptor().settings("A").counterparty.config.cancel_on_disconnect;
-        assert_eq!(a, Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::ZERO }));
+        assert_eq!(a, Some(CancelOnDisconnect::new(CancelTrigger::DisconnectOrLogout, Duration::ZERO)));
         assert_eq!(loaded.acceptor().settings("B").counterparty.config.cancel_on_disconnect, None, "off by default");
 
         let opt_in = "[defaults]\ncancel_grace = \"2s\"\n[counterparty.A]\ncancel_on_disconnect = \"disconnect\"";
         let loaded = load_text(opt_in).unwrap();
         assert_eq!(loaded.acceptor().base.cancel_on_disconnect, None, "the defaults' grace alone turns nothing on");
         let a = loaded.acceptor().settings("A").counterparty.config.cancel_on_disconnect;
-        assert_eq!(a, Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace: Duration::from_secs(2) }));
+        assert_eq!(a, Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(2))));
         assert_eq!(loaded.acceptor().settings("OTHER").counterparty.config.cancel_on_disconnect, None);
     }
 
@@ -1014,7 +1011,7 @@ mod tests {
             load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"disconnect_or_logout\"")).unwrap();
         assert_eq!(
             loaded.initiators["LSE"].config.session.cancel_on_disconnect,
-            Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::from_secs(5) })
+            Some(CancelOnDisconnect::new(CancelTrigger::DisconnectOrLogout, Duration::from_secs(5)))
         );
         let loaded = load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"off\"")).unwrap();
         assert_eq!(loaded.initiators["LSE"].config.session.cancel_on_disconnect, None);

@@ -59,6 +59,7 @@ pub struct ApplVersion {
 
 /// Settings shared by both roles.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SessionConfig {
     /// BeginString(8), e.g. `FIX.4.4`, or `FIXT.1.1` with [`with_appl_ver_id`](Self::with_appl_ver_id).
     pub begin_string: String,

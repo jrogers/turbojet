@@ -449,7 +449,7 @@ fn cancels(seed: u64) -> [Option<CancelOnDisconnect>; 2] {
         let trigger = rng.pick(&[None, Some(CancelTrigger::Disconnect), Some(CancelTrigger::DisconnectOrLogout)])?;
         let most = u64::try_from(MAX_GRACE.as_millis()).expect("short");
         let grace = if rng.chance(200_000) { Duration::ZERO } else { Duration::from_millis(rng.between(1, most)) };
-        Some(CancelOnDisconnect { trigger, grace })
+        Some(CancelOnDisconnect::new(trigger, grace))
     })
 }
 
@@ -542,7 +542,7 @@ fn poll_once<F: Future + ?Sized>(future: Pin<&mut F>) -> Option<F::Output> {
 }
 
 fn session_id(sender: &str, target: &str) -> SessionId {
-    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: sender.into(), target_comp_id: target.into() }
+    SessionId::new("FIX.4.4", sender, target)
 }
 
 /// For a scheduled seed, a daily schedule whose first period ends 20 s in and whose next starts
@@ -573,7 +573,9 @@ fn reconnect_policy(reconnect: Duration, rng: &mut Rng) -> ReconnectPolicy {
         ReconnectPolicy::fixed(reconnect)
     } else {
         let max = reconnect * u32::try_from(rng.between(2, 20)).expect("small");
-        ReconnectPolicy { jitter: rng.chance(500_000), ..ReconnectPolicy::exponential(reconnect, max) }
+        let mut policy = ReconnectPolicy::exponential(reconnect, max);
+        policy.jitter = rng.chance(500_000);
+        policy
     }
 }
 
@@ -676,7 +678,7 @@ impl World {
             header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
         }
         for node in &self.nodes {
-            if let Some(CancelOnDisconnect { trigger, grace }) = node.cancel_on_disconnect() {
+            if let Some(CancelOnDisconnect { trigger, grace, .. }) = node.cancel_on_disconnect() {
                 let side = node.side;
                 header.push_str(&format!(", {side:?} cancels on {trigger:?} after {grace:?}"));
             }

@@ -24,6 +24,7 @@ use crate::store::{SessionId, SessionStorage};
 /// How an [`Initiator`] logs on and reconnects: [`new`](Self::new) gives the defaults, and the
 /// fields are public to change them.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct InitiatorConfig {
     /// Settings shared with acceptor sessions, including our own CompID.
     pub session: SessionConfig,
@@ -98,6 +99,7 @@ impl InitiatorConfig {
 
 /// An address the initiator can connect to.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Endpoint {
     /// `host:port`.
     pub addr: String,

@@ -15,7 +15,9 @@ use turbojet::{DiskStorage, MemoryStorage, Message, SessionConfig, SessionId};
 
 /// A limit the `limits never reached` benchmarks stay well under: at an order a microsecond, a
 /// window holds about 1,000.
-const NEVER_REACHED: RateLimit = RateLimit { messages: 10_000, per: Duration::from_millis(1) };
+fn never_reached() -> RateLimit {
+    RateLimit::new(10_000, Duration::from_millis(1))
+}
 
 /// Messages per logged-on session; a fresh session (and store) is set up, untimed, for each chunk
 /// so the in-memory resend store doesn't grow without bound.
@@ -70,7 +72,7 @@ fn session(c: &mut Criterion) {
     // reached: what keeping the windows costs. Time moves on a microsecond an order, so about
     // 1,000 messages are in each window and one expires per order, as in a steady stream.
     for (name, inbound) in
-        [("delay", InboundLimit::Delay(NEVER_REACHED)), ("reject", InboundLimit::Reject(NEVER_REACHED))]
+        [("delay", InboundLimit::Delay(never_reached())), ("reject", InboundLimit::Reject(never_reached()))]
     {
         group.bench_function(format!("order to ack (memory store, limits never reached, {name})"), |b| {
             b.iter_custom(|iters| {
@@ -78,7 +80,7 @@ fn session(c: &mut Criterion) {
                     iters,
                     |n| {
                         let mut config = SessionConfig::new("FIX.4.2", "GATEWAY");
-                        config.outbound_limit = Some(NEVER_REACHED);
+                        config.outbound_limit = Some(never_reached());
                         config.inbound_limit = Some(inbound);
                         let storage = Arc::new(MemoryStorage::new());
                         (common::logged_on_with(config, storage, Arc::new(common::Acker::default())), common::orders(n))
@@ -244,8 +246,7 @@ fn store_messages(log: &mut dyn SessionLog, report: &[u8], seq: u64, n: u64, per
 }
 
 fn storage(c: &mut Criterion) {
-    let id =
-        SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    let id = SessionId::new("FIX.4.2", "GATEWAY", "CLIENT");
     let report: Message = common::with_header("GATEWAY", "CLIENT", 2, common::ack_of(1).into());
     let report = encode(&report).unwrap();
 

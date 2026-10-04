@@ -25,6 +25,7 @@ pub const MAX_LIMIT_PER: Duration = Duration::from_secs(24 * 60 * 60);
 /// Each connection keeps a ring of the last `messages` times for each limited direction, 16 bytes
 /// a message, allocated when the connection's session is made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct RateLimit {
     /// How many messages a window allows, `1..=MAX_LIMIT_MESSAGES`.
     pub messages: u32,
@@ -137,6 +138,7 @@ impl fmt::Display for Per {
 
 /// What happens to an inbound application message over the limit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InboundLimit {
     /// Stop reading until the window allows more: TCP slows the sender. Every application
     /// message read counts, resends included, and admin messages wait too, since input stays in

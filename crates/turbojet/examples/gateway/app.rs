@@ -147,7 +147,7 @@ mod tests {
     use turbojet::PeerCertificate;
 
     fn session(comp_id: &str) -> SessionId {
-        SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: comp_id.into() }
+        SessionId::new("FIX.4.2", "GATEWAY", comp_id)
     }
 
     /// A connection whose client presented a certificate with this CN and DNS names.

@@ -436,7 +436,7 @@ async fn allowlist_refuses_unknown_counterparty() {
 }
 
 fn client1() -> SessionId {
-    SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT1".into() }
+    SessionId::new("FIX.4.2", "GATEWAY", "CLIENT1")
 }
 
 /// Runs `gateway seqnums --store-dir DIR ARGS...`, returning success and its output.
@@ -490,7 +490,7 @@ async fn operator_tool_refuses_unknown_and_connected_sessions() {
     let (ok, out) = seqnums(dir.path(), &["--session", "NOBODY"]).await;
     assert!(!ok);
     assert!(out.contains("no stored session FIX.4.2:GATEWAY->NOBODY"), "{out}");
-    assert!(!storage.contains(&SessionId { target_comp_id: "NOBODY".into(), ..client1() }), "nothing created");
+    assert!(!storage.contains(&SessionId::new("FIX.4.2", "GATEWAY", "NOBODY")), "nothing created");
 
     // An open log (a connected session) holds the store's lock.
     let _connected = storage.open(&client1()).unwrap();

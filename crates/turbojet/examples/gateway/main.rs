@@ -130,7 +130,7 @@ fn only(allowed: &HashSet<String>) -> CounterpartyMap {
 /// cancelled, unless the counterparty logs back on within the grace period. Five seconds covers a
 /// client's prompt reconnect without leaving orders working long for one that has gone.
 const CANCEL_ON_DISCONNECT: CancelOnDisconnect =
-    CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace: Duration::from_secs(5) };
+    CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(5));
 
 /// Parses the gateway's arguments (without the program name).
 #[expect(clippy::too_many_lines, reason = "one match arm per option")]
@@ -318,6 +318,7 @@ fn describe_inbound_limit(limit: Option<&InboundLimit>) -> String {
     match limit {
         Some(InboundLimit::Delay(limit)) => format!("{limit} delay"),
         Some(InboundLimit::Reject(limit)) => format!("{limit} reject"),
+        Some(other) => format!("{other:?}"),
         None => "none".to_string(),
     }
 }
@@ -405,7 +406,7 @@ async fn run_seqnums(args: &[String]) -> Result<String, String> {
     }
     // Operator edits are rare and should survive a crash: fsync them.
     let storage = DiskStorage::new(&store_dir, true).map_err(|e| e.to_string())?;
-    let id = SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: comp_id, target_comp_id: target };
+    let id = SessionId::new("FIX.4.2", comp_id, target);
     if !storage.contains(&id) {
         return Err(format!("no stored session {id} in {}", store_dir.display()));
     }

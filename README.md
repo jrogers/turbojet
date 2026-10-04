@@ -520,10 +520,8 @@ without a Logout, so a firm that loses its connection isn't left exposed. A sess
 `SessionConfig::cancel_on_disconnect`, per counterparty through `Counterparties`:
 
 ```rust
-config.cancel_on_disconnect = Some(CancelOnDisconnect {
-    trigger: CancelTrigger::Disconnect, // or DisconnectOrLogout: a Logout counts too
-    grace: Duration::from_secs(5),      // up to MAX_CANCEL_GRACE, an hour
-});
+// Disconnect, or DisconnectOrLogout (a Logout counts too); a grace of up to MAX_CANCEL_GRACE, an hour.
+config.cancel_on_disconnect = Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(5)));
 
 impl Application for MyApp {
     fn on_cancel_on_disconnect(&self, session: &SessionId, ended: Disconnect) {

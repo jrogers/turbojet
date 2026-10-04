@@ -281,6 +281,7 @@ impl Outbox {
 
 /// Why an application message was not accepted.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MessageReject {
     /// The message is malformed: answered with a session-level Reject(3).
     Session {

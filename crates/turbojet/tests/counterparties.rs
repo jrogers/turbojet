@@ -82,8 +82,7 @@ async fn an_offline_change_reaches_the_counterpartys_store() {
     let (tx, _) = mpsc::unbounded_channel();
     let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(storage), Arc::new(Recorder(tx)));
     acceptor.session("BROKER").set_next_outgoing(10).await.unwrap();
-    let id =
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "SERVER".into(), target_comp_id: "BROKER".into() };
+    let id = SessionId::new("FIX.4.4", "SERVER", "BROKER");
     assert_eq!(broker.open(&id).unwrap().next_outgoing(), 10);
     assert_eq!(default.open(&id).unwrap().next_outgoing(), 1);
 }

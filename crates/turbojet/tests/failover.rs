@@ -203,10 +203,8 @@ async fn failing_attempts_back_off() {
     });
     let h = Harness::new();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
-    config.reconnect = turbojet::ReconnectPolicy {
-        jitter: false,
-        ..turbojet::ReconnectPolicy::exponential(Duration::from_millis(100), Duration::from_millis(400))
-    };
+    config.reconnect = turbojet::ReconnectPolicy::exponential(Duration::from_millis(100), Duration::from_millis(400));
+    config.reconnect.jitter = false;
     let initiator = Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), h.app("client", false));
     tokio::spawn(initiator.run());
     let mut at = Vec::new();

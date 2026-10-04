@@ -68,6 +68,7 @@ impl std::future::Future for Receipt {
 
 /// Why a message queued with [`SessionHandle::send`] was never stored or sent.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Dropped {
     /// The connection ended first: while the message was queued, or held during a logon that
     /// never completed.
@@ -122,6 +123,7 @@ pub struct SequenceNumbers {
 
 /// Why an operator change to sequence numbers was refused.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum SequenceError {
     /// The value isn't allowed (zero, or moving outgoing numbers backwards).
     Invalid(String),
@@ -798,6 +800,7 @@ impl fmt::Debug for SessionHandle {
 
 /// Why [`SessionHandle::send`] didn't queue a message, with the message, to retry or keep.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum SendError {
     /// No connection has the session (see [`SessionHandle`]).
     NotConnected(Message),
@@ -828,6 +831,7 @@ impl std::error::Error for SendError {}
 
 /// Why [`SessionHandle::logout`] didn't queue the logout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CommandError {
     /// No connection has the session (see [`SessionHandle`]).
     NotConnected,

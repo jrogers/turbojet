@@ -20,6 +20,7 @@ use crate::fields::UtcTimestamp;
 
 /// Identifies a FIX session from the gateway's side.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct SessionId {
     /// BeginString(8).
     pub begin_string: String,
@@ -27,6 +28,22 @@ pub struct SessionId {
     pub sender_comp_id: String,
     /// The counterparty's CompID.
     pub target_comp_id: String,
+}
+
+impl SessionId {
+    /// The session with BeginString `begin_string`, our CompID `sender_comp_id` and the
+    /// counterparty's `target_comp_id`.
+    pub fn new(
+        begin_string: impl Into<String>,
+        sender_comp_id: impl Into<String>,
+        target_comp_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            begin_string: begin_string.into(),
+            sender_comp_id: sender_comp_id.into(),
+            target_comp_id: target_comp_id.into(),
+        }
+    }
 }
 
 impl fmt::Display for SessionId {

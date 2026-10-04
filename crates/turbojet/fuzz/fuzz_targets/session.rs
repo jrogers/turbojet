@@ -231,9 +231,9 @@ fuzz_target!(|input: Input| {
     if input.fixt {
         config = config.with_appl_ver_id(ApplVerId::Fix50Sp2);
     }
-    config.cancel_on_disconnect = input.cancel_on_disconnect.map(|(logouts, grace)| CancelOnDisconnect {
-        trigger: if logouts { CancelTrigger::DisconnectOrLogout } else { CancelTrigger::Disconnect },
-        grace: Duration::from_secs((grace % 10).into()),
+    config.cancel_on_disconnect = input.cancel_on_disconnect.map(|(logouts, grace)| {
+        let trigger = if logouts { CancelTrigger::DisconnectOrLogout } else { CancelTrigger::Disconnect };
+        CancelOnDisconnect::new(trigger, Duration::from_secs((grace % 10).into()))
     });
     let begin_string = config.begin_string.clone();
     // Kept here as well as by the session: its countdowns outlive the session, and run as time

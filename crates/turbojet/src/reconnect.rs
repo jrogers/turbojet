@@ -11,6 +11,7 @@ use std::time::Duration;
 /// The count starts again once a session has logged on, so a session that drops after running
 /// reconnects after `initial`, while repeated failures back off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ReconnectPolicy {
     /// The first wait.
     pub initial: Duration,
@@ -24,12 +25,12 @@ pub struct ReconnectPolicy {
 
 impl ReconnectPolicy {
     /// Waits `initial`, then twice as long each time in a row up to `max`, with jitter.
-    pub fn exponential(initial: Duration, max: Duration) -> Self {
+    pub const fn exponential(initial: Duration, max: Duration) -> Self {
         Self { initial, max, multiplier: 2, jitter: true }
     }
 
     /// Waits `delay` every time.
-    pub fn fixed(delay: Duration) -> Self {
+    pub const fn fixed(delay: Duration) -> Self {
         Self { initial: delay, max: delay, multiplier: 1, jitter: false }
     }
 

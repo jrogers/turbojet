@@ -93,6 +93,7 @@ impl RecordingApp {
             }
             Some(Err(SendError::Full(_))) => Sent::Full,
             Some(Err(SendError::NotConnected(_))) | None => Sent::NotConnected,
+            Some(Err(e)) => panic!("a send failed in a way the simulator doesn't know: {e}"),
         }
     }
 }
