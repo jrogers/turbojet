@@ -5,7 +5,6 @@ use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::{SessionId, SessionLog, SessionStorage};
-use crate::codec::frame_stored;
 use crate::fields::UtcTimestamp;
 
 #[derive(Debug)]
@@ -50,7 +49,8 @@ impl State {
             self.evicted_through = self.evicted_through.max(Some(evicted));
         }
         // Not a sum over `sent`: that would make each store cost as much as everything stored.
-        debug_assert!(self.bytes <= max_bytes && self.sent.is_empty() == (self.bytes == 0));
+        debug_assert!(self.bytes <= max_bytes);
+        debug_assert_eq!(self.sent.is_empty(), self.bytes == 0);
         debug_assert!(self.sent.first_key_value().is_none_or(|(first, _)| Some(*first) > self.evicted_through));
     }
 }
@@ -150,6 +150,7 @@ impl SessionLog for MemoryLog {
     }
 
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+        debug_assert!(seq >= 1, "sequence numbers start at 1");
         let mut state = self.state();
         state.next_incoming = seq;
         state.in_flight = None;
@@ -158,8 +159,8 @@ impl SessionLog for MemoryLog {
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         let mut state = self.state();
+        super::debug_check_record(seq, state.next_outgoing, msg);
         if let Some(msg) = msg {
-            debug_assert_eq!(frame_stored(msg), Ok(msg.len()), "one whole message");
             state.store(seq, msg, self.max_bytes);
         }
         state.next_outgoing = seq + 1;
@@ -167,7 +168,11 @@ impl SessionLog for MemoryLog {
     }
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
-        Ok(self.state().sent.range(begin..=end).map(|(seq, m)| (*seq, m.clone())).collect())
+        let state = self.state();
+        let messages: Vec<_> = state.sent.range(begin..=end).map(|(seq, m)| (*seq, m.clone())).collect();
+        // Checked as stored, and again as read back for a resend.
+        super::debug_check_sent(&messages, begin, end, state.evicted_through);
+        Ok(messages)
     }
 
     fn reset(&mut self) -> io::Result<()> {

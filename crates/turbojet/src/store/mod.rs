@@ -256,6 +256,36 @@ impl<T> fmt::Debug for Job<T> {
     }
 }
 
+/// Checks, in debug builds, a store's own answer to `sent_messages(begin, end)`: ascending,
+/// within the range, nothing at or below `evicted_through`, and each a whole message. The session
+/// checks what any store returns as it parses it; a store we write checks its own answer too,
+/// so a bug there is caught where it happens.
+pub(crate) fn debug_check_sent(messages: &SentMessages, begin: u64, end: u64, evicted_through: Option<u64>) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
+    for pair in messages.windows(2) {
+        debug_assert!(pair[0].0 < pair[1].0, "stored messages in ascending order");
+    }
+    for (seq, bytes) in messages {
+        debug_assert!(*seq >= begin, "stored message {seq} below {begin}");
+        debug_assert!(*seq <= end, "stored message {seq} above {end}");
+        debug_assert!(Some(*seq) > evicted_through, "stored message {seq} was evicted");
+        debug_assert_eq!(crate::codec::frame_stored(bytes), Ok(bytes.len()), "stored message {seq} is one message");
+    }
+}
+
+/// Checks, in debug builds, a call to [`SessionLog::record_outgoing`] against the log's
+/// `next_outgoing` before it: numbers are never reused, and a message stored takes the next one
+/// (numbers recorded without a message may skip ahead, as an operator does).
+pub(crate) fn debug_check_record(seq: u64, next_outgoing: u64, msg: Option<&[u8]>) {
+    debug_assert!(seq >= next_outgoing, "outgoing {seq} recorded again: the next is {next_outgoing}");
+    if let Some(bytes) = msg {
+        debug_assert_eq!(seq, next_outgoing, "a message stored takes the next number");
+        debug_assert_eq!(crate::codec::frame_stored(bytes), Ok(bytes.len()), "one whole message");
+    }
+}
+
 /// Commits `log`'s mutations, running any [`Commit`] on this thread: for changes made outside a
 /// connected session (operator commands on a disconnected one), which are rare.
 #[cfg(test)]

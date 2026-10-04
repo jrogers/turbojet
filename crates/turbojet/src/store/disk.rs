@@ -360,6 +360,7 @@ impl SessionLog for DiskLog {
     }
 
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+        debug_assert!(seq >= 1, "sequence numbers start at 1");
         self.next_incoming = seq;
         self.in_flight = None;
         self.dirty = true;
@@ -367,9 +368,9 @@ impl SessionLog for DiskLog {
     }
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
+        // One whole message, as sent_messages checks when reading it back.
+        super::debug_check_record(seq, self.next_outgoing, msg);
         if let Some(bytes) = msg {
-            // One whole message, as sent_messages checks when reading it back.
-            debug_assert_eq!(frame_stored(bytes), Ok(bytes.len()));
             if self.pending_at.is_none() {
                 self.pending_at = Some(self.next_place());
             }
@@ -445,6 +446,7 @@ impl SessionLog for DiskLog {
                 }
             }
         }
+        super::debug_check_sent(&messages, begin, end, self.evicted_through);
         Ok(messages)
     }
 
