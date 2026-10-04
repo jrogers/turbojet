@@ -58,6 +58,12 @@ const MAX_READS_PER_BATCH: usize = 16;
 /// Delay limit holds isn't read, so it can't build up here.
 const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 
+// Sends pause well before the backlog that disconnects; a read fits in what may wait unprocessed.
+const _: () = assert!(COMMANDS_PAUSE_AT < MAX_UNWRITTEN);
+const _: () = assert!(READ_BUFFER_SIZE < MAX_UNPROCESSED);
+const _: () = assert!(MAX_COMMANDS_PER_BATCH > 0);
+const _: () = assert!(MAX_READS_PER_BATCH > 0);
+
 /// Runs `session` over `stream` until either side disconnects.
 ///
 /// Each wake-up (a read from the peer, a batch of handle commands, or a timer deadline) can produce
@@ -158,6 +164,7 @@ where
     d.start(&mut shutdown);
     match spin(&mut d, &mut reader, &mut writer, logged_on, shutdown, closing.as_ref()) {
         Ok(Ended::Closed) => {
+            d.assert_finished();
             // As in `drive`: the session is released before the peer sees the close.
             drop(d);
             while poll_once(writer.shutdown()).is_none() {
@@ -192,6 +199,7 @@ where
     d.start(&mut shutdown);
     match serve(&mut d, &mut reader, &mut writer, logged_on, shutdown).await {
         Ok(Ended::Closed) => {
+            d.assert_finished();
             // Everything the session sent, a Logout before a close included, has gone. Release
             // the session (and its store) before the peer sees the close, so an immediate
             // reconnect can log on again.
@@ -200,6 +208,7 @@ where
             Ok(())
         }
         result => {
+            assert!(!matches!(result, Ok(Ended::Abandoned)), "only the spinning driver abandons a connection");
             d.session.on_disconnect(Instant::now().into_std());
             result.map(|_| ())
         }
@@ -276,6 +285,7 @@ impl Driver {
         R: AsyncRead + Unpin,
         W: AsyncWrite + Unpin,
     {
+        debug_assert!(branch < SPIN_BRANCHES);
         let &Step { closed, committing, resending, nothing_pending, sends, input_held, .. } = step;
         let taken = match branch {
             0 if !nothing_pending || self.unflushed => {
@@ -292,8 +302,7 @@ impl Driver {
                         true
                     }
                     Some(n) => {
-                        self.written += n;
-                        self.unflushed = true;
+                        self.on_written(n);
                         true
                     }
                 }
@@ -369,10 +378,7 @@ where
                 match result? {
                     0 if !nothing_pending => return Err(io::ErrorKind::WriteZero.into()),
                     0 => d.unflushed = false,
-                    n => {
-                        d.written += n;
-                        d.unflushed = true;
-                    }
+                    n => d.on_written(n),
                 }
             }
             // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
@@ -533,6 +539,12 @@ impl Driver {
             && !resending
             && self.unwritten() < COMMANDS_PAUSE_AT;
         let (sends, sends_free_at) = sends_this_time(&self.session, &self.commands, takes_sends);
+        // Everything the session sent is in the outbox, and the store's job is the session's wait.
+        debug_assert!(self.session.output().is_empty());
+        debug_assert!(!committing || self.session.is_waiting_on_store());
+        // Sends are taken or noticed only when they may be, and waited for only when noticed.
+        debug_assert!(takes_sends || sends == Sends::Ignore);
+        debug_assert!(sends_free_at.is_none() || sends == Sends::Notice);
         Ok(Some(Step {
             closed,
             committing,
@@ -555,6 +567,8 @@ impl Driver {
         {
             self.timer_at = deadline;
         }
+        // The timer only ever moves earlier than its ceiling, so schedule boundaries are seen.
+        debug_assert!(self.timer_at <= Instant::now() + MAX_TIMER_SLEEP);
     }
 
     /// The timer has fired: the session's deadlines are checked, and the timer set for the next.
@@ -564,6 +578,24 @@ impl Driver {
         self.session.on_timer(now.into_std());
         // A deadline on_timer left in the past waits for the ceiling rather than spin.
         self.stuck = self.session.next_deadline().map(Instant::from_std).filter(|deadline| *deadline <= now);
+    }
+
+    /// The stream took `n` more bytes of the outbox, owing a flush.
+    fn on_written(&mut self, n: usize) {
+        // A transport can't take more than it was given, nor nothing (that's WriteZero).
+        debug_assert!(n > 0);
+        debug_assert!(n <= self.unwritten(), "wrote {n} of {} bytes", self.unwritten());
+        self.written += n;
+        self.unflushed = true;
+    }
+
+    /// The connection is ending cleanly: everything the session sent has been written and
+    /// flushed, and no store job is left behind. Pairs with `prepare`'s end.
+    fn assert_finished(&self) {
+        assert!(self.session.is_closed());
+        assert_eq!(self.unwritten(), 0);
+        assert!(!self.unflushed);
+        assert!(self.store.is_none());
     }
 
     /// Bytes the session sent that haven't been written yet.
@@ -650,6 +682,9 @@ impl Driver {
         } else if let Some(job) = self.session.take_open() {
             self.store = Some(StoreTask::Open(job.spawn()));
         }
+        if let Some(store) = &self.store {
+            store.debug_check(&self.session);
+        }
         if self.store.is_none() && !self.deferred {
             // Committed at once: what was read has all been handled and can be written.
             self.timings.handled(&self.session);
@@ -679,9 +714,8 @@ impl Driver {
         {
             match result? {
                 0 => return Err(io::ErrorKind::WriteZero.into()),
-                n => self.written += n,
+                n => self.on_written(n),
             }
-            self.unflushed = true;
         }
         if self.written == self.outbox.len()
             && self.unflushed
@@ -760,8 +794,12 @@ impl Driver {
 
     /// The store's job has ended.
     fn on_store_done(&mut self, done: StoreDone) {
-        debug_assert!(self.store.is_some());
-        self.store = None;
+        let store = self.store.take();
+        debug_assert!(store.is_some());
+        if let Some(store) = &store {
+            store.debug_check(&self.session);
+            debug_assert_eq!(store.kind(), done.kind(), "a job's result is the kind of job it was");
+        }
         let now = Instant::now();
         if let StoreDone::Committed(result) = &done {
             self.timings.commit_finished(&self.session, result.is_ok(), now);
@@ -835,6 +873,21 @@ enum StoreDone {
 }
 
 impl StoreTask {
+    /// The session waits for this job, and a commit is the session's commit: checked as the job
+    /// starts and again as it ends.
+    fn debug_check(&self, session: &Session) {
+        debug_assert!(session.is_waiting_on_store());
+        debug_assert_eq!(matches!(self, Self::Commit(_)), session.is_committing());
+    }
+
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Commit(_) => "commit",
+            Self::Fetch(_) => "fetch",
+            Self::Open(_) => "open",
+        }
+    }
+
     /// Waits for the task. Cancel-safe: the task runs on whether or not this is polled.
     async fn finished(&mut self) -> StoreDone {
         match self {
@@ -846,6 +899,14 @@ impl StoreTask {
 }
 
 impl StoreDone {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::Committed(_) => "commit",
+            Self::Fetched(_) => "fetch",
+            Self::Opened(_) => "open",
+        }
+    }
+
     fn deliver(self, session: &mut Session, now: std::time::Instant) {
         match self {
             Self::Committed(result) => session.on_committed(result, now),
@@ -986,6 +1047,8 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
         }
         match decode_into(&buf[consumed..], session.data_fields(), scratch) {
             DecodedInto::Message(len) => {
+                // Each turn of the loop moves on, so it ends.
+                debug_assert!(len > 0);
                 consumed += len;
                 debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
                 session.on_message(scratch, now);
@@ -997,6 +1060,7 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
             }
             DecodedInto::Incomplete => break false,
             DecodedInto::Garbled { skip, reason } => {
+                debug_assert!(skip > 0);
                 warn!("discarding {skip} garbled bytes: {reason}");
                 telemetry::garbled_message();
                 consumed += skip;
@@ -1006,6 +1070,7 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
             }
         }
     };
+    debug_assert!(consumed <= buf.len());
     buf.drain(..consumed);
     deferred
 }
