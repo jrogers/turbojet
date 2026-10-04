@@ -1,6 +1,7 @@
 //! A session, acceptor or initiator, fed a sequence of fuzzed steps: a Logon, then inbound
 //! messages with a valid header (so they get past the codec) but any MsgType, MsgSeqNum and body
-//! fields, time passing, and the application or an operator acting on the session. Every message
+//! fields, time passing, the application or an operator acting on the session, and the transport
+//! ending, with or without cancel on disconnect counting down. Every message
 //! the session sends must encode and decode cleanly and, apart from resends, go out in sequence.
 //! A long resend goes out in steps: either each one at once, as the connection driver does, or
 //! when a `Resume` step says, with other steps fed in between, as a careless driver might.
@@ -17,8 +18,8 @@ use turbojet::codec::{Decoded, decode};
 use turbojet::message::{tags, utc_timestamp};
 use turbojet::registry::{Command, SequenceCommand};
 use turbojet::{
-    ApplVerId, Application, Context, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType, Session,
-    SessionConfig, SessionRegistry,
+    ApplVerId, Application, CancelOnDisconnect, CancelTrigger, Context, InitiatorConfig, MemoryStorage, Message,
+    MessageReject, MsgType, Session, SessionConfig, SessionRegistry,
 };
 use turbojet_fuzz::{frame, round_trip};
 
@@ -44,6 +45,8 @@ struct Input {
     /// Sequence numbers resent per step, less one: small, so short inputs reach resends of
     /// several steps.
     resend_batch: u8,
+    /// Cancel on disconnect: whether Logouts count too, and the grace in seconds.
+    cancel_on_disconnect: Option<(bool, u8)>,
     steps: Vec<Step>,
 }
 
@@ -59,6 +62,8 @@ enum Step {
     Sequence(Sequence),
     /// The next step of a resend in progress.
     Resume,
+    /// The transport ends: closed, reset or failed.
+    Disconnect,
 }
 
 #[derive(Arbitrary, Debug)]
@@ -226,7 +231,13 @@ fuzz_target!(|input: Input| {
     if input.fixt {
         config = config.with_appl_ver_id(ApplVerId::Fix50Sp2);
     }
+    config.cancel_on_disconnect = input.cancel_on_disconnect.map(|(logouts, grace)| CancelOnDisconnect {
+        trigger: if logouts { CancelTrigger::DisconnectOrLogout } else { CancelTrigger::Disconnect },
+        grace: Duration::from_secs((grace % 10).into()),
+    });
     let begin_string = config.begin_string.clone();
+    // Kept here as well as by the session: its countdowns outlive the session, and run as time
+    // passes and at the end.
     let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
     let mut now = Instant::now();
     let heartbeat = 1 + u32::from(input.heartbeat_secs % 60);
@@ -235,13 +246,13 @@ fuzz_target!(|input: Input| {
     let (mut session, _commands) = if input.initiator {
         let mut config = InitiatorConfig::new(config, "CLIENT");
         config.heartbeat_interval = Duration::from_secs(heartbeat.into());
-        let (mut session, commands) = Session::initiator(&config, registry, Arc::new(App), now);
+        let (mut session, commands) = Session::initiator(&config, registry.clone(), Arc::new(App), now);
         session.set_resend_batch(resend_batch);
         session.on_connect(now);
         assert!(check(&mut session, now, &mut next_out, false));
         (session, commands)
     } else {
-        let (mut session, commands) = Session::acceptor(config, registry, Arc::new(App), now);
+        let (mut session, commands) = Session::acceptor(config, registry.clone(), Arc::new(App), now);
         session.set_resend_batch(resend_batch);
         (session, commands)
     };
@@ -279,6 +290,7 @@ fuzz_target!(|input: Input| {
             Step::Elapse(secs) => {
                 now += Duration::from_secs(secs.into());
                 session.on_timer(now);
+                registry.run_due_cancels(now);
             }
             Step::Send => {
                 let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "X").with(tags::SYMBOL, "AAPL");
@@ -286,6 +298,7 @@ fuzz_target!(|input: Input| {
             }
             Step::Logout => session.on_command(Command::Logout(None), now),
             Step::Resume => session.on_resume(now),
+            Step::Disconnect => session.on_disconnect(now),
             Step::Sequence(request) => {
                 let request = match request {
                     Sequence::Get => SequenceCommand::Get,
@@ -313,8 +326,15 @@ fuzz_target!(|input: Input| {
         while input.resume_at_once && session.is_resending() {
             session.on_resume(now);
             if !check(&mut session, now, &mut next_out, false) {
-                return;
+                break;
             }
         }
+        if session.is_closed() {
+            break;
+        }
     }
+    // Dropping a session still open starts its countdown from the real clock, which lags `now`.
+    drop(session);
+    registry.run_due_cancels(now + Duration::from_secs(60));
+    assert_eq!(registry.next_cancel_deadline(), None, "a countdown outlived its grace");
 });
