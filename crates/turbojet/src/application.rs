@@ -62,7 +62,8 @@ pub trait Application: Send + Sync + 'static {
     /// for again: return `false` to gap-fill it instead, for one that's stale by now (an order
     /// the market has moved past, say). `msg` is as stored, with its original header. Called for
     /// each stored message a ResendRequest covers, in order; a run of messages declined, or not
-    /// stored, is covered by one SequenceReset. The default resends every one.
+    /// stored, is covered by one SequenceReset within each step of the resend (256 sequence
+    /// numbers). The default resends every one.
     fn should_resend(&self, _session: &SessionId, _msg: &Message) -> bool {
         true
     }

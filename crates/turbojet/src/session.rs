@@ -2343,7 +2343,6 @@ impl Session {
             Err(e) => return self.storage_failed(e, now),
         };
         let now_ts = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision).to_fix();
-        let sent_any = !originals.is_empty() || to == end;
         for (seq, original) in originals {
             // Declined: the gap fill before the next message resent covers it.
             if !self.app_resends(&original) {
@@ -2361,6 +2360,13 @@ impl Session {
             next = seq + 1;
         }
         if to < end {
+            // A step that ends in numbers not resent gap-fills them now rather than with the next
+            // message resent: through a long run of them, the counterparty sees progress each
+            // step, and doesn't take a slow resend for an unanswered one.
+            if next <= to {
+                self.send_gap_fill(next, to + 1, &now_ts);
+                next = to + 1;
+            }
             self.replay = Some(Replay { next, scan: to + 1, end, fetch: None });
         } else {
             if next <= end {
@@ -2368,9 +2374,7 @@ impl Session {
             }
             self.finish_replay(now);
         }
-        if sent_any {
-            self.last_sent = now;
-        }
+        self.last_sent = now;
     }
 
     /// Whether the application has `msg` resent, as it does if it panics deciding.

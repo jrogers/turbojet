@@ -1663,8 +1663,10 @@ fn a_long_resend_goes_out_in_steps() {
     assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("12"));
 }
 
+/// A step that resends nothing gap-fills its numbers then, rather than leave them to the next
+/// message resent: through a long run, the counterparty sees progress each step.
 #[test]
-fn a_gap_fill_spanning_steps_is_sent_once() {
+fn each_step_gap_fills_what_it_does_not_resend() {
     let h = Harness::new();
     let mut s = h.logged_on();
     s.resend_batch = 4;
@@ -1673,8 +1675,10 @@ fn a_gap_fill_spanning_steps_is_sent_once() {
     }
     s.recv(order(10, "A"), h.t0); // our 10: ExecutionReport
 
-    assert!(s.recv(resend_request(11, 1), h.t0).is_empty(), "1 to 4 are all session messages");
-    assert!(s.resume(h.t0).is_empty(), "so are 5 to 8");
+    let first = s.recv(resend_request(11, 1), h.t0);
+    assert_eq!(covered(&first), [1, 2, 3, 4], "1 to 4 are all session messages");
+    assert_eq!(types(&first), ["SequenceReset"]);
+    assert_eq!(covered(&s.resume(h.t0)), [5, 6, 7, 8], "so are 5 to 8");
     let last = s.resume(h.t0);
     assert_eq!(types(&last), ["SequenceReset", "ExecutionReport"]);
     assert_eq!(sent(&last)[0].get(tags::NEW_SEQ_NO), Some("10"));
