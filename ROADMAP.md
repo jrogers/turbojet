@@ -138,7 +138,17 @@ Nothing left: the crates.io and docs.rs pages are linked and render correctly.
 
 ## 2. Protocol completeness
 
-Nothing left for now: what the session layer covers is under *Where things stand*.
+What the session layer covers is under *Where things stand*.
+
+- **Cancel on disconnect** (M). Most venues offer cancel on disconnect (COD): when a session
+  drops without logging out, its resting orders are cancelled, so a firm that loses its
+  connection isn't left exposed. Turbojet knows the difference, but only tells the application
+  `on_logout` either way. Support it in the engine: say whether a session ended with a Logout, a
+  dropped connection or a missed heartbeat; let a session opt in, per counterparty, with a grace
+  period during which a reconnect that logs back on cancels nothing; and, on the initiator side,
+  ask for it at logon where a venue negotiates it there (in venue-specific Logon fields). The
+  cancelling stays the application's, which knows the orders; the gateway's cancel-on-disconnect
+  (section 8) would use it.
 
 ## 3. Dictionaries and code generation
 
@@ -265,6 +275,36 @@ From the benchmarks.
   latencies come from bypassing the kernel's network stack (OpenOnload or ef_vi on Solarflare
   cards, DPDK) and from network cards that timestamp packets in hardware. It needs a transport
   that isn't a tokio `TcpStream`, so it follows the zero-copy work.
+- **Aeron and SBE** (L, research). Low-latency venues and in-house systems increasingly use binary
+  encodings over messaging rather than tag=value over TCP: SBE (Simple Binary Encoding, the FIX
+  Trading Community's binary standard) for messages, under FIXP for the session, and Aeron (reliable
+  UDP unicast and multicast, and shared memory between processes on one host) as the transport.
+  Supporting them means a second encoding beside tag=value, with SBE schemas derived from the same
+  dictionaries the generated crates come from, a FIXP session layer beside the FIX one, and a
+  transport that isn't a byte stream. Start with SBE encoding and decoding of the generated
+  messages, measured against tag=value; then FIXP; then Aeron. Aeron's Rust clients mostly wrap its
+  C library, through `unsafe` code the workspace lints forbid in Turbojet's own crates, so it would
+  live in a crate of its own, as `turbojet-sql` does. Also a candidate transport for replicating
+  session state to a standby (section 7, high availability).
+
+### Ideas not yet measured
+
+Each needs a benchmark that shows the cost before the change is worth its complexity.
+
+- **SIMD parsing** (M). Decoding a FIX 4.2 NewOrderSingle into a reused message takes about 186 ns
+  (Apple M3, 2026-10-04). The scans in it are byte at a time: finding each field's SOH and `=`,
+  summing the CheckSum, and checking that values are UTF-8 (which the standard library already does
+  quickly). Scanning 16 or 32 bytes at once (SSE2/AVX2 on x86, NEON on Arm) could find every
+  delimiter in a frame in one pass and build the field index from the result. The workspace forbids
+  `unsafe`, so through a safe crate (`memchr` uses SIMD inside) or portable SIMD once `std::simd` is
+  stable. Profile the decode first to see what share these scans take.
+- **Cache-aligned data** (S each, research). Data shared between threads, such as the session
+  registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
+  share a cache line with unrelated data that another core writes (false sharing), and a
+  session's per-message fields are spread across a large struct. Pad what's contended to a
+  cache line (`#[repr(align(64))]`, or 128 bytes on Apple silicon) and group the fields the hot
+  path touches. It needs a benchmark with many sessions on several cores, which doesn't exist
+  yet: the round-trip benchmarks run one session.
 
 ## 7. Operations and deployment
 
@@ -325,7 +365,8 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 - **Example client** (S). It doesn't demonstrate replace or status requests.
 - **Cancel-on-disconnect and kill switch** (S). Cancel a session's resting orders when it
   disconnects, or on an operator command. Almost every venue offers this, and it would show how
-  an application reacts to session events.
+  an application reacts to session events. Builds on the engine's cancel on disconnect
+  (section 2).
 - **Pre-trade risk checks** (M). Order size limits, price bands against a reference price,
   credit limits and self-trade prevention, rejected before booking.
 
@@ -333,7 +374,7 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 
 Listed so the decisions are explicit; any of these could be built on Turbojet separately.
 
-- **Other encodings**. FIXML, FAST, SBE and FIXP.
+- **Other encodings**. FIXML and FAST. (SBE and FIXP are in section 6, under "Aeron and SBE".)
 - **Routing and translation between counterparties**. A hub that routes messages between
   sessions and maps one counterparty's dialect to another's with rules (like FIX Antenna's
   FIXEdge). Routing fields (section 2) are in scope; the hub is an application.
