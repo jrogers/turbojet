@@ -105,6 +105,7 @@ pub trait Application: Send + Sync + 'static {
     ///
     /// ```
     /// # use turbojet::{Context, FixMessageRef, Message, MessageReject, MsgType};
+    /// # use turbojet::message::tags;
     /// # use turbojet_fix44::messages::{NewOrderSingle, NewOrderSingleRef};
     /// # fn book(_: NewOrderSingle) {}
     /// fn on_message(ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
@@ -113,7 +114,7 @@ pub trait Application: Send + Sync + 'static {
     ///     }
     ///     let order: NewOrderSingleRef = msg.parse()?;
     ///     if order.symbol == Some("XYZ") {
-    ///         return Err(MessageReject::value_incorrect(55, "not traded here"));
+    ///         return Err(MessageReject::value_incorrect(tags::SYMBOL, "not traded here"));
     ///     }
     ///     book(order.into_owned());
     ///     Ok(())
