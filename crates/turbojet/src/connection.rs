@@ -1,12 +1,11 @@
 //! Drives a [`Session`] over any byte stream.
 
 use std::io;
-use std::pin::Pin;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::task::JoinHandle;
-use tokio::time::{Instant, Sleep};
+use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
 
 use crate::codec::{DecodedInto, decode_into};
@@ -166,34 +165,12 @@ where
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
     tokio::pin!(timer);
     loop {
-        *logged_on |= d.session.has_logged_on();
-        d.process(reader)?;
-        d.stage_output();
-        d.write_now(writer)?;
-        d.check_backlog()?;
-        let closed = d.session.is_closed();
-        // While the store works, everything but reading and writing waits.
-        let committing = d.store.is_some();
-        if closed && d.unwritten() == 0 && !d.unflushed && !committing {
-            return Ok(Ended::Closed);
+        let Some(step) = d.prepare(reader, writer, logged_on)? else { return Ok(Ended::Closed) };
+        if timer.deadline() != d.timer_at {
+            timer.as_mut().reset(d.timer_at);
         }
-        d.bring_timer_forward(timer.as_mut());
-
-        // While resending, input waits in the buffer and commands in their queue, so nothing new
-        // goes out in the middle of the range; each step waits until the last has been written.
-        // While committing, everything but reading and writing waits.
-        let resending = d.session.is_resending();
+        let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held } = step;
         let pending = &d.outbox[d.written..];
-        let nothing_pending = pending.is_empty();
-        // Application sends are taken once logged on (until then they wait in their bounded
-        // queue), and not while resending or with output backed up, or while the outbound window
-        // is full.
-        let takes_sends =
-            !closed && !committing && d.session.has_logged_on() && !resending && d.unwritten() < COMMANDS_PAUSE_AT;
-        let (sends, sends_free_at) = sends_this_time(&d.session, &d.commands, takes_sends);
-        // While the inbound window holds input, the socket isn't read: input waits there, in
-        // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
-        let input_held = input_held_until(&d.session);
         // Borrowed apart from `d`, for a future that only runs `if committing`: select! makes
         // every branch's future, and an async block would borrow all of `d`.
         let store = &mut d.store;
@@ -248,9 +225,24 @@ where
             done = async { store.as_mut().expect("guarded by is_some").finished().await }, if committing => {
                 d.on_store_done(done);
             }
-            () = &mut timer, if !closed && !committing => d.on_timer(timer.as_mut()),
+            () = &mut timer, if !closed && !committing => d.on_timer(),
         }
     }
+}
+
+/// What the driver may wait for this time round, from [`Driver::prepare`].
+struct Step {
+    closed: bool,
+    /// The store's job is under way.
+    committing: bool,
+    resending: bool,
+    /// All the output has been written (a flush may still be owed).
+    nothing_pending: bool,
+    sends: Sends,
+    /// When the outbound window frees up for sends it holds.
+    sends_free_at: Option<std::time::Instant>,
+    /// When the inbound window frees up for input it holds; until then the socket isn't read.
+    input_held: Option<std::time::Instant>,
 }
 
 /// A connection's state between wake-ups: the session, what's been read and not yet handled,
@@ -274,6 +266,8 @@ struct Driver {
     outbox: Vec<u8>,
     written: usize,
     unflushed: bool,
+    /// When the timer fires next.
+    timer_at: Instant,
     /// A deadline the session left in the past, which the timer waits out at its ceiling.
     stuck: Option<Instant>,
     /// The store's commit or read under way, off the connection's task: the session waits for it.
@@ -300,6 +294,7 @@ impl Driver {
             outbox: Vec::new(),
             written: 0,
             unflushed: false,
+            timer_at: Instant::now() + MAX_TIMER_SLEEP,
             stuck: None,
             store: None,
             commits_wait: false,
@@ -320,21 +315,67 @@ impl Driver {
         }
     }
 
+    /// Everything the session can do before the driver waits, then what it may wait for: `None`
+    /// once the session has closed and everything it sent has been written.
+    fn prepare<R, W>(&mut self, reader: &mut R, writer: &mut W, logged_on: &mut bool) -> io::Result<Option<Step>>
+    where
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        *logged_on |= self.session.has_logged_on();
+        self.process(reader)?;
+        self.stage_output();
+        self.write_now(writer)?;
+        self.check_backlog()?;
+        let closed = self.session.is_closed();
+        // While the store works, everything but reading and writing waits.
+        let committing = self.store.is_some();
+        if closed && self.unwritten() == 0 && !self.unflushed && !committing {
+            return Ok(None);
+        }
+        self.bring_timer_forward();
+
+        // While resending, input waits in the buffer and commands in their queue, so nothing new
+        // goes out in the middle of the range; each step waits until the last has been written.
+        // While committing, everything but reading and writing waits.
+        let resending = self.session.is_resending();
+        // Application sends are taken once logged on (until then they wait in their bounded
+        // queue), and not while resending or with output backed up, or while the outbound window
+        // is full.
+        let takes_sends = !closed
+            && !committing
+            && self.session.has_logged_on()
+            && !resending
+            && self.unwritten() < COMMANDS_PAUSE_AT;
+        let (sends, sends_free_at) = sends_this_time(&self.session, &self.commands, takes_sends);
+        Ok(Some(Step {
+            closed,
+            committing,
+            resending,
+            nothing_pending: self.unwritten() == 0,
+            sends,
+            sends_free_at,
+            // While the inbound window holds input, the socket isn't read: input waits there, in
+            // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
+            input_held: input_held_until(&self.session),
+        }))
+    }
+
     /// Only ever brings the timer forward to the session's next deadline: most sends and
     /// receives push deadlines later, and a timer that fires early just finds nothing due.
-    fn bring_timer_forward(&self, timer: Pin<&mut Sleep>) {
+    fn bring_timer_forward(&mut self) {
         if let Some(deadline) = self.session.next_deadline().map(Instant::from_std)
-            && deadline < timer.deadline()
+            && deadline < self.timer_at
             && self.stuck != Some(deadline)
         {
-            timer.reset(deadline);
+            self.timer_at = deadline;
         }
     }
 
     /// The timer has fired: the session's deadlines are checked, and the timer set for the next.
-    fn on_timer(&mut self, timer: Pin<&mut Sleep>) {
+    fn on_timer(&mut self) {
         let now = Instant::now();
-        timer.reset(now + MAX_TIMER_SLEEP);
+        self.timer_at = now + MAX_TIMER_SLEEP;
         self.session.on_timer(now.into_std());
         // A deadline on_timer left in the past waits for the ceiling rather than spin.
         self.stuck = self.session.next_deadline().map(Instant::from_std).filter(|deadline| *deadline <= now);
