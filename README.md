@@ -566,6 +566,11 @@ address (a NAT, or a hub serving several firms) share its limit.
 All endpoints are treated as the same FIX session (e.g. a counterparty's primary and DR
 sites), so sequence numbers carry over and the `SessionHandle` stays valid across failovers.
 
+`InitiatorConfig::local_addr` makes every connection come from one local address, for a host with
+several networks or a counterparty that only accepts known source addresses: an IP address, and
+a port or 0 to let the system choose one. Only endpoint addresses of the same family (IPv4 or
+IPv6) are tried. In configuration files it's an initiator's `local_address`.
+
 `Initiator::reconfigure` replaces an initiator's configuration and endpoints from its next
 connection attempt, leaving a session that's connected alone, and `with_registry` lets
 initiators share a `SessionRegistry`, so handles from it outlive an initiator replaced by
@@ -625,7 +630,7 @@ checked when it's built (the key must be the certificate's), so a bad renewal is
 the old one kept. The gateway reloads its certificate, key and client CAs from their files on
 SIGHUP.
 
-For other setups (system roots, custom verifiers, different protocol versions), build a
+For other setups (system roots, custom verifiers, other protocol versions or cipher suites), build a
 `rustls::ServerConfig`/`ClientConfig` yourself and wrap it with `TlsAcceptor::from` /
 `TlsConnector::from`. Handshakes run on each connection's own task and are bounded by the logon
 timeout.

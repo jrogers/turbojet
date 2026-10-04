@@ -11,6 +11,9 @@ Notable changes to the published crates.
   checks, once, before the session acts on it. Until now a counterparty's session-level Reject
   of one of our messages was only logged, and a Logout's Text never reached the application.
   It has a default that does nothing.
+- `InitiatorConfig::local_addr` connects an initiator from a chosen local address (and port, or 0
+  for any), trying only its endpoints' addresses of the same family. Breaking for an
+  `InitiatorConfig` built as a struct literal: it has the new field.
 - Cancel on disconnect: `SessionConfig::cancel_on_disconnect` takes a `CancelOnDisconnect`, a
   `CancelTrigger` (`Disconnect`, endings without a Logout, or `DisconnectOrLogout`) and a grace
   period of up to `MAX_CANCEL_GRACE` (an hour), set per counterparty through `Counterparties`.
@@ -35,6 +38,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `local_address` in an initiator's section: the IP address to connect from, with or without a
+  port.
 - `cancel_on_disconnect` (`"off"`, the default, `"disconnect"` or `"disconnect_or_logout"`, under
   which Logouts from either side count too) and `cancel_grace` (`0s`, the default, up to `1h`), in
   `[defaults]`, a counterparty's section or an initiator's. Stopping an initiator, removed or

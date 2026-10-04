@@ -29,7 +29,7 @@ later, with:
   a command (`turbojet-codegen`);
 - acceptor and initiator transports, TLS with optional mutual authentication (certificates
   given from memory or files, and replaced while running), initiator
-  failover, and graceful shutdown (every session logged out, bounded by the logout timeout),
+  failover from a chosen local address, and graceful shutdown (every session logged out, bounded by the logout timeout),
   which the gateway does on SIGINT and SIGTERM; initiators reconnect with a configurable backoff
   (by default 1 s to 60 s, jittered), and acceptors limit connections overall and per IP address,
   and give each counterparty its own settings, decided at Logon, and its own store;
