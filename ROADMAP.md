@@ -197,16 +197,15 @@ Orchestra.
 Following [STYLE.md](STYLE.md) (after TigerBeetle's Tiger Style): limits on everything, asserted
 invariants, and tests that look for bugs rather than confirm what already works. The workspace
 lints (no `unsafe`, no lossy casts, no `unwrap` in library code, functions of about 70 lines) and
-debug assertions on framing, sequence numbers and the gap queue are in place.
+debug assertions on framing, sequence numbers and the gap queue are in place. The long functions
+in the session, the decoder, the connection driver and the code generator are split into a
+parent that decides and helpers that compute; the few still marked
+`#[expect(clippy::too_many_lines)]` are a match arm per event or option, or a benchmark group.
 
 - **Assertion density** (M). Aim for about two assertions per function in `session`, `codec`,
   `message` and the stores: preconditions, postconditions, and pairs across code paths. For
   example, `MemoryStorage` checks a message's framing when it's stored but not when it's read
   back for a resend, as `DiskStorage` does.
-- **Split long functions** (M). The functions marked `#[expect(clippy::too_many_lines)]`
-  (`Session::on_session_message`, `Message::from_frame`, the connection driver and the code
-  generator's `plan::build`, among others) keep their branching in one place, but are too long
-  to hold in your head. Split them into a parent that decides and helpers that compute.
 
 ## 6. Performance
 
