@@ -6,6 +6,13 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: `Acceptor::new` and `Initiator::new` return `Result<Self, ConfigError>` rather than
+  panicking on an invalid configuration.
+- Breaking: the configuration checks (`SessionConfig::check`, `InitiatorConfig::check`,
+  `ReconnectPolicy::check`, `Counterparty::check`) and `Initiator::reconfigure` return a
+  `ConfigError`, which implements `std::error::Error`, rather than a `String`.
+- `SessionConfig::check` refuses a BeginString that can't be sent: empty, or with SOH or `=` in
+  it. Any other is accepted, a venue's own version included.
 - Breaking: the public config structs (`SessionConfig`, `InitiatorConfig`, `ReconnectPolicy`,
   `ValidationOptions`, `RateLimit`, `CancelOnDisconnect`), `Endpoint` and `SessionId` are
   `#[non_exhaustive]`, so adding a field to one no longer breaks code that uses it. Build them
