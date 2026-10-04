@@ -64,8 +64,16 @@ impl Counterparty {
         Self { config, heartbeat: Self::DEFAULT_HEARTBEAT, require_client_certificate: false }
     }
 
-    /// Why these settings can't be used on an acceptor configured with `base`, if they can't.
-    pub(crate) fn check(&self, base: &SessionConfig) -> Result<(), String> {
+    /// Why these settings can't be used on an acceptor configured with `base`, if they can't:
+    /// the checks a session makes on what a resolver returns, for a resolver to make sooner
+    /// (when it loads its settings, say).
+    ///
+    /// # Errors
+    ///
+    /// The first problem found: a field in use before Logon that differs from `base`'s, the
+    /// config failing [`SessionConfig::check`], or a heartbeat range outside
+    /// [`DEFAULT_HEARTBEAT`](Self::DEFAULT_HEARTBEAT).
+    pub fn check(&self, base: &SessionConfig) -> Result<(), String> {
         let config = &self.config;
         let fixed = [
             ("begin_string", config.begin_string == base.begin_string),
