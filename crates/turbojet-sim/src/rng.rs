@@ -53,6 +53,7 @@ impl Rng {
 
     /// An independent stream for one part of the world, so drawing more in one part doesn't
     /// change every other part's choices.
+    #[must_use]
     pub fn fork(&mut self) -> Rng {
         Rng::new(self.next_u64())
     }

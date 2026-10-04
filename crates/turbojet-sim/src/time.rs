@@ -16,6 +16,7 @@ impl SimTime {
         Self(u64::try_from(d.as_nanos()).expect("simulations are shorter than 584 years"))
     }
 
+    #[must_use]
     pub fn after(self, d: Duration) -> Self {
         Self(self.0 + Self::from_duration(d).0)
     }

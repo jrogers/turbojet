@@ -99,6 +99,7 @@ impl LedgerStorage {
     }
 
     /// Commits take a while to finish; with `early`, the planted bug of reporting them done first.
+    #[must_use]
     pub fn slow_commits(mut self, early: bool) -> Self {
         self.slow = true;
         self.early = early;

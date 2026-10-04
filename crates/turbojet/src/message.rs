@@ -650,6 +650,7 @@ impl Message {
     }
 
     /// [`set`](Self::set), returning the message for chaining.
+    #[must_use]
     pub fn with(mut self, tag: u32, value: impl ToFix) -> Self {
         self.set(tag, value);
         self
@@ -677,12 +678,14 @@ impl Message {
     }
 
     /// [`set_data`](Self::set_data), returning the message for chaining.
+    #[must_use]
     pub fn with_data(mut self, length_tag: u32, data_tag: u32, value: &[u8]) -> Self {
         self.set_data(length_tag, data_tag, value);
         self
     }
 
     /// [`with`](Self::with) if `value` is `Some`; otherwise returns the message unchanged.
+    #[must_use]
     pub fn with_opt(self, tag: u32, value: Option<impl ToFix>) -> Self {
         match value {
             Some(v) => self.with(tag, v),

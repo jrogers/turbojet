@@ -300,6 +300,7 @@ impl SessionSchedule {
 
     /// Restricts a daily schedule to periods starting on `days`. Has no effect on weekly
     /// schedules.
+    #[must_use]
     pub fn on_days(mut self, days: impl IntoIterator<Item = Weekday>) -> Self {
         if let Kind::Daily { days: allowed, .. } = &mut self.kind {
             *allowed = [false; 7];
@@ -311,6 +312,7 @@ impl SessionSchedule {
     }
 
     /// Reads the schedule's days and times in `time_zone` instead of UTC.
+    #[must_use]
     pub fn in_time_zone(mut self, time_zone: ScheduleTimeZone) -> Self {
         self.time_zone = time_zone;
         self
@@ -318,6 +320,7 @@ impl SessionSchedule {
 
     /// Starts no period on these dates, read in the schedule's time zone. For a weekly schedule,
     /// only a holiday on its start day matters: it skips that week's period.
+    #[must_use]
     pub fn with_holidays(mut self, holidays: HolidayCalendar) -> Self {
         self.holidays = holidays;
         self

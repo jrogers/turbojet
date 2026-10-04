@@ -448,6 +448,7 @@ impl SessionRegistry {
 
     /// Uses `clock` for creation times recorded by operator resets (normally the sessions'
     /// [`SessionConfig::clock`](crate::SessionConfig::clock)).
+    #[must_use]
     pub fn with_clock(mut self, clock: Clock) -> Self {
         self.clock = clock;
         self

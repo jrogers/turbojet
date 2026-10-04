@@ -115,6 +115,7 @@ impl Endpoint {
     }
 
     /// Sets [`tls_server_name`](Self::tls_server_name).
+    #[must_use]
     pub fn with_tls_server_name(mut self, name: impl Into<String>) -> Self {
         self.tls_server_name = Some(name.into());
         self
@@ -211,6 +212,7 @@ impl Initiator {
     }
 
     /// Adds a backup endpoint, tried after the primary and any earlier backups.
+    #[must_use]
     pub fn with_failover(self, endpoint: impl Into<Endpoint>) -> Self {
         let plan = self.plan();
         let mut endpoints = plan.endpoints.clone();

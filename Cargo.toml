@@ -27,6 +27,8 @@ unsafe_code = "deny"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
+# A builder's result dropped (`msg.with(tag, value);`) is a bug.
+return_self_not_must_use = "warn"
 # Thresholds are in clippy.toml.
 too_many_lines = "warn"
 cast_possible_truncation = "warn"

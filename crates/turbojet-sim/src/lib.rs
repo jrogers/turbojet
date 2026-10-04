@@ -34,6 +34,7 @@ impl Side {
         }
     }
 
+    #[must_use]
     pub fn other(self) -> Side {
         match self {
             Side::Initiator => Side::Acceptor,
