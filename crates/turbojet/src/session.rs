@@ -24,7 +24,7 @@ use tracing::{debug, error, info, warn};
 use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
-use crate::application::{Application, Context, MessageReject, Outbox};
+use crate::application::{Application, Context, Disconnect, MessageReject, Outbox};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::counterparty::{Counterparties, Counterparty};
 use crate::fields::{
@@ -465,6 +465,8 @@ pub struct Session {
     peer: Option<Peer>,
     /// Whether the application has been told about the logon (and so is owed an `on_logout`).
     app_logged_on: bool,
+    /// Why we started to log out, for `on_logout` once it ends; `None` until then.
+    ending: Option<Disconnect>,
     /// Whether the session ever reached the logged-on state.
     ever_logged_on: bool,
     logon_deadline_from: Instant,
@@ -609,6 +611,7 @@ impl Session {
             status: Status::AwaitingLogon,
             peer: None,
             app_logged_on: false,
+            ending: None,
             ever_logged_on: false,
             logon_deadline_from: now,
             last_sent: now,
@@ -795,7 +798,7 @@ impl Session {
             Err(e) => {
                 warn!("refusing logon: cannot open session store for {id}: {e}");
                 self.registry.release(&id);
-                self.close();
+                self.close(Disconnect::Error);
             }
         }
     }
@@ -954,6 +957,17 @@ impl Session {
         }
     }
 
+    /// The transport ended (closed by the other end, reset or failed) while the session was open.
+    /// Does nothing once the session has closed. A session logging out ends as its logout would
+    /// have: the counterparty closing instead of answering is no different from not answering.
+    pub fn on_disconnect(&mut self, _now: Instant) {
+        self.wall_clock.set(None);
+        if self.status != Status::Closed {
+            info!("connection lost");
+            self.close(self.ending.unwrap_or(Disconnect::ConnectionLost));
+        }
+    }
+
     /// A message was decoded from the transport.
     pub fn on_message(&mut self, msg: &Message, now: Instant) {
         self.wall_clock.set(None);
@@ -1030,10 +1044,10 @@ impl Session {
     pub fn on_shutdown(&mut self, text: Option<&str>, now: Instant) {
         self.wall_clock.set(None);
         match self.status {
-            Status::Active => self.logout(text, now),
+            Status::Active => self.logout(text, Disconnect::Shutdown, now),
             Status::AwaitingLogon => {
                 info!("shutting down before logon; disconnecting");
-                self.close();
+                self.close(Disconnect::Shutdown);
             }
             Status::LoggingOut { .. } | Status::Closed => {}
         }
@@ -1058,7 +1072,9 @@ impl Session {
                     (None, _) => {}
                 }
             }
-            Command::Logout(text) if self.status == Status::Active => self.logout(text.as_deref(), now),
+            Command::Logout(text) if self.status == Status::Active => {
+                self.logout(text.as_deref(), Disconnect::Logout, now)
+            }
             Command::Logout(_) => debug!("ignoring logout request: session is already logging out"),
             Command::Sequence(..) => unreachable!("handled in on_command"),
         }
@@ -1133,11 +1149,11 @@ impl Session {
             match self.status {
                 Status::Active => {
                     info!("session period ended; logging out");
-                    self.logout(Some("End of session"), now);
+                    self.logout(Some("End of session"), Disconnect::Shutdown, now);
                 }
                 Status::AwaitingLogon => {
                     warn!("session period ended before logon completed");
-                    self.close();
+                    self.close(Disconnect::Shutdown);
                 }
                 Status::LoggingOut { .. } | Status::Closed => {}
             }
@@ -1146,13 +1162,13 @@ impl Session {
             Status::AwaitingLogon => {
                 if now.duration_since(self.logon_deadline_from) >= self.config.logon_timeout {
                     warn!("no Logon received within {:?}", self.config.logon_timeout);
-                    self.close();
+                    self.close(Disconnect::Error);
                 }
             }
             Status::LoggingOut { since } => {
                 if now.duration_since(since) >= self.config.logout_timeout {
                     warn!("no Logout reply received; disconnecting");
-                    self.close();
+                    self.close(self.ending.unwrap_or(Disconnect::Logout));
                 }
             }
             // The counterparty's input waits while we resend, and we're sending anyway: Heartbeats,
@@ -1210,7 +1226,7 @@ impl Session {
         match self.test_request_sent {
             Some(sent) if now.duration_since(self.silent_from(sent)) >= interval => {
                 warn!("counterparty did not answer TestRequest; disconnecting");
-                self.close();
+                self.close(Disconnect::HeartbeatTimeout);
                 return;
             }
             Some(_) => {}
@@ -1242,7 +1258,7 @@ impl Session {
         if resend.retried {
             let text = format!("ResendRequest from {next} unanswered");
             warn!("{text}; logging out");
-            return self.logout(Some(&text), now);
+            return self.logout(Some(&text), Disconnect::Error, now);
         }
         resend.retried = true;
         resend.progress_at = now;
@@ -1257,7 +1273,7 @@ impl Session {
         let id = self.session_id_for(target_comp_id);
         if let Some(reason) = self.outside_schedule() {
             warn!(session = %id, "not logging on: {reason}");
-            return self.close();
+            return self.close(Disconnect::Shutdown);
         }
         self.bind(id, heartbeat, AfterOpen::SendLogon { reset }, now);
     }
@@ -1282,7 +1298,7 @@ impl Session {
     fn on_logon(&mut self, msg: &Message, now: Instant) {
         if msg.msg_type() != MsgType::Logon {
             warn!("expected Logon, got MsgType '{}'; disconnecting", msg.msg_type());
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         match self.role {
             Role::Acceptor => self.accept_logon(msg, now),
@@ -1297,7 +1313,7 @@ impl Session {
                 Ok(v) => v,
                 Err(reason) => {
                     warn!("refusing logon: {reason}");
-                    return self.close();
+                    return self.close(Disconnect::Error);
                 }
             };
         let id = self.session_id_for(comp_id);
@@ -1306,17 +1322,17 @@ impl Session {
             Ok(version) => version,
             Err(reason) => {
                 warn!(session = %id, "refusing logon: {reason}");
-                return self.close();
+                return self.close(Disconnect::Error);
             }
         };
         if let Some(reason) = self.outside_schedule() {
             warn!(session = %id, "refusing logon: {reason}");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         let verdict = guarded("verify_logon", || self.app.verify_logon(&id, msg, &self.connection));
         if let Err(reason) = verdict.unwrap_or_else(|| Err("verify_logon panicked".into())) {
             warn!(session = %id, "application refused logon: {reason}");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         self.appl_version = appl_version;
         let reset = msg.flag(tags::RESET_SEQ_NUM_FLAG);
@@ -1332,8 +1348,12 @@ impl Session {
         }
         let expected = self.peer().log.next_incoming();
         if seq_num < expected {
-            self.logout(Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")), now);
-            return self.close();
+            self.logout(
+                Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")),
+                Disconnect::Error,
+                now,
+            );
+            return self.close(Disconnect::Error);
         }
         // Our reply's MsgSeqNum: the most their 789 can be.
         let reply_seq = self.peer().log.next_outgoing();
@@ -1358,8 +1378,8 @@ impl Session {
             Some(next) if next == 0 || next > limit => {
                 let text =
                     format!("NextExpectedMsgSeqNum(789) too high, expecting at most {limit} but received {next}");
-                self.logout(Some(&text), now);
-                self.close();
+                self.logout(Some(&text), Disconnect::Error, now);
+                self.close(Disconnect::Error);
                 false
             }
             _ => true,
@@ -1370,51 +1390,55 @@ impl Session {
     fn complete_logon(&mut self, msg: &Message, now: Instant) {
         if let Err(mismatch) = self.check_header(msg) {
             warn!("refusing Logon reply: {mismatch}");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         if let Some(text) = self.sending_time_problem(msg) {
             warn!("refusing Logon reply: {text}");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         let identifying = [tags::SENDER_COMP_ID, tags::TARGET_COMP_ID, tags::SENDING_TIME];
         if let Some(tag) = identifying.into_iter().find(|tag| msg.get(*tag).is_none_or(str::is_empty)) {
             warn!("refusing Logon reply: tag {tag} missing or empty");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         let Ok(seq_num) = msg.field::<u64>(tags::MSG_SEQ_NUM) else {
             warn!("refusing Logon reply: MsgSeqNum(34) missing or invalid");
-            return self.close();
+            return self.close(Disconnect::Error);
         };
         if let Some(defect) = msg.defect() {
             warn!("refusing Logon reply: {}", defect.text);
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         let reply = match msg.parse::<Logon>() {
             Ok(reply) => reply,
             Err(e) => {
                 warn!("refusing Logon reply: {e}");
-                return self.close();
+                return self.close(Disconnect::Error);
             }
         };
         if let Some(tag) = empty_field(msg) {
             warn!("refusing Logon reply: tag {tag} specified without a value");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         if self.config.is_fixt() && reply.default_appl_ver_id != self.appl_ver_id() {
             let expected = self.appl_ver_id().map_or("none", ApplVerId::code);
             let received = reply.default_appl_ver_id.map_or("none", ApplVerId::code);
             warn!("refusing Logon reply: DefaultApplVerID(1137) must be '{expected}', not '{received}'");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         let verdict = guarded("verify_logon", || self.app.verify_logon(&self.peer().id, msg, &self.connection));
         if let Err(reason) = verdict.unwrap_or_else(|| Err("verify_logon panicked".into())) {
             warn!("application refused Logon reply: {reason}");
-            return self.close();
+            return self.close(Disconnect::Error);
         }
         let expected = self.peer().log.next_incoming();
         if seq_num < expected {
-            self.logout(Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")), now);
-            return self.close();
+            self.logout(
+                Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")),
+                Disconnect::Error,
+                now,
+            );
+            return self.close(Disconnect::Error);
         }
         let their_next = reply.next_expected_msg_seq_num;
         // They've had our Logon, the last message we sent.
@@ -1585,7 +1609,7 @@ impl Session {
             }
             Err(reason) => {
                 warn!("refusing logon: {reason}");
-                self.close();
+                self.close(Disconnect::Error);
             }
         }
     }
@@ -1722,22 +1746,22 @@ impl Session {
             // Session test case 2i: Logout, without a Reject.
             Err(HeaderMismatch::BeginString(text)) => {
                 warn!("{text}; logging out");
-                self.logout(Some(&text), now);
-                self.close();
+                self.logout(Some(&text), Disconnect::Error, now);
+                self.close(Disconnect::Error);
                 return None;
             }
             // Session test case 2k: Reject, then Logout.
             Err(HeaderMismatch::CompId(text)) => {
                 warn!("{text}; logging out");
                 self.reject(msg, None, Some(SessionRejectReason::CompIDProblem), &text, now);
-                self.logout(Some(&text), now);
-                self.close();
+                self.logout(Some(&text), Disconnect::Error, now);
+                self.close(Disconnect::Error);
                 return None;
             }
         }
         let Ok(seq_num) = msg.field::<u64>(tags::MSG_SEQ_NUM) else {
-            self.logout(Some("MsgSeqNum(34) missing or invalid"), now);
-            self.close();
+            self.logout(Some("MsgSeqNum(34) missing or invalid"), Disconnect::Error, now);
+            self.close(Disconnect::Error);
             return None;
         };
         // Session test case 2o: Reject, then Logout. The message still takes its number.
@@ -1748,7 +1772,7 @@ impl Session {
             if seq_num == self.peer().log.next_incoming() {
                 self.set_next_incoming(seq_num + 1);
             }
-            self.logout(Some(&text), now);
+            self.logout(Some(&text), Disconnect::Error, now);
             return None;
         }
         Some(seq_num)
@@ -1810,8 +1834,12 @@ impl Session {
             }
             return;
         }
-        self.logout(Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")), now);
-        self.close();
+        self.logout(
+            Some(&format!("MsgSeqNum too low, expecting {expected} but received {seq_num}")),
+            Disconnect::Error,
+            now,
+        );
+        self.close(Disconnect::Error);
     }
 
     /// The message the sequence expects: handled, then its number saved.
@@ -1921,7 +1949,7 @@ impl Session {
                 warn!("{text}; logging out");
                 let reason = Some(SessionRejectReason::SendingTimeAccuracyProblem);
                 self.reject(msg, Some(tags::ORIG_SENDING_TIME), reason, text, now);
-                self.logout(Some(text), now);
+                self.logout(Some(text), Disconnect::Error, now);
                 true
             }
             _ => false,
@@ -1956,7 +1984,11 @@ impl Session {
         } else {
             info!("logout confirmed");
         }
-        self.close();
+        let reason = match self.status {
+            Status::Active => Disconnect::CounterpartyLogout,
+            _ => self.ending.unwrap_or(Disconnect::Logout),
+        };
+        self.close(reason);
     }
 
     /// Keeps a message that arrived ahead of a gap until its turn; the first one kept for each
@@ -2416,8 +2448,11 @@ impl Session {
         self.reject(msg, Some(e.tag), Some(e.reject_reason()), &e.to_string(), now);
     }
 
-    fn logout(&mut self, text: Option<&str>, now: Instant) {
+    /// Sends Logout and waits for the reply. `reason` is what `on_logout` is told when the session
+    /// ends; the first logout's reason stands.
+    fn logout(&mut self, text: Option<&str>, reason: Disconnect, now: Instant) {
         info!(text, "logging out");
+        self.ending.get_or_insert(reason);
         // Shutdown isn't held up by a long resend: the counterparty asks for the rest next time.
         if self.replay.is_some() {
             info!("logging out during a resend; the rest of it isn't sent");
@@ -2431,7 +2466,7 @@ impl Session {
 
     /// Ends the session. The driver writes the output, then closes the connection, so nothing may
     /// add to the output once closed: `send` and `resend` check, and `emit` asserts it.
-    fn close(&mut self) {
+    fn close(&mut self, reason: Disconnect) {
         if self.status != Status::Closed {
             self.status = Status::Closed;
             self.queued.clear();
@@ -2441,13 +2476,13 @@ impl Session {
                 peer.metrics.logged_off();
             }
             self.discard_pending();
-            self.notify_logout();
+            self.notify_logout(reason);
         }
     }
 
-    fn notify_logout(&mut self) {
+    fn notify_logout(&mut self, reason: Disconnect) {
         if std::mem::take(&mut self.app_logged_on) {
-            guarded("on_logout", || self.app.on_logout(&self.peer().id));
+            guarded("on_logout", || self.app.on_logout(&self.peer().id, reason));
         }
     }
 
@@ -2494,7 +2529,7 @@ impl Session {
         let admin = body.msg_type().is_admin();
         // A panic may have left the message half-modified: disconnect rather than send it.
         if admin && guarded("to_admin", || self.app.to_admin(&self.peer().id, body)).is_none() {
-            self.close();
+            self.close(Disconnect::Error);
             return Err(Dropped::Disconnected);
         }
         // SOH ends a field on the wire, so a value containing one would add fields of its own,
@@ -2619,7 +2654,7 @@ impl Session {
             let _ = reply.send(Err(SequenceError::Storage(io::Error::new(e.kind(), e.to_string()))));
         }
         self.fail_receipts();
-        self.close();
+        self.close(Disconnect::Error);
     }
 
     /// The reference for [`frame_into`](Self::frame_into): the framed message as a `Message`.
@@ -2917,7 +2952,8 @@ impl Drop for Session {
     fn drop(&mut self) {
         self.fail_receipts();
         self.discard_pending();
-        self.notify_logout();
+        // Dropped mid-logout, the logout says how the session ended.
+        self.notify_logout(self.ending.unwrap_or(Disconnect::ConnectionLost));
         // Dropped while the store opened its log (the connection failed): the log, if the job
         // still opens it, is closed when the job's result is dropped.
         if let Some(opening) = self.opening_log.take() {

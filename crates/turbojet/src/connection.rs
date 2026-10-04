@@ -119,25 +119,56 @@ where
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut d = Driver::new(session, commands);
+    d.start(&mut shutdown);
+    match serve(&mut d, &mut reader, &mut writer, logged_on, shutdown).await {
+        Ok(Ended::Closed) => {
+            // Everything the session sent, a Logout before a close included, has gone. Release
+            // the session (and its store) before the peer sees the close, so an immediate
+            // reconnect can log on again.
+            drop(d);
+            let _ = writer.shutdown().await;
+            Ok(())
+        }
+        result => {
+            d.session.on_disconnect(Instant::now().into_std());
+            result.map(|_| ())
+        }
+    }
+}
+
+/// How [`serve`] ended without an error.
+enum Ended {
+    /// The session closed and everything it sent has been written.
+    Closed,
+    /// The counterparty closed the connection.
+    Lost,
+}
+
+/// Runs the connection until the session closes and its output has gone, or the transport ends.
+async fn serve<R, W>(
+    d: &mut Driver,
+    reader: &mut R,
+    writer: &mut W,
+    logged_on: &mut bool,
+    mut shutdown: Option<Signal>,
+) -> io::Result<Ended>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
     let timer = tokio::time::sleep(MAX_TIMER_SLEEP);
     tokio::pin!(timer);
-    d.start(&mut shutdown);
     loop {
         *logged_on |= d.session.has_logged_on();
-        d.process(&mut reader)?;
+        d.process(reader)?;
         d.stage_output();
-        d.write_now(&mut writer)?;
+        d.write_now(writer)?;
         d.check_backlog()?;
         let closed = d.session.is_closed();
         // While the store works, everything but reading and writing waits.
         let committing = d.store.is_some();
         if closed && d.unwritten() == 0 && !d.unflushed && !committing {
-            // Everything the session sent, a Logout before a close included, has gone. Release
-            // the session (and its store) before the peer sees the close, so an immediate
-            // reconnect can log on again.
-            drop(d.session);
-            let _ = writer.shutdown().await;
-            return Ok(());
+            return Ok(Ended::Closed);
         }
         d.bring_timer_forward(timer.as_mut());
 
@@ -178,7 +209,7 @@ where
             // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
             read = reader.read_buf(&mut d.buf), if input_held.is_none() => {
                 match read? {
-                    0 => return Ok(()),
+                    0 => return Ok(Ended::Lost),
                     read => d.on_read(read, closed, resending || committing),
                 }
             }

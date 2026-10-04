@@ -8,8 +8,8 @@ use tokio::sync::mpsc;
 use turbojet::message::tags;
 use turbojet::registry::{SequenceError, SequenceNumbers};
 use turbojet::{
-    Acceptor, Application, Context, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle, SessionId, SessionRegistry,
+    Acceptor, Application, Context, Disconnect, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject,
+    MsgType, SessionConfig, SessionHandle, SessionId, SessionRegistry,
 };
 
 #[derive(Debug)]
@@ -25,7 +25,7 @@ impl Application for Recorder {
     fn on_logon(&self, _session: SessionHandle) {
         let _ = self.0.send(Event::LoggedOn);
     }
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         let _ = self.0.send(Event::LoggedOut);
     }
     fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {

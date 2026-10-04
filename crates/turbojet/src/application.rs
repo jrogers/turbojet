@@ -49,8 +49,11 @@ pub trait Application: Send + Sync + 'static {
     /// The session is logged on. Keep the handle to send messages outside of callbacks.
     fn on_logon(&self, _session: SessionHandle) {}
 
-    /// The session has logged out or the connection was lost.
-    fn on_logout(&self, _session: &SessionId) {}
+    /// A logged-on session has ended: it logged out, or the connection was lost. `ended` says
+    /// which, so the application can tell a Logout, which both sides agreed to, from a session
+    /// that stopped without one. Called once per logon, and never for a session that didn't log
+    /// on.
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {}
 
     /// An application-level message arrived in sequence. Replies sent through `ctx` go out in
     /// order immediately after this returns. Returning `Err` sends the corresponding reject.
@@ -86,6 +89,26 @@ pub trait Application: Send + Sync + 'static {
     fn on_message(&self, _ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
         Err(MessageReject::unsupported_message_type())
     }
+}
+
+/// How a logged-on session ended, given to [`Application::on_logout`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Disconnect {
+    /// We logged out (through [`SessionHandle::logout`](crate::SessionHandle::logout)), and the
+    /// counterparty answered, or didn't within the logout timeout.
+    Logout,
+    /// The counterparty logged out.
+    CounterpartyLogout,
+    /// The connection ended without a Logout: closed, reset, or failed.
+    ConnectionLost,
+    /// The counterparty didn't answer a TestRequest.
+    HeartbeatTimeout,
+    /// We ended the session over an error: a sequence or header problem, a storage failure, a
+    /// panicking `to_admin`. A Logout may have been sent first.
+    Error,
+    /// Our side shut down, or the session's schedule ended.
+    Shutdown,
 }
 
 /// Passed to [`Application::on_message`] to reply on the same session.

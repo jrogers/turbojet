@@ -11,8 +11,8 @@ use tokio::time::timeout;
 use turbojet::codec::{Decoded, decode, encode};
 use turbojet::message::{tags, utc_timestamp};
 use turbojet::{
-    Acceptor, Application, ConnectionInfo, Initiator, InitiatorConfig, MemoryStorage, Message, MsgType, SessionConfig,
-    SessionHandle, SessionId,
+    Acceptor, Application, ConnectionInfo, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MsgType,
+    SessionConfig, SessionHandle, SessionId,
 };
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ impl Application for Recorder {
         let _ = self.events.send(Event::LoggedOn(session));
     }
 
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         let _ = self.events.send(Event::LoggedOut);
     }
 }

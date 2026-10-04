@@ -63,8 +63,8 @@ impl Application for TestApp {
         }
     }
 
-    fn on_logout(&self, session: &SessionId) {
-        self.events.lock().unwrap().push(format!("logout {}", session.target_comp_id));
+    fn on_logout(&self, session: &SessionId, ended: Disconnect) {
+        self.events.lock().unwrap().push(format!("logout {} {ended:?}", session.target_comp_id));
         if self.panic_in == Some("on_logout") {
             panic!("on_logout panicked");
         }
@@ -364,7 +364,7 @@ fn logon_with_seq_too_low_is_logged_out() {
     drop(first);
     let mut s = h.session();
     assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logout", "DISCONNECT"]);
-    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"], "second session never logged on");
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost"], "second session never logged on");
 }
 
 // ---- Initiator logon ----
@@ -623,7 +623,7 @@ fn heartbeat_then_test_request_then_disconnect() {
     assert_eq!(types(&out), ["TestRequest"]);
     assert_eq!(sent(&out)[0].get(tags::TEST_REQ_ID), Some("TEST1"));
     assert_eq!(types(&s.timer(h.at(66))), ["DISCONNECT"]);
-    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT HeartbeatTimeout"]);
 }
 
 #[test]
@@ -1844,7 +1844,7 @@ fn panic_in_on_logout_still_disconnects() {
     let mut s = h.logged_on();
     let out = s.recv(client(2, MsgType::Logout), h.t0);
     assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
-    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT CounterpartyLogout"]);
 }
 
 #[test]
@@ -1853,6 +1853,7 @@ fn panic_in_to_admin_disconnects() {
     let mut s = h.logged_on();
     let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "T"), h.t0);
     assert_eq!(types(&out), ["DISCONNECT"], "the Heartbeat isn't sent half-modified");
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Error"]);
 }
 
 #[test]
@@ -1922,13 +1923,104 @@ fn empty_target_comp_id_is_rejected_as_without_a_value() {
     assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("4"));
 }
 
+/// Each way a logged-on session ends reaches `on_logout` with its own reason.
+#[test]
+fn on_logout_says_how_the_session_ended() {
+    type End = fn(&Harness, &mut Session);
+    let cases: [(&str, End, Disconnect); 8] = [
+        (
+            "counterparty logs out",
+            |h, s| _ = s.recv(client(2, MsgType::Logout), h.at(1)),
+            Disconnect::CounterpartyLogout,
+        ),
+        (
+            "we log out, they answer",
+            |h, s| {
+                s.command(Command::Logout(None), h.at(1));
+                s.recv(client(2, MsgType::Logout), h.at(2));
+            },
+            Disconnect::Logout,
+        ),
+        (
+            "we log out, no answer",
+            |h, s| {
+                s.command(Command::Logout(None), h.at(1));
+                s.timer(h.at(6));
+            },
+            Disconnect::Logout,
+        ),
+        (
+            "we log out, they close the connection",
+            |h, s| {
+                s.command(Command::Logout(None), h.at(1));
+                s.on_disconnect(h.at(2));
+            },
+            Disconnect::Logout,
+        ),
+        // A TestRequest after 36 s of silence (HeartBtInt 30 plus 20%), unanswered 30 s later.
+        (
+            "TestRequest unanswered",
+            |h, s| {
+                s.timer(h.at(36));
+                s.timer(h.at(66));
+            },
+            Disconnect::HeartbeatTimeout,
+        ),
+        ("MsgSeqNum too low", |h, s| _ = s.recv(client(1, MsgType::Heartbeat), h.at(1)), Disconnect::Error),
+        (
+            "shutdown",
+            |h, s| {
+                s.shutdown(None, h.at(1));
+                s.recv(client(2, MsgType::Logout), h.at(2));
+            },
+            Disconnect::Shutdown,
+        ),
+        ("transport ends", |h, s| s.on_disconnect(h.at(1)), Disconnect::ConnectionLost),
+    ];
+    for (name, end, reason) in cases {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        end(&h, &mut s);
+        assert_eq!(h.app.events(), ["logon CLIENT".to_string(), format!("logout CLIENT {reason:?}")], "{name}");
+    }
+}
+
+/// A session dropped while logged on (its connection's task ended) lost its connection.
+#[test]
+fn a_dropped_session_lost_its_connection() {
+    let h = Harness::new();
+    drop(h.logged_on());
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT ConnectionLost"]);
+}
+
+/// A session dropped while it logs out (shutdown gave up waiting) keeps the logout's reason.
+#[test]
+fn a_session_dropped_while_logging_out_keeps_the_reason() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.shutdown(None, h.t0);
+    drop(s);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Shutdown"]);
+}
+
+/// The transport ending once the session has closed changes nothing: it was already reported.
+#[test]
+fn a_disconnect_after_close_is_not_reported_again() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    s.recv(client(2, MsgType::Logout), h.t0);
+    s.on_disconnect(h.at(1));
+    drop(s);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT CounterpartyLogout"]);
+}
+
 #[test]
 fn counterparty_logout_is_acknowledged() {
     let h = Harness::new();
     let mut s = h.logged_on();
     let out = s.recv(client(2, MsgType::Logout), h.t0);
     assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
-    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT CounterpartyLogout"]);
 }
 
 // ---- Handle commands ----
@@ -2215,7 +2307,7 @@ fn shutdown_logs_out_and_disconnects_on_the_reply() {
     assert_eq!(types(&out), ["Logout"]);
     assert_eq!(sent(&out)[0].get(tags::TEXT), Some("end of day"));
     assert_eq!(types(&s.recv(client(2, MsgType::Logout), h.at(1))), ["DISCONNECT"]);
-    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Shutdown"]);
 }
 
 #[test]
@@ -2363,7 +2455,7 @@ fn storage_failure_storing_a_reply_disconnects_without_recording_the_message() {
     let mut s = h.logged_on();
     assert_eq!(types(&s.recv(order(2, "A"), h.t0)), ["DISCONNECT"]);
     assert_eq!(h.app.received(), 1);
-    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT"]);
+    assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Error"]);
     let log = &s.peer().log;
     assert_eq!((log.next_incoming(), log.in_flight()), (2, Some(2)));
 }
@@ -2781,6 +2873,7 @@ mod schedule_tests {
         assert_eq!(types(&out), ["Logout"]);
         assert_eq!(sent(&out)[0].get(tags::TEXT), Some("End of session"));
         assert_eq!(types(&s.recv(client(2, MsgType::Logout), h.at(2))), ["DISCONNECT"]);
+        assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Shutdown"]);
     }
 
     #[test]

@@ -6,7 +6,9 @@ use std::sync::Arc;
 use metrics::{Counter, counter, describe_counter};
 
 use tracing::{info, warn};
-use turbojet::{Application, ConnectionInfo, Context, Message, MessageReject, MsgType, SessionHandle, SessionId};
+use turbojet::{
+    Application, ConnectionInfo, Context, Disconnect, Message, MessageReject, MsgType, SessionHandle, SessionId,
+};
 use turbojet_fix42::OrdStatus;
 
 use crate::orders::OrderManager;
@@ -87,8 +89,8 @@ impl Application for GatewayApp {
         info!("counterparty logged on");
     }
 
-    fn on_logout(&self, _session: &SessionId) {
-        info!("counterparty logged out");
+    fn on_logout(&self, _session: &SessionId, ended: Disconnect) {
+        info!(?ended, "session ended");
     }
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {

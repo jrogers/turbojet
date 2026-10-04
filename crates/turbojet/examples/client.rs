@@ -17,8 +17,8 @@ use tokio::sync::mpsc;
 use turbojet::fields::UtcTimestamp;
 use turbojet::tls;
 use turbojet::{
-    Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType, SessionConfig,
-    SessionHandle, SessionId,
+    Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
+    SessionConfig, SessionHandle, SessionId,
 };
 use turbojet_fix42::{
     ExecutionReportRef, HandlInst, NewOrderSingle, OrdType, OrderCancelRejectRef, OrderCancelRequest, Side, TimeInForce,
@@ -40,7 +40,7 @@ impl Application for ClientApp {
         let _ = self.events.send(Event::LoggedOn);
     }
 
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         let _ = self.events.send(Event::LoggedOut);
     }
 

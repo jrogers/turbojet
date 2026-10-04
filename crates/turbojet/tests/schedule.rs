@@ -8,8 +8,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::{
-    Acceptor, Application, Clock, HolidayCalendar, Initiator, InitiatorConfig, MemoryStorage, SessionConfig,
-    SessionHandle, SessionId, SessionSchedule,
+    Acceptor, Application, Clock, Disconnect, HolidayCalendar, Initiator, InitiatorConfig, MemoryStorage,
+    SessionConfig, SessionHandle, SessionId, SessionSchedule,
 };
 
 #[derive(Clone)]
@@ -44,7 +44,7 @@ impl Application for Recorder {
     fn on_logon(&self, _session: SessionHandle) {
         let _ = self.0.send(Event::LoggedOn);
     }
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         let _ = self.0.send(Event::LoggedOut);
     }
 }

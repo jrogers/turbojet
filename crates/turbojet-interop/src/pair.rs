@@ -11,8 +11,8 @@ use tokio::time::Instant;
 use tracing_subscriber::EnvFilter;
 use turbojet::message::tags;
 use turbojet::{
-    Acceptor, ApplVerId, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
-    MsgType, SessionConfig, SessionHandle, SessionId,
+    Acceptor, ApplVerId, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
+    MessageReject, MsgType, SessionConfig, SessionHandle, SessionId,
 };
 
 use crate::mailbox::{Mailbox, Missing};
@@ -91,7 +91,7 @@ impl Application for Recorder {
         let _ = self.events.send(TjEvent::LoggedOn(session));
     }
 
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         let _ = self.events.send(TjEvent::LoggedOut);
     }
 

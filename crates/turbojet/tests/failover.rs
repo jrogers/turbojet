@@ -9,8 +9,8 @@ use tokio::sync::mpsc;
 use tokio::time::timeout;
 use turbojet::message::tags;
 use turbojet::{
-    Acceptor, Application, ConnectionInfo, Context, Endpoint, Initiator, InitiatorConfig, MemoryStorage, Message,
-    MessageReject, MsgType, SessionConfig, SessionHandle, SessionId, SessionStorage,
+    Acceptor, Application, ConnectionInfo, Context, Disconnect, Endpoint, Initiator, InitiatorConfig, MemoryStorage,
+    Message, MessageReject, MsgType, SessionConfig, SessionHandle, SessionId, SessionStorage,
 };
 
 #[derive(Debug, PartialEq)]
@@ -36,7 +36,7 @@ impl Application for Recorder {
         let _ = self.events.send(Event::LoggedOn(self.name));
     }
 
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         let _ = self.events.send(Event::LoggedOut(self.name));
     }
 

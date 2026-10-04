@@ -13,7 +13,7 @@ use turbojet::codec::{Decoded, decode};
 use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::{
-    ApplVerId, Application, Clock, ConnectionInfo, Context, MemoryStorage, Message, MessageReject, Session,
+    ApplVerId, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message, MessageReject, Session,
     SessionConfig, SessionId, SessionRegistry,
 };
 use turbojet_dictionary::Dictionary;
@@ -273,7 +273,7 @@ impl Application for Reflector {
         if session.target_comp_id == self.counterparty { Ok(()) } else { Err("unknown counterparty".into()) }
     }
 
-    fn on_logout(&self, _session: &SessionId) {
+    fn on_logout(&self, _session: &SessionId, _ended: Disconnect) {
         self.orders.lock().unwrap().clear();
     }
 
