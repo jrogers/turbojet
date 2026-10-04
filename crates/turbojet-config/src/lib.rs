@@ -71,9 +71,11 @@
 //! `cancel_on_disconnect` (`off`, the default, `disconnect`, or `logout`, under which Logouts
 //! from either side count too; see [`CancelOnDisconnect`](turbojet::CancelOnDisconnect)) and
 //! `cancel_grace` (how long the counterparty has to log back on before the cancel: `0s`, the
-//! default, up to `1h`; only with `cancel_on_disconnect` on). The application's
+//! default, up to `1h`; a counterparty's or initiator's own needs `cancel_on_disconnect` on,
+//! while one in `[defaults]` serves those that turn it on). The application's
 //! [`on_cancel_on_disconnect`](turbojet::Application::on_cancel_on_disconnect) does the
-//! cancelling. Durations are a whole number and `ms`, `s`, `m` or `h`. Paths are relative to the file.
+//! cancelling. Durations are a whole number and `ms`, `s`, `m` or `h`. Paths are relative to
+//! the file.
 //!
 //! `[initiator.NAME]`, NAME being for logs and errors: `target_comp_id`, `connect` (addresses,
 //! the primary first, then failover), `begin_string` and `sender_comp_id` (the acceptor's by
