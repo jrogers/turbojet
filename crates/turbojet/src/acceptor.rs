@@ -13,6 +13,7 @@ use tracing::{Instrument, info, warn};
 
 use crate::application::Application;
 use crate::connection;
+use crate::counterparty::Counterparties;
 use crate::peer::ConnectionInfo;
 use crate::registry::{SessionHandle, SessionRegistry};
 use crate::session::{Session, SessionConfig};
@@ -48,6 +49,7 @@ pub struct Acceptor {
     app: Arc<dyn Application>,
     shutdown: Arc<Shutdown>,
     limits: Arc<Limits>,
+    counterparties: Option<Arc<dyn Counterparties>>,
 }
 
 impl Acceptor {
@@ -60,7 +62,7 @@ impl Acceptor {
         config.assert_valid();
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.clock.clone()));
         let limits = Arc::new(Limits::new(DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP));
-        Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits }
+        Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties: None }
     }
 
     /// Keeps at most `connections` connections open at once, closing any more as soon as they're
@@ -78,6 +80,19 @@ impl Acceptor {
     #[must_use]
     pub fn with_max_connections_per_ip(mut self, connections: usize) -> Self {
         self.limits = Arc::new(Limits::new(self.limits.max_total, connections));
+        self
+    }
+
+    /// Gives each counterparty the settings `counterparties` resolves at its Logon, in place of
+    /// this acceptor's configuration, or refuses it; see [`Counterparties`]. Set it before
+    /// serving or cloning: connections accepted by a clone made earlier don't use it.
+    ///
+    /// To give counterparties different stores, use a store that routes by CompID: a store is
+    /// opened for operator changes to disconnected sessions too, when there's no Logon to
+    /// resolve.
+    #[must_use]
+    pub fn with_counterparties(mut self, counterparties: Arc<dyn Counterparties>) -> Self {
+        self.counterparties = Some(counterparties);
         self
     }
 
@@ -214,6 +229,9 @@ impl Acceptor {
         let (mut session, commands) =
             Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
         session.set_connection_info(info);
+        if let Some(counterparties) = &self.counterparties {
+            session.set_counterparties(counterparties.clone());
+        }
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
 
