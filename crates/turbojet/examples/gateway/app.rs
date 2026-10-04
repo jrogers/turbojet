@@ -1,7 +1,6 @@
 //! The order-entry gateway as a turbojet [`Application`], speaking FIX 4.2: new orders,
 //! cancels, replaces and status requests.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use metrics::{Counter, counter, describe_counter};
@@ -48,15 +47,13 @@ impl OrderMetrics {
 pub struct GatewayApp {
     orders: Arc<OrderManager>,
     metrics: OrderMetrics,
-    /// Counterparty CompIDs allowed to log on. `None` accepts any.
-    allowed_counterparties: Option<HashSet<String>>,
     /// Whether a client certificate, when presented, must name the CompID logging on.
     match_certificate_comp_id: bool,
 }
 
 impl GatewayApp {
-    pub fn new(orders: Arc<OrderManager>, allowed_counterparties: Option<HashSet<String>>) -> Self {
-        Self { orders, allowed_counterparties, match_certificate_comp_id: false, metrics: OrderMetrics::new() }
+    pub fn new(orders: Arc<OrderManager>) -> Self {
+        Self { orders, match_certificate_comp_id: false, metrics: OrderMetrics::new() }
     }
 
     /// Binds TLS client certificates to CompIDs: a client that presents a certificate may only
@@ -72,11 +69,6 @@ impl GatewayApp {
 impl Application for GatewayApp {
     fn verify_logon(&self, session: &SessionId, _logon: &Message, connection: &ConnectionInfo) -> Result<(), String> {
         let comp_id = &session.target_comp_id;
-        if let Some(allowed) = &self.allowed_counterparties
-            && !allowed.contains(comp_id)
-        {
-            return Err(format!("unknown counterparty '{comp_id}'"));
-        }
         if self.match_certificate_comp_id
             && let Some(cert) = connection.peer_certificate()
         {
@@ -158,9 +150,8 @@ mod tests {
         ConnectionInfo::new(None, vec![PeerCertificate::from_der(cert.der().to_vec())])
     }
 
-    fn app(match_comp_id: bool, allowed: Option<&[&str]>) -> GatewayApp {
-        let allowed = allowed.map(|ids| ids.iter().map(|s| s.to_string()).collect());
-        GatewayApp::new(Arc::new(OrderManager::new()), allowed).with_certificate_comp_id_match(match_comp_id)
+    fn app(match_comp_id: bool) -> GatewayApp {
+        GatewayApp::new(Arc::new(OrderManager::new())).with_certificate_comp_id_match(match_comp_id)
     }
 
     fn verify(app: &GatewayApp, comp_id: &str, connection: &ConnectionInfo) -> Result<(), String> {
@@ -169,7 +160,7 @@ mod tests {
 
     #[test]
     fn certificate_must_name_the_comp_id_when_matching_is_enabled() {
-        let app = app(true, None);
+        let app = app(true);
         assert!(verify(&app, "CLIENT1", &with_certificate("CLIENT1", &[])).is_ok());
         assert!(verify(&app, "CLIENT1", &with_certificate("Some Org", &["other", "CLIENT1"])).is_ok());
         let err = verify(&app, "CLIENT2", &with_certificate("CLIENT1", &["client1.example"])).unwrap_err();
@@ -178,12 +169,12 @@ mod tests {
 
     #[test]
     fn clients_without_a_certificate_are_unaffected() {
-        assert!(verify(&app(true, None), "CLIENT1", &ConnectionInfo::default()).is_ok());
+        assert!(verify(&app(true), "CLIENT1", &ConnectionInfo::default()).is_ok());
     }
 
     #[test]
     fn certificates_are_ignored_when_matching_is_disabled() {
-        assert!(verify(&app(false, None), "CLIENT2", &with_certificate("CLIENT1", &[])).is_ok());
+        assert!(verify(&app(false), "CLIENT2", &with_certificate("CLIENT1", &[])).is_ok());
     }
 
     #[test]
@@ -194,7 +185,7 @@ mod tests {
 
         let recorder = DebuggingRecorder::new();
         metrics::with_local_recorder(&recorder, || {
-            let app = app(false, None);
+            let app = app(false);
             let session = session("C1");
             let order = |id: &str, qty: u64| {
                 let mut order = NewOrderSingle::new(
@@ -234,13 +225,5 @@ mod tests {
         assert_eq!(count("gateway_orders_total", "rejected"), 1);
         assert_eq!(count("gateway_cancels_total", "canceled"), 1);
         assert_eq!(count("gateway_cancels_total", "rejected"), 1);
-    }
-
-    #[test]
-    fn allowlist_applies_before_certificate_matching() {
-        let app = app(true, Some(&["CLIENT1"]));
-        assert!(verify(&app, "CLIENT1", &with_certificate("CLIENT1", &[])).is_ok());
-        let err = verify(&app, "CLIENT2", &with_certificate("CLIENT2", &[])).unwrap_err();
-        assert!(err.contains("unknown counterparty"), "{err}");
     }
 }

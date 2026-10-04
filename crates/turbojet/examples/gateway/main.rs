@@ -19,8 +19,8 @@ use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use turbojet::{
-    Acceptor, DiskStorage, HolidayCalendar, InboundLimit, MemoryStorage, RateLimit, SequenceError, SessionConfig,
-    SessionId, SessionRegistry, SessionSchedule, SessionStorage, tls,
+    Acceptor, CounterpartyMap, DiskStorage, HolidayCalendar, InboundLimit, MemoryStorage, RateLimit, SequenceError,
+    SessionConfig, SessionId, SessionRegistry, SessionSchedule, SessionStorage, tls,
 };
 
 use app::GatewayApp;
@@ -103,6 +103,11 @@ struct TlsArgs {
     key: PathBuf,
     client_ca: Option<PathBuf>,
     client_cert_required: bool,
+}
+
+/// Admits only the counterparties `allowed`, each with the gateway's own settings.
+fn only(allowed: &HashSet<String>) -> CounterpartyMap {
+    allowed.iter().fold(CounterpartyMap::new(), |map, comp_id| map.with(comp_id.clone(), |_| {})).refuse_unknown()
 }
 
 /// Parses the gateway's arguments (without the program name).
@@ -444,10 +449,12 @@ async fn main() -> ExitCode {
         "FIX gateway listening"
     );
 
-    let app = Arc::new(
-        GatewayApp::new(Arc::new(OrderManager::new()), allowed).with_certificate_comp_id_match(tls_match_comp_id),
-    );
-    let acceptor = Acceptor::new(config, storage, app);
+    let app =
+        Arc::new(GatewayApp::new(Arc::new(OrderManager::new())).with_certificate_comp_id_match(tls_match_comp_id));
+    let mut acceptor = Acceptor::new(config, storage, app);
+    if let Some(allowed) = &allowed {
+        acceptor = acceptor.with_counterparties(Arc::new(only(allowed)));
+    }
     let serve = {
         let acceptor = acceptor.clone();
         async move {

@@ -30,7 +30,7 @@ async fn start_gateway() -> SocketAddr {
 }
 
 fn gateway(storage: Arc<dyn SessionStorage>) -> Acceptor {
-    let app = Arc::new(GatewayApp::new(Arc::new(OrderManager::new()), None));
+    let app = Arc::new(GatewayApp::new(Arc::new(OrderManager::new())));
     Acceptor::new(SessionConfig::new("FIX.4.2", "GATEWAY"), storage, app)
 }
 
@@ -423,8 +423,9 @@ async fn disk_store_survives_gateway_restart() {
 
 #[tokio::test]
 async fn allowlist_refuses_unknown_counterparty() {
-    let app = Arc::new(GatewayApp::new(Arc::new(OrderManager::new()), Some(["CLIENT1".to_string()].into())));
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "GATEWAY"), Arc::new(MemoryStorage::new()), app);
+    let app = Arc::new(GatewayApp::new(Arc::new(OrderManager::new())));
+    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "GATEWAY"), Arc::new(MemoryStorage::new()), app)
+        .with_counterparties(Arc::new(crate::only(&["CLIENT1".to_string()].into())));
     let (addr, _server) = serve(acceptor).await;
 
     let mut stranger = Client::connect(addr, "STRANGER").await;
