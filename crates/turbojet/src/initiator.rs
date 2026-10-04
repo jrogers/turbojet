@@ -3,11 +3,12 @@
 
 use std::future::Future;
 use std::io;
+use std::net::SocketAddr;
 use std::sync::{Arc, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+use tokio::net::{TcpSocket, TcpStream};
 use tracing::{Instrument, info, warn};
 
 use crate::application::Application;
@@ -43,6 +44,11 @@ pub struct InitiatorConfig {
     pub password: Option<Secret>,
     /// How long a TCP connect to one endpoint may take before trying the next.
     pub connect_timeout: Duration,
+    /// The local address to connect from, for a host with several networks or a counterparty
+    /// that only accepts known source addresses; port 0 lets the system choose the port. Only
+    /// the endpoints' addresses of the same family (IPv4 or IPv6) are tried. `None` (the default)
+    /// leaves both to the system.
+    pub local_addr: Option<SocketAddr>,
     /// How long [`Initiator::run`] waits after a session ends, or after every endpoint has
     /// failed, before connecting again.
     pub reconnect: ReconnectPolicy,
@@ -63,6 +69,7 @@ impl InitiatorConfig {
             username: None,
             password: None,
             connect_timeout: Duration::from_secs(10),
+            local_addr: None,
             reconnect: ReconnectPolicy::default(),
         }
     }
@@ -427,7 +434,7 @@ impl Initiator {
         // Counted from here, so shutdown also waits for a TLS handshake; the connect and the
         // handshake are abandoned as soon as it starts.
         let _open = self.shutdown.track();
-        let connect = tokio::time::timeout(config.connect_timeout, self.tcp_connect(&endpoint.addr));
+        let connect = tokio::time::timeout(config.connect_timeout, self.tcp_connect(&endpoint.addr, config.local_addr));
         let connect = match self.unless_shutdown(connect).await {
             Ok(connect) => connect,
             Err(e) => return Attempt::Failed(e),
@@ -472,12 +479,30 @@ impl Initiator {
         self.run_session(stream, ConnectionInfo::new(addr, Vec::new()), config).await
     }
 
-    async fn tcp_connect(&self, addr: &str) -> io::Result<TcpStream> {
+    async fn tcp_connect(&self, addr: &str, local: Option<SocketAddr>) -> io::Result<TcpStream> {
         #[cfg(test)]
         if self.unreachable.iter().any(|unreachable| unreachable == addr) {
             return std::future::pending().await;
         }
-        TcpStream::connect(addr).await
+        let Some(local) = local else { return TcpStream::connect(addr).await };
+        let mut failed = None;
+        for remote in tokio::net::lookup_host(addr).await?.filter(|remote| remote.is_ipv4() == local.is_ipv4()) {
+            let socket = if local.is_ipv4() { TcpSocket::new_v4() } else { TcpSocket::new_v6() }?;
+            // A fixed port may still be in TIME_WAIT from the last connection.
+            socket.set_reuseaddr(true)?;
+            socket.bind(local)?;
+            match socket.connect(remote).await {
+                Ok(stream) => return Ok(stream),
+                Err(e) => failed = Some(e),
+            }
+        }
+        Err(failed.unwrap_or_else(|| {
+            let family = if local.is_ipv4() { "IPv4" } else { "IPv6" };
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{addr} has no {family} address to connect to from {local}"),
+            )
+        }))
     }
 
     /// A session for a new connection, described by `info`, with the task that fires its
@@ -531,11 +556,39 @@ mod tests {
     const UNREACHABLE: &str = "192.0.2.1:9876";
 
     fn initiator(primary: &str, connect_timeout: Duration) -> Initiator {
+        initiator_with(primary, |config| config.connect_timeout = connect_timeout)
+    }
+
+    /// An initiator of `primary`, its config adjusted by `adjust`.
+    fn initiator_with(primary: &str, adjust: impl FnOnce(&mut InitiatorConfig)) -> Initiator {
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
-        config.connect_timeout = connect_timeout;
+        adjust(&mut config);
         let mut initiator = Initiator::new(primary, config, Arc::new(MemoryStorage::new()), Arc::new(Nothing));
         initiator.unreachable.push(UNREACHABLE.to_string());
         initiator
+    }
+
+    #[tokio::test]
+    async fn connects_from_the_local_address() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        // A free port: taken, then let go.
+        let local = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+        let initiator = initiator_with(&addr, |config| config.local_addr = Some(local));
+        let connecting = tokio::spawn(async move { initiator.connect_once().await });
+        let (stream, peer) = listener.accept().await.unwrap();
+        assert_eq!(peer, local);
+        drop(stream);
+        let _ = connecting.await;
+    }
+
+    #[tokio::test]
+    async fn a_local_address_of_the_other_family_fails_to_connect() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let initiator = initiator_with(&addr, |config| config.local_addr = Some("[::1]:0".parse().unwrap()));
+        let err = initiator.connect_once().await.unwrap_err().to_string();
+        assert!(err.contains("no IPv6 address"), "{err}");
     }
 
     #[tokio::test]
