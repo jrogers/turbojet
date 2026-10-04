@@ -548,7 +548,7 @@ fn cancel_on_disconnect(settings: &RawSettings, section: &str) -> Result<Option<
     let trigger = match settings.cancel_on_disconnect {
         None | Some(RawCancelTrigger::Off) => return Ok(None),
         Some(RawCancelTrigger::Disconnect) => CancelTrigger::Disconnect,
-        Some(RawCancelTrigger::Logout) => CancelTrigger::DisconnectOrLogout,
+        Some(RawCancelTrigger::DisconnectOrLogout) => CancelTrigger::DisconnectOrLogout,
     };
     Ok(Some(CancelOnDisconnect { trigger, grace }))
 }
@@ -773,7 +773,7 @@ mod tests {
             cancel_grace = "5s"
 
             [counterparty.BROKER]
-            cancel_on_disconnect = "logout"
+            cancel_on_disconnect = "disconnect_or_logout"
 
             [counterparty.FUND]
             cancel_on_disconnect = "off"
@@ -794,7 +794,8 @@ mod tests {
         assert_eq!(cancel("DESK"), grace(Duration::from_millis(500)));
         assert_eq!(cancel("OTHER"), grace(Duration::from_secs(5)), "unlisted: the defaults");
 
-        let loaded = load_text("[counterparty.A]\ncancel_on_disconnect = \"logout\"\n[counterparty.B]").unwrap();
+        let loaded =
+            load_text("[counterparty.A]\ncancel_on_disconnect = \"disconnect_or_logout\"\n[counterparty.B]").unwrap();
         let a = loaded.acceptor().settings("A").counterparty.config.cancel_on_disconnect;
         assert_eq!(a, Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::ZERO }));
         assert_eq!(loaded.acceptor().settings("B").counterparty.config.cancel_on_disconnect, None, "off by default");
@@ -823,15 +824,15 @@ mod tests {
                 "counterparty A: cancel_grace: needs cancel_on_disconnect on",
             ),
             (
-                "[counterparty.A]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"soon\"",
+                "[counterparty.A]\ncancel_on_disconnect = \"disconnect_or_logout\"\ncancel_grace = \"soon\"",
                 "counterparty A: cancel_grace: invalid duration 'soon'",
             ),
             (
-                "[defaults]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"61m\"",
+                "[defaults]\ncancel_on_disconnect = \"disconnect_or_logout\"\ncancel_grace = \"61m\"",
                 "defaults: cancel_grace: '61m' must be at most 1h",
             ),
             (
-                "[counterparty.A]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"2h\"",
+                "[counterparty.A]\ncancel_on_disconnect = \"disconnect_or_logout\"\ncancel_grace = \"2h\"",
                 "counterparty A: cancel_grace: '2h' must be at most 1h",
             ),
             ("[defaults]\ncancel_grace = \"soon\"", "defaults: cancel_grace: invalid duration 'soon'"),
@@ -843,7 +844,7 @@ mod tests {
         }
         let error = error("[counterparty.A]\ncancel_on_disconnect = \"always\"");
         assert!(error.contains("cancel_on_disconnect") && error.contains("always"), "{error}");
-        let hour = "[defaults]\ncancel_on_disconnect = \"logout\"\ncancel_grace = \"1h\"";
+        let hour = "[defaults]\ncancel_on_disconnect = \"disconnect_or_logout\"\ncancel_grace = \"1h\"";
         assert_eq!(load_text(hour).unwrap().acceptor().base.cancel_on_disconnect.unwrap().grace, MAX_CANCEL_GRACE);
     }
 
@@ -994,20 +995,22 @@ mod tests {
     #[test]
     fn an_initiators_cancel_on_disconnect_is_over_the_defaults() {
         let defaults = "[defaults]\ncancel_on_disconnect = \"disconnect\"\ncancel_grace = \"5s\"\n";
-        let loaded = load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"logout\"")).unwrap();
+        let loaded =
+            load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"disconnect_or_logout\"")).unwrap();
         assert_eq!(
             loaded.initiators["LSE"].config.session.cancel_on_disconnect,
             Some(CancelOnDisconnect { trigger: CancelTrigger::DisconnectOrLogout, grace: Duration::from_secs(5) })
         );
         let loaded = load_text(&format!("{defaults}{INITIATOR}cancel_on_disconnect = \"off\"")).unwrap();
         assert_eq!(loaded.initiators["LSE"].config.session.cancel_on_disconnect, None);
-        let opt_in =
-            load_text(&format!("[defaults]\ncancel_grace = \"5s\"\n{INITIATOR}cancel_on_disconnect = \"logout\""));
+        let opt_in = load_text(&format!(
+            "[defaults]\ncancel_grace = \"5s\"\n{INITIATOR}cancel_on_disconnect = \"disconnect_or_logout\""
+        ));
         let lse = opt_in.unwrap().initiators["LSE"].config.session.cancel_on_disconnect;
         assert_eq!(lse.map(|c| c.grace), Some(Duration::from_secs(5)), "the defaults' grace");
         let unused = error(&format!("{INITIATOR}cancel_grace = \"5s\""));
         assert_eq!(unused, "initiator LSE: cancel_grace: needs cancel_on_disconnect on");
-        let long = error(&format!("{INITIATOR}cancel_on_disconnect = \"logout\"\ncancel_grace = \"2h\""));
+        let long = error(&format!("{INITIATOR}cancel_on_disconnect = \"disconnect_or_logout\"\ncancel_grace = \"2h\""));
         assert_eq!(long, "initiator LSE: cancel_grace: '2h' must be at most 1h");
     }
 

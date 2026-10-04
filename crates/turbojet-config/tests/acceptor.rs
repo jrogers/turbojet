@@ -138,7 +138,9 @@ async fn cancel_on_disconnect_reloaded_applies_from_the_next_logon() {
     let fund = venue.initiator("FUND", 30);
     connect(&fund);
     assert_eq!(venue.next().await, "logon FUND");
-    venue.rewrite(&FILE.replace("[counterparty.FUND]", "[counterparty.FUND]\ncancel_on_disconnect = \"logout\""));
+    venue.rewrite(
+        &FILE.replace("[counterparty.FUND]", "[counterparty.FUND]\ncancel_on_disconnect = \"disconnect_or_logout\""),
+    );
     assert_eq!(venue.reload().unwrap(), Changes { changed: vec!["FUND".into()], ..Changes::default() });
     // The session connected keeps its settings: its Logout cancels nothing. A cancel for it, or
     // for BROKER, would come straight after its logout, failing the next logon assert.

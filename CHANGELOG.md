@@ -30,8 +30,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
-- `cancel_on_disconnect` (`"off"`, the default, `"disconnect"` or `"logout"`, under which Logouts
-  from either side count too) and `cancel_grace` (`0s`, the default, up to `1h`), in
+- `cancel_on_disconnect` (`"off"`, the default, `"disconnect"` or `"disconnect_or_logout"`, under
+  which Logouts from either side count too) and `cancel_grace` (`0s`, the default, up to `1h`), in
   `[defaults]`, a counterparty's section or an initiator's. Stopping an initiator, removed or
   restarted by a reload, fires its countdown at once.
 

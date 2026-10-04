@@ -68,8 +68,8 @@
 //! (`delay`, the default, or `reject`), `appl_versions` (ApplVerID codes, or `{ id, dictionary
 //! }`), `dictionary` (feature `validation`), `latency_metrics` (feature `metrics`), `heartbeat =
 //! { min, max }` (the HeartBtInt a counterparty may ask for), `require_client_certificate`,
-//! `cancel_on_disconnect` (`off`, the default, `disconnect`, or `logout`, under which Logouts
-//! from either side count too; see [`CancelOnDisconnect`](turbojet::CancelOnDisconnect)) and
+//! `cancel_on_disconnect` (`off`, the default, `disconnect`, or `disconnect_or_logout`, under
+//! which Logouts from either side count too; see [`CancelOnDisconnect`](turbojet::CancelOnDisconnect)) and
 //! `cancel_grace` (how long the counterparty has to log back on before the cancel: `0s`, the
 //! default, up to `1h`; a counterparty's or initiator's own needs `cancel_on_disconnect` on,
 //! while one in `[defaults]` serves those that turn it on). The application's

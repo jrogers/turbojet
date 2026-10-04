@@ -517,7 +517,7 @@ run the countdowns on a task, and fire those under way at once when they shut do
 that stops without shutting down loses them, so after a restart, check the orders you kept.
 Custom drivers call `Session::on_disconnect` when the transport ends and run the countdowns with
 `SessionRegistry::next_cancel_deadline` and `run_due_cancels`. In a `turbojet-config` file:
-`cancel_on_disconnect = "disconnect"` (or `"logout"`, or `"off"`) and `cancel_grace = "5s"`.
+`cancel_on_disconnect = "disconnect"` (or `"disconnect_or_logout"`, or `"off"`) and `cancel_grace = "5s"`.
 
 A venue that negotiates cancel on disconnect at logon, in Logon fields of its own, is asked in
 `Application::to_admin`.

@@ -243,14 +243,14 @@ pub(crate) enum OverLimit {
 
 /// `cancel_on_disconnect`: which endings of a session count, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum RawCancelTrigger {
     /// No ending counts.
     Off,
     /// Endings without a Logout.
     Disconnect,
     /// Endings with or without a Logout.
-    Logout,
+    DisconnectOrLogout,
 }
 
 /// An application version: its ApplVerID code, or the code and a dictionary to check its
@@ -350,7 +350,7 @@ mod tests {
             latency_metrics = true
             heartbeat = { min = "10s", max = "60s" }
             require_client_certificate = true
-            cancel_on_disconnect = "logout"
+            cancel_on_disconnect = "disconnect_or_logout"
             cancel_grace = "5s"
 
             [counterparty.FUND]
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(file.store["scratch"], RawStore::Memory);
         assert_eq!(file.defaults.timestamp_precision, Some(RawPrecision::Micros));
         assert_eq!(file.defaults.data_fields, Some(vec![[5000, 5001]]));
-        assert_eq!(file.defaults.cancel_on_disconnect, Some(RawCancelTrigger::Logout));
+        assert_eq!(file.defaults.cancel_on_disconnect, Some(RawCancelTrigger::DisconnectOrLogout));
         assert_eq!(file.defaults.cancel_grace.as_deref(), Some("5s"));
         assert_eq!(
             file.counterparty["FUND"].appl_versions,
@@ -407,7 +407,7 @@ mod tests {
         for (value, trigger) in [
             ("off", RawCancelTrigger::Off),
             ("disconnect", RawCancelTrigger::Disconnect),
-            ("logout", RawCancelTrigger::Logout),
+            ("disconnect_or_logout", RawCancelTrigger::DisconnectOrLogout),
         ] {
             let file = parse(&format!("{MINIMAL}\n[defaults]\ncancel_on_disconnect = \"{value}\"")).unwrap();
             assert_eq!(file.defaults.cancel_on_disconnect, Some(trigger), "{value}");
