@@ -6,6 +6,7 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `MessageReject` implements `Display` (as the reject it sends) and `std::error::Error`.
 - Breaking: `Acceptor::new` and `Initiator::new` return `Result<Self, ConfigError>` rather than
   panicking on an invalid configuration.
 - Breaking: the configuration checks (`SessionConfig::check`, `InitiatorConfig::check`,
