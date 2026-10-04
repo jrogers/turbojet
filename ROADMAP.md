@@ -53,6 +53,10 @@ later, with:
   loss falls back to the record before it; both stores keep each session's newest messages up
   to a byte budget (gap-filling older ones on a resend): the disk store in segments, deleting the
   oldest, and the memory store a capped number of sessions;
+- session configuration files (`turbojet-config`): an acceptor, its counterparties and their
+  stores from TOML, every value checked on loading and errors naming the section and key, and
+  reloaded while running (changes apply from each counterparty's next Logon, counterparties no
+  longer listed are logged out, and a file that doesn't load leaves the one in use);
 - SQL session storage (`turbojet-sql`) in SQLite or PostgreSQL through sqlx: one transaction per
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was
@@ -260,11 +264,12 @@ From the benchmarks.
 
 ## 7. Operations and deployment
 
-- **Configuration files and runtime sessions** (M). Sessions are configured in code. Commercial
-  engines (and QuickFIX) read session definitions from a file, reload it without a restart, and
-  add or remove sessions while running, including acceptors that admit unknown CompIDs from a
-  template. Can build on per-counterparty settings (`Counterparties`, `StorageByCounterparty`):
-  a resolver backed by a file that's reloaded.
+- **Initiators from configuration files** (M). `turbojet-config` configures an acceptor and its
+  counterparties from a file and reloads it; initiators are still configured in code. Add
+  `[initiator.X]` sections (address, failover endpoints, reconnect policy, credentials) and
+  something that owns their tasks, starting, stopping and restarting them as a reload adds,
+  removes and changes them. A QuickFIX `.cfg` importer for the keys that map would ease
+  migration.
 - **Management API and console** (L). The operator API works on connected sessions in the
   library, but nothing exposes it remotely, and the gateway only has the offline `seqnums`
   tool. Provide an optional management endpoint (HTTP, or a local socket) that lists sessions

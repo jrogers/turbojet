@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `Counterparty::check` is public, for resolvers that load their settings ahead of time.
+- The example gateway reads its sessions from a `turbojet-config` file with `--config FILE`,
+  reloading it on SIGHUP.
 - Per-counterparty settings on an acceptor: `Acceptor::with_counterparties` takes a
   `Counterparties` resolver, asked at each Logon whether that counterparty may log on and with
   which `Counterparty` settings: a `SessionConfig` derived from the acceptor's (schedule, rate
@@ -252,6 +255,18 @@ Notable changes to the published crates.
 - The store conformance suite is public with the `conformance` feature:
   `store::conformance::check` (async) and `check_blocking` run a store through everything a
   session relies on.
+
+### `turbojet-config`
+
+- New: session configuration files. `SessionsFile` reads an acceptor (`[acceptor]`), named stores
+  (`[store.NAME]`, memory or disk, or registered in code), `[defaults]` and a
+  `[counterparty.COMPID]` section per counterparty from TOML, and makes the `Acceptor` it
+  describes. Unknown keys are errors and every value is checked on loading, with errors naming
+  the section and key. `SessionsFile::reload` reads it again while running: a file that doesn't
+  load, or that changes what's fixed until a restart, leaves the one in use; otherwise changed
+  settings apply from each counterparty's next Logon, TLS certificates are replaced, and under
+  `unknown = "refuse"` connected counterparties no longer listed are logged out. Features `tls`,
+  `tz`, `validation`, `metrics`.
 
 ### `turbojet-sql`
 

@@ -37,6 +37,9 @@ Community's official data and checked in.
 state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
 sessions.
 
+[`turbojet-config`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-config) reads an
+acceptor, its counterparties and their stores from a TOML file, and reloads it while running.
+
 CI runs Turbojet's sessions against QuickFIX/J, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
 loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
@@ -175,6 +178,7 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 - `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`; with the
   `conformance` feature, the suite every store must pass
 - `turbojet-sql` (a separate crate) – `SqlStorage`, session storage in SQLite or PostgreSQL
+- `turbojet-config` (a separate crate) – `SessionsFile`, an acceptor from a TOML file, reloadable
 - `session::Session` – sans-IO state machine for either role; feed it messages and commands,
   call its timer when its next deadline falls due, write the encoded messages it leaves in
   `output`, and close the connection once it `is_closed`. While it `is_resending`, write its
@@ -474,6 +478,12 @@ as a `verify_logon` refusal does.
 
 Stores are chosen apart, by `StorageByCounterparty`, because an operator's change to a session
 that isn't connected opens its store with no Logon to decide from.
+
+`turbojet-config` reads all of this from a file, `[defaults]` and a `[counterparty.COMPID]`
+section each, with named stores, and reloads it while running: changed settings apply from each
+counterparty's next Logon, counterparties no longer listed are logged out, and a file that
+doesn't load leaves the one in use in place. The gateway takes one with `--config FILE` and
+reloads it on SIGHUP.
 
 ## Initiator failover
 
