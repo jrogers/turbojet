@@ -2,7 +2,9 @@
 //! a file that loads has nothing left to fail at a counterparty's Logon.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "validation")]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use turbojet::fields::{ApplVerId, FromFix, Precision};
@@ -12,6 +14,8 @@ use turbojet::{
 };
 
 use crate::Error;
+#[cfg(feature = "tls")]
+use crate::raw::ClientCertificate;
 use crate::raw::{
     OverLimit, RawAcceptor, RawApplVersion, RawFile, RawPrecision, RawSettings, RawStore, parse_duration,
 };
@@ -38,6 +42,9 @@ pub(crate) struct Loaded {
     pub unlisted: Resolved,
     /// Every store, by name: those the file defines, those registered in code, and `memory`.
     pub stores: HashMap<String, Arc<dyn SessionStorage>>,
+    /// `[acceptor.tls]`, read and checked.
+    #[cfg(feature = "tls")]
+    pub tls: Tls,
 }
 
 impl Loaded {
@@ -74,8 +81,12 @@ pub(crate) fn parse(text: &str, context: &Context<'_>) -> Result<Loaded, Error> 
 }
 
 fn load(raw: RawFile, context: &Context<'_>) -> Result<Loaded, Error> {
-    let stores = stores(&raw.store, context)?;
     let fixed = fixed(&raw.acceptor, context.clock)?;
+    #[cfg(feature = "tls")]
+    let tls = tls(&raw, context.dir)?;
+    #[cfg(not(feature = "tls"))]
+    refuse_tls(&raw)?;
+    let stores = stores(&raw.store, context)?;
     let mut dictionaries = Dictionaries::default();
     let mut base = fixed.clone();
     apply(&raw.defaults, &mut base, "defaults", context.dir, &mut dictionaries)?;
@@ -88,7 +99,55 @@ fn load(raw: RawFile, context: &Context<'_>) -> Result<Loaded, Error> {
         let resolved = resolve(&merged, &fixed, &section, context, &stores, &mut dictionaries)?;
         listed.insert(comp_id.clone(), resolved);
     }
-    Ok(Loaded { raw, base, listed, unlisted, stores })
+    Ok(Loaded {
+        raw,
+        base,
+        listed,
+        unlisted,
+        stores,
+        #[cfg(feature = "tls")]
+        tls,
+    })
+}
+
+/// The acceptor's certificate and the client CAs it trusts, if it serves TLS.
+#[cfg(feature = "tls")]
+pub(crate) type Tls = Option<(turbojet::tls::Identity, turbojet::tls::ClientTrust)>;
+
+/// `[acceptor.tls]`'s certificate, key and client CAs, read and checked.
+#[cfg(feature = "tls")]
+fn tls(raw: &RawFile, dir: &Path) -> Result<Tls, Error> {
+    use turbojet::tls::{ClientTrust, Identity, ServerTls, Trust};
+    let Some(tls) = &raw.acceptor.tls else { return Ok(None) };
+    let at = |path: &Path, e: std::io::Error| Error::at("acceptor", "tls", format!("{}: {e}", path.display()));
+    let (cert, key) = (dir.join(&tls.cert), dir.join(&tls.key));
+    let identity = Identity::from_pem_files(&cert, &key).map_err(|e| at(&cert, e))?;
+    let client_trust = match &tls.client_ca {
+        None if tls.client_certificate == ClientCertificate::Required => {
+            return Err(Error::at("acceptor", "tls", "client_certificate = \"required\" needs a client_ca"));
+        }
+        None => ClientTrust::None,
+        Some(ca) => {
+            let ca = dir.join(ca);
+            let trust = Trust::from_pem_files(&ca).map_err(|e| at(&ca, e))?;
+            match tls.client_certificate {
+                ClientCertificate::Optional => ClientTrust::Optional(trust),
+                ClientCertificate::Required => ClientTrust::Required(trust),
+            }
+        }
+    };
+    // Checks what only a server checks, such as the key matching the certificate.
+    ServerTls::new(identity.clone(), client_trust.clone()).map_err(|e| Error::at("acceptor", "tls", e))?;
+    Ok(Some((identity, client_trust)))
+}
+
+/// Without the tls feature, `[acceptor.tls]` can't be served.
+#[cfg(not(feature = "tls"))]
+fn refuse_tls(raw: &RawFile) -> Result<(), Error> {
+    match raw.acceptor.tls {
+        Some(_) => Err(Error::at("acceptor", "tls", "needs turbojet-config's tls feature")),
+        None => Ok(()),
+    }
 }
 
 /// The acceptor's settings fixed until a restart.
@@ -514,6 +573,23 @@ mod tests {
         assert_eq!(loaded.settings("SCRATCH").store, MEMORY);
         assert!(dir.path().join("store").is_dir(), "opened relative to the file");
         assert!(!Arc::ptr_eq(loaded.store_for("OTHER"), loaded.store_for("SCRATCH")));
+    }
+
+    #[cfg(not(feature = "tls"))]
+    #[test]
+    fn tls_needs_the_tls_feature() {
+        let text = ACCEPTOR.replace("listen", "tls = { cert = \"c.pem\", key = \"k.pem\" }\nlisten");
+        let clock = Clock::system();
+        let registered = HashMap::new();
+        let context = Context {
+            dir: Path::new("."),
+            clock: &clock,
+            registered: &registered,
+            previous: None,
+            previous_defined: None,
+        };
+        let error = parse(&text, &context).err().unwrap().to_string();
+        assert_eq!(error, "acceptor: tls: needs turbojet-config's tls feature");
     }
 
     #[cfg(not(feature = "validation"))]
