@@ -464,6 +464,9 @@ fn apply(
     if let Some(check) = settings.check_header_order {
         config.check_header_order = check;
     }
+    if let Some(chunk) = settings.resend_request_chunk {
+        config.resend_request_chunk = Some(chunk);
+    }
     if let Some(precision) = settings.timestamp_precision {
         config.timestamp_precision = match precision {
             RawPrecision::Seconds => Precision::Seconds,
@@ -758,6 +761,7 @@ mod tests {
             data_fields = [[5000, 5001]]
             inbound_limit = "50/1s"
             over_limit = "reject"
+            resend_request_chunk = 100
             "#,
         )
         .unwrap();
@@ -765,6 +769,7 @@ mod tests {
         assert_eq!(config.logout_timeout, Duration::from_secs(2));
         assert_eq!(config.schedule, Some("daily 08:00-17:00 mon-fri".parse().unwrap()));
         assert!(!config.check_orig_sending_time && !config.check_header_order);
+        assert_eq!(config.resend_request_chunk, Some(100));
         assert_eq!(config.timestamp_precision, Precision::Micros);
         assert_eq!(config.data_fields.length_tag(5001), Some(5000));
         assert_eq!(config.inbound_limit, Some(InboundLimit::Reject(RateLimit::new(50, Duration::from_secs(1)))));
@@ -858,6 +863,7 @@ mod tests {
     fn errors_name_the_section_and_key() {
         let cases = [
             ("[defaults]\nmax_latency = \"soon\"", "defaults: max_latency: invalid duration 'soon'"),
+            ("[defaults]\nresend_request_chunk = 0", "defaults: settings: resend_request_chunk must be at least 1"),
             ("[counterparty.A]\nschedule = \"hourly\"", "counterparty A: schedule:"),
             ("[counterparty.A]\noutbound_limit = \"0/1s\"", "counterparty A: outbound_limit:"),
             ("[counterparty.A]\nholidays = \"h.txt\"", "counterparty A: holidays: needs a schedule"),

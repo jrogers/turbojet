@@ -189,6 +189,7 @@ pub(crate) struct RawSettings {
     pub require_client_certificate: Option<bool>,
     pub cancel_on_disconnect: Option<RawCancelTrigger>,
     pub cancel_grace: Option<String>,
+    pub resend_request_chunk: Option<u64>,
 }
 
 /// Field by field, `self`'s keys over `defaults`'.
@@ -223,6 +224,7 @@ impl RawSettings {
             require_client_certificate,
             cancel_on_disconnect,
             cancel_grace,
+            resend_request_chunk,
         )
     }
 }
