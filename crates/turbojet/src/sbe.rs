@@ -58,6 +58,21 @@ impl fmt::Display for SbeError {
 
 impl std::error::Error for SbeError {}
 
+/// A message that encodes itself, header first: what generated codecs' message structs implement,
+/// so code can send any of them.
+pub trait Encode {
+    /// The template ID in its header.
+    const TEMPLATE_ID: u16;
+
+    /// Appends the message to `out`, after a message header.
+    ///
+    /// # Errors
+    ///
+    /// If a group has more entries, or a data field more bytes, than its encoding allows. `out` is
+    /// then as it was.
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), SbeError>;
+}
+
 /// A block that may have groups and data after it: a message's root, or a group entry. Generated
 /// decoders implement it.
 pub trait Block<'a>: Sized {

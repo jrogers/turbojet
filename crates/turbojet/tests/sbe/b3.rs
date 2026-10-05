@@ -2371,6 +2371,14 @@ impl Negotiate<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for Negotiate<'_> {
+    const TEMPLATE_ID: u16 = 1;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Negotiate::encode_into(self, out)
+    }
+}
+
 /// `NegotiateResponse` (template 2), read where it lies.
 #[derive(Clone, Copy)]
 pub struct NegotiateResponseRef<'a> {
@@ -2493,6 +2501,14 @@ impl NegotiateResponse {
         self.request_timestamp.encode(&mut block[12..]);
         turbojet::sbe::put_le(block, 20, self.entering_firm);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for NegotiateResponse {
+    const TEMPLATE_ID: u16 = 2;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        NegotiateResponse::encode_into(self, out)
     }
 }
 
@@ -2621,6 +2637,14 @@ impl NegotiateReject {
         turbojet::sbe::put_le(block, 20, self.entering_firm.unwrap_or(0));
         turbojet::sbe::put_le(block, 24, self.negotiation_reject_code.raw());
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for NegotiateReject {
+    const TEMPLATE_ID: u16 = 3;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        NegotiateReject::encode_into(self, out)
     }
 }
 
@@ -2775,6 +2799,14 @@ impl Establish<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for Establish<'_> {
+    const TEMPLATE_ID: u16 = 4;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Establish::encode_into(self, out)
+    }
+}
+
 /// `EstablishAck` (template 5), read where it lies.
 #[derive(Clone, Copy)]
 pub struct EstablishAckRef<'a> {
@@ -2906,6 +2938,14 @@ impl EstablishAck {
     }
 }
 
+impl turbojet::sbe::Encode for EstablishAck {
+    const TEMPLATE_ID: u16 = 5;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        EstablishAck::encode_into(self, out)
+    }
+}
+
 /// `EstablishReject` (template 6), read where it lies.
 #[derive(Clone, Copy)]
 pub struct EstablishRejectRef<'a> {
@@ -3019,6 +3059,14 @@ impl EstablishReject {
     }
 }
 
+impl turbojet::sbe::Encode for EstablishReject {
+    const TEMPLATE_ID: u16 = 6;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        EstablishReject::encode_into(self, out)
+    }
+}
+
 /// `Terminate` (template 7), read where it lies.
 #[derive(Clone, Copy)]
 pub struct TerminateRef<'a> {
@@ -3123,6 +3171,14 @@ impl Terminate {
     }
 }
 
+impl turbojet::sbe::Encode for Terminate {
+    const TEMPLATE_ID: u16 = 7;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Terminate::encode_into(self, out)
+    }
+}
+
 /// `NotApplied` (template 8), read where it lies.
 #[derive(Clone, Copy)]
 pub struct NotAppliedRef<'a> {
@@ -3218,6 +3274,14 @@ impl NotApplied {
     }
 }
 
+impl turbojet::sbe::Encode for NotApplied {
+    const TEMPLATE_ID: u16 = 8;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        NotApplied::encode_into(self, out)
+    }
+}
+
 /// `Sequence` (template 9), read where it lies.
 #[derive(Clone, Copy)]
 pub struct SequenceRef<'a> {
@@ -3301,6 +3365,14 @@ impl Sequence {
         let block = turbojet::sbe::reserve(out, 4);
         turbojet::sbe::put_le(block, 0, self.next_seq_no);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for Sequence {
+    const TEMPLATE_ID: u16 = 9;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Sequence::encode_into(self, out)
     }
 }
 
@@ -3408,6 +3480,14 @@ impl FinishedSending {
     }
 }
 
+impl turbojet::sbe::Encode for FinishedSending {
+    const TEMPLATE_ID: u16 = 10;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        FinishedSending::encode_into(self, out)
+    }
+}
+
 /// `FinishedReceiving` (template 11), read where it lies.
 #[derive(Clone, Copy)]
 pub struct FinishedReceivingRef<'a> {
@@ -3500,6 +3580,14 @@ impl FinishedReceiving {
         turbojet::sbe::put_le(block, 0, self.session_id);
         turbojet::sbe::put_le(block, 4, self.session_ver_id);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for FinishedReceiving {
+    const TEMPLATE_ID: u16 = 11;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        FinishedReceiving::encode_into(self, out)
     }
 }
 
@@ -3616,6 +3704,14 @@ impl RetransmitRequest {
     }
 }
 
+impl turbojet::sbe::Encode for RetransmitRequest {
+    const TEMPLATE_ID: u16 = 12;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        RetransmitRequest::encode_into(self, out)
+    }
+}
+
 /// `Retransmission` (template 13), read where it lies.
 #[derive(Clone, Copy)]
 pub struct RetransmissionRef<'a> {
@@ -3729,6 +3825,14 @@ impl Retransmission {
     }
 }
 
+impl turbojet::sbe::Encode for Retransmission {
+    const TEMPLATE_ID: u16 = 13;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Retransmission::encode_into(self, out)
+    }
+}
+
 /// `RetransmitReject` (template 14), read where it lies.
 #[derive(Clone, Copy)]
 pub struct RetransmitRejectRef<'a> {
@@ -3830,6 +3934,14 @@ impl RetransmitReject {
         self.request_timestamp.encode(&mut block[4..]);
         turbojet::sbe::put_le(block, 12, self.retransmit_reject_code.raw());
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for RetransmitReject {
+    const TEMPLATE_ID: u16 = 14;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        RetransmitReject::encode_into(self, out)
     }
 }
 
@@ -4040,6 +4152,14 @@ impl SimpleNewOrder {
     }
 }
 
+impl turbojet::sbe::Encode for SimpleNewOrder {
+    const TEMPLATE_ID: u16 = 100;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        SimpleNewOrder::encode_into(self, out)
+    }
+}
+
 /// `SimpleModifyOrder` (template 101), read where it lies.
 #[derive(Clone, Copy)]
 pub struct SimpleModifyOrderRef<'a> {
@@ -4235,6 +4355,14 @@ impl SimpleModifyOrder {
         turbojet::sbe::put_le(block, 52, self.side.raw());
         block[56..66].copy_from_slice(&self.sender_location);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for SimpleModifyOrder {
+    const TEMPLATE_ID: u16 = 101;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        SimpleModifyOrder::encode_into(self, out)
     }
 }
 
@@ -4522,6 +4650,14 @@ impl NewOrderSingle {
         block[90..100].copy_from_slice(&self.sender_location);
         block[100..105].copy_from_slice(&self.entering_trader);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for NewOrderSingle {
+    const TEMPLATE_ID: u16 = 102;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        NewOrderSingle::encode_into(self, out)
     }
 }
 
@@ -4841,6 +4977,14 @@ impl OrderCancelReplaceRequest {
     }
 }
 
+impl turbojet::sbe::Encode for OrderCancelReplaceRequest {
+    const TEMPLATE_ID: u16 = 104;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        OrderCancelReplaceRequest::encode_into(self, out)
+    }
+}
+
 /// `OrderCancelRequest` (template 105), read where it lies.
 #[derive(Clone, Copy)]
 pub struct OrderCancelRequestRef<'a> {
@@ -4972,6 +5116,14 @@ impl OrderCancelRequest {
             block[32..37].copy_from_slice(c);
         }
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for OrderCancelRequest {
+    const TEMPLATE_ID: u16 = 105;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        OrderCancelRequest::encode_into(self, out)
     }
 }
 
@@ -5148,6 +5300,14 @@ impl NewOrderCross<'_> {
             entry.encode_body(out)?;
         }
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for NewOrderCross<'_> {
+    const TEMPLATE_ID: u16 = 106;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        NewOrderCross::encode_into(self, out)
     }
 }
 
@@ -5487,6 +5647,14 @@ impl ExecutionReportNew<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for ExecutionReportNew<'_> {
+    const TEMPLATE_ID: u16 = 200;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        ExecutionReportNew::encode_into(self, out)
+    }
+}
+
 /// `ExecutionReport_Modify` (template 201), read where it lies.
 #[derive(Clone, Copy)]
 pub struct ExecutionReportModifyRef<'a> {
@@ -5709,6 +5877,14 @@ impl ExecutionReportModify<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for ExecutionReportModify<'_> {
+    const TEMPLATE_ID: u16 = 201;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        ExecutionReportModify::encode_into(self, out)
+    }
+}
+
 /// `ExecutionReport_Cancel` (template 202), read where it lies.
 #[derive(Clone, Copy)]
 pub struct ExecutionReportCancelRef<'a> {
@@ -5910,6 +6086,14 @@ impl ExecutionReportCancel<'_> {
         write_data_u8(out, "deskID", self.desk_id, 20)?;
         write_data_u8(out, "memo", self.memo, 40)?;
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for ExecutionReportCancel<'_> {
+    const TEMPLATE_ID: u16 = 202;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        ExecutionReportCancel::encode_into(self, out)
     }
 }
 
@@ -6243,6 +6427,14 @@ impl ExecutionReportTrade<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for ExecutionReportTrade<'_> {
+    const TEMPLATE_ID: u16 = 203;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        ExecutionReportTrade::encode_into(self, out)
+    }
+}
+
 /// `ExecutionReport_Reject` (template 204), read where it lies.
 #[derive(Clone, Copy)]
 pub struct ExecutionReportRejectRef<'a> {
@@ -6453,6 +6645,14 @@ impl ExecutionReportReject<'_> {
         write_data_u8(out, "deskID", self.desk_id, 20)?;
         write_data_u8(out, "memo", self.memo, 40)?;
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for ExecutionReportReject<'_> {
+    const TEMPLATE_ID: u16 = 204;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        ExecutionReportReject::encode_into(self, out)
     }
 }
 
@@ -6766,6 +6966,14 @@ impl ExecutionReportForward<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for ExecutionReportForward<'_> {
+    const TEMPLATE_ID: u16 = 205;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        ExecutionReportForward::encode_into(self, out)
+    }
+}
+
 /// `BusinessMessageReject` (template 206), read where it lies.
 #[derive(Clone, Copy)]
 pub struct BusinessMessageRejectRef<'a> {
@@ -6911,6 +7119,14 @@ impl BusinessMessageReject<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for BusinessMessageReject<'_> {
+    const TEMPLATE_ID: u16 = 206;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        BusinessMessageReject::encode_into(self, out)
+    }
+}
+
 /// `SecurityDefinitionRequest` (template 300), read where it lies.
 #[derive(Clone, Copy)]
 pub struct SecurityDefinitionRequestRef<'a> {
@@ -7027,6 +7243,14 @@ impl SecurityDefinitionRequest<'_> {
             entry.encode_body(out)?;
         }
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for SecurityDefinitionRequest<'_> {
+    const TEMPLATE_ID: u16 = 300;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        SecurityDefinitionRequest::encode_into(self, out)
     }
 }
 
@@ -7282,6 +7506,14 @@ impl SecurityDefinitionResponse {
         }
         turbojet::sbe::put_le(block, 53, self.poss_resend.raw());
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for SecurityDefinitionResponse {
+    const TEMPLATE_ID: u16 = 301;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        SecurityDefinitionResponse::encode_into(self, out)
     }
 }
 
@@ -7548,6 +7780,14 @@ impl QuoteRequest<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for QuoteRequest<'_> {
+    const TEMPLATE_ID: u16 = 401;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        QuoteRequest::encode_into(self, out)
+    }
+}
+
 /// A `QuoteRequestNoSides` entry, read where it lies.
 #[derive(Clone, Copy)]
 pub struct QuoteRequestNoSidesRef<'a> {
@@ -7777,6 +8017,14 @@ impl QuoteStatusReport {
     }
 }
 
+impl turbojet::sbe::Encode for QuoteStatusReport {
+    const TEMPLATE_ID: u16 = 402;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        QuoteStatusReport::encode_into(self, out)
+    }
+}
+
 /// `Quote` (template 403), read where it lies.
 #[derive(Clone, Copy)]
 pub struct QuoteRef<'a> {
@@ -7948,6 +8196,14 @@ impl Quote {
     }
 }
 
+impl turbojet::sbe::Encode for Quote {
+    const TEMPLATE_ID: u16 = 403;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Quote::encode_into(self, out)
+    }
+}
+
 /// `QuoteCancel` (template 404), read where it lies.
 #[derive(Clone, Copy)]
 pub struct QuoteCancelRef<'a> {
@@ -8089,6 +8345,14 @@ impl QuoteCancel {
         block[34..39].copy_from_slice(&self.entering_trader);
         turbojet::sbe::put_le(block, 39, self.poss_resend.raw());
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for QuoteCancel {
+    const TEMPLATE_ID: u16 = 404;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        QuoteCancel::encode_into(self, out)
     }
 }
 
@@ -8263,6 +8527,14 @@ impl QuoteRequestReject {
     }
 }
 
+impl turbojet::sbe::Encode for QuoteRequestReject {
+    const TEMPLATE_ID: u16 = 405;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        QuoteRequestReject::encode_into(self, out)
+    }
+}
+
 /// `PositionMaintenanceCancelRequest` (template 501), read where it lies.
 #[derive(Clone, Copy)]
 pub struct PositionMaintenanceCancelRequestRef<'a> {
@@ -8404,6 +8676,14 @@ impl PositionMaintenanceCancelRequest {
         block[32..42].copy_from_slice(&self.sender_location);
         block[42..47].copy_from_slice(&self.entering_trader);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for PositionMaintenanceCancelRequest {
+    const TEMPLATE_ID: u16 = 501;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        PositionMaintenanceCancelRequest::encode_into(self, out)
     }
 }
 
@@ -8617,6 +8897,14 @@ impl PositionMaintenanceRequest<'_> {
         write_data_u8(out, "deskID", self.desk_id, 20)?;
         write_data_u8(out, "memo", self.memo, 40)?;
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for PositionMaintenanceRequest<'_> {
+    const TEMPLATE_ID: u16 = 502;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        PositionMaintenanceRequest::encode_into(self, out)
     }
 }
 
@@ -8977,6 +9265,14 @@ impl PositionMaintenanceReport<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for PositionMaintenanceReport<'_> {
+    const TEMPLATE_ID: u16 = 503;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        PositionMaintenanceReport::encode_into(self, out)
+    }
+}
+
 /// A `PositionMaintenanceReportNoPositions` entry, read where it lies.
 #[derive(Clone, Copy)]
 pub struct PositionMaintenanceReportNoPositionsRef<'a> {
@@ -9283,6 +9579,14 @@ impl AllocationInstruction<'_> {
         write_data_u8(out, "deskID", self.desk_id, 20)?;
         write_data_u8(out, "memo", self.memo, 40)?;
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for AllocationInstruction<'_> {
+    const TEMPLATE_ID: u16 = 601;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        AllocationInstruction::encode_into(self, out)
     }
 }
 
@@ -9631,6 +9935,14 @@ impl AllocationReport {
     }
 }
 
+impl turbojet::sbe::Encode for AllocationReport {
+    const TEMPLATE_ID: u16 = 602;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        AllocationReport::encode_into(self, out)
+    }
+}
+
 /// `OrderMassActionRequest` (template 701), read where it lies.
 #[derive(Clone, Copy)]
 pub struct OrderMassActionRequestRef<'a> {
@@ -9795,6 +10107,14 @@ impl OrderMassActionRequest {
             block[20..23].copy_from_slice(c);
         }
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for OrderMassActionRequest {
+    const TEMPLATE_ID: u16 = 701;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        OrderMassActionRequest::encode_into(self, out)
     }
 }
 
@@ -10017,6 +10337,14 @@ impl OrderMassActionReport<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for OrderMassActionReport<'_> {
+    const TEMPLATE_ID: u16 = 702;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        OrderMassActionReport::encode_into(self, out)
+    }
+}
+
 /// `SimpleOpenFramingHeaderMessage` (template 0), read where it lies.
 #[derive(Clone, Copy)]
 pub struct SimpleOpenFramingHeaderMessageRef<'a> {
@@ -10092,6 +10420,14 @@ impl SimpleOpenFramingHeaderMessage {
         let block = turbojet::sbe::reserve(out, 4);
         self.framing_header.encode(block);
         Ok(())
+    }
+}
+
+impl turbojet::sbe::Encode for SimpleOpenFramingHeaderMessage {
+    const TEMPLATE_ID: u16 = 0;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        SimpleOpenFramingHeaderMessage::encode_into(self, out)
     }
 }
 

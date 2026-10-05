@@ -572,6 +572,15 @@ impl<'s> Renderer<'s> {
         }
         self.encode_body(block, entries)?;
         writeln!(self.out, "}}").expect(INFALLIBLE);
+        if let Some(id) = template {
+            writeln!(
+                self.out,
+                "\nimpl {RT}::Encode for {owned}{anonymous} {{\n    const TEMPLATE_ID: u16 = {id};\n\n    \
+                 fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), {RT}::SbeError> {{\n        \
+                 {owned}::encode_into(self, out)\n    }}\n}}"
+            )
+            .expect(INFALLIBLE);
+        }
         Ok(())
     }
 

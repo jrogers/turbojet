@@ -560,6 +560,14 @@ impl Car<'_> {
     }
 }
 
+impl turbojet::sbe::Encode for Car<'_> {
+    const TEMPLATE_ID: u16 = 1;
+
+    fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), turbojet::sbe::SbeError> {
+        Car::encode_into(self, out)
+    }
+}
+
 /// A `CarFuelFigures` entry, read where it lies.
 #[derive(Clone, Copy)]
 pub struct CarFuelFiguresRef<'a> {
