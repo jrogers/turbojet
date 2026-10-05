@@ -759,16 +759,29 @@ impl Message {
     pub(crate) fn write_segments(&self, out: &mut Vec<u8>, keep: impl Fn(u32) -> bool) -> usize {
         let before = out.len();
         let keep = &keep;
+        let buf = self.buf.as_bytes();
+        // Text segments that lie back to back in the buffer, as they do when a message is built or
+        // decoded in order, are copied in one go: a copy per field of a few bytes costs mostly
+        // the call.
+        let mut run = 0..0;
         for f in self.fields.iter().filter(|f| keep(f.tag)) {
             if f.is_binary() {
+                out.extend_from_slice(&buf[run]);
+                run = 0..0;
                 push_digits(out, f.tag as usize);
                 out.push(b'=');
                 out.extend_from_slice(self.bytes(f));
                 out.push(SOH);
             } else {
-                out.extend_from_slice(&self.buf.as_bytes()[f.start as usize..=f.end as usize]);
+                let start = f.start as usize;
+                if start != run.end {
+                    out.extend_from_slice(&buf[run]);
+                    run = start..start;
+                }
+                run.end = f.end as usize + 1;
             }
         }
+        out.extend_from_slice(&buf[run]);
         let written = out.len() - before;
         // Paired with the length computed before writing, which goes in BodyLength(9).
         debug_assert_eq!(written, self.segments_len(keep), "the fields are as long as computed");
