@@ -14,3 +14,9 @@ cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/Orchest
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX50SP2.xml \
     --transport dictionaries/orchestra/FIXTSession.xml \
     --out crates/turbojet-fix50sp2/src/generated
+# SBE codecs for turbojet's tests and benchmarks: SBE's example schema, B3's Binary Entrypoint, and
+# a schema exercising sinceVersion and big-endian.
+cargo run --quiet --locked -p turbojet-codegen -- sbe dictionaries/sbe/example-schema.xml --out crates/turbojet/tests/sbe/car.rs
+cargo run --quiet --locked -p turbojet-codegen -- sbe dictionaries/sbe/b3-entrypoint.xml --out crates/turbojet/tests/sbe/b3.rs
+cargo run --quiet --locked -p turbojet-codegen -- sbe crates/turbojet/tests/sbe/versioned.xml \
+    --out crates/turbojet/tests/sbe/versioned.rs

@@ -49,9 +49,9 @@ cargo clippy --manifest-path crates/turbojet/fuzz/Cargo.toml --all-targets --loc
 
 step codegen
 # Compare against the working tree as it was, so uncommitted generator changes are checked too.
-before=$(git status --porcelain -- crates/turbojet-fix*/src/generated; git diff -- crates/turbojet-fix*/src/generated)
+before=$(git status --porcelain -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs; git diff -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs)
 scripts/codegen.sh
-after=$(git status --porcelain -- crates/turbojet-fix*/src/generated; git diff -- crates/turbojet-fix*/src/generated)
+after=$(git status --porcelain -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs; git diff -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs)
 if [ "$before" != "$after" ]; then
     echo "codegen changed the generated crates; commit the output of scripts/codegen.sh" >&2
     exit 1
