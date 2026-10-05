@@ -223,8 +223,10 @@ parent that decides and helpers that compute; the few still marked
   store job is what the session waits for, checked as it starts and ends; a transport takes no
   more than it's given; a clean end leaves nothing unwritten), and so does the registry (a
   connection releases only its own registration; an operator's sequence change leaves the log as
-  asked). The rest of the engine has fewer: throttling, schedules and validation. Add checks
-  where they state something a reader relies on, not to reach a count.
+  asked), and throttling (a window never grows past its limit or allocates as it records; a send
+  is applied only while the outbound window allows it). The rest of the engine has fewer:
+  schedules and validation. Add checks where they state something a reader relies on, not to
+  reach a count.
 
 ## 6. Performance
 
