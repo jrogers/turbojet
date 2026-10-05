@@ -17,8 +17,8 @@ use crate::message::Message;
 use crate::registry::{Command, CommandReceiver, Next, Sends};
 use crate::session::Session;
 use crate::shutdown::Signal;
-use crate::store::{SentMessages, SessionLog};
-use crate::telemetry;
+use crate::store::{Commit, Job, SentMessages, SessionLog};
+use crate::telemetry::{self, LatencyMetrics, SessionMetrics};
 
 // The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
 // for branch: keep the two in step.
@@ -64,6 +64,50 @@ const _: () = assert!(READ_BUFFER_SIZE < MAX_UNPROCESSED);
 const _: () = assert!(MAX_COMMANDS_PER_BATCH > 0);
 const _: () = assert!(MAX_READS_PER_BATCH > 0);
 
+/// What the driver needs of the session it runs: a FIX [`Session`], or a FIXP one. Crate-private:
+/// the public entry points take each kind by name. The methods are [`Session`]'s, which documents
+/// them; a FIXP session that doesn't resend, throttle or wait for its store answers as one that
+/// never does.
+pub(crate) trait Driven {
+    /// What the session's handle queues for it to send.
+    type Item;
+    /// Kept by the driver for [`feed`](Self::feed) from one read to the next: the FIX session
+    /// decodes every frame into one reused message.
+    type Scratch: Default;
+
+    fn has_logged_on(&self) -> bool;
+    fn is_closed(&self) -> bool;
+    fn is_resending(&self) -> bool;
+    fn is_waiting_on_store(&self) -> bool;
+    fn is_committing(&self) -> bool;
+    fn output(&self) -> &[u8];
+    fn clear_output(&mut self);
+    fn next_deadline(&self) -> Option<std::time::Instant>;
+    fn can_send(&self, now: std::time::Instant) -> bool;
+    fn send_free_at(&self) -> Option<std::time::Instant>;
+    fn input_free_at(&self) -> Option<std::time::Instant>;
+    fn metrics(&self) -> Option<&SessionMetrics>;
+    fn latency_metrics(&self) -> Option<&LatencyMetrics>;
+    fn times_latency(&self) -> bool;
+    fn on_connect(&mut self, now: std::time::Instant);
+    fn on_shutdown(&mut self, text: Option<&str>, now: std::time::Instant);
+    fn on_disconnect(&mut self, now: std::time::Instant);
+    fn on_timer(&mut self, now: std::time::Instant);
+    fn on_resume(&mut self, now: std::time::Instant);
+    fn on_command(&mut self, command: Command<Self::Item>, now: std::time::Instant);
+    fn on_sends_held(&mut self);
+    fn take_commit(&mut self, now: std::time::Instant) -> Option<Commit>;
+    fn take_fetch(&mut self) -> Option<Job<SentMessages>>;
+    fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>>;
+    fn on_committed(&mut self, result: io::Result<()>, now: std::time::Instant);
+    fn on_fetched(&mut self, result: io::Result<SentMessages>, now: std::time::Instant);
+    fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: std::time::Instant);
+    /// Hands the session the complete messages at the start of `buf`, removing them, until it
+    /// must stop: it's resending, closed, waiting for its store or its inbound window. Returns
+    /// whether input was left waiting for one of those to end, rather than for more to arrive.
+    fn feed(&mut self, buf: &mut Vec<u8>, scratch: &mut Self::Scratch, now: std::time::Instant) -> bool;
+}
+
 /// Runs `session` over `stream` until either side disconnects.
 ///
 /// Each wake-up (a read from the peer, a batch of handle commands, or a timer deadline) can produce
@@ -94,10 +138,10 @@ where
 /// connection at once, whatever it's doing, if shutdown gives up waiting.
 ///
 /// Runs inside a `session` span whose `id` field is filled in once the session knows its ID.
-pub(crate) async fn run_tracked<S>(
+pub(crate) async fn run_tracked<S, P: Driven>(
     stream: S,
-    session: Session,
-    commands: CommandReceiver,
+    session: P,
+    commands: CommandReceiver<P::Item>,
     logged_on: &mut bool,
     shutdown: Option<Signal>,
 ) -> io::Result<()>
@@ -146,10 +190,10 @@ where
 
 /// [`run_spinning`], following `shutdown` as [`run_tracked`] does. Runs inside the runtime's
 /// context.
-pub(crate) fn run_spinning_tracked<S>(
+pub(crate) fn run_spinning_tracked<S, P: Driven>(
     stream: S,
-    session: Session,
-    commands: CommandReceiver,
+    session: P,
+    commands: CommandReceiver<P::Item>,
     logged_on: &mut bool,
     mut shutdown: Option<Signal>,
 ) -> io::Result<()>
@@ -184,10 +228,10 @@ where
     }
 }
 
-async fn drive<S>(
+async fn drive<S, P: Driven>(
     stream: S,
-    session: Session,
-    commands: CommandReceiver,
+    session: P,
+    commands: CommandReceiver<P::Item>,
     logged_on: &mut bool,
     mut shutdown: Option<Signal>,
 ) -> io::Result<()>
@@ -234,8 +278,8 @@ const SPIN_BRANCHES: usize = 7;
 /// select's branches that's ready is taken. Its guards are the select's. The two branches that
 /// only wake the select for the outbound and inbound windows aren't needed: `prepare` looks again
 /// every time round.
-fn spin<R, W>(
-    d: &mut Driver,
+fn spin<R, W, P: Driven>(
+    d: &mut Driver<P>,
     reader: &mut R,
     writer: &mut W,
     logged_on: &mut bool,
@@ -270,7 +314,7 @@ where
     }
 }
 
-impl Driver {
+impl<P: Driven> Driver<P> {
     /// One of [`spin`]'s branches, if its guard allows and it's ready: whether it was taken, or
     /// how the connection ended.
     fn try_branch<R, W>(
@@ -345,8 +389,8 @@ impl Driver {
 }
 
 /// Runs the connection until the session closes and its output has gone, or the transport ends.
-async fn serve<R, W>(
-    d: &mut Driver,
+async fn serve<R, W, P: Driven>(
+    d: &mut Driver<P>,
     reader: &mut R,
     writer: &mut W,
     logged_on: &mut bool,
@@ -438,9 +482,9 @@ struct Step {
 
 /// A connection's state between wake-ups: the session, what's been read and not yet handled,
 /// what it sent and hasn't been written, and the store's work under way.
-struct Driver {
-    session: Session,
-    commands: CommandReceiver,
+struct Driver<P: Driven> {
+    session: P,
+    commands: CommandReceiver<P::Item>,
     /// After each read it keeps only an incomplete frame, which the codec caps at MAX_BODY_LENGTH
     /// plus header and trailer, so it grows to no more than that and one read, except during a
     /// resend, when input waits here (up to MAX_UNPROCESSED).
@@ -448,8 +492,9 @@ struct Driver {
     /// Input read during a resend or a commit, or held by an inbound Delay limit, waiting in `buf`
     /// until it ends.
     deferred: bool,
-    /// Every inbound frame is decoded into this one message, which keeps its allocations.
-    scratch: Message,
+    /// The session's, for `feed`: a FIX session decodes every inbound frame into this one
+    /// message, which keeps its allocations.
+    scratch: P::Scratch,
     /// Bytes read before the session is bound (an acceptor's Logon) are attributed once it is.
     unattributed_bytes: usize,
     /// What the session sent, written as the stream takes it while the driver goes on reading:
@@ -473,14 +518,14 @@ struct Driver {
     timings: Timings,
 }
 
-impl Driver {
-    fn new(session: Session, commands: CommandReceiver) -> Self {
+impl<P: Driven> Driver<P> {
+    fn new(session: P, commands: CommandReceiver<P::Item>) -> Self {
         Self {
             session,
             commands,
             buf: Vec::with_capacity(READ_BUFFER_SIZE),
             deferred: false,
-            scratch: Message::default(),
+            scratch: P::Scratch::default(),
             unattributed_bytes: 0,
             outbox: Vec::new(),
             written: 0,
@@ -618,7 +663,7 @@ impl Driver {
             // Input that waited for a resend, a commit or the inbound window is processed once it
             // has ended.
             if self.deferred && self.can_feed() {
-                self.deferred = feed(&mut self.session, &mut self.buf, &mut self.scratch, Instant::now().into_std());
+                self.deferred = self.session.feed(&mut self.buf, &mut self.scratch, Instant::now().into_std());
             }
             // A Logout that was waiting for the sends queued before it, now they've been taken.
             while !self.session.is_closed()
@@ -660,7 +705,7 @@ impl Driver {
                     self.unattributed_bytes += read;
                     let now = Instant::now();
                     self.timings.read(&self.session, now);
-                    self.deferred = feed(&mut self.session, &mut self.buf, &mut self.scratch, now.into_std());
+                    self.deferred = self.session.feed(&mut self.buf, &mut self.scratch, now.into_std());
                 }
             }
         }
@@ -756,12 +801,12 @@ impl Driver {
         } else {
             let now = Instant::now();
             self.timings.read(&self.session, now);
-            self.deferred = feed(&mut self.session, &mut self.buf, &mut self.scratch, now.into_std());
+            self.deferred = self.session.feed(&mut self.buf, &mut self.scratch, now.into_std());
         }
     }
 
     /// A command, or a send noticed waiting for the outbound window.
-    fn on_next(&mut self, next: Next) {
+    fn on_next(&mut self, next: Next<P::Item>) {
         // A noticed send arms the wait for the window, next time round.
         let Next::Command(command) = next else {
             self.sends_held = true;
@@ -821,7 +866,7 @@ struct Timings {
 
 impl Timings {
     /// Input was read at `now`.
-    fn read(&mut self, session: &Session, now: Instant) {
+    fn read(&mut self, session: &impl Driven, now: Instant) {
         if session.times_latency() {
             self.read_at.get_or_insert(now);
         }
@@ -829,7 +874,7 @@ impl Timings {
 
     /// A commit job has started, covering the input read so far. Input left `deferred` waits for a
     /// later commit, so its read time is kept for that one too.
-    fn commit_started(&mut self, session: &Session, deferred: bool) {
+    fn commit_started(&mut self, session: &impl Driven, deferred: bool) {
         if session.times_latency() {
             let read_at = if deferred { self.read_at } else { self.read_at.take() };
             self.commit = Some((Instant::now(), read_at));
@@ -837,7 +882,7 @@ impl Timings {
     }
 
     /// The commit job ended at `now`, and what it covers can be written if it `succeeded`.
-    fn commit_finished(&mut self, session: &Session, succeeded: bool, now: Instant) {
+    fn commit_finished(&mut self, session: &impl Driven, succeeded: bool, now: Instant) {
         if let Some(latency) = session.latency_metrics()
             && let Some((started, read_at)) = self.commit.take()
         {
@@ -849,7 +894,7 @@ impl Timings {
     }
 
     /// Everything read has been handled and committed at once, so can be written.
-    fn handled(&mut self, session: &Session) {
+    fn handled(&mut self, session: &impl Driven) {
         if let Some(latency) = session.latency_metrics()
             && let Some(read_at) = self.read_at.take()
         {
@@ -875,7 +920,7 @@ enum StoreDone {
 impl StoreTask {
     /// The session waits for this job, and a commit is the session's commit: checked as the job
     /// starts and again as it ends.
-    fn debug_check(&self, session: &Session) {
+    fn debug_check(&self, session: &impl Driven) {
         debug_assert!(session.is_waiting_on_store());
         debug_assert_eq!(matches!(self, Self::Commit(_)), session.is_committing());
     }
@@ -907,7 +952,7 @@ impl StoreDone {
         }
     }
 
-    fn deliver(self, session: &mut Session, now: std::time::Instant) {
+    fn deliver(self, session: &mut impl Driven, now: std::time::Instant) {
         match self {
             Self::Committed(result) => session.on_committed(result, now),
             Self::Fetched(result) => session.on_fetched(result, now),
@@ -928,9 +973,9 @@ fn joined<T>(result: Result<io::Result<T>, tokio::task::JoinError>) -> io::Resul
 /// waits for the window rather than for the timer. The driver, not the session's deadline, owns
 /// that wake-up: only it knows whether sends are waiting, and waking for the window with none
 /// would cost a wake-up per message at a steady rate near the limit.
-fn sends_this_time(
-    session: &Session,
-    commands: &CommandReceiver,
+fn sends_this_time<P: Driven>(
+    session: &P,
+    commands: &CommandReceiver<P::Item>,
     takes_sends: bool,
 ) -> (Sends, Option<std::time::Instant>) {
     if !takes_sends {
@@ -950,7 +995,7 @@ fn sends_this_time(
 /// wake-up, not the session's deadline: with no input held, waking for the window would cost a
 /// wake-up per message at a steady rate near the limit, and a deadline the timer finds stuck in the
 /// past waits for the once-a-second ceiling.
-fn input_held_until(session: &Session) -> Option<std::time::Instant> {
+fn input_held_until(session: &impl Driven) -> Option<std::time::Instant> {
     let free_at = session.input_free_at()?;
     (free_at > Instant::now().into_std()).then_some(free_at)
 }
@@ -1030,6 +1075,97 @@ fn poll_once<F: Future>(future: F) -> Option<F::Output> {
 /// arrived together, so they share one timestamp. Stops at a message that starts a resend, and
 /// before one that must wait for a commit or for the inbound window: returns true if input is left
 /// waiting.
+impl Driven for Session {
+    type Item = Message;
+    type Scratch = Message;
+
+    fn has_logged_on(&self) -> bool {
+        self.has_logged_on()
+    }
+    fn is_closed(&self) -> bool {
+        self.is_closed()
+    }
+    fn is_resending(&self) -> bool {
+        self.is_resending()
+    }
+    fn is_waiting_on_store(&self) -> bool {
+        self.is_waiting_on_store()
+    }
+    fn is_committing(&self) -> bool {
+        self.is_committing()
+    }
+    fn output(&self) -> &[u8] {
+        self.output()
+    }
+    fn clear_output(&mut self) {
+        self.clear_output();
+    }
+    fn next_deadline(&self) -> Option<std::time::Instant> {
+        self.next_deadline()
+    }
+    fn can_send(&self, now: std::time::Instant) -> bool {
+        self.can_send(now)
+    }
+    fn send_free_at(&self) -> Option<std::time::Instant> {
+        self.send_free_at()
+    }
+    fn input_free_at(&self) -> Option<std::time::Instant> {
+        self.input_free_at()
+    }
+    fn metrics(&self) -> Option<&SessionMetrics> {
+        self.metrics()
+    }
+    fn latency_metrics(&self) -> Option<&LatencyMetrics> {
+        self.latency_metrics()
+    }
+    fn times_latency(&self) -> bool {
+        self.times_latency()
+    }
+    fn on_connect(&mut self, now: std::time::Instant) {
+        self.on_connect(now);
+    }
+    fn on_shutdown(&mut self, text: Option<&str>, now: std::time::Instant) {
+        self.on_shutdown(text, now);
+    }
+    fn on_disconnect(&mut self, now: std::time::Instant) {
+        self.on_disconnect(now);
+    }
+    fn on_timer(&mut self, now: std::time::Instant) {
+        self.on_timer(now);
+    }
+    fn on_resume(&mut self, now: std::time::Instant) {
+        self.on_resume(now);
+    }
+    fn on_command(&mut self, command: Command, now: std::time::Instant) {
+        self.on_command(command, now);
+    }
+    fn on_sends_held(&mut self) {
+        self.on_sends_held();
+    }
+    fn take_commit(&mut self, now: std::time::Instant) -> Option<Commit> {
+        self.take_commit(now)
+    }
+    fn take_fetch(&mut self) -> Option<Job<SentMessages>> {
+        self.take_fetch()
+    }
+    fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
+        self.take_open()
+    }
+    fn on_committed(&mut self, result: io::Result<()>, now: std::time::Instant) {
+        self.on_committed(result, now);
+    }
+    fn on_fetched(&mut self, result: io::Result<SentMessages>, now: std::time::Instant) {
+        self.on_fetched(result, now);
+    }
+    fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: std::time::Instant) {
+        self.on_opened(result, now);
+    }
+    fn feed(&mut self, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
+        feed(self, buf, scratch, now)
+    }
+}
+
+/// [`Driven::feed`] for a FIX session: each frame decoded into `scratch`, garbled input skipped.
 fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
     let mut consumed = 0;
     // When the next message started, for the latency histograms: each message's end starts the
