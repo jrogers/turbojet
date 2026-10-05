@@ -34,6 +34,7 @@ fn codec(c: &mut Criterion) {
             _ => panic!("bad order"),
         })
     });
+    group.bench_function("encode NewOrderSingle", |b| b.iter(|| encode(black_box(&order)).unwrap()));
     group.throughput(Throughput::Bytes(report_wire.len() as u64));
     group.bench_function("encode ExecutionReport", |b| b.iter(|| encode(black_box(&report)).unwrap()));
     group.finish();
