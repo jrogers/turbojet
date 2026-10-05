@@ -17,21 +17,22 @@ use crate::message::Message;
 use crate::schedule::Clock;
 use crate::store::{MemoryStorage, Opened, SessionId, SessionLog, SessionStorage};
 
-/// A request to a session's connection task.
+/// A request to a session's connection task. `T` is what it sends: a FIX [`Message`], or for a
+/// FIXP session an encoded SBE message.
 #[derive(Debug)]
-pub enum Command {
+pub enum Command<T = Message> {
     /// Send an application message, and say what became of it on the reply, if any; see
     /// [`SessionHandle::send`].
-    Send(Message, Option<ReceiptSender>),
+    Send(T, Option<ReceiptSender>),
     /// Log out, with this Text(58) if any; see [`SessionHandle::logout`].
     Logout(Option<String>),
     /// An operator change to sequence numbers, answered on the channel.
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
 }
 
-impl Command {
+impl<T> Command<T> {
     /// Send `msg`, with no one waiting to hear what became of it.
-    pub fn send(msg: Message) -> Self {
+    pub fn send(msg: T) -> Self {
         Self::Send(msg, None)
     }
 }
@@ -205,13 +206,13 @@ pub(crate) enum AcquireError {
 }
 
 /// A session claimed in the registry for an operator change, released when dropped.
-struct Claim<'a> {
-    registry: &'a SessionRegistry,
+struct Claim<'a, T> {
+    registry: &'a SessionRegistry<T>,
     id: &'a SessionId,
-    commands: CommandSender,
+    commands: CommandSender<T>,
 }
 
-impl Drop for Claim<'_> {
+impl<T> Drop for Claim<'_, T> {
     fn drop(&mut self) {
         self.registry.release(self.id, &self.commands);
     }
@@ -245,15 +246,21 @@ enum Control {
 /// The queues that carry [`SessionHandle`] commands to a session's connection task: application
 /// sends, bounded by [`SessionConfig::send_queue`](crate::SessionConfig::send_queue), and
 /// logout and operator commands, bounded by [`CONTROL_QUEUE`].
-#[derive(Debug, Clone)]
-pub struct CommandSender {
-    sends: mpsc::Sender<(Message, ReceiptSender)>,
+#[derive(Debug)]
+pub struct CommandSender<T = Message> {
+    sends: mpsc::Sender<(T, ReceiptSender)>,
     control: mpsc::Sender<Control>,
     /// Sends queued so far, for a Logout to wait behind.
     queued: Arc<AtomicU64>,
 }
 
-impl CommandSender {
+impl<T> Clone for CommandSender<T> {
+    fn clone(&self) -> Self {
+        Self { sends: self.sends.clone(), control: self.control.clone(), queued: self.queued.clone() }
+    }
+}
+
+impl<T> CommandSender<T> {
     /// Whether `other` sends to the same connection.
     fn is_same(&self, other: &Self) -> bool {
         self.sends.same_channel(&other.sends)
@@ -265,8 +272,8 @@ impl CommandSender {
 /// Logout comes out of the control queue only once every send queued before it has been taken,
 /// so a message sent before logging out still goes out first.
 #[derive(Debug)]
-pub struct CommandReceiver {
-    sends: mpsc::Receiver<(Message, ReceiptSender)>,
+pub struct CommandReceiver<T = Message> {
+    sends: mpsc::Receiver<(T, ReceiptSender)>,
     control: mpsc::Receiver<Control>,
     /// Sends taken so far.
     taken: u64,
@@ -275,7 +282,7 @@ pub struct CommandReceiver {
     /// A send taken off its queue only to notice it (see [`Sends::Notice`]), first in line. It
     /// isn't counted in `taken` until it's handed out, so a Logout queued after it still waits.
     /// It has left the bounded queue, so while it's here one more send than `send_queue` waits.
-    noticed: Option<(Message, ReceiptSender)>,
+    noticed: Option<(T, ReceiptSender)>,
 }
 
 /// What [`CommandReceiver::next_with`] does with application sends.
@@ -292,14 +299,14 @@ pub(crate) enum Sends {
 
 /// What [`CommandReceiver::next_with`] found.
 #[derive(Debug)]
-pub(crate) enum Next {
-    Command(Command),
+pub(crate) enum Next<T = Message> {
+    Command(Command<T>),
     /// A send is waiting, not taken; see [`Sends::Notice`].
     Noticed,
 }
 
 /// A session's command queues, sends holding up to `send_queue` messages.
-pub fn command_queues(send_queue: usize) -> (CommandSender, CommandReceiver) {
+pub fn command_queues<T>(send_queue: usize) -> (CommandSender<T>, CommandReceiver<T>) {
     assert!(send_queue > 0, "a send queue holds at least one message");
     let (sends, sends_rx) = mpsc::channel(send_queue);
     let (control, control_rx) = mpsc::channel(CONTROL_QUEUE);
@@ -307,10 +314,10 @@ pub fn command_queues(send_queue: usize) -> (CommandSender, CommandReceiver) {
     (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None, noticed: None })
 }
 
-impl CommandReceiver {
+impl<T> CommandReceiver<T> {
     /// The next logout or operator command that's due, if any: operator commands at once, a
     /// Logout once the sends queued before it have been taken.
-    pub fn try_control(&mut self) -> Option<Command> {
+    pub fn try_control(&mut self) -> Option<Command<T>> {
         loop {
             if let Some((_, after)) = &self.held
                 && self.taken >= *after
@@ -328,7 +335,7 @@ impl CommandReceiver {
     /// Waits for the next command: a logout or operator command that's due, before anything
     /// else, or, if `sends`, an application message. Cancel-safe: a Logout that has arrived but
     /// isn't due yet is kept for later.
-    pub async fn next(&mut self, sends: bool) -> Option<Command> {
+    pub async fn next(&mut self, sends: bool) -> Option<Command<T>> {
         match self.next_with(if sends { Sends::Take } else { Sends::Ignore }).await? {
             Next::Command(command) => Some(command),
             Next::Noticed => unreachable!("sends are only noticed when asked to be"),
@@ -337,7 +344,7 @@ impl CommandReceiver {
 
     /// [`next`](Self::next), with application sends taken, noticed or ignored as `sends` says.
     /// Cancel-safe, as `next` is: a noticed send is kept, first in line.
-    pub(crate) async fn next_with(&mut self, sends: Sends) -> Option<Next> {
+    pub(crate) async fn next_with(&mut self, sends: Sends) -> Option<Next<T>> {
         loop {
             if let Some(command) = self.try_control() {
                 return Some(Next::Command(command));
@@ -375,7 +382,7 @@ impl CommandReceiver {
     }
 
     /// The noticed send, if any, now taken.
-    fn take_noticed(&mut self) -> Option<Command> {
+    fn take_noticed(&mut self) -> Option<Command<T>> {
         let (msg, receipt) = self.noticed.take()?;
         self.taken += 1;
         Some(Command::Send(msg, Some(receipt)))
@@ -383,7 +390,7 @@ impl CommandReceiver {
 
     /// A control command as it comes off its queue: a Logout not yet due is held (a second one
     /// while one is held adds nothing).
-    fn take(&mut self, control: Control) -> Option<Command> {
+    fn take(&mut self, control: Control) -> Option<Command<T>> {
         match control {
             Control::Sequence(command, reply) => Some(Command::Sequence(command, reply)),
             Control::Logout { text, after } if self.taken >= after && self.held.is_none() => {
@@ -397,7 +404,7 @@ impl CommandReceiver {
     }
 
     /// The next queued application message, if any.
-    pub fn try_send(&mut self) -> Option<Command> {
+    pub fn try_send(&mut self) -> Option<Command<T>> {
         if let Some(command) = self.take_noticed() {
             return Some(command);
         }
@@ -419,8 +426,8 @@ impl CommandReceiver {
 }
 
 /// A connected session's registration.
-struct Entry {
-    commands: CommandSender,
+struct Entry<T> {
+    commands: CommandSender<T>,
     /// FIXT sessions: the application version in use on this connection.
     appl_ver_id: Option<ApplVerId>,
 }
@@ -428,10 +435,11 @@ struct Entry {
 /// Opens session logs from storage, ensures each session runs on at most one connection at a
 /// time, routes [`SessionHandle`] commands to that connection, and keeps the
 /// [cancel-on-disconnect](crate::SessionConfig::cancel_on_disconnect) countdowns of its sessions.
-pub struct SessionRegistry {
+/// `T` is what its sessions send (see [`Command`]); cancel on disconnect is for FIX sessions.
+pub struct SessionRegistry<T = Message> {
     storage: Arc<dyn SessionStorage>,
     /// Connected sessions only: an entry is removed when its connection releases it.
-    sessions: Mutex<HashMap<SessionId, Entry>>,
+    sessions: Mutex<HashMap<SessionId, Entry<T>>>,
     /// For creation times recorded by operator resets of disconnected sessions.
     clock: Clock,
     /// Locked on its own. Nothing takes its lock with `sessions` held; a cancel callback may
@@ -444,7 +452,7 @@ pub struct SessionRegistry {
 }
 
 /// Takes no lock, so it's safe to format anywhere.
-impl fmt::Debug for SessionRegistry {
+impl<T> fmt::Debug for SessionRegistry<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SessionRegistry").finish_non_exhaustive()
     }
@@ -457,9 +465,17 @@ impl Default for SessionRegistry {
 }
 
 impl SessionRegistry {
-    /// A registry opening session logs from `storage`. The [`Default`] registry keeps them in
-    /// memory.
+    /// A registry of FIX sessions opening session logs from `storage`. The [`Default`] registry
+    /// keeps them in memory.
     pub fn new(storage: Arc<dyn SessionStorage>) -> Self {
+        Self::with_storage(storage)
+    }
+}
+
+impl<T> SessionRegistry<T> {
+    /// A registry of sessions sending `T`, opening session logs from `storage`: as
+    /// [`SessionRegistry::new`], for any kind of session.
+    pub fn with_storage(storage: Arc<dyn SessionStorage>) -> Self {
         Self {
             storage,
             sessions: Mutex::default(),
@@ -479,7 +495,7 @@ impl SessionRegistry {
 
     /// A handle for `id`. It can be created before the session connects and stays valid across
     /// reconnects; sends succeed while the session is connected.
-    pub fn handle(self: &Arc<Self>, id: SessionId) -> SessionHandle {
+    pub fn handle(self: &Arc<Self>, id: SessionId) -> SessionHandle<T> {
         SessionHandle { id, registry: self.clone() }
     }
 
@@ -494,7 +510,7 @@ impl SessionRegistry {
     pub(crate) fn acquire(
         &self,
         id: &SessionId,
-        commands: CommandSender,
+        commands: CommandSender<T>,
         appl_ver_id: Option<ApplVerId>,
     ) -> Result<Opened, AcquireError> {
         {
@@ -544,7 +560,7 @@ impl SessionRegistry {
     /// registration goes: one that released twice must not unbind the session from the next
     /// connection to claim it. Not `assert!`, though it's once per connection: the session
     /// releases from its `Drop`, where a panic while unwinding would abort.
-    pub(crate) fn release(&self, id: &SessionId, commands: &CommandSender) {
+    pub(crate) fn release(&self, id: &SessionId, commands: &CommandSender<T>) {
         let ours = {
             let mut sessions = self.lock();
             let ours = sessions.get(id).is_some_and(|entry| entry.commands.is_same(commands));
@@ -557,6 +573,20 @@ impl SessionRegistry {
         debug_assert!(ours || std::thread::panicking(), "{id} is released only by the connection that holds it");
     }
 
+    fn sender(&self, id: &SessionId) -> Option<CommandSender<T>> {
+        self.lock().get(id).map(|e| e.commands.clone())
+    }
+
+    fn appl_ver_id(&self, id: &SessionId) -> Option<ApplVerId> {
+        self.lock().get(id).and_then(|e| e.appl_ver_id)
+    }
+
+    fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Entry<T>>> {
+        self.sessions.lock().expect("session registry lock poisoned")
+    }
+}
+
+impl SessionRegistry<Message> {
     // ---- Cancel on disconnect ----
     //
     // The registry keeps the countdowns, rather than each session, because a countdown outlives
@@ -658,18 +688,6 @@ impl SessionRegistry {
             }
         });
     }
-
-    fn sender(&self, id: &SessionId) -> Option<CommandSender> {
-        self.lock().get(id).map(|e| e.commands.clone())
-    }
-
-    fn appl_ver_id(&self, id: &SessionId) -> Option<ApplVerId> {
-        self.lock().get(id).and_then(|e| e.appl_ver_id)
-    }
-
-    fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Entry>> {
-        self.sessions.lock().expect("session registry lock poisoned")
-    }
 }
 
 /// Marks the task driving a registry's countdowns as running, until it's dropped: when the task
@@ -682,7 +700,7 @@ impl Drop for Driving {
     }
 }
 
-impl Drop for SessionRegistry {
+impl<T> Drop for SessionRegistry<T> {
     fn drop(&mut self) {
         // Each bound session holds the registry, so none is left once it goes: a registration
         // left here was never released.
@@ -712,25 +730,30 @@ impl Drop for SessionRegistry {
 /// wait in their bounded queue and go out, in order, as soon as it completes. A message is dropped
 /// (and logged) if the connection ends while it's queued, or if logout has started; its
 /// [`Receipt`] says so.
-#[derive(Clone)]
-pub struct SessionHandle {
+pub struct SessionHandle<T = Message> {
     id: SessionId,
-    registry: Arc<SessionRegistry>,
+    registry: Arc<SessionRegistry<T>>,
+}
+
+impl<T> Clone for SessionHandle<T> {
+    fn clone(&self) -> Self {
+        Self { id: self.id.clone(), registry: self.registry.clone() }
+    }
 }
 
 /// The session's ID, as [`SessionId`] displays it.
-impl fmt::Display for SessionHandle {
+impl<T> fmt::Display for SessionHandle<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.id, f)
     }
 }
 
-impl SessionHandle {
+impl<T> SessionHandle<T> {
     /// A handle to `id` on a registry of its own, which no connection ever claims: its sends
     /// report [`SendError::NotConnected`]. For unit-testing an [`Application`],
     /// whose callbacks are each given a handle.
     pub fn disconnected(id: SessionId) -> Self {
-        Arc::new(SessionRegistry::new(Arc::new(crate::MemoryStorage::new()))).handle(id)
+        Arc::new(SessionRegistry::with_storage(Arc::new(crate::MemoryStorage::new()))).handle(id)
     }
 
     /// The session this handle sends on.
@@ -772,7 +795,7 @@ impl SessionHandle {
     ///
     /// [`SendError::NotConnected`] if no connection has the session, or [`SendError::Full`] if its
     /// send queue is full; either way the message comes back in it.
-    pub fn send(&self, msg: impl Into<Message>) -> Result<Receipt, SendError> {
+    pub fn send(&self, msg: impl Into<T>) -> Result<Receipt, SendError<T>> {
         let msg = msg.into();
         let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
         let (reply, receipt) = oneshot::channel();
@@ -793,7 +816,7 @@ impl SessionHandle {
     ///
     /// [`SendError::NotConnected`] if no connection has the session, or it ends while waiting; the
     /// message comes back in it.
-    pub async fn send_when_ready(&self, msg: impl Into<Message>) -> Result<Receipt, SendError> {
+    pub async fn send_when_ready(&self, msg: impl Into<T>) -> Result<Receipt, SendError<T>> {
         let msg = msg.into();
         let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
         let (reply, receipt) = oneshot::channel();
@@ -889,7 +912,7 @@ impl SessionHandle {
     }
 }
 
-impl fmt::Debug for SessionHandle {
+impl<T> fmt::Debug for SessionHandle<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SessionHandle").field("id", &self.id).finish()
     }
@@ -898,24 +921,24 @@ impl fmt::Debug for SessionHandle {
 /// Why [`SessionHandle::send`] didn't queue a message, with the message, to retry or keep.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum SendError {
+pub enum SendError<T = Message> {
     /// No connection has the session (see [`SessionHandle`]).
-    NotConnected(Message),
+    NotConnected(T),
     /// The session's send queue is full: the counterparty is reading more slowly than the
     /// application sends.
-    Full(Message),
+    Full(T),
 }
 
-impl SendError {
+impl<T> SendError<T> {
     /// The message that wasn't queued.
-    pub fn into_message(self) -> Message {
+    pub fn into_message(self) -> T {
         match self {
             Self::NotConnected(msg) | Self::Full(msg) => msg,
         }
     }
 }
 
-impl fmt::Display for SendError {
+impl<T> fmt::Display for SendError<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotConnected(_) => f.write_str("session is not connected"),
@@ -924,7 +947,7 @@ impl fmt::Display for SendError {
     }
 }
 
-impl std::error::Error for SendError {}
+impl<T: fmt::Debug> std::error::Error for SendError<T> {}
 
 /// Why [`SessionHandle::logout`] didn't queue the logout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
