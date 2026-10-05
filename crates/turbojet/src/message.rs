@@ -1427,7 +1427,7 @@ fn parse_field(segment: &[u8], eq: Option<usize>) -> Result<(u32, usize), String
 
 /// A tag: 1 to 9 ASCII digits, not zero.
 fn parse_tag(tag: &[u8]) -> Option<u32> {
-    parse_digits(tag).and_then(|t| u32::try_from(t).ok()).filter(|&t| t > 0)
+    parse_digits(tag).filter(|&t| t > 0)
 }
 
 /// A data field's length: 1 to 9 ASCII digits.
@@ -1435,11 +1435,17 @@ fn parse_length(length: &[u8]) -> Option<usize> {
     parse_digits(length).and_then(|n| usize::try_from(n).ok())
 }
 
-fn parse_digits(digits: &[u8]) -> Option<u64> {
-    if digits.is_empty() || digits.len() > 9 || !digits.iter().all(u8::is_ascii_digit) {
+/// 1 to 9 ASCII digits, which always fit a `u32`. Checked and summed in one pass without a branch
+/// per byte: a non-digit only flags the sum, which wraps harmlessly until it's thrown away.
+fn parse_digits(digits: &[u8]) -> Option<u32> {
+    if digits.is_empty() || digits.len() > 9 {
         return None;
     }
-    Some(digits.iter().fold(0, |n, &d| n * 10 + u64::from(d - b'0')))
+    let (n, bad) = digits.iter().fold((0u32, false), |(n, bad), &d| {
+        let digit = d.wrapping_sub(b'0');
+        (n.wrapping_mul(10).wrapping_add(u32::from(digit)), bad | (digit > 9))
+    });
+    (!bad).then_some(n)
 }
 
 /// Messages are equal when they have the same fields in the same order.
