@@ -423,12 +423,20 @@ impl Message {
         let mut defect = None;
         // The last field's tag and value, for a data field to find its length in.
         let mut previous: Option<(u32, &[u8])> = None;
+        let mut delimiters = Delimiters { bytes: body, chunk: 0, mask: 0 };
         let mut start = 0;
         // One field per at least two bytes (a one-digit tag and `=`, then SOH unless it's last), so
         // the codec's MAX_BODY_LENGTH bounds the field index of an inbound message.
         while start <= body.len() {
-            let mut end = body[start..].iter().position(|&b| b == SOH).map_or(body.len(), |p| start + p);
-            let (tag, eq) = match parse_field(&body[start..end]) {
+            // Delimiters before `start` are inside the data value just passed.
+            let first = delimiters.find(|&p| p >= start);
+            let eq = first.filter(|&p| body[p] == b'=');
+            let mut end = match first {
+                Some(p) if eq.is_none() => p,
+                Some(_) => delimiters.find(|&p| body[p] == SOH).unwrap_or(body.len()),
+                None => body.len(),
+            };
+            let (tag, eq) = match parse_field(&body[start..end], eq.map(|p| p - start)) {
                 Ok(field) => field,
                 Err(text) => {
                     defect.get_or_insert_with(|| invalid_tag(&body[start..end], text));
@@ -1365,10 +1373,47 @@ fn data_end(
     Some(end.ok_or(()))
 }
 
-/// Splits a `tag=value` segment, returning the tag and the index of its `=`, or the text of the
-/// defect that makes it unusable.
-fn parse_field(segment: &[u8]) -> Result<(u32, usize), String> {
-    let eq = segment.iter().position(|&b| b == b'=').ok_or_else(|| "Field without '='".to_string())?;
+/// The positions of every `=` and SOH in `bytes`, in order. Each 64-byte chunk is compared whole
+/// into a bit mask, a loop without an early exit that the compiler vectorises, rather than
+/// searched byte by byte.
+struct Delimiters<'a> {
+    bytes: &'a [u8],
+    /// Where the next chunk starts.
+    chunk: usize,
+    /// The delimiters not yet returned in the chunk before `chunk`, bit `i` for its byte `i`.
+    mask: u64,
+}
+
+impl Iterator for Delimiters<'_> {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<usize> {
+        while self.mask == 0 {
+            let rest = self.bytes.get(self.chunk..).filter(|rest| !rest.is_empty())?;
+            self.mask = match rest.first_chunk::<64>() {
+                Some(chunk) => delimiter_mask(chunk),
+                None => delimiter_mask(rest),
+            };
+            self.chunk += 64;
+        }
+        let bit = self.mask.trailing_zeros() as usize;
+        self.mask &= self.mask - 1;
+        Some(self.chunk - 64 + bit)
+    }
+}
+
+/// Bit `i` set where `bytes[i]` is `=` or SOH, for up to 64 bytes.
+#[inline(always)]
+fn delimiter_mask(bytes: &[u8]) -> u64 {
+    debug_assert!(bytes.len() <= 64);
+    bytes.iter().enumerate().fold(0, |mask, (i, &b)| mask | u64::from(b == b'=' || b == SOH) << i)
+}
+
+/// Splits a `tag=value` segment at its first `=`, `eq`, returning the tag and `eq`, or the text of
+/// the defect that makes it unusable.
+fn parse_field(segment: &[u8], eq: Option<usize>) -> Result<(u32, usize), String> {
+    let eq = eq.ok_or_else(|| "Field without '='".to_string())?;
+    debug_assert!(segment[eq] == b'=' && !segment[..eq].contains(&b'='), "{eq} is the first '='");
     let tag = &segment[..eq];
     parse_tag(tag).map(|parsed| (parsed, eq)).ok_or_else(|| {
         // Echo a garbage run only in part: the text goes back to the counterparty in a Reject.
@@ -1873,6 +1918,16 @@ mod tests {
 
     fn from_frame(frame: &[u8]) -> Result<Message, String> {
         Message::from_frame(frame, &DataFields::standard())
+    }
+
+    #[test]
+    fn delimiters_are_every_equals_and_soh_across_chunks() {
+        let bytes: Vec<u8> = (0..200u8).map(|i| [b'=', SOH, b'a', b'1', b'\xff'][usize::from(i % 7 % 5)]).collect();
+        for len in [0, 1, 63, 64, 65, 127, 128, 129, 200] {
+            let expected: Vec<usize> = (0..len).filter(|&i| bytes[i] == b'=' || bytes[i] == SOH).collect();
+            let found: Vec<usize> = Delimiters { bytes: &bytes[..len], chunk: 0, mask: 0 }.collect();
+            assert_eq!(found, expected, "{len} bytes");
+        }
     }
 
     #[test]
