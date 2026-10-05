@@ -117,6 +117,7 @@ impl ScheduleTimeZone {
     }
 
     /// Whether `local` occurs in the zone, at least once: not in a gap where clocks go forward.
+    #[cfg_attr(not(feature = "tz"), expect(unused_variables, reason = "only named zones have gaps"))]
     fn exists(self, local: NaiveDateTime) -> bool {
         match self {
             Self::Utc | Self::Fixed(_) => true,
