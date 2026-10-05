@@ -55,3 +55,10 @@ path = "fuzz_targets/session.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sbe_decode"
+path = "fuzz_targets/sbe_decode.rs"
+test = false
+doc = false
+bench = false
