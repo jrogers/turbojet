@@ -215,19 +215,61 @@ fn push_ascii(out: &mut String, ascii: &[u8]) {
     out.extend(ascii.iter().map(|&b| char::from(b)));
 }
 
-/// Appends the decimal digits of `n` without allocating.
-fn write_unsigned(out: &mut String, mut n: u64) {
-    let mut digits = [0u8; 20];
-    let mut start = digits.len();
-    loop {
-        start -= 1;
-        digits[start] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 {
-            break;
+/// "000" to "999", so an integer is appended three digits at a time: a `push_str` per group costs
+/// less than a `push` per digit, and `str::from_utf8` on the digits more than either.
+static TRIPLE_BYTES: [u8; 3000] = {
+    let mut table = [0u8; 3000];
+    let (mut i, mut hundreds) = (0, 0);
+    while hundreds < 10 {
+        let mut tens = 0;
+        while tens < 10 {
+            let mut units = 0;
+            while units < 10 {
+                table[i] = b'0' + hundreds;
+                table[i + 1] = b'0' + tens;
+                table[i + 2] = b'0' + units;
+                i += 3;
+                units += 1;
+            }
+            tens += 1;
         }
+        hundreds += 1;
     }
-    push_ascii(out, &digits[start..]);
+    table
+};
+static TRIPLES: &str = match std::str::from_utf8(&TRIPLE_BYTES) {
+    Ok(table) => table,
+    Err(_) => panic!("digits are ASCII"),
+};
+
+/// The last `width` of the three digits of `n`, which is under 1000: sliced once, as each slice
+/// of a `str` checks it falls on character boundaries.
+fn digits(n: u64, width: usize) -> &'static str {
+    debug_assert!(n < 1000 && (1..=3).contains(&width), "{n} in {width} digits");
+    #[expect(clippy::cast_possible_truncation, reason = "under 1000")]
+    let end = n as usize * 3 + 3;
+    &TRIPLES[end - width..end]
+}
+
+/// Appends `n`, which is under 10^`width`, as exactly `width` digits, with leading zeros.
+fn write_padded(out: &mut String, n: u64, width: usize) {
+    if width > 3 {
+        write_padded(out, n / 1000, width - 3);
+        out.push_str(digits(n % 1000, 3));
+    } else {
+        debug_assert!(n < [1, 10, 100, 1000][width], "{n} fits {width} digits");
+        out.push_str(digits(n, width));
+    }
+}
+
+/// Appends the decimal digits of `n` without allocating.
+fn write_unsigned(out: &mut String, n: u64) {
+    if n >= 1000 {
+        write_unsigned(out, n / 1000);
+        out.push_str(digits(n % 1000, 3));
+    } else {
+        out.push_str(digits(n, 1 + usize::from(n >= 10) + usize::from(n >= 100)));
+    }
 }
 
 impl FromFix for String {
@@ -358,6 +400,15 @@ impl ToFix for Decimal {
         if self.is_sign_negative() {
             out.push('-');
         }
+        let scale = self.scale();
+        if let (Ok(mantissa), Some(unit)) = (u64::try_from(self.mantissa().unsigned_abs()), 10u64.checked_pow(scale)) {
+            write_unsigned(out, mantissa / unit);
+            if scale > 0 {
+                out.push('.');
+                write_padded(out, mantissa % unit, scale as usize);
+            }
+            return;
+        }
         // A 96-bit mantissa has at most 29 digits; the scale is at most 28.
         let mut digits = [b'0'; 40];
         let mut start = digits.len();
@@ -379,7 +430,7 @@ impl ToFix for Decimal {
                 n /= 10;
             }
         }
-        let scale = self.scale() as usize;
+        let scale = scale as usize;
         // Leading zeros (already in the buffer) up to one digit before the point.
         start = start.min(digits.len() - scale - 1);
         let point = digits.len() - scale;
@@ -647,6 +698,15 @@ mod tests {
         for d in values {
             assert_eq!(d.to_fix(), d.to_string(), "{d:?}");
         }
+    }
+
+    #[test]
+    fn integers_are_written_as_display_writes_them() {
+        let powers = (0..20).map(|p| 10u64.pow(p));
+        for n in powers.flat_map(|p| [p - 1, p, p + 1, p + p / 3]).chain([u64::MAX]) {
+            assert_eq!(n.to_fix(), n.to_string());
+        }
+        assert_eq!(i64::MIN.to_fix(), i64::MIN.to_string());
     }
 
     #[test]
