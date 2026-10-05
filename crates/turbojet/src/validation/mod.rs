@@ -174,7 +174,32 @@ impl Validator {
             _ => true,
         };
         let data_fields = dict.data_fields();
-        Self { messages, fields, envelope, later_reasons, data_fields, options: ValidationOptions::default() }
+        let validator =
+            Self { messages, fields, envelope, later_reasons, data_fields, options: ValidationOptions::default() };
+        validator.assert_compiled();
+        validator
+    }
+
+    /// What checking relies on, once the dictionary is compiled: every member, in a message or a
+    /// group entry, is a field the validator knows the type of (`check_value` passes any other),
+    /// and each data field's length is a number field. Built once per configuration.
+    fn assert_compiled(&self) {
+        fn members_known(validator: &Validator, rules: &Rules) {
+            for (tag, group) in &rules.members {
+                assert!(validator.fields.contains_key(tag), "member {tag} is a defined field");
+                if let Some(group) = group {
+                    members_known(validator, &group.entry);
+                }
+            }
+        }
+        for rules in self.messages.values() {
+            members_known(self, rules);
+        }
+        for (length, data) in &self.data_fields {
+            let ty = |tag: &u32| self.fields.get(tag).map(|field| &field.ty);
+            assert!(matches!(ty(length), Some(FieldType::Length | FieldType::Int)), "{length} gives {data}'s length");
+            assert!(matches!(ty(data), Some(FieldType::Data | FieldType::XmlData)), "{data} is a data field");
+        }
     }
 
     /// The dictionary's data fields, as `(length tag, data tag)` pairs; see
@@ -232,6 +257,8 @@ impl Validator {
         let mut i = 0;
         while i < fields.len() {
             let (tag, value) = fields[i];
+            // The header and trailer are left out above; only the body is checked.
+            debug_assert!(!self.in_envelope(tag));
             let Some(member) = self.member(rules, tag)? else {
                 i += 1;
                 continue;
@@ -299,6 +326,7 @@ impl Validator {
 
     /// Checks the group whose NumInGroup field is at `at`; returns the index after it.
     fn check_group(&self, fields: &[(u32, &str)], at: usize, group: &Group) -> Result<usize, Invalid> {
+        debug_assert!(at < fields.len());
         let (count_tag, count) = fields[at];
         // A malformed count was reported by check_value when formats are checked.
         let count: usize = count.parse().unwrap_or(0);
@@ -347,6 +375,9 @@ impl Validator {
             let text = format!("NumInGroup {count_tag} declares {count} entries but {entries} were found");
             return Err(self.invalid(Some(count_tag), SessionRejectReason::IncorrectNumInGroupCount, &text));
         }
+        // Past the count field at least, and no further than the fields go: `validate` moves on.
+        debug_assert!(i > at);
+        debug_assert!(i <= fields.len());
         Ok(i)
     }
 
@@ -437,9 +468,13 @@ fn rules(members: &[Flat], tag: &impl Fn(&str) -> u32) -> Rules {
             Flat::Field { name, required } => (name, *required, None),
             Flat::Group { name, required, members } => {
                 let entry = rules(members, tag);
+                // The loaders refuse a group with no members.
+                assert!(!members.is_empty(), "group {name} has members");
                 let delimiter = match &members[0] {
                     Flat::Field { name, .. } | Flat::Group { name, .. } => tag(name),
                 };
+                // An entry starts with its delimiter, which must be one of its members.
+                assert!(entry.members.contains_key(&delimiter));
                 (name, *required, Some(Arc::new(Group { delimiter, entry })))
             }
         };
@@ -453,6 +488,8 @@ fn rules(members: &[Flat], tag: &impl Fn(&str) -> u32) -> Rules {
             out.required.push(tag);
         }
     }
+    // A required tag that isn't a member would be reported missing from every message.
+    assert!(out.required.iter().all(|tag| out.members.contains_key(tag)));
     out
 }
 

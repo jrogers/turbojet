@@ -102,11 +102,24 @@ impl ScheduleTimeZone {
     }
 
     fn to_utc(self, local: NaiveDateTime) -> DateTime<Utc> {
-        match self {
+        let utc = match self {
             Self::Utc => local.and_utc(),
             Self::Fixed(offset) => resolve(&offset, local),
             #[cfg(feature = "tz")]
             Self::Named(tz) => resolve(&tz, local),
+        };
+        // Back to local time, it's the time asked for, or just after the gap it falls in.
+        debug_assert!(self.to_local(utc) >= local, "{local} resolves to {utc}");
+        debug_assert!(!self.exists(local) || self.to_local(utc) == local, "{local} resolves to {utc}");
+        utc
+    }
+
+    /// Whether `local` occurs in the zone, at least once: not in a gap where clocks go forward.
+    fn exists(self, local: NaiveDateTime) -> bool {
+        match self {
+            Self::Utc | Self::Fixed(_) => true,
+            #[cfg(feature = "tz")]
+            Self::Named(tz) => !matches!(tz.from_local_datetime(&local), LocalResult::None),
         }
     }
 }
@@ -404,6 +417,13 @@ impl SessionSchedule {
             .take(MAX_CANDIDATES)
             .filter(|date| self.starts_on(*date))
             .map(|date| self.period_starting(date))
+            // `period_at` stops at the first period starting after its time, and `next_start`
+            // takes the first one: both rely on this order.
+            .scan(None, |previous: &mut Option<DateTime<Utc>>, period| {
+                debug_assert!(previous.is_none_or(|start| start < period.start), "periods come in start order");
+                *previous = Some(period.start);
+                Some(period)
+            })
     }
 
     /// Whether a period starts on `date`, a local date: never on a holiday, otherwise as
@@ -423,6 +443,14 @@ impl SessionSchedule {
 
     /// The period starting on `date`, a local date the schedule starts a period on.
     fn period_starting(&self, date: NaiveDate) -> Period {
+        let period = self.period_on(date);
+        // `periods_around` looks back this far for a period containing a time. A period can end
+        // before it starts, where its start falls in a DST gap: it's then never in session.
+        debug_assert!(period.end - period.start < chrono::Duration::days(self.look_back()), "{period:?} is too long");
+        period
+    }
+
+    fn period_on(&self, date: NaiveDate) -> Period {
         let local = |date: NaiveDate, at: NaiveTime| self.time_zone.to_utc(date.and_time(at));
         match &self.kind {
             Kind::Daily { start, end, .. } => {
