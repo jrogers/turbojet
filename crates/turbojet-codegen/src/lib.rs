@@ -62,11 +62,14 @@ mod docs;
 mod naming;
 mod plan;
 mod render;
+mod sbe;
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use turbojet_dictionary::Dictionary;
+
+pub use sbe::SbeGenerator;
 
 /// Why code couldn't be generated from a dictionary.
 #[derive(Debug)]

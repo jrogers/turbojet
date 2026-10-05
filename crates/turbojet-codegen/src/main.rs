@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
-use turbojet_codegen::Generator;
+use turbojet_codegen::{Generator, SbeGenerator};
 use turbojet_dictionary::Dictionary;
 
 const USAGE: &str = "usage: turbojet-codegen <dictionary.xml> [--transport FIXT11.xml] [--merge venue.xml]... \
@@ -12,7 +12,8 @@ const USAGE: &str = "usage: turbojet-codegen <dictionary.xml> [--transport FIXT1
                      the text is FIX Protocol Limited's, so check its licence first.\n--lenient-enums makes every enumerated \
                      field a Code<E>, keeping codes the dictionary doesn't list; --lenient-enum does it for one.\n\
                      --optional QuoteCancel.NoQuoteEntries makes a field, group or component optional in a \
-                     message or component, correcting a dictionary.";
+                     message or component, correcting a dictionary.\n\n\
+                     turbojet-codegen sbe <schema.xml> --out <file.rs>\n\nwrites a codec for an SBE message schema.";
 
 fn main() -> ExitCode {
     match run() {
@@ -25,7 +26,11 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1);
+    let mut args = std::env::args().skip(1).peekable();
+    if args.peek().is_some_and(|a| a == "sbe") {
+        args.next();
+        return sbe(args);
+    }
     let (mut dictionary, mut transport, mut merges, mut out, mut docs) = (None, None, Vec::new(), None, false);
     let (mut lenient_all, mut lenient, mut optional) = (false, Vec::new(), Vec::new());
     while let Some(arg) = args.next() {
@@ -70,11 +75,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         generator = generator.lenient_enum(&field.to_string_lossy());
     }
     let files = generator.write_modules(&out)?;
+    rustfmt(&files)
+}
+
+/// `turbojet-codegen sbe <schema.xml> --out <file.rs>`.
+fn sbe(mut args: impl Iterator<Item = String>) -> Result<(), Box<dyn std::error::Error>> {
+    let (mut schema, mut out) = (None, None);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--out" => out = Some(PathBuf::from(args.next().ok_or_else(|| format!("--out needs a value\n{USAGE}"))?)),
+            _ if arg.starts_with('-') || schema.is_some() => return Err(format!("unexpected {arg}\n{USAGE}").into()),
+            _ => schema = Some(PathBuf::from(&arg)),
+        }
+    }
+    let (Some(schema), Some(out)) = (schema, out) else { return Err(USAGE.into()) };
+    let code = SbeGenerator::load(&schema)?.render()?;
+    std::fs::write(&out, code).map_err(|e| format!("{}: {e}", out.display()))?;
+    rustfmt(&[out])
+}
+
+fn rustfmt(files: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
     // The style is pinned (to the repository's rustfmt.toml), so the output doesn't depend on any
     // rustfmt.toml above where it's written.
     let status = Command::new("rustfmt")
         .args(["--edition", "2024", "--config", "max_width=120,use_small_heuristics=Max"])
-        .args(&files)
+        .args(files)
         .status()
         .map_err(|e| format!("running rustfmt: {e} (install it with rustup component add rustfmt)"))?;
     if !status.success() {

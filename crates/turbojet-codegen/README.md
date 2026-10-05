@@ -44,3 +44,14 @@ for one field.
 leave out, making a field, group or component optional in a message or component (see
 `Dictionary::make_optional`); `turbojet-fix42` is generated with
 `--optional QuoteCancel.NoQuoteEntries`.
+
+## SBE codecs
+
+`turbojet-codegen sbe schema.xml --out codec.rs` (or `SbeGenerator::load(path)?.render()?` from a
+`build.rs`) generates a codec for an SBE (Simple Binary Encoding) message schema: per message, a
+decoder that reads it where it lies (`NewOrderSingleRef`) and a struct to encode
+(`NewOrderSingle`), an enum, set or composite struct per schema type, and `decode`, which reads the
+message header and picks the decoder by template ID. The code calls `turbojet::sbe`. SBE 1.0
+schemas are supported, in either byte order, with `sinceVersion`, nested groups, variable-length
+data and `<xi:include>`d types. Doc comments give each field's schema name and ID, not the schema's
+descriptions, whose licence is the schema publisher's.

@@ -2751,6 +2751,7 @@ name = "turbojet-codegen"
 version = "0.2.0"
 dependencies = [
  "pulldown-cmark",
+ "roxmltree",
  "tempfile",
  "turbojet",
  "turbojet-dictionary",
