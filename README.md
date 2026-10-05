@@ -794,7 +794,7 @@ to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 221 ns / 186 ns | 729 / 866 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 197 ns / 164 ns | 817 / 985 MiB/s |
 | Encode ExecutionReport (209 B) | 118 ns | 1.6 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations)² | 98 ns / 173 ns | |
 | Typed parse NewOrderSingle, owned (no groups / with 3 allocations)⁶ | 148 ns / 273 ns | |

@@ -270,6 +270,15 @@ From the benchmarks.
     API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
+- **SIMD parsing** (done 2026-10-05). Profiling the decode of a FIX 4.2 NewOrderSingle into a
+  reused message showed the per-field searches for SOH and `=` took about 38% of it and parsing
+  tags about 20%; the CheckSum, summed by a loop the compiler already vectorises, about 2%. Each
+  64-byte chunk of the body is now compared whole into a bit mask of its delimiters, a loop with
+  no early exit that the compiler vectorises without `unsafe` or `std::simd`, and tags are
+  checked and summed in one pass without a branch per byte: 192 ns to 164 ns on an Apple M3.
+  `memchr2_iter` was slower (249 ns), starting a new search for each delimiter a few bytes on.
+  What's left is mostly per-message work: the UTF-8 check (about 7%), framing (about 8%) and
+  recording each field.
 - **Latency** (researched 2026-10-04). A one-at-a-time round trip over localhost on an Apple M3
   takes 26.5 µs when the benchmark's task sends each order through a `SessionHandle` and receives
   each acknowledgement back, and 16.3 µs when the initiator's application sends the next order from
@@ -313,13 +322,6 @@ From the benchmarks.
 
 Each needs a benchmark that shows the cost before the change is worth its complexity.
 
-- **SIMD parsing** (M). Decoding a FIX 4.2 NewOrderSingle into a reused message takes about 186 ns
-  (Apple M3, 2026-10-04). The scans in it are byte at a time: finding each field's SOH and `=`,
-  summing the CheckSum, and checking that values are UTF-8 (which the standard library already does
-  quickly). Scanning 16 or 32 bytes at once (SSE2/AVX2 on x86, NEON on Arm) could find every
-  delimiter in a frame in one pass and build the field index from the result. The workspace forbids
-  `unsafe`, so through a safe crate (`memchr` uses SIMD inside) or portable SIMD once `std::simd` is
-  stable. Profile the decode first to see what share these scans take.
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
   share a cache line with unrelated data that another core writes (false sharing), and a
