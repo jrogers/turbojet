@@ -181,7 +181,20 @@ pub(crate) fn apply_sequence_command(
             log.set_created_at(clock.now().into())?;
         }
     }
-    Ok(SequenceNumbers { next_incoming: log.next_incoming(), next_outgoing: log.next_outgoing() })
+    let numbers = SequenceNumbers { next_incoming: log.next_incoming(), next_outgoing: log.next_outgoing() };
+    // The log says what the command asked for: checked here, as the store recorded it.
+    assert!(numbers.next_incoming >= 1, "sequence numbers start at 1");
+    assert!(numbers.next_outgoing >= 1, "sequence numbers start at 1");
+    match command {
+        SequenceCommand::Get => {}
+        SequenceCommand::SetNextIncoming(seq) => assert_eq!(numbers.next_incoming, seq),
+        SequenceCommand::SetNextOutgoing(seq) => assert_eq!(numbers.next_outgoing, seq),
+        SequenceCommand::Reset => {
+            assert_eq!(numbers.next_incoming, 1);
+            assert_eq!(numbers.next_outgoing, 1);
+        }
+    }
+    Ok(numbers)
 }
 
 /// Why a session couldn't be bound.
@@ -195,11 +208,12 @@ pub(crate) enum AcquireError {
 struct Claim<'a> {
     registry: &'a SessionRegistry,
     id: &'a SessionId,
+    commands: CommandSender,
 }
 
 impl Drop for Claim<'_> {
     fn drop(&mut self) {
-        self.registry.release(self.id);
+        self.registry.release(self.id, &self.commands);
     }
 }
 
@@ -215,6 +229,7 @@ impl fmt::Display for AcquireError {
 /// Most logout and operator commands queued for a session at once. They have a queue of their own,
 /// which the connection takes from first, so a queue full of sends never holds them up.
 pub const CONTROL_QUEUE: usize = 64;
+const _: () = assert!(CONTROL_QUEUE > 0);
 
 /// A logout or operator command, as queued.
 #[derive(Debug)]
@@ -236,6 +251,13 @@ pub struct CommandSender {
     control: mpsc::Sender<Control>,
     /// Sends queued so far, for a Logout to wait behind.
     queued: Arc<AtomicU64>,
+}
+
+impl CommandSender {
+    /// Whether `other` sends to the same connection.
+    fn is_same(&self, other: &Self) -> bool {
+        self.sends.same_channel(&other.sends)
+    }
 }
 
 /// A connection task's end of a [`CommandSender`]. A driver takes [`control`](Self::try_control)
@@ -341,6 +363,7 @@ impl CommandReceiver {
                 send = self.sends.recv(), if receiving => {
                     let (msg, receipt) = send?;
                     if sends == Sends::Notice {
+                        debug_assert!(self.noticed.is_none(), "one send is noticed at a time");
                         self.noticed = Some((msg, receipt));
                         return Some(Next::Noticed);
                     }
@@ -479,10 +502,10 @@ impl SessionRegistry {
             if sessions.contains_key(id) {
                 return Err(AcquireError::AlreadyConnected(id.clone()));
             }
-            sessions.insert(id.clone(), Entry { commands, appl_ver_id });
+            sessions.insert(id.clone(), Entry { commands: commands.clone(), appl_ver_id });
         }
         self.storage.begin_open(id).map_err(|e| {
-            self.release(id);
+            self.release(id, &commands);
             AcquireError::Storage(id.clone(), e)
         })
     }
@@ -492,13 +515,13 @@ impl SessionRegistry {
     async fn apply_offline(&self, id: &SessionId, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
         // No receiver: a send through a handle during the change fails as not connected.
         let (placeholder, _) = command_queues(1);
-        let opened = self.acquire(id, placeholder, None).map_err(|e| match e {
+        let opened = self.acquire(id, placeholder.clone(), None).map_err(|e| match e {
             AcquireError::AlreadyConnected(_) => SequenceError::Connected,
             AcquireError::Storage(_, e) => SequenceError::Storage(e),
         })?;
         // Declared before the log, so dropped after it: the log is closed (its lock released)
         // before the session can be claimed again, even if the caller gives up on this future.
-        let _claim = Claim { registry: self, id };
+        let _claim = Claim { registry: self, id, commands: placeholder };
         let mut log = match opened {
             Opened::Ready(log) => log,
             Opened::Pending(job) => job.run_here().await.map_err(SequenceError::Storage)?,
@@ -517,8 +540,21 @@ impl SessionRegistry {
         result
     }
 
-    pub(crate) fn release(&self, id: &SessionId) {
-        self.lock().remove(id);
+    /// Unbinds `id` from the connection whose queues are `commands`. Only that connection's
+    /// registration goes: one that released twice must not unbind the session from the next
+    /// connection to claim it. Not `assert!`, though it's once per connection: the session
+    /// releases from its `Drop`, where a panic while unwinding would abort.
+    pub(crate) fn release(&self, id: &SessionId, commands: &CommandSender) {
+        let ours = {
+            let mut sessions = self.lock();
+            let ours = sessions.get(id).is_some_and(|entry| entry.commands.is_same(commands));
+            if ours {
+                sessions.remove(id);
+            }
+            ours
+        };
+        // Outside the lock, which a panic would poison; and not while unwinding already.
+        debug_assert!(ours || std::thread::panicking(), "{id} is released only by the connection that holds it");
     }
 
     // ---- Cancel on disconnect ----
@@ -648,6 +684,12 @@ impl Drop for Driving {
 
 impl Drop for SessionRegistry {
     fn drop(&mut self) {
+        // Each bound session holds the registry, so none is left once it goes: a registration
+        // left here was never released.
+        if !std::thread::panicking() {
+            let sessions = self.sessions.get_mut().map(|sessions| sessions.len()).unwrap_or_default();
+            debug_assert_eq!(sessions, 0, "sessions left bound as the registry goes");
+        }
         // Wakes the task driving the countdowns, if any, to find the registry gone and end: a
         // permit if it's between waits, and waking it if it's waiting.
         self.cancels.wake.notify_one();

@@ -866,12 +866,12 @@ impl Session {
             Ok(log) if self.status == Status::Closed => {
                 // Closed before the store opened it: close the log before releasing the claim.
                 drop(log);
-                self.registry.release(&id);
+                self.registry.release(&id, &self.commands);
             }
             Ok(log) => self.bound(id, heartbeat, log, then, now),
             Err(e) => {
                 warn!("refusing logon: cannot open session store for {id}: {e}");
-                self.registry.release(&id);
+                self.registry.release(&id, &self.commands);
                 self.close(Disconnect::Error, now);
             }
         }
@@ -3124,13 +3124,13 @@ impl Drop for Session {
         // Dropped while the store opened its log (the connection failed): the log, if the job
         // still opens it, is closed when the job's result is dropped.
         if let Some(opening) = self.opening_log.take() {
-            self.registry.release(&opening.id);
+            self.registry.release(&opening.id, &self.commands);
         }
         if let Some(peer) = self.peer.take() {
             peer.metrics.disconnected();
             // Close the log (releasing any file lock) before another connection can acquire it.
             drop(peer.log);
-            self.registry.release(&peer.id);
+            self.registry.release(&peer.id, &self.commands);
         }
     }
 }
