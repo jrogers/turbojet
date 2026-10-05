@@ -20,6 +20,8 @@
 //! (`America/New_York`) that follow daylight saving. A local start or end time that doesn't exist
 //! (skipped when clocks go forward) is taken as the equivalent time on the old offset, i.e. just
 //! after the gap; one that occurs twice (when clocks go back) is taken as the first occurrence.
+//! So a period that lies inside the gap doesn't happen that day: `daily 02:30-03:00
+//! America/New_York` starts after it ends on the night clocks go forward, and is never in session.
 
 use std::collections::BTreeSet;
 use std::fmt;
