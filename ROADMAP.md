@@ -214,19 +214,13 @@ debug assertions on framing, sequence numbers and the gap queue are in place. Th
 in the session, the decoder, the connection driver and the code generator are split into a
 parent that decides and helpers that compute; the few still marked
 `#[expect(clippy::too_many_lines)]` are a match arm per event or option, or a benchmark group.
-
-- **Assertion density** (M). `session`, `codec`, `message` and the stores assert their
-  transitions and pairs (2026-10-04: a stored message is checked as stored and as read back, in
-  both stores and again by the session; BodyLength is checked as computed and as written; a
-  resend never reaches a number not yet sent; a store never reuses a number), about one assertion
-  per four functions, up from one per seven. The connection driver states its own (2026-10-04: a
-  store job is what the session waits for, checked as it starts and ends; a transport takes no
-  more than it's given; a clean end leaves nothing unwritten), and so does the registry (a
-  connection releases only its own registration; an operator's sequence change leaves the log as
-  asked), and throttling (a window never grows past its limit or allocates as it records; a send
-  is applied only while the outbound window allows it). The rest of the engine has fewer:
-  schedules and validation. Add checks where they state something a reader relies on, not to
-  reach a count.
+Each module asserts what its readers rely on, paired where it can be (2026-10-05): a stored
+message is checked as stored and as read back; BodyLength as computed and as written; a store job
+as it starts and as it ends; a rate-limit window never outgrows its limit or allocates; a
+connection releases only its own registration; a schedule's periods come in start order, each
+shorter than the look-back that finds it; a compiled dictionary's members are all known fields,
+and checking a group always moves on. Further checks go where they state something a reader
+relies on, not to reach a count. Nothing is left in this section for now.
 
 ## 6. Performance
 
