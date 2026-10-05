@@ -31,7 +31,9 @@ messages, groups and enums from it (from a `build.rs`, or as a command), and
 [`turbojet-fix42`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix42), [`turbojet-fix43`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix43),
 [`turbojet-fix44`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix44) and [`turbojet-fix50sp2`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix50sp2) are
 every FIX 4.2, 4.3, 4.4 and 5.0 SP2 application message, generated from the FIX Trading
-Community's official data and checked in.
+Community's official data and checked in. `turbojet-codegen sbe` generates codecs for SBE (Simple
+Binary Encoding) message schemas, the binary encoding venues such as B3 and CME publish (see
+[SBE codecs](#sbe-codecs)).
 
 [`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) keeps session
 state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
@@ -310,6 +312,34 @@ consumed where its count appears, so a tag used both inside a group and outside 
 confused. A count that disagrees with the entries, an entry not starting with its delimiter, or a
 member repeated within an entry is a `FieldError` (SessionRejectReason 16 or 15; these codes are
 FIX 4.3+, as FIX 4.2 has none for groups).
+
+## SBE codecs
+
+SBE (Simple Binary Encoding) is the FIX Trading Community's binary encoding: fixed-size fields at
+fixed offsets, then repeating groups and variable-length data. `turbojet-codegen sbe` generates a
+codec from a venue's SBE message schema: for each message, a decoder that reads it where it lies
+(`NewOrderSingleRef`) and a struct to encode (`NewOrderSingle`), and `decode`, which reads the
+message header and picks the decoder by template ID.
+
+```sh
+turbojet-codegen sbe b3-entrypoint.xml --out src/b3.rs
+```
+
+```rust
+let (b3::Decoded::NewOrderSingle(order), len) = b3::decode(bytes)? else { … };
+println!("{} {:?} {}", order.cl_ord_id(), order.side(), order.order_qty());
+
+let mut out = Vec::new();
+b3::NewOrderSingle { cl_ord_id: 1, side: b3::Side::Buy, /* … */ }.encode_into(&mut out)?;
+```
+
+A decoder checks the whole message when it's wrapped, groups and data included, so reading a field
+afterwards can't fail and copies nothing. Fields newer than the message's schema version read as
+absent, and a longer block from a newer version is read as far as the schema knows it. Enums keep a
+value the schema doesn't list as `Unknown`. SBE 1.0 schemas are supported, in either byte order.
+The generated code is checked against real-logic's SBE codecs, decoding what they encode and
+encoding the same bytes, for SBE's example schema and B3's Binary Entrypoint. The codecs encode and
+decode messages; there's no FIXP session to carry them yet (see the roadmap).
 
 ## Operating on sequence numbers
 
@@ -809,6 +839,8 @@ to partition the crate.
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL⁴ | 3.0 µs / 55 µs / 7.1 µs | |
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
+| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer⁹ | 7.5 ns / 37 ns | |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed⁹ | 4.8 ns / 258 ns | |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, one at a time, replying from `on_message`⁷ | 16.3 µs | 61.4k/s |
 | The same, both ends spinning (`run_spinning`)⁸ | 10.3 µs | 96.7k/s |
@@ -848,6 +880,10 @@ next order from `on_message`. On the same day, the round trips through the bench
 sizes ping-ponged between two threads over plain blocking sockets took 12.9 µs.
 ⁸ Measured 2026-10-04, each end on a thread of its own; 16.45 µs without spinning in the same run.
 Raw sockets with both ends spinning took 6.8 µs for the same sizes.
+⁹ Measured 2026-10-05 (`cargo bench -p turbojet --bench codec -- sbe`). The B3 order has no
+session header (FIXP sequences messages without one) and its fields are integers at fixed
+offsets; the tag=value order has its standard header, and reading it means splitting it into
+fields and parsing them.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
@@ -893,6 +929,8 @@ See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for t
   segments (up to 1 GiB by default) there.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
+- SBE messages can be encoded and decoded, but there's no FIXP session layer or Aeron transport to
+  carry them.
 
 ## Releases and security
 
@@ -916,6 +954,10 @@ Limited and licensed under the Apache License, Version 2.0 (see the `LICENSE` an
 `OrchestraFIX43.xml` and `OrchestraFIX50SP2.xml` are converted from the FIX Unified Repository,
 as the `NOTICE` there explains. The generated crates take their names and structure from them, but
 don't reproduce their documentation; see their `NOTICE` files.
+
+The SBE schemas in [`dictionaries/sbe`](https://github.com/jrogers/turbojet/tree/main/dictionaries/sbe),
+used only by tests and benchmarks, are SBE's example schema (real-logic, Apache License 2.0) and
+B3's Binary Entrypoint schema, by way of Artio; the `README.md` there gives their sources.
 
 The session acceptance scripts in
 [`crates/turbojet-acceptance/definitions`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance/definitions) are QuickFIX's,

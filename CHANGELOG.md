@@ -84,6 +84,15 @@ Notable changes to the published crates.
   Apple M3, and an order to its acknowledgement, wire to wire, takes about 964 ns against 1.04 µs.
 - Integer and decimal fields are written up to three digits at a time, so building a typed
   ExecutionReport takes about 156 ns against 164 ns on an Apple M3.
+- `turbojet::sbe`: what codecs generated from SBE message schemas share (see `turbojet-codegen`).
+
+### `turbojet-codegen`
+
+- `turbojet-codegen sbe schema.xml --out codec.rs` (and `SbeGenerator`, for a `build.rs`)
+  generates a codec for an SBE (Simple Binary Encoding) message schema, as venues publish them: a
+  borrowed decoder and a struct to encode per message, an enum, set or composite struct per type,
+  and `decode`, which picks the decoder by template ID. SBE 1.0, either byte order, with schema
+  versions (`sinceVersion`), nested groups, variable-length data and included type files.
 
 ### `turbojet-config`
 
