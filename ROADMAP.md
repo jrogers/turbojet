@@ -221,9 +221,10 @@ parent that decides and helpers that compute; the few still marked
   resend never reaches a number not yet sent; a store never reuses a number), about one assertion
   per four functions, up from one per seven. The connection driver states its own (2026-10-04: a
   store job is what the session waits for, checked as it starts and ends; a transport takes no
-  more than it's given; a clean end leaves nothing unwritten). The rest of the engine has fewer:
-  the registry, throttling, schedules and validation. Add checks where they state something a
-  reader relies on, not to reach a count.
+  more than it's given; a clean end leaves nothing unwritten), and so does the registry (a
+  connection releases only its own registration; an operator's sequence change leaves the log as
+  asked). The rest of the engine has fewer: throttling, schedules and validation. Add checks
+  where they state something a reader relies on, not to reach a count.
 
 ## 6. Performance
 
