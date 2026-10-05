@@ -13,6 +13,11 @@ pub const MAX_LIMIT_MESSAGES: u32 = 100_000;
 /// that, and keeps a message's time plus the window well inside what an `Instant` can hold.
 pub const MAX_LIMIT_PER: Duration = Duration::from_secs(24 * 60 * 60);
 
+const _: () = assert!(MAX_LIMIT_MESSAGES > 0);
+const _: () = assert!(!MAX_LIMIT_PER.is_zero());
+// The ring at its largest is what MAX_LIMIT_MESSAGES's documentation says.
+const _: () = assert!(MAX_LIMIT_MESSAGES as usize * std::mem::size_of::<Instant>() <= 1_600_000);
+
 /// At most `messages` in any window of `per`. Parses from `N/W`, e.g. `100/1s` or `50/200ms`
 /// (units `ms`, `s` and `m`, and `ns` for a window finer than a millisecond; a bare unit means one
 /// of it), and displays in the largest whole unit.
@@ -96,6 +101,8 @@ impl FromStr for RateLimit {
         let messages = messages.parse().map_err(|_| format!("invalid message count '{messages}' in '{s}'"))?;
         let limit = Self { messages, per: parse_per(per.trim())? };
         limit.check()?;
+        // A limit displays as it parses: what a config file or a log shows reads back the same.
+        assert_eq!(parse_per(&Per(limit.per).to_string()), Ok(limit.per));
         Ok(limit)
     }
 }
@@ -191,7 +198,10 @@ impl Window {
         if let Err(error) = limit.check() {
             panic!("a valid rate limit: {error}");
         }
-        Self { limit, times: VecDeque::with_capacity(limit.messages_len()) }
+        let window = Self { limit, times: VecDeque::with_capacity(limit.messages_len()) };
+        // Room for a full window up front, so recording never allocates (checked in `record`).
+        assert!(window.times.capacity() >= limit.messages_len());
+        window
     }
 
     /// The limit the window keeps.
@@ -212,6 +222,7 @@ impl Window {
         if self.times.len() < self.limit.messages_len() {
             return None;
         }
+        debug_assert_eq!(self.times.len(), self.limit.messages_len(), "a window never holds more than its limit");
         Some(self.times[0] + self.limit.per)
     }
 
@@ -219,6 +230,7 @@ impl Window {
     /// expires before the rest, so the window still frees up at the right time.
     pub(crate) fn record(&mut self, now: Instant) {
         debug_assert!(self.times.back().is_none_or(|last| *last <= now), "times are recorded in order");
+        let capacity = self.times.capacity();
         // Otherwise, after a long gap, a reply past full would leave the window freeing up at a
         // time already past.
         self.expire(now);
@@ -227,6 +239,8 @@ impl Window {
         }
         self.times.push_back(now);
         debug_assert!(self.times.len() <= self.limit.messages_len());
+        debug_assert_eq!(self.times.capacity(), capacity, "recording never allocates");
+        debug_assert!(self.times.front() <= self.times.back(), "the oldest time is first");
         debug_assert!(self.free_at_or_none().is_none_or(|at| at > now), "a window frees up after its last message");
     }
 
@@ -236,6 +250,8 @@ impl Window {
         while self.times.front().is_some_and(|at| *at + self.limit.per <= now) {
             self.times.pop_front();
         }
+        // What's left still counts at `now`.
+        debug_assert!(self.times.front().is_none_or(|at| *at + self.limit.per > now));
     }
 }
 

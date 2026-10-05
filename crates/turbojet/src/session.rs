@@ -1133,6 +1133,12 @@ impl Session {
     fn apply_command(&mut self, command: Command, now: Instant) {
         match command {
             Command::Send(mut msg, receipt) => {
+                // The driver takes a send only while the outbound window allows it (see
+                // `on_command`); replies past it come through `Context`, not here.
+                debug_assert!(
+                    self.status != Status::Active || self.can_send(now),
+                    "a send is applied only while the outbound window allows it"
+                );
                 let outcome = if self.status == Status::Active {
                     self.send_app(&mut msg, now)
                 } else {
