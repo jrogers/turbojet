@@ -2,12 +2,16 @@
 
 mod common;
 
+#[allow(dead_code)]
+#[path = "../tests/sbe/b3.rs"]
+mod b3;
+
 use std::hint::black_box;
 
 use chrono::Utc;
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::Message;
-use turbojet::codec::{Decoded, DecodedInto, decode, decode_into, encode};
+use turbojet::codec::{Decoded, DecodedInto, decode, decode_into, encode, encode_into};
 use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
 use turbojet::message::{DataFields, FixMessage, utc_timestamp};
 use turbojet_fix42::{ExecutionReport, NewOrderSingle, NewOrderSingleRef};
@@ -183,6 +187,79 @@ fn nested_groups(c: &mut Criterion) {
     );
 }
 
+/// A B3 Binary Entrypoint NewOrderSingle in SBE against the tag=value NewOrderSingle above, each
+/// from its typed form to the wire and back to the fields an order handler reads. The SBE order
+/// carries less (no header: FIXP sequences messages without one) and in fixed-size fields.
+fn sbe(c: &mut Criterion) {
+    let order = b3::NewOrderSingle {
+        cl_ord_id: 1,
+        security_id: 4001,
+        price: b3::PriceOptional { mantissa: Some(1_502_500) },
+        order_qty: 100,
+        account: Some(1),
+        market_segment_id: 1,
+        side: b3::Side::Buy,
+        ord_type: b3::OrdType::Limit,
+        time_in_force: b3::TimeInForce::Day,
+        ord_tag_id: None,
+        mm_protection_reset: None,
+        routing_instruction: None,
+        self_trade_prevention_instruction: None,
+        stop_px: b3::PriceOptional { mantissa: None },
+        min_qty: None,
+        max_floor: None,
+        investor_id: None,
+        custodian_info: b3::CustodianInfo { custodian: None, custody_account: None, custody_allocation_type: None },
+        expire_date: None,
+        sender_location: turbojet::sbe::pad(b"DMA"),
+        entering_trader: *b"TRADR",
+    };
+    let mut wire = Vec::new();
+    order.encode_into(&mut wire).unwrap();
+    let tag_value = common::with_header("CLIENT", "GATEWAY", 42, common::new_order_single(1).into());
+    let tag_value_wire = encode(&tag_value).unwrap();
+
+    let mut group = c.benchmark_group("sbe");
+    group.bench_function("encode B3 NewOrderSingle into a reused buffer", |b| {
+        let mut out = Vec::with_capacity(256);
+        b.iter(|| {
+            out.clear();
+            black_box(&order).encode_into(&mut out).unwrap();
+        })
+    });
+    group.bench_function("decode B3 NewOrderSingle", |b| b.iter(|| b3::decode(black_box(&wire)).unwrap()));
+    group.bench_function("decode B3 NewOrderSingle and read the order fields", |b| {
+        b.iter(|| {
+            let (b3::Decoded::NewOrderSingle(order), _) = b3::decode(black_box(&wire)).unwrap() else { unreachable!() };
+            black_box((order.cl_ord_id(), order.security_id(), order.price(), order.order_qty(), order.account()));
+            black_box((order.side(), order.ord_type(), order.time_in_force()));
+        })
+    });
+    group.bench_function("tag=value: encode NewOrderSingle into a reused buffer", |b| {
+        let mut out = Vec::with_capacity(256);
+        b.iter(|| {
+            out.clear();
+            encode_into(black_box(&tag_value), &mut out).unwrap();
+        })
+    });
+    group.bench_function("tag=value: decode NewOrderSingle and read the order fields", |b| {
+        let data = DataFields::standard();
+        let mut msg = Message::default();
+        b.iter(|| {
+            assert!(matches!(decode_into(black_box(&tag_value_wire), &data, &mut msg), DecodedInto::Message(_)));
+            let order = msg.parse::<NewOrderSingleRef>().unwrap();
+            black_box((order.cl_ord_id, order.symbol, order.price, order.order_qty, order.account));
+            black_box((order.side, order.ord_type, order.time_in_force));
+        })
+    });
+    group.finish();
+    eprintln!(
+        "wire sizes: B3 NewOrderSingle {} bytes, tag=value NewOrderSingle {} bytes",
+        wire.len(),
+        tag_value_wire.len()
+    );
+}
+
 fn timestamps(c: &mut Criterion) {
     let mut group = c.benchmark_group("timestamp");
     // A fixed instant: formatting the same second repeatedly, as a busy session does.
@@ -218,5 +295,5 @@ fn timestamps(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, codec, nested_groups, timestamps);
+criterion_group!(benches, codec, nested_groups, timestamps, sbe);
 criterion_main!(benches);
