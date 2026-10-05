@@ -800,10 +800,10 @@ to partition the crate.
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations)² | 98 ns / 173 ns | |
 | Typed parse NewOrderSingle, owned (no groups / with 3 allocations)⁶ | 148 ns / 273 ns | |
 | Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² ⁶ | 448 ns / 722 ns / 692 ns | |
-| Typed build ExecutionReport¹ | 158 ns | |
+| Typed build ExecutionReport¹ | 156 ns | |
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store)⁵ | 788 ns | 1.27M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 964 ns | 1.04M msg/s |
+| Session: order → ack, no I/O, encoded reply (memory store)⁵ | 755 ns | 1.32M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 939 ns | 1.06M msg/s |
 | Store a sent message and commit it: memory / disk / disk + fsync³ | 48 ns / 1.7 µs / 4.0 ms | |
 | Store a sent message, 100 per commit: disk / disk + fsync³ | 70 ns / 41 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |

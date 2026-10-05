@@ -82,6 +82,8 @@ Notable changes to the published crates.
 - Encoding is faster: fields that lie back to back in a message's buffer are copied in one go
   rather than one at a time. An ExecutionReport encodes in about 54 ns against 122 ns on an
   Apple M3, and an order to its acknowledgement, wire to wire, takes about 964 ns against 1.04 µs.
+- Integer and decimal fields are written up to three digits at a time, so building a typed
+  ExecutionReport takes about 156 ns against 164 ns on an Apple M3.
 
 ### `turbojet-config`
 
