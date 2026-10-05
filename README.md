@@ -88,7 +88,7 @@ practice, and where Turbojet differs.
 - **Fast.** Performance is part of the design, not an afterthought: outbound messages are
   batched into one buffer, and allocations per message are counted by stage against an exact
   budget on every test run. Encoding, decoding, the session layer and storage have benchmarks (see
-  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1.1 µs, wire
+  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1 µs, wire
   to wire.
 - **Embeddable.** Turbojet is a library, not a server: your code owns the process, the runtime and
   the business logic. Every layer is public, from the codec up through the sans-IO session state
@@ -795,14 +795,14 @@ to partition the crate.
 | Benchmark | Time | Rate |
 |---|---|---|
 | Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 197 ns / 164 ns | 817 / 985 MiB/s |
-| Encode ExecutionReport (209 B) | 118 ns | 1.6 GiB/s |
+| Encode ExecutionReport (209 B) | 54 ns | 3.6 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations)² | 98 ns / 173 ns | |
 | Typed parse NewOrderSingle, owned (no groups / with 3 allocations)⁶ | 148 ns / 273 ns | |
 | Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² ⁶ | 448 ns / 722 ns / 692 ns | |
 | Typed build ExecutionReport¹ | 158 ns | |
 | Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store)⁵ | 878 ns | 1.14M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 1.11 µs | 899k msg/s |
+| Session: order → ack, no I/O, encoded reply (memory store)⁵ | 788 ns | 1.27M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 964 ns | 1.04M msg/s |
 | Store a sent message and commit it: memory / disk / disk + fsync³ | 48 ns / 1.7 µs / 4.0 ms | |
 | Store a sent message, 100 per commit: disk / disk + fsync³ | 70 ns / 41 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |

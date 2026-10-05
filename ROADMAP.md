@@ -278,7 +278,9 @@ From the benchmarks.
   checked and summed in one pass without a branch per byte: 192 ns to 164 ns on an Apple M3.
   `memchr2_iter` was slower (249 ns), starting a new search for each delimiter a few bytes on.
   What's left is mostly per-message work: the UTF-8 check (about 7%), framing (about 8%) and
-  recording each field.
+  recording each field. Encoding had no search to speed up: 39% of it was copying each field, a
+  few bytes at a time. Fields that lie back to back in the message's buffer are now copied in one
+  go, so an ExecutionReport encodes in 54 ns against 122 ns.
 - **Latency** (researched 2026-10-04). A one-at-a-time round trip over localhost on an Apple M3
   takes 26.5 µs when the benchmark's task sends each order through a `SessionHandle` and receives
   each acknowledgement back, and 16.3 µs when the initiator's application sends the next order from

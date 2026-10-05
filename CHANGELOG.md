@@ -79,6 +79,9 @@ Notable changes to the published crates.
 - Decoding is faster: a frame's `=` and SOH delimiters are found 64 bytes at a time and tags
   parsed in one pass. A FIX 4.2 NewOrderSingle decodes into a reused message in about 164 ns
   against 192 ns on an Apple M3.
+- Encoding is faster: fields that lie back to back in a message's buffer are copied in one go
+  rather than one at a time. An ExecutionReport encodes in about 54 ns against 122 ns on an
+  Apple M3, and an order to its acknowledgement, wire to wire, takes about 964 ns against 1.04 µs.
 
 ### `turbojet-config`
 
