@@ -224,6 +224,7 @@ pub mod message;
 pub mod peer;
 mod reconnect;
 pub mod registry;
+pub mod sbe;
 pub mod schedule;
 pub mod session;
 mod shutdown;
