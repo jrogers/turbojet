@@ -32,13 +32,16 @@ step fmt
 cargo fmt --all --check
 cargo fmt --manifest-path crates/turbojet/fuzz/Cargo.toml --check
 
-# Keep in step with the test matrix in ci.yml.
+# Keep in step with the test matrix in ci.yml. The simulator's seeds run the same whatever the
+# engine's features, so they run once, with all of them.
 for features in --no-default-features "--features tls" "--features metrics" "--features tz" --all-features; do
     step "clippy and test ($features)"
     # shellcheck disable=SC2086 # $features is one or two words on purpose.
     cargo clippy --workspace --all-targets $features --locked --quiet -- -D warnings
+    skip=--exclude=turbojet-sim
+    [ "$features" = --all-features ] && skip=
     # shellcheck disable=SC2086
-    cargo test --workspace $features --locked --quiet
+    cargo test --workspace $skip $features --locked --quiet
 done
 
 step docs

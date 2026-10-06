@@ -27,19 +27,25 @@ jobs:
       - run: cargo fmt --all --check
 
   # Clippy and tests for each feature combination, since feature-gated code only builds when enabled.
-  # The turbojet-codegen command's tests run rustfmt.
+  # The turbojet-codegen command's tests run rustfmt. The simulator's seeds run the same whatever
+  # the engine's features, so they run once, with all of them.
   test:
     name: test (${{ matrix.features }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        features:
-          - --no-default-features
-          - --features tls
-          - --features metrics
-          - --features tz
-          - --all-features
+        include:
+          - features: --no-default-features
+            skip: --exclude=turbojet-sim
+          - features: --features tls
+            skip: --exclude=turbojet-sim
+          - features: --features metrics
+            skip: --exclude=turbojet-sim
+          - features: --features tz
+            skip: --exclude=turbojet-sim
+          - features: --all-features
+            skip: ""
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -49,7 +55,7 @@ jobs:
         with:
           key: ${{ matrix.features }}
       - run: cargo clippy --workspace --all-targets ${{ matrix.features }} --locked -- -D warnings
-      - run: cargo test --workspace ${{ matrix.features }} --locked
+      - run: cargo test --workspace ${{ matrix.skip }} ${{ matrix.features }} --locked
 
   # The minimum supported Rust version (workspace rust-version).
   msrv:
