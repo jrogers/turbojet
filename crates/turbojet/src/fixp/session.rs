@@ -82,6 +82,8 @@ struct Bound {
     handle: FixpHandle,
     log: Box<dyn SessionLog>,
     session_id: Uuid,
+    /// The session's metrics, labelled with its log's ID (feature `metrics`; nothing without).
+    metrics: SessionMetrics,
 }
 
 /// A read of stored messages for a retransmission.
@@ -327,7 +329,10 @@ impl FixpSession {
         if let Some(start) = self.recovered {
             info!(start, "messages from this one on may have been handled before");
         }
-        self.bound = Some(Bound { id, handle, log, session_id });
+        let metrics = SessionMetrics::new(&id, self.latency_configured());
+        metrics.next_incoming(log.next_incoming());
+        metrics.next_outgoing(log.next_outgoing());
+        self.bound = Some(Bound { id, handle, log, session_id, metrics });
         match then {
             None => self.client_start(),
             Some(Request::Negotiate { timestamp }) => self.answer_negotiate(timestamp),
@@ -482,6 +487,9 @@ impl FixpSession {
     }
 
     fn reject_negotiate(&mut self, session_id: Uuid, timestamp: u64, code: m::NegotiationRejectCode, reason: &str) {
+        if let Some(metrics) = self.metrics() {
+            metrics.session_reject();
+        }
         warn!(session_id = %uuid_text(&session_id), ?code, reason, "rejecting a FIXP Negotiate");
         let reject = m::NegotiationReject { session_id, request_timestamp: timestamp, code, reason: reason.as_bytes() };
         self.send(&reject);
@@ -545,6 +553,9 @@ impl FixpSession {
     }
 
     fn reject_establish(&mut self, session_id: Uuid, timestamp: u64, code: m::EstablishmentRejectCode, reason: &str) {
+        if let Some(metrics) = self.metrics() {
+            metrics.session_reject();
+        }
         warn!(session_id = %uuid_text(&session_id), ?code, reason, "rejecting a FIXP Establish");
         let reject =
             m::EstablishmentReject { session_id, request_timestamp: timestamp, code, reason: reason.as_bytes() };
@@ -556,6 +567,9 @@ impl FixpSession {
     fn establish(&mut self) {
         self.state = State::Established;
         self.established = true;
+        if let Some(metrics) = self.metrics() {
+            metrics.logged_on();
+        }
         self.last_received = self.now;
         let next_incoming = self.log().next_incoming();
         self.inbound = Inbound { live_next: next_incoming, ..Inbound::default() };
@@ -782,6 +796,9 @@ impl FixpSession {
             return self.protocol_error("the counterparty's sequence numbers went backwards");
         }
         if next > live {
+            if let Some(metrics) = self.metrics() {
+                metrics.sequence_gap();
+            }
             self.inbound.live_next = next;
             if theirs == FlowType::Idempotent {
                 self.send_not_applied(live, next - live);
@@ -897,6 +914,9 @@ impl FixpSession {
 
     fn on_retransmit_request(&mut self, request: &m::RetransmitRequestRef<'_>) {
         let (from, count, timestamp) = (request.from_seq_no(), u64::from(request.count()), request.timestamp());
+        if let Some(metrics) = self.metrics() {
+            metrics.resend_request_received();
+        }
         if self.fetch.is_some() {
             return self.terminate(m::TerminationCode::ReRequestInProgress);
         }
@@ -920,6 +940,9 @@ impl FixpSession {
     }
 
     fn reject_retransmit(&mut self, timestamp: u64, code: m::RetransmitRejectCode) {
+        if let Some(metrics) = self.metrics() {
+            metrics.session_reject();
+        }
         let reject =
             m::RestransmitReject { session_id: self.session_id(), request_timestamp: timestamp, code, reason: b"" };
         self.send(&reject);
@@ -931,6 +954,9 @@ impl FixpSession {
         let complete = u64::try_from(stored.len()).is_ok_and(|n| n == count)
             && stored.iter().zip(from..).all(|((seq, _), expected)| *seq == expected);
         if !complete {
+            if let Some(metrics) = self.metrics() {
+                metrics.resend_request_evicted();
+            }
             return self.reject_retransmit(timestamp, m::RetransmitRejectCode::OutOfRange);
         }
         let retransmission = m::Retransmission {
@@ -943,6 +969,11 @@ impl FixpSession {
         // Stored framed, as sent.
         for (_, frame) in &stored {
             self.output.extend_from_slice(frame);
+        }
+        if let Some(metrics) = self.metrics() {
+            for _ in &stored {
+                metrics.message_sent();
+            }
         }
         let next = self.log().next_outgoing();
         self.send(&m::Sequence { next_seq_no: next });
@@ -961,7 +992,24 @@ impl FixpSession {
             // Session messages are fixed or bounded by the configuration: this is a bug.
             debug_assert!(false, "a session message didn't encode: {e}");
             warn!("a session message didn't encode: {e}");
+            return;
         }
+        if let Some(metrics) = self.metrics() {
+            metrics.message_sent();
+        }
+    }
+
+    /// The session's metrics, once it's bound to its log.
+    fn metrics(&self) -> Option<&SessionMetrics> {
+        self.bound.as_ref().map(|bound| &bound.metrics)
+    }
+
+    /// Whether the configuration asks for the latency histograms.
+    fn latency_configured(&self) -> bool {
+        #[cfg(feature = "metrics")]
+        return self.config.latency_metrics;
+        #[cfg(not(feature = "metrics"))]
+        false
     }
 
     /// Sends an application message on our flow: numbered and recorded if it's sequenced (and
@@ -998,7 +1046,11 @@ impl FixpSession {
                 refuse(receipt, Dropped::Storage);
                 return self.storage_failed(e);
             }
+            bound.metrics.next_outgoing(seq + 1);
             self.dirty = true;
+        }
+        if let Some(metrics) = self.metrics() {
+            metrics.message_sent();
         }
         if let Some(receipt) = receipt {
             self.receipts.push((receipt, seq));
@@ -1019,6 +1071,9 @@ impl FixpSession {
             log.set_next_incoming(seq).and_then(|()| marker.map_or(Ok(()), |start| log.set_in_flight(start)))
         {
             return self.storage_failed(e);
+        }
+        if let Some(metrics) = self.metrics() {
+            metrics.next_incoming(seq);
         }
         self.dirty = true;
     }
@@ -1069,6 +1124,9 @@ impl FixpSession {
         }
         self.state = State::Closed;
         self.ended = Some(how);
+        if let Some(metrics) = self.metrics() {
+            metrics.disconnected();
+        }
         if how == Ended::Finalized {
             self.reset_log();
         }
@@ -1431,7 +1489,16 @@ impl FixpSession {
                     debug_assert!(len > framing::HEADER);
                     let frame = consumed + framing::HEADER..consumed + len;
                     consumed += len;
+                    // Timed only with the latency histograms, which cost a clock read.
+                    let started = self.latency_configured().then(Instant::now);
                     self.on_frame(&buf[frame]);
+                    // Counted once bound: a server's Negotiate or Establish binds it as it's handled.
+                    if let Some(metrics) = self.metrics() {
+                        metrics.message_received();
+                        if let (Some(latency), Some(started)) = (metrics.latency(), started) {
+                            latency.inbound_message(started.elapsed());
+                        }
+                    }
                 }
                 Framed::Incomplete => break false,
                 Framed::Invalid(reason) => {
@@ -1502,13 +1569,13 @@ impl Driven for FixpSession {
         None
     }
     fn metrics(&self) -> Option<&SessionMetrics> {
-        None
+        FixpSession::metrics(self)
     }
     fn latency_metrics(&self) -> Option<&LatencyMetrics> {
-        None
+        FixpSession::metrics(self).and_then(SessionMetrics::latency)
     }
     fn times_latency(&self) -> bool {
-        false
+        self.latency_configured()
     }
     fn on_connect(&mut self, now: Instant) {
         FixpSession::on_connect(self, now);

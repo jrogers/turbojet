@@ -189,6 +189,11 @@ pub struct FixpConfig {
     pub send_queue: usize,
     /// The clock for timestamps and session IDs.
     pub clock: Clock,
+    /// Records the latency histograms (feature `metrics`), as
+    /// [`SessionConfig::latency_metrics`](crate::SessionConfig::latency_metrics) does for FIX.
+    /// Off by default: they cost a clock read per inbound message, and a few per batch.
+    #[cfg(feature = "metrics")]
+    pub latency_metrics: bool,
 }
 
 impl FixpConfig {
@@ -208,6 +213,8 @@ impl FixpConfig {
             max_retransmit: 1000,
             send_queue: 1024,
             clock: Clock::system(),
+            #[cfg(feature = "metrics")]
+            latency_metrics: false,
         }
     }
 

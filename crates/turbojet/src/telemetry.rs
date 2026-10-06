@@ -45,6 +45,16 @@
 //!
 //! `session` is the session ID, e.g. `FIX.4.2:GATEWAY->CLIENT1`.
 //!
+//! FIXP sessions ([`fixp`](crate::fixp)) record the same per-session metrics, `session` being their
+//! log's ID: `FIXP:CLIENT->SERVER` for a client, `FIXP:SERVER-><session ID>` for a server. For them,
+//! messages are frames, session messages included, and a logon is establishing the session;
+//! `turbojet_rejects_sent_total` (`type` `session`) counts NegotiationReject, EstablishmentReject and
+//! RetransmitReject; `turbojet_sequence_gaps_total` counts gaps found in the counterparty's flow,
+//! asked for or reported not applied; `turbojet_resend_requests_received_total` counts
+//! RetransmitRequests; and `turbojet_resend_requests_evicted_total` counts those refused because the
+//! store had evicted the messages. Throttling and cancel on disconnect don't apply. The latency
+//! histograms are recorded with [`FixpConfig::latency_metrics`](crate::fixp::FixpConfig::latency_metrics).
+//!
 //! `turbojet_cancel_on_disconnect_total` counts calls to
 //! [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), by the session's
 //! [trigger](crate::CancelTrigger); `turbojet_cancels_pending` is the countdowns under way, across
@@ -105,8 +115,11 @@ mod imp {
     /// Registers descriptions (help text and units) for Turbojet's metrics with the installed
     /// recorder. Optional; call it after installing the recorder.
     pub fn describe_metrics() {
-        describe_counter!("turbojet_messages_received_total", "FIX messages received");
-        describe_counter!("turbojet_messages_sent_total", "FIX messages sent, including resends and gap fills");
+        describe_counter!("turbojet_messages_received_total", "FIX messages (or FIXP frames) received");
+        describe_counter!(
+            "turbojet_messages_sent_total",
+            "FIX messages (or FIXP frames) sent, including resends and gap fills"
+        );
         describe_counter!("turbojet_bytes_received_total", Unit::Bytes, "Bytes received from the counterparty");
         describe_counter!("turbojet_bytes_sent_total", Unit::Bytes, "Bytes sent to the counterparty");
         describe_counter!("turbojet_logons_total", "Completed logons");
