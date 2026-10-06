@@ -1,9 +1,13 @@
 //! Heap allocations per order → ack, wire to wire (decode into one reused message, as the
 //! connection does, then the session, application and store; the session encodes the ack), with
-//! the memory store and the disk store (without fsync), each against an exact budget; and typed
-//! parsing alone, borrowed and owned. `cargo test -p turbojet --test allocations -- --nocapture`
-//! prints a per-stage table for each store and a per-parse table.
+//! the memory store and the disk store (without fsync), each against an exact budget; the same
+//! for a FIXP server answering B3 orders; and typed parsing alone, borrowed and owned.
+//! `cargo test -p turbojet --test allocations -- --nocapture` prints a per-stage table for each
+//! store and a per-parse table.
 
+#[allow(dead_code)]
+#[path = "sbe/b3.rs"]
+mod b3;
 #[path = "../benches/common/mod.rs"]
 mod common;
 
@@ -15,6 +19,9 @@ use std::time::Instant;
 use counting::{Counts, Stage};
 use turbojet::codec::{DecodedInto, decode_into, encode};
 use turbojet::fields::{Decimal, UtcTimestamp};
+use turbojet::fixp::{
+    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, Received, Role, ServerConfig,
+};
 use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, DiskStorage, MemoryStorage, Message, MessageReject, SessionId};
@@ -311,8 +318,14 @@ const DISK_BUDGET: Budget =
 fn order_to_ack_allocates_exactly_its_budget() {
     let dir = tempfile::tempdir().unwrap();
     let disk = DiskStorage::new(dir.path(), false).unwrap();
-    let runs =
-        [("memory", order_to_ack(MemoryStorage::new()), MEMORY_BUDGET), ("disk", order_to_ack(disk), DISK_BUDGET)];
+    check_budgets([
+        ("memory", order_to_ack(MemoryStorage::new()), MEMORY_BUDGET),
+        ("disk", order_to_ack(disk), DISK_BUDGET),
+    ]);
+}
+
+/// Prints a table per run, and fails on any stage whose count differs from its budget.
+fn check_budgets(runs: [(&str, [Counts; Stage::ALL.len()], Budget); 2]) {
     let mut tables = Vec::new();
     let mut problems = Vec::new();
     for (store, counts, budget) in runs {
@@ -336,6 +349,131 @@ fn order_to_ack_allocates_exactly_its_budget() {
         }
     }
     assert!(problems.is_empty(), "{}\n\n{}", problems.join("\n"), tables.join("\n"));
+}
+
+/// The FIXP benchmark's B3 order (`benches/fixp.rs`).
+fn b3_order(cl_ord_id: u64) -> b3::NewOrderSingle {
+    b3::NewOrderSingle {
+        cl_ord_id,
+        security_id: 4001,
+        price: b3::PriceOptional { mantissa: Some(1_502_500) },
+        order_qty: 100,
+        account: Some(1),
+        market_segment_id: 1,
+        side: b3::Side::Buy,
+        ord_type: b3::OrdType::Limit,
+        time_in_force: b3::TimeInForce::Day,
+        ord_tag_id: None,
+        mm_protection_reset: None,
+        routing_instruction: None,
+        self_trade_prevention_instruction: None,
+        stop_px: b3::PriceOptional { mantissa: None },
+        min_qty: None,
+        max_floor: None,
+        investor_id: None,
+        custodian_info: b3::CustodianInfo { custodian: None, custody_account: None, custody_allocation_type: None },
+        expire_date: None,
+        sender_location: turbojet::sbe::pad(b"DMA"),
+        entering_trader: *b"TRADR",
+    }
+}
+
+/// The FIXP benchmark's server application, answering each order with an order of the same
+/// ClOrdID, its allocations attributed to the application stage.
+struct FixpAcker;
+
+impl FixpApplication for FixpAcker {
+    fn on_message(&self, ctx: &mut FixpContext<'_>, msg: Received<'_>) {
+        counting::in_stage(Stage::Application, || {
+            let Ok((b3::Decoded::NewOrderSingle(received), _)) = b3::decode(msg.bytes) else { return };
+            ctx.send(&b3_order(received.cl_ord_id())).unwrap();
+        });
+    }
+}
+
+/// `msg`, framed as a FIXP session receives it: SOFH (length, then 0x5BE0), then the SBE message.
+fn sofh_framed(msg: &impl turbojet::sbe::Encode) -> Vec<u8> {
+    let mut sbe = Vec::new();
+    msg.encode_into(&mut sbe).unwrap();
+    let mut frame = u32::try_from(sbe.len() + 6).unwrap().to_be_bytes().to_vec();
+    frame.extend_from_slice(&0x5BE0u16.to_be_bytes());
+    frame.extend_from_slice(&sbe);
+    frame
+}
+
+/// Feeds `bytes` to `session` through `buf` (the driver's input buffer, reused), committing
+/// whenever input waits for it, as the driver does; then clears what it wrote, as the driver does
+/// once it's written, returning how many bytes that was.
+fn fixp_feed(session: &mut FixpSession, buf: &mut Vec<u8>, bytes: &[u8], now: Instant) -> usize {
+    buf.extend_from_slice(bytes);
+    while session.feed(buf, now) {
+        assert!(session.take_commit().is_none(), "the stores commit at once");
+    }
+    assert!(session.take_commit().is_none(), "the stores commit at once");
+    let written = session.output().len();
+    session.clear_output();
+    written
+}
+
+/// As `fixp_feed`, returning what `session` wrote, for the handshake.
+fn fixp_step(session: &mut FixpSession, bytes: &[u8], now: Instant) -> Vec<u8> {
+    let mut buf = bytes.to_vec();
+    while session.feed(&mut buf, now) {
+        assert!(session.take_commit().is_none(), "the stores commit at once");
+    }
+    assert!(session.take_commit().is_none(), "the stores commit at once");
+    let out = session.output().to_vec();
+    session.clear_output();
+    out
+}
+
+/// Per-stage counts over COUNTED orders fed to an established FIXP server keeping its state in
+/// `storage` (recoverable flows both ways, so it stores each answer), as the connection driver
+/// feeds them: framing and decoding the session messages happen in the session, so there's no
+/// decode stage. A client session establishes it, uncounted.
+fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.len()] {
+    let now = Instant::now();
+    let server_registry = Arc::new(FixpRegistry::with_storage(Arc::new(StagedStorage(storage))));
+    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let (mut server, _server_commands) = FixpSession::new(config, server_registry, Arc::new(FixpAcker), now);
+    let client_registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
+    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let (mut client, _client_commands) = FixpSession::new(config, client_registry, Arc::new(FixpAcker), now);
+    server.on_connect(now);
+    client.on_connect(now);
+    let mut to_server = fixp_step(&mut client, &[], now);
+    while !(server.is_established() && client.is_established()) {
+        let to_client = fixp_step(&mut server, &to_server, now);
+        to_server = fixp_step(&mut client, &to_client, now);
+    }
+    let wire: Vec<Vec<u8>> = (0..WARM_UP + COUNTED).map(|i| sofh_framed(&b3_order(i))).collect();
+    let mut buf = Vec::new();
+    for (i, bytes) in wire.iter().enumerate() {
+        if i as u64 == WARM_UP {
+            counting::take();
+            counting::set_counting(true);
+        }
+        let written = counting::in_stage(Stage::Session, || fixp_feed(&mut server, &mut buf, bytes, now));
+        assert!(written > 0, "order {i}: no answer");
+    }
+    counting::set_counting(false);
+    counting::take()
+}
+
+/// FIXP budgets with each store, exact as above: as FIX's, the stores keeping the answer.
+const FIXP_MEMORY_BUDGET: Budget =
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1166, 0)];
+const FIXP_DISK_BUDGET: Budget =
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 166, 0)];
+
+#[test]
+fn fixp_order_to_ack_allocates_exactly_its_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let disk = DiskStorage::new(dir.path(), false).unwrap();
+    check_budgets([
+        ("FIXP, memory", fixp_order_to_ack(MemoryStorage::new()), FIXP_MEMORY_BUDGET),
+        ("FIXP, disk", fixp_order_to_ack(disk), FIXP_DISK_BUDGET),
+    ]);
 }
 
 /// The benchmark order (`common::orders`), with a three-entry NoAllocs group if `with_allocs`, as
