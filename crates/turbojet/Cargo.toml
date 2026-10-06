@@ -12,7 +12,7 @@ keywords = ["fix", "trading", "finance", "protocol", "tokio"]
 categories = ["network-programming", "finance"]
 # These tests need the repository's dictionaries/ (the SBE ones test code generated from them); the
 # fuzz targets build only with cargo fuzz.
-exclude = ["tests/validation.rs", "tests/fixt.rs", "tests/data_fields.rs", "tests/sbe.rs", "tests/sbe", "fuzz"]
+exclude = ["tests/validation.rs", "tests/fixt.rs", "tests/data_fields.rs", "tests/sbe.rs", "tests/sbe", "tests/fixp.rs", "fuzz"]
 
 # Document every feature on docs.rs, so TLS, metrics and time-zone APIs appear.
 [package.metadata.docs.rs]
