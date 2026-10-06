@@ -359,8 +359,11 @@ impl Checker {
         let stored_as = |seq: u64| {
             evicted_as(seq) || epochs.iter().any(|r| r.get(&seq).and_then(Option::as_ref).and_then(id_of) == Some(id))
         };
-        let ever_stored = sent.evicted.values().any(|m| id_of(m) == Some(id))
-            || epochs.iter().any(|r| r.values().flatten().any(|m| id_of(m) == Some(id)));
+        // A scan of everything stored: only for a send said to be dropped, which is rare.
+        let ever_stored = || {
+            sent.evicted.values().any(|m| id_of(m) == Some(id))
+                || epochs.iter().any(|r| r.values().flatten().any(|m| id_of(m) == Some(id)))
+        };
         match outcome {
             Ok(seq) if stored_as(*seq) => Ok(()),
             Ok(seq) => {
@@ -368,7 +371,7 @@ impl Checker {
             }
             // A failed store call may have taken effect: the receipt says so.
             Err(turbojet::Dropped::Storage) => Ok(()),
-            Err(_) if !ever_stored => Ok(()),
+            Err(_) if !ever_stored() => Ok(()),
             Err(dropped) => Err(violation(
                 "7 receipt",
                 format!("{side:?}'s receipt says {id} was dropped ({dropped}), but it was stored"),
