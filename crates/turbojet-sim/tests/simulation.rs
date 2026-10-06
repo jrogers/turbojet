@@ -139,3 +139,43 @@ fn a_fixp_seed_replays_identically() {
     assert_eq!(first.digest, second.digest);
     assert_eq!(first.events, second.events);
 }
+
+/// As [`caught`], for the FIXP simulation.
+fn fixp_caught(plant: Plant, rules: &[&str]) -> u64 {
+    for seed in 0..500 {
+        match turbojet_sim::fixp::run(&Options { plant: Some(plant), ..Options::per_push(seed) }) {
+            Ok(_) => {}
+            Err(failure) if rules.contains(&failure.violation.rule) => {
+                eprintln!("FIXP {plant:?} caught at seed {seed}: {}", failure.violation);
+                return seed;
+            }
+            Err(failure) => panic!("FIXP {plant:?} caught by the wrong rule: {failure}"),
+        }
+    }
+    panic!("FIXP {plant:?} never caught in 500 seeds");
+}
+
+#[test]
+fn a_dropped_fixp_delivery_is_caught() {
+    fixp_caught(Plant::DropDelivery, &["6 lost", "10 finish", "liveness"]);
+}
+
+#[test]
+fn a_duplicate_fixp_delivery_is_caught() {
+    fixp_caught(Plant::DuplicateDelivery, &["5 delivery", "7 unsequenced"]);
+}
+
+#[test]
+fn a_fixp_store_that_forgets_messages_is_caught() {
+    fixp_caught(Plant::ForgetMessages, &["3 protocol"]);
+}
+
+#[test]
+fn an_altered_fixp_retransmission_is_caught() {
+    fixp_caught(Plant::AlterResends, &["4 sequence"]);
+}
+
+#[test]
+fn a_fixp_commit_reported_before_it_is_made_is_caught() {
+    fixp_caught(Plant::EarlyCommit, &["4 sequence", "8 receipt"]);
+}

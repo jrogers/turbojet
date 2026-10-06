@@ -52,7 +52,9 @@ pub enum Frame {
         code: u8,
         reason: Vec<u8>,
     },
-    FinishedSending,
+    FinishedSending {
+        last: Option<u64>,
+    },
     FinishedReceiving,
     /// Applied and NotApplied: application messages the session itself sends, numbered in its flow.
     Applied {
@@ -154,7 +156,7 @@ pub fn decode_sbe(sbe: &[u8]) -> Result<Frame, String> {
             let reason = body.get(block + 2..block + 2 + len).unwrap_or_default().to_vec();
             Frame::Terminate { code, reason }
         }),
-        15 => Some(Frame::FinishedSending),
+        15 => u64_at(body, 16).map(|last| Frame::FinishedSending { last: optional(last) }),
         16 => Some(Frame::FinishedReceiving),
         17 => u64_at(body, 0).zip(u32_at(body, 8)).map(|(from, count)| Frame::Applied { from, count }),
         18 => u64_at(body, 0).zip(u32_at(body, 8)).map(|(from, count)| Frame::NotApplied { from, count }),

@@ -10,6 +10,7 @@ use turbojet::sbe::{Encode, SbeError};
 
 use super::wire::{ORDER_BLOCK, ORDER_SCHEMA, ORDER_TEMPLATE};
 use crate::app::Sent;
+use crate::world::{PLANTED_AT, Plant};
 
 /// The workload's application message: an order, its body one u64, a unique id.
 pub struct Order(pub u64);
@@ -36,6 +37,8 @@ pub struct Delivery {
     pub seq: Option<u64>,
     pub retransmitted: bool,
     pub redelivered: bool,
+    /// The session it came on, as its log names it: a server's session ID.
+    pub session: String,
 }
 
 #[derive(Default)]
@@ -54,11 +57,14 @@ pub struct RecordingApp {
     /// The process is crashing: its sessions, dropped as it does, still tell it they ended, which
     /// a dead process never hears, so those calls are ignored.
     crashing: Mutex<bool>,
+    /// A planted bug for the checker's self-tests, and the deliveries counted towards it.
+    plant: Option<Plant>,
+    delivered: Mutex<u64>,
 }
 
 impl RecordingApp {
-    pub fn server() -> Arc<Self> {
-        Arc::new(Self { acks: true, ..Self::default() })
+    pub fn server(plant: Option<Plant>) -> Arc<Self> {
+        Arc::new(Self { acks: true, plant, ..Self::default() })
     }
 
     pub fn client() -> Arc<Self> {
@@ -102,9 +108,24 @@ impl FixpApplication for RecordingApp {
             *acked += 1;
             ctx.send(&Order(ACK | *acked)).expect("an order encodes");
         }
-        let delivery =
-            Delivery { id, seq: msg.seq, retransmitted: msg.retransmitted, redelivered: msg.maybe_redelivered };
-        self.deliveries.lock().unwrap().push(delivery);
+        let session = ctx.session().id().target_comp_id.clone();
+        let delivery = Delivery {
+            id,
+            seq: msg.seq,
+            retransmitted: msg.retransmitted,
+            redelivered: msg.maybe_redelivered,
+            session,
+        };
+        let mut delivered = self.delivered.lock().unwrap();
+        *delivered += 1;
+        let mut deliveries = self.deliveries.lock().unwrap();
+        match self.plant {
+            Some(Plant::DropDelivery) if *delivered == PLANTED_AT => {}
+            Some(Plant::DuplicateDelivery) if *delivered == PLANTED_AT => {
+                deliveries.extend([delivery.clone(), delivery]);
+            }
+            _ => deliveries.push(delivery),
+        }
     }
 
     fn on_not_applied(&self, _session: &FixpHandle, from: u64, count: u64) {

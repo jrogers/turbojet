@@ -32,9 +32,33 @@ pub enum Stored {
     /// The store deleted the messages up to `through` to stay within its budget: a resend
     /// gap-fills them, and the counterparty never gets them if it hasn't already.
     Evicted { through: u64 },
+    /// The changes that follow are to this session's log.
+    Log(SessionId),
 }
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
+
+/// One log's way into its store's ledger: before the first change after another log's (a store
+/// holds a log per session, and a FIXP server more than one at once), it names the log.
+#[derive(Clone)]
+struct LogLedger {
+    ledger: Ledger,
+    /// The log whose changes the ledger holds last.
+    writer: Arc<Mutex<Option<SessionId>>>,
+    id: SessionId,
+}
+
+impl LogLedger {
+    fn entries(&self) -> std::sync::MutexGuard<'_, Vec<Stored>> {
+        let mut entries = self.ledger.lock().unwrap();
+        let mut writer = self.writer.lock().unwrap();
+        if writer.as_ref() != Some(&self.id) {
+            entries.push(Stored::Log(self.id.clone()));
+            *writer = Some(self.id.clone());
+        }
+        entries
+    }
+}
 
 /// A store call a trap can catch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,6 +91,8 @@ struct Traps {
 pub struct LedgerStorage {
     inner: Arc<dyn SessionStorage>,
     pub ledger: Ledger,
+    /// The log whose changes the ledger holds last.
+    writer: Arc<Mutex<Option<SessionId>>>,
     traps: Arc<Mutex<Traps>>,
     /// A disk store's files, which a power loss tears.
     files: Option<Arc<DiskFiles>>,
@@ -89,6 +115,7 @@ impl LedgerStorage {
         Self {
             inner,
             ledger: Ledger::default(),
+            writer: Arc::default(),
             traps: Arc::default(),
             files,
             written_back: Mutex::default(),
@@ -152,14 +179,14 @@ impl SessionStorage for LedgerStorage {
     }
 
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        let inner =
-            self.inner.open(id).inspect_err(|e| self.ledger.lock().unwrap().push(Stored::OpenFailed(e.to_string())))?;
+        let ledger = LogLedger { ledger: self.ledger.clone(), writer: self.writer.clone(), id: id.clone() };
+        let inner = self.inner.open(id).inspect_err(|e| ledger.entries().push(Stored::OpenFailed(e.to_string())))?;
         let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
         let evicted = inner.evicted_through();
-        self.ledger.lock().unwrap().push(opened);
+        ledger.entries().push(opened);
         Ok(Box::new(LedgerLog {
             inner,
-            ledger: self.ledger.clone(),
+            ledger,
             traps: self.traps.clone(),
             files: self.files.clone(),
             forget: self.forget.clone(),
@@ -174,7 +201,7 @@ impl SessionStorage for LedgerStorage {
 
 struct LedgerLog {
     inner: Box<dyn SessionLog>,
-    ledger: Ledger,
+    ledger: LogLedger,
     traps: Arc<Mutex<Traps>>,
     files: Option<Arc<DiskFiles>>,
     forget: Arc<Mutex<Option<u64>>>,
@@ -193,12 +220,12 @@ struct LedgerLog {
 /// written them already.
 struct InCommit {
     changes: Vec<Stored>,
-    ledger: Ledger,
+    ledger: LogLedger,
 }
 
 impl InCommit {
     fn done(mut self) {
-        self.ledger.lock().unwrap().append(&mut self.changes);
+        self.ledger.entries().append(&mut self.changes);
     }
 }
 
@@ -206,7 +233,7 @@ impl Drop for InCommit {
     fn drop(&mut self) {
         if !self.changes.is_empty() {
             let changes = std::mem::take(&mut self.changes);
-            self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
+            self.ledger.entries().push(Stored::Uncertain(changes));
         }
     }
 }
@@ -214,7 +241,7 @@ impl Drop for InCommit {
 impl Drop for LedgerLog {
     /// Changes never committed may still have taken effect: a memory store makes them at once.
     fn drop(&mut self) {
-        let mut ledger = self.ledger.lock().unwrap();
+        let mut ledger = self.ledger.entries();
         ledger.append(&mut self.late);
         if !self.pending.is_empty() {
             ledger.push(Stored::Uncertain(std::mem::take(&mut self.pending)));
@@ -230,7 +257,7 @@ impl LedgerLog {
         if evicted > self.evicted {
             self.evicted = evicted;
             let through = evicted.expect("more than none");
-            self.ledger.lock().unwrap().push(Stored::Evicted { through });
+            self.ledger.entries().push(Stored::Evicted { through });
         }
     }
 
@@ -279,7 +306,7 @@ impl LedgerLog {
                 assert!(self.inner.commit()?.is_none(), "the simulator's disk stores commit at once");
                 files.tear(&before, &backup, tear);
                 let changes = std::mem::take(&mut self.pending);
-                self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
+                self.ledger.entries().push(Stored::Uncertain(changes));
                 Err(io::Error::other("power lost in Commit"))
             }
             _ => {
@@ -287,11 +314,11 @@ impl LedgerLog {
                     assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
                     self.note_evictions();
                     let changes = std::mem::take(&mut self.pending);
-                    self.ledger.lock().unwrap().extend(changes);
+                    self.ledger.entries().extend(changes);
                 } else {
                     // Not committed, so lost with the log: a memory store keeps them, though.
                     let changes = std::mem::take(&mut self.pending);
-                    self.ledger.lock().unwrap().push(Stored::Uncertain(changes));
+                    self.ledger.entries().push(Stored::Uncertain(changes));
                 }
                 Err(io::Error::other("simulated failure in Commit"))
             }
@@ -343,7 +370,7 @@ impl SessionLog for LedgerLog {
     fn reset(&mut self) -> io::Result<()> {
         self.inner.reset()?;
         self.evicted = None;
-        let mut ledger = self.ledger.lock().unwrap();
+        let mut ledger = self.ledger.entries();
         ledger.append(&mut self.late);
         ledger.append(&mut self.pending);
         ledger.push(Stored::Reset);

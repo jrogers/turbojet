@@ -1,7 +1,8 @@
 name: Simulate
 
 # Runs the deterministic simulator (crates/turbojet-sim) on random seeds for a while each night,
-# beyond the fixed seeds every push runs. Run it by hand for a longer or shorter session.
+# FIX sessions and FIXP sessions in jobs of their own, beyond the fixed seeds every push runs.
+# Run it by hand for a longer or shorter session.
 on:
   schedule:
     - cron: "47 3 * * *"
@@ -20,6 +21,14 @@ env:
 jobs:
   simulate:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - protocol: fix
+            flag: ""
+          - protocol: fixp
+            flag: "--fixp"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -28,18 +37,19 @@ jobs:
       # survives the tee.
       - name: Random seeds
         shell: bash
-        run: scripts/sim.sh ${{ inputs.seconds || 1800 }} | tee sim.log
-      # The failing seed's whole trace, to read or replay locally (scripts/sim.sh 0 <seed> -v).
+        run: scripts/sim.sh ${{ inputs.seconds || 1800 }} ${{ matrix.flag }} | tee sim.log
+      # The failing seed's whole trace, to read or replay locally (scripts/sim.sh 0 <seed> -v, with
+      # --fixp for FIXP).
       - name: Trace the failure
         if: failure()
         shell: bash
         run: |
           seed=$(grep -oE '^seed [0-9]+ failed' sim.log | head -1 | cut -d' ' -f2)
-          if [ -n "$seed" ]; then scripts/sim.sh 0 "$seed" -v > "trace-$seed.txt" || true; fi
+          if [ -n "$seed" ]; then scripts/sim.sh 0 "$seed" -v ${{ matrix.flag }} > "trace-$seed.txt" || true; fi
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: simulation-trace
+          name: simulation-trace-${{ matrix.protocol }}
           path: |
             sim.log
             trace-*.txt

@@ -24,7 +24,7 @@ use crate::queue::Queue;
 use crate::rng::Rng;
 use crate::store::{Call, LedgerStorage, Trap};
 use crate::time::{Clocks, SimTime};
-use crate::world::{Failure, Options, Report};
+use crate::world::{Failure, Options, PLANTED_AT, Plant, Report};
 
 /// How long a slow store's commit takes, mostly, and now and then: as in the FIX world.
 const COMMIT_TIME: Duration = Duration::from_millis(5);
@@ -74,6 +74,8 @@ struct Faults {
     sub_sector: bool,
     /// Without sync: mean time between power losses, if any.
     power_loss_every: Option<Duration>,
+    /// Mean time between one side's application finishing sending, ending the logical session.
+    finish_every: Option<Duration>,
 }
 
 impl Faults {
@@ -117,6 +119,7 @@ impl Faults {
             tears: rng.pick(&[0, 500_000]),
             sub_sector: rng.chance(300_000),
             power_loss_every: rng.pick(&[None, Some(secs(60)), Some(secs(20))]),
+            finish_every: rng.pick(&[None, Some(secs(20)), Some(secs(5))]),
         }
     }
 
@@ -162,6 +165,8 @@ enum Event {
     Burst,
     /// One side's application ends the connection with a Terminate.
     Terminate,
+    /// One side's application finishes sending, ending the logical session.
+    Finish,
     Reset,
     BlackHole,
     Stall,
@@ -250,9 +255,9 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
 }
 
 /// Each side's store, memory or disk, wrapped to keep a ledger, and slow to commit if `slow`.
-fn stores(disk: bool, slow: bool) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
+fn stores(disk: bool, slow: bool, early: bool) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
     let dir = disk.then(|| tempfile::tempdir().expect("a temp dir"));
-    let ledger = |name: &str| {
+    let ledger = |name: &str, early: bool| {
         let (store, files): (Arc<dyn SessionStorage>, _) = match &dir {
             None => (Arc::new(MemoryStorage::new()), None),
             Some(dir) => {
@@ -262,10 +267,33 @@ fn stores(disk: bool, slow: bool) -> (Option<tempfile::TempDir>, [Arc<LedgerStor
             }
         };
         let storage = LedgerStorage::new(store, files);
-        Arc::new(if slow { storage.slow_commits(false) } else { storage })
+        Arc::new(if slow || early { storage.slow_commits(early) } else { storage })
     };
-    let storage = [ledger("client"), ledger("server")];
+    let storage = [ledger("client", false), ledger("server", early)];
     (dir, storage)
+}
+
+/// The client and the server, configured as `faults` says, over `storage`.
+fn nodes(faults: &Faults, storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, plant: Option<Plant>) -> [Node; 2] {
+    let config = |role| {
+        let mut config = FixpConfig::new(role);
+        config.client_flow = faults.client_flow;
+        config.server_flow = faults.server_flow;
+        config.keepalive = faults.keepalive;
+        config.max_retransmit = faults.max_retransmit;
+        config.send_queue = faults.send_queue;
+        config.clock = clocks.wall_clock();
+        config
+    };
+    let node = |side: Side, config, app| {
+        let store: Arc<dyn SessionStorage> = storage[side.index()].clone();
+        let registry = Arc::new(FixpRegistry::with_storage(store).with_clock(clocks.wall_clock()));
+        Node::new(side, config, registry, app, clocks.clone())
+    };
+    [
+        node(Side::Initiator, config(Role::Client(ClientConfig::new("CLIENT", "SERVER"))), RecordingApp::client()),
+        node(Side::Acceptor, config(Role::Server(ServerConfig::new("SERVER"))), RecordingApp::server(plant)),
+    ]
 }
 
 impl World {
@@ -279,27 +307,13 @@ impl World {
             &mut reconnect_rng,
         );
         let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
-        let slow = commit_rng.chance(500_000);
-        let (dir, storage) = stores(faults.disk, slow);
-        let config = |role| {
-            let mut config = FixpConfig::new(role);
-            config.client_flow = faults.client_flow;
-            config.server_flow = faults.server_flow;
-            config.keepalive = faults.keepalive;
-            config.max_retransmit = faults.max_retransmit;
-            config.send_queue = faults.send_queue;
-            config.clock = clocks.wall_clock();
-            config
-        };
-        let node = |side: Side, config, app| {
-            let store: Arc<dyn SessionStorage> = storage[side.index()].clone();
-            let registry = Arc::new(FixpRegistry::with_storage(store).with_clock(clocks.wall_clock()));
-            Node::new(side, config, registry, app, clocks.clone())
-        };
-        let nodes = [
-            node(Side::Initiator, config(Role::Client(ClientConfig::new("CLIENT", "SERVER"))), RecordingApp::client()),
-            node(Side::Acceptor, config(Role::Server(ServerConfig::new("SERVER"))), RecordingApp::server()),
-        ];
+        let early = options.plant == Some(Plant::EarlyCommit);
+        let slow = commit_rng.chance(500_000) || early;
+        let (dir, storage) = stores(faults.disk, slow, early);
+        if options.plant == Some(Plant::ForgetMessages) {
+            storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
+        }
+        let nodes = nodes(&faults, &storage, &clocks, options.plant);
         let net = Net::new(faults.net.clone(), rng.fork());
         let mut world = Self {
             checker: Checker::new([faults.client_flow, faults.server_flow]),
@@ -357,6 +371,7 @@ impl World {
             (self.faults.black_hole_every, Event::BlackHole),
             (self.faults.stall_every, Event::Stall),
             (self.faults.terminate_every, Event::Terminate),
+            (self.faults.finish_every, Event::Finish),
             (self.faults.crash_every, Event::Crash),
             (self.faults.trap_every, Event::Trap),
             (self.faults.burst_every.filter(|_| self.flow(Side::Initiator) != FlowType::None), Event::Burst),
@@ -548,6 +563,16 @@ impl World {
                 self.after_all(side, now)?;
                 self.again(busy, now, self.faults.terminate_every, Event::Terminate);
             }
+            Event::Finish => {
+                let side = self.pick_side();
+                let handle = self.nodes[side.index()].app.handle.lock().unwrap().clone();
+                if let Some(handle) = handle {
+                    // Not connected: nothing to finish.
+                    let _ = handle.finish();
+                }
+                self.after_all(side, now)?;
+                self.again(busy, now, self.faults.finish_every, Event::Finish);
+            }
             Event::Reset => {
                 if let Some(conn) = self.current_conn()
                     && self.net.reset(conn)
@@ -731,6 +756,10 @@ impl World {
             self.net.read(conn, side, effects.read);
             self.wake_writer(side.other(), conn, now);
         }
+        let effects = match self.options.plant {
+            Some(Plant::AlterResends) => Effects { output: alter_resends(&effects.output), ..effects },
+            _ => effects,
+        };
         if !effects.output.is_empty() {
             if self.options.verbose {
                 let frames = super::wire::frames(&effects.output).unwrap_or_default();
@@ -927,6 +956,27 @@ impl World {
             self.trace.push(line);
         }
     }
+}
+
+/// The planted bug of retransmitted orders that arrive altered: each one's id flipped.
+fn alter_resends(output: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(output.len());
+    let mut replaying = 0;
+    for frame in super::wire::frames(output).unwrap_or_default() {
+        let mut frame = frame.to_vec();
+        match super::wire::decode(&frame) {
+            Ok(super::wire::Frame::Retransmission { count, .. }) => replaying = count,
+            Ok(super::wire::Frame::Order(id)) if replaying > 0 => {
+                // The order's id follows the framing and SBE headers.
+                frame[14..22].copy_from_slice(&(id ^ 0xFFFF).to_le_bytes());
+                replaying -= 1;
+            }
+            Ok(f) if f.is_application() && replaying > 0 => replaying -= 1,
+            _ => {}
+        }
+        out.extend_from_slice(&frame);
+    }
+    out
 }
 
 /// An event for the trace: arrivals by their length, not their bytes.

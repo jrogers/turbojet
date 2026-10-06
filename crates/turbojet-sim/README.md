@@ -66,8 +66,9 @@ same stores (memory or `DiskStorage`, slow to commit on half the seeds) and the 
 store traps and power losses, with and without sync. Each seed picks the flow each way
 (recoverable, idempotent or unsequenced, and on some seeds `None` one way), the keepalive and the
 retransmission limit; the applications send orders, the server's acknowledges them, and now and
-then one ends the connection with a Terminate. A decoder of the simulator's own reads what each
-side writes. After every event:
+then one ends the connection with a Terminate or finishes sending, finalizing the session so the
+next connection negotiates another. A decoder of the simulator's own reads what each side writes.
+After every event:
 
 1. Everything written is whole SOFH frames, each a FIXP session message or an order.
 2. No application message goes out on a connection before the server's EstablishmentAck, and the
@@ -89,11 +90,25 @@ side writes. After every event:
 9. A store reopens with the numbers it last recorded; a change a power loss tore, or a session
    ended before committing, shows up as made or not. After a power loss without sync only rule 1
    and this are checked, and the sessions needn't settle.
+10. After FinishedSending a side writes no new application message (retransmissions only), and a
+    side answering FinishedReceiving on a recoverable flow has had every message up to the last
+    the other named.
+
+A store's ledger names the session's log each change is to, since a FIXP server keeps one per
+session and may have two open at once (one finishing, one starting); the server's rules follow
+the log of the session the client last negotiated.
 
 Once the faults stop the sessions must settle: one connection, established, everything sent
 delivered or reported, and the numbers agreed. 100 seeds run on every push
-(`fixp_known_failures.txt` lists any expected to fail). A hostile middlebox, finalization and
-planted bugs are still to come.
+(`fixp_known_failures.txt` lists any expected to fail) and random ones nightly, beside FIX's.
+The planted bugs above (all but cancel on disconnect's) are planted in FIXP runs too, and each is
+caught.
+
+There's no hostile middlebox here: FIXP numbers application messages by their place in the
+stream, relying on TCP to lose, repeat and reorder nothing, with no checksum or sequence number in
+a message. A frame dropped, repeated or swapped files every later one under the wrong number, which
+no session can notice, so every rule would break without an engine bug. The fuzz target covers
+what arrives garbled.
 
 ## Checking the checker
 

@@ -120,7 +120,9 @@ impl Sent {
                 self.recorded.insert(*seq, msg);
                 self.next_recorded = seq + 1;
             }
-            Stored::Opened { .. } | Stored::OpenFailed(_) | Stored::Uncertain(_) => unreachable!("handled by stored"),
+            Stored::Opened { .. } | Stored::OpenFailed(_) | Stored::Uncertain(_) | Stored::Log(_) => {
+                unreachable!("handled by stored")
+            }
         }
         Ok(())
     }
@@ -396,6 +398,8 @@ impl Checker {
                     sent.uncertain_skips.extend(sent.skip_to.iter().copied());
                 }
                 Stored::OpenFailed(e) => return Err(violation("6 store", format!("{side:?}'s store won't open: {e}"))),
+                // A FIX node keeps one session's log.
+                Stored::Log(_) => {}
                 Stored::Opened { next_outgoing, next_incoming } => {
                     let opened = (*next_outgoing, *next_incoming);
                     let uncertain = std::mem::take(&mut sent.uncertain);
