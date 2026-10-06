@@ -360,7 +360,7 @@ pub(crate) fn debug_check_record(seq: u64, next_outgoing: u64, msg: Option<&[u8]
 }
 
 /// Whether `bytes` is one whole message as sent: a FIX session's frame, or a FIXP session's.
-fn is_one_message(bytes: &[u8]) -> bool {
+pub(crate) fn is_one_message(bytes: &[u8]) -> bool {
     crate::codec::frame_stored(bytes) == Ok(bytes.len()) || crate::fixp::is_one_frame(bytes)
 }
 

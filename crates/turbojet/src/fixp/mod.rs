@@ -36,7 +36,7 @@
 //! `FinishedSending` is answered), TLS, failover, metrics and throttling.
 
 mod endpoints;
-mod framing;
+pub(crate) mod framing;
 // Generated from the FIX Trading Community's schema (scripts/codegen.sh); the session uses part.
 #[allow(dead_code)]
 mod messages;

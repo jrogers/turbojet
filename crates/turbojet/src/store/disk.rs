@@ -11,13 +11,15 @@ use tracing::warn;
 use super::{Commit, SessionId, SessionLog, SessionStorage};
 use crate::codec::{Decoded, frame_stored};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
+use crate::fixp::framing::{self, Framed};
 
 /// Stores each session's state in files under one directory.
 ///
 /// Each session has these files in the store directory, named after its [`SessionId`]:
 ///
 /// - `<name>.body`, `<name>.body.1`, `<name>.body.2` and so on: a journal, in segments, of sent
-///   application messages (see [`SessionLog::record_outgoing`]), whatever their size, each
+///   application messages (see [`SessionLog::record_outgoing`]), whatever their size (a FIXP
+///   frame, which carries no sequence number, after a header with its number), each
 ///   commit's followed by a record of the session's state: the next outgoing and incoming
 ///   sequence numbers and the incoming message in flight to the application (0 for none), with a
 ///   generation and a checksum. A segment that has reached [`with_segment_bytes`] (64 MiB by
@@ -380,6 +382,10 @@ impl SessionLog for DiskLog {
                 self.pending_at = Some(self.next_place());
             }
             let (segment, start) = self.pending_at.expect("just placed");
+            // A FIXP frame doesn't carry its number, so a header before it does.
+            if crate::fixp::is_one_frame(bytes) {
+                self.pending.extend_from_slice(format!("{FRAME_MARK} {seq:020}\n").as_bytes());
+            }
             let len = u32::try_from(bytes.len()).expect("a Message is below 4 GiB");
             self.index.insert(seq, Location { offset: start + self.pending.len() as u64, len, segment });
             self.pending.extend_from_slice(bytes);
@@ -442,9 +448,9 @@ impl SessionLog for DiskLog {
                     bytes
                 }
             };
-            match frame_stored(&bytes) {
-                Ok(n) if n == len => messages.push((seq, bytes)),
-                _ => {
+            match super::is_one_message(&bytes) {
+                true => messages.push((seq, bytes)),
+                false => {
                     return Err(invalid_data(format!(
                         "stored message {seq} in segment {number} at offset {offset} is corrupt"
                     )));
@@ -665,8 +671,13 @@ fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
 const SLOT: usize = 128;
 /// What starts a slot's record, setting it apart from a record from before slots.
 const SLOT_MARK: &str = "S2";
-/// What starts a journal record. A stored message starts `8=`, so the two can't be mistaken.
+/// What starts a journal record. A stored FIX message starts `8=`, and a FIXP frame's header
+/// [`FRAME_MARK`], so none can be mistaken for another.
 const JOURNAL_MARK: &str = "J1";
+/// What starts the header before a stored FIXP frame, which carries no sequence number of its
+/// own: the mark, a space, the number in 20 digits and a newline.
+const FRAME_MARK: &str = "F1";
+const FRAME_HEADER: usize = FRAME_MARK.len() + 1 + 20 + 1;
 /// Bytes in a journal record: its mark, the four numbers of 20 digits, a checksum of 16 hex
 /// digits, each after a space, and a newline.
 pub(crate) const JOURNAL_RECORD: usize = JOURNAL_MARK.len() + 4 * 21 + 17 + 1;
@@ -830,6 +841,28 @@ fn scan_body(file: &mut File, path: &Path) -> io::Result<Scanned> {
             }
             continue;
         }
+        if buf.get(consumed) == Some(&FRAME_MARK.as_bytes()[0]) {
+            match scan_fixp_frame(&buf[consumed..]) {
+                Ok(Some((seq, len))) => {
+                    index.insert(seq, (offset + FRAME_HEADER as u64, len));
+                    consumed += FRAME_HEADER + len;
+                    offset += (FRAME_HEADER + len) as u64;
+                }
+                Ok(None) => {
+                    if !read_chunk(file, &mut buf, &mut consumed, &mut chunk)? {
+                        return Ok((index, record, offset));
+                    }
+                }
+                Err(_) if offset + FRAME_HEADER as u64 >= file_len => return Ok((index, record, offset)),
+                Err(reason) => {
+                    return Err(invalid_data(format!(
+                        "{}: corrupt FIXP frame at offset {offset}: {reason}",
+                        path.display()
+                    )));
+                }
+            }
+            continue;
+        }
         // Only the framing and MsgSeqNum are checked: the store never parses the body, which
         // takes the session's data fields. The session parses a message when it resends it.
         match frame_stored(&buf[consumed..]) {
@@ -866,6 +899,26 @@ fn read_chunk(file: &mut File, buf: &mut Vec<u8>, consumed: &mut usize, chunk: &
     *consumed = 0;
     buf.extend_from_slice(&chunk[..n]);
     Ok(true)
+}
+
+/// The sequence number and length of the FIXP frame at the start of `buf`, after its header;
+/// `None` if not all of it is there.
+fn scan_fixp_frame(buf: &[u8]) -> Result<Option<(u64, usize)>, &'static str> {
+    let Some(header) = buf.get(..FRAME_HEADER) else { return Ok(None) };
+    let digits = header
+        .strip_prefix(FRAME_MARK.as_bytes())
+        .and_then(|rest| rest.strip_prefix(b" "))
+        .and_then(|rest| rest.strip_suffix(b"\n"))
+        .filter(|digits| digits.iter().all(u8::is_ascii_digit));
+    let seq = digits
+        .and_then(|digits| std::str::from_utf8(digits).ok())
+        .and_then(|digits| digits.parse().ok())
+        .ok_or("a bad header")?;
+    match framing::frame(&buf[FRAME_HEADER..]) {
+        Framed::Message(len) => Ok(Some((seq, len))),
+        Framed::Incomplete => Ok(None),
+        Framed::Invalid(reason) => Err(reason),
+    }
 }
 
 /// MsgSeqNum(34) of a framed message the session stored, whose standard header, with MsgSeqNum,
@@ -934,6 +987,44 @@ mod tests {
 
     /// A record written before the in-flight field was added still reads, and gains the field
     /// on the next write.
+    /// A FIXP frame of `n`: framing header, SBE header, and `n` as its body.
+    fn fixp_frame(n: u64) -> Vec<u8> {
+        let mut frame = 22u32.to_be_bytes().to_vec();
+        frame.extend_from_slice(&0x5BE0u16.to_be_bytes());
+        for field in [8u16, 102, 1, 0] {
+            frame.extend_from_slice(&field.to_le_bytes());
+        }
+        frame.extend_from_slice(&n.to_le_bytes());
+        frame
+    }
+
+    /// FIXP frames carry no sequence number, so each is stored after a header with its own: a
+    /// new instance indexes them, reads them back, and drops a torn header or frame at the end.
+    #[test]
+    fn fixp_frames_survive_a_new_storage_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            log.record_outgoing(1, Some(&fixp_frame(1))).unwrap();
+            log.record_outgoing(2, Some(&fixp_frame(2))).unwrap();
+            commit_now(log.as_mut()).unwrap();
+            log.record_outgoing(3, None).unwrap();
+            log.record_outgoing(4, Some(&fixp_frame(4))).unwrap();
+            commit_now(log.as_mut()).unwrap();
+        }
+        let body = body_path(&dir, "A");
+        let whole = std::fs::read(&body).unwrap();
+        for torn in [&b"F1 0000"[..], &[b"F1 00000000000000000005\n".as_slice(), &fixp_frame(5)[..9]].concat()] {
+            std::fs::write(&body, [whole.as_slice(), torn].concat()).unwrap();
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            assert_eq!(log.next_outgoing(), 5);
+            let sent = log.sent_messages(1, 4).unwrap();
+            assert_eq!(sent, [(1, fixp_frame(1)), (2, fixp_frame(2)), (4, fixp_frame(4))]);
+            drop(log);
+            assert_eq!(std::fs::read(&body).unwrap(), whole, "the torn tail is dropped");
+        }
+    }
+
     #[test]
     fn two_number_records_still_read() {
         let dir = tempfile::tempdir().unwrap();
