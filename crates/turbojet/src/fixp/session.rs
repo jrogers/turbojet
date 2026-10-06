@@ -961,8 +961,8 @@ impl FixpSession {
         if self.state == State::Closed {
             return refuse(receipt, Dropped::Disconnected);
         }
-        // A reply from a callback, say: we've said we've sent our last.
-        if self.finishing {
+        // A reply from a callback, say: we've said we've sent our last, or the session is ending.
+        if self.done_sending() {
             return refuse(receipt, Dropped::LoggingOut);
         }
         let start = self.output.len();
@@ -1128,6 +1128,13 @@ impl FixpSession {
         self.send_finished_sending();
     }
 
+    /// Whether application messages may no longer go out: we've finished sending, or answered the
+    /// counterparty's FinishedSending, so the session ends with this connection and a message
+    /// sent now would be lost with it.
+    fn done_sending(&self) -> bool {
+        self.finishing || self.finalized
+    }
+
     fn send_finished_sending(&mut self) {
         let last_seq_no = sequenced(self.flows().0).then(|| self.log().next_outgoing() - 1);
         self.send(&m::FinishedSending { session_id: self.session_id(), last_seq_no });
@@ -1229,12 +1236,12 @@ impl FixpSession {
     pub fn on_command(&mut self, command: Command<SbeMessage>, now: Instant) {
         self.now = now;
         match command {
-            Command::Send(msg, receipt) if self.state == State::Established && !self.finishing => {
+            Command::Send(msg, receipt) if self.state == State::Established && !self.done_sending() => {
                 self.send_application(msg.bytes(), receipt);
             }
             Command::Send(_, receipt) => {
                 if let Some(receipt) = receipt {
-                    let ending = self.state == State::Terminating || self.finishing;
+                    let ending = self.state == State::Terminating || self.done_sending();
                     let dropped = if ending { Dropped::LoggingOut } else { Dropped::Disconnected };
                     let _ = receipt.send(Err(dropped));
                 }

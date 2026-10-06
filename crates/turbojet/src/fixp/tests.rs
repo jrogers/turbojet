@@ -871,6 +871,21 @@ fn a_finishing_session_refuses_sends_and_repeats_finished_sending_as_its_keepali
 }
 
 #[test]
+fn having_answered_finished_receiving_a_session_sends_nothing_more() {
+    // The session ends with this connection: a message sent now would be lost with it.
+    let mut net = Net::new();
+    net.connect();
+    let id = net.client.session().session_id();
+    let now = net.now;
+    net.client.feed_message(&m::FinishedSending { session_id: id, last_seq_no: Some(0) }, now);
+    assert_eq!(written_messages(&net.client.written()), ["FinishedReceiving"]);
+    let mut late = net.send_order(1);
+    net.client.take_commands(now);
+    assert_eq!(late.try_outcome(), Some(Err(Dropped::LoggingOut)));
+    assert!(net.client.written().is_empty());
+}
+
+#[test]
 fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session() {
     let mut net = Net::new();
     net.connect();
