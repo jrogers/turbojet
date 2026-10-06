@@ -580,6 +580,11 @@ impl FixpSession {
     /// An application message: numbered, if the counterparty's flow is sequenced, and handed to
     /// the application.
     fn on_application(&mut self, bytes: &[u8]) {
+        // After our Terminate, ignored as session messages are: sent before it arrived. Unrecorded,
+        // they're retransmitted or reported not applied on the next connection.
+        if self.state == State::Terminating {
+            return;
+        }
         if self.state != State::Established {
             return self.protocol_error("an application message before the session is established");
         }

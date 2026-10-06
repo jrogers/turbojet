@@ -608,6 +608,21 @@ fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session
 }
 
 #[test]
+fn application_messages_after_our_terminate_are_ignored() {
+    // The counterparty sent them before our Terminate reached it: not a protocol error.
+    let mut net = Net::new();
+    net.connect();
+    let now = net.now;
+    net.server.session().on_shutdown(now);
+    net.server.feed_message(&Order(1), now);
+    assert!(!net.server.session().is_closed(), "{:?}", net.server.ended());
+    assert!(net.server.app.messages().is_empty());
+    let id = net.server.session().session_id();
+    net.server.feed_message(&m::Terminate { session_id: id, code: m::TerminationCode::Finished, reason: b"" }, now);
+    assert_eq!(net.server.ended(), Some(Ended::TerminatedByUs(m::TerminationCode::Finished)));
+}
+
+#[test]
 fn garbled_framing_ends_the_connection() {
     let mut net = Net::new();
     net.connect();
