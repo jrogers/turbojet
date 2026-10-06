@@ -93,7 +93,9 @@ Notable changes to the published crates.
   `Received::maybe_redelivered` (an in-flight marker, as FIX sessions keep). Sessions keep their
   state in any store, `DiskStorage` included (which stores each FIXP frame after a header with
   its sequence number, as frames carry none). `FixpHandle::finish` finishes sending, finalizing
-  the logical session once the counterparty has everything.
+  the logical session once the counterparty has everything. `FixpAcceptor::serve_tls` and
+  `FixpInitiator::with_tls` run sessions over TLS (feature `tls`), and `ClientLogin::connection`
+  gives `FixpApplication::verify` the client's address and the certificate it presented.
 - Breaking: `Command` is `#[non_exhaustive]`, and has a `Finish` variant (FIXP's finish sending,
   which FIX sessions ignore): a match on it from outside needs a wildcard arm.
 - `Command`, `CommandSender`, `CommandReceiver`, `SessionRegistry`, `SessionHandle` and `SendError`

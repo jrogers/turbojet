@@ -365,10 +365,14 @@ counterparty didn't apply on an idempotent flow. A client derives its session ID
 negotiated, so it re-establishes the same session after a restart; a server keeps a log per
 session. Messages sent on a recoverable flow are stored for retransmission.
 
+`FixpAcceptor::serve_tls` and `FixpInitiator::with_tls` run sessions over TLS (feature `tls`), and
+a server asking for client certificates sees the one a client presented in `FixpApplication::verify`.
+`FixpHandle::finish` finishes sending, finalizing the session once the counterparty has everything.
+
 It's validated against itself, not a venue: a client and server in memory, each rule of the
-specification a test (every flow, gaps both ways, each reject), over TCP through reconnects, and
-fuzzed. Not supported: multiplexed or multicast sessions, starting finalization (a peer's is
-answered), TLS, failover and metrics, and venues' own dialects (B3's, CME's iLink 3).
+specification a test (every flow, gaps both ways, each reject), over TCP and TLS through reconnects,
+fuzzed, and run through the deterministic simulator. Not supported: multiplexed or multicast
+sessions, failover and metrics, and venues' own dialects (B3's, CME's iLink 3).
 
 ## Operating on sequence numbers
 

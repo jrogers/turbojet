@@ -351,8 +351,9 @@ From the benchmarks.
   delivering and committing; and at finalization a session could send after answering
   FinishedReceiving, or ignore what came before the answer while terminating. The allocation
   budget counts a FIXP server's order → answer too: nothing but the stores', as for FIX.
-  Follow-ups: TLS, failover and metrics for FIXP; multiplexed sessions; venues' dialects (see
-  section 2).
+  FIXP sessions run over TLS too (`FixpAcceptor::serve_tls`, `FixpInitiator::with_tls`), the
+  server's `verify` seeing a client's certificate. Follow-ups: failover and metrics for FIXP;
+  multiplexed sessions; venues' dialects (see section 2).
 
 ### Ideas not yet measured
 
