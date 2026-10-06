@@ -582,6 +582,9 @@ impl FixpSession {
             (Decoded::EstablishmentReject(r), State::Establishing) => self.on_establishment_reject(r.code()),
             (Decoded::Terminate(t), _) => self.on_terminate(t.code()),
             (message, State::Established) => self.on_established_message(message),
+            // Our Terminate crossed the answer to our FinishedSending: the counterparty finalizes
+            // on our Terminate, so we do too.
+            (Decoded::FinishedReceiving(_), State::Terminating) if self.finishing => self.finalized = true,
             // After our Terminate, anything but the answer is ignored.
             (_, State::Terminating) => {}
             (message, state) => self.protocol_error(&format!("{message:?} isn't expected while {state:?}")),
@@ -625,11 +628,13 @@ impl FixpSession {
     /// the application.
     fn on_application(&mut self, bytes: &[u8]) {
         // After our Terminate, ignored as session messages are: sent before it arrived. Unrecorded,
-        // they're retransmitted or reported not applied on the next connection.
-        if self.state == State::Terminating {
+        // they're retransmitted or reported not applied on the next connection. But while we're
+        // finishing, the counterparty may finalize on our Terminate, and there's no next
+        // connection: they're handled.
+        if self.state == State::Terminating && !self.finishing {
             return;
         }
-        if self.state != State::Established {
+        if !self.handles_input() {
             return self.protocol_error("an application message before the session is established");
         }
         match self.flows().1 {
@@ -687,7 +692,7 @@ impl FixpSession {
 
     /// Takes the held messages that are next in order.
     fn take_queued(&mut self) {
-        while self.state == State::Established
+        while self.handles_input()
             && let Some(&(seq, _)) = self.inbound.queued.front()
             && seq == self.log().next_incoming()
         {
@@ -1329,7 +1334,13 @@ impl FixpSession {
     /// Whether incoming messages are handed over: established, with a sequenced flow from the
     /// counterparty.
     fn receiving(&self) -> bool {
-        self.state == State::Established && sequenced(self.flows().1)
+        self.handles_input() && sequenced(self.flows().1)
+    }
+
+    /// Whether application messages from the counterparty are handled: established, or
+    /// terminating while finishing (see `on_application`).
+    fn handles_input(&self) -> bool {
+        self.state == State::Established || self.state == State::Terminating && self.finishing
     }
 
     /// Whether incoming `seq` may be handed to the application: it's in the committed window.

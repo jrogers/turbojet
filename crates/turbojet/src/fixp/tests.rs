@@ -886,6 +886,32 @@ fn having_answered_finished_receiving_a_session_sends_nothing_more() {
 }
 
 #[test]
+fn a_finishing_session_that_logs_out_still_takes_what_comes_before_finished_receiving() {
+    // The client finishes, then logs out before the answer. The server answers FinishedReceiving
+    // and takes the client's Terminate as the end of finalization, so what it sent before must
+    // be handled, or it's lost with the session.
+    let mut net = Net::new();
+    net.connect();
+    let now = net.now;
+    net.client_handle().finish().unwrap();
+    net.client.take_commands(now);
+    let finished = net.client.written();
+    net.client_handle().logout(None).unwrap();
+    net.client.take_commands(now);
+    let terminate = net.client.written();
+    net.server_sends(1);
+    net.server.take_commands(now);
+    let order = net.server.written();
+    net.client.feed(order, now);
+    net.server.feed([finished, terminate].concat(), now);
+    let answers = net.server.written();
+    net.client.feed(answers, now);
+    assert_eq!(net.client.app.messages(), [(1, Some(1), false)]);
+    assert_eq!(net.server.ended(), Some(Ended::Finalized));
+    assert_eq!(net.client.ended(), Some(Ended::Finalized));
+}
+
+#[test]
 fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session() {
     let mut net = Net::new();
     net.connect();
