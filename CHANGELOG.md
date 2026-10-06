@@ -89,8 +89,10 @@ Notable changes to the published crates.
 - `turbojet::fixp`: FIXP 1.0 sessions (the FIX Performance Session Layer) over TCP, as client
   (`FixpInitiator`) or server (`FixpAcceptor`), or over any stream (`fixp::run`), with recoverable,
   idempotent, unsequenced and one-way flows. Messages on a sequenced flow arrive in order, each
-  once, and sessions keep their state in any store, `DiskStorage` included (which stores each
-  FIXP frame after a header with its sequence number, as frames carry none).
+  once, and at least once across a crash or a lost connection, a possible repeat marked
+  `Received::maybe_redelivered` (an in-flight marker, as FIX sessions keep). Sessions keep their
+  state in any store, `DiskStorage` included (which stores each FIXP frame after a header with
+  its sequence number, as frames carry none).
 - `Command`, `CommandSender`, `CommandReceiver`, `SessionRegistry`, `SessionHandle` and `SendError`
   take the type of what's sent, defaulting to `Message`, so existing code is unchanged;
   `SessionRegistry::with_storage` builds a registry of any kind.

@@ -339,11 +339,13 @@ From the benchmarks.
   and server and fuzzed rather than a venue. A pipelined round trip carries 2.97M msg/s against
   0.81M for FIX. Simulation testing of FIXP sessions (`turbojet-sim --fixp`) is under way: client
   and server over the simulated network, every flow type, through resets, black holes, stalls and
-  terminations, on memory and disk stores; it found four bugs, since fixed (a client on disk
-  couldn't re-establish or reopen its log, messages past a gap could be delivered twice after a
-  reconnect, and messages in flight after our Terminate were taken for a protocol error). Still
-  to come: crashes, store failures and power loss, a hostile middlebox, finalization, and planted
-  bugs. Follow-ups: a FIXP stage in the allocation budget; TLS,
+  terminations, process crashes, store failures and power loss, on memory and disk stores. It
+  found eight bugs, since fixed: a client on disk couldn't re-establish or reopen its log; messages
+  past a gap could be delivered twice after a reconnect; messages in flight after our Terminate
+  were taken for a protocol error; a crash could lose a message or repeat it unmarked (now at
+  least once, with an in-flight marker as FIX sessions keep); and after a store failure a session
+  kept recording, delivering and committing. Still to come: a hostile middlebox, finalization,
+  and planted bugs. Follow-ups: a FIXP stage in the allocation budget; TLS,
   failover and metrics for FIXP; starting finalization ourselves; multiplexed sessions; venues'
   dialects (see section 2).
 
