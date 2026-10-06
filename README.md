@@ -992,7 +992,8 @@ The SBE schemas in [`dictionaries/sbe`](https://github.com/jrogers/turbojet/tree
 used only by tests and benchmarks, are SBE's example schema (real-logic, Apache License 2.0) and
 B3's Binary Entrypoint schema, by way of Artio, and FIXP 1.0's session schema, © FIX Protocol Ltd.
 under the Creative Commons Attribution-NoDerivatives 4.0 licence, from which `turbojet::fixp`'s
-session messages are generated; the `README.md` there gives their sources.
+session messages are generated; the `README.md` and `NOTICE` there give their sources, and the
+`turbojet` crate's `NOTICE` credits the FIXP schema.
 
 The session acceptance scripts in
 [`crates/turbojet-acceptance/definitions`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance/definitions) are QuickFIX's,

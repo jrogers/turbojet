@@ -1,0 +1,7 @@
+The names and structure of turbojet::fixp's generated session messages (src/fixp/messages.rs:
+messages and their template IDs, fields, types and enumerated values) are taken from the SBE
+schema of the FIX Performance Session Layer (FIXP) 1.0 Technical Standard, © FIX Protocol Ltd.,
+from https://github.com/FIXTradingCommunity/fixp-specification at commit
+4cfba7e21d2124ae053cefcd22b213a15bfbd927, licensed under the Creative Commons
+Attribution-NoDerivatives 4.0 International licence
+(https://creativecommons.org/licenses/by-nd/4.0/). The schema's documentation is not reproduced.

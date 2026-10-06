@@ -1,0 +1,11 @@
+fixp-1.0.xml is the SBE schema of the FIX Performance Session Layer (FIXP) 1.0 Technical
+Standard's session messages, © FIX Protocol Ltd., from
+https://github.com/FIXTradingCommunity/fixp-specification at commit
+4cfba7e21d2124ae053cefcd22b213a15bfbd927 (v1-0-STANDARD/resources/SBEschemaForFIXP.xml),
+reproduced unmodified under the Creative Commons Attribution-NoDerivatives 4.0 International
+licence (https://creativecommons.org/licenses/by-nd/4.0/).
+
+example-schema.xml and common-types.xml are SBE's example schema, from
+https://github.com/real-logic/simple-binary-encoding, licensed under the Apache License,
+Version 2.0. b3-entrypoint.xml is B3's Binary Entrypoint schema, from
+https://github.com/artiofix/artio; see README.md.
