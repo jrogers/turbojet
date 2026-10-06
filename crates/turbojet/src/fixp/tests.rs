@@ -40,6 +40,8 @@ struct Recorder {
     established: AtomicUsize,
     not_applied: Mutex<Vec<(u64, u64)>>,
     ended: Mutex<Vec<Ended>>,
+    /// The orders marked `maybe_redelivered`.
+    redelivered: Mutex<Vec<u64>>,
     /// Answers each order with one of its number plus 1000.
     echo: bool,
     /// Refuses every client.
@@ -56,6 +58,9 @@ impl FixpApplication for Recorder {
     fn on_message(&self, ctx: &mut FixpContext<'_>, msg: Received<'_>) {
         let number = order_number(msg.bytes);
         self.messages.lock().unwrap().push((number, msg.seq, msg.retransmitted));
+        if msg.maybe_redelivered {
+            self.redelivered.lock().unwrap().push(number);
+        }
         if self.echo {
             ctx.send(&Order(number + 1000)).unwrap();
         }
@@ -147,9 +152,12 @@ impl End {
         out
     }
 
+    /// Feeds `bytes` in, committing (at once, in a memory store) whenever input waits for a
+    /// window to hand messages over in, as the driver does.
     fn feed(&mut self, mut bytes: Vec<u8>, now: Instant) {
-        let deferred = self.session().feed(&mut bytes, now);
-        assert!(!deferred, "memory stores never make input wait");
+        while self.session().feed(&mut bytes, now) {
+            assert!(self.session().take_commit().is_none(), "memory stores commit at once");
+        }
         assert!(bytes.is_empty() || self.session().is_closed(), "every complete frame is handled");
     }
 
@@ -671,6 +679,12 @@ impl SessionLog for FlakyLog {
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
         self.inner.set_created_at(at)
     }
+    fn in_flight(&self) -> Option<u64> {
+        self.inner.in_flight()
+    }
+    fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
+        self.inner.set_in_flight(seq)
+    }
 }
 
 #[test]
@@ -696,8 +710,8 @@ fn an_idempotent_gap_is_reported_even_if_the_first_report_fails_to_store() {
 }
 
 #[test]
-fn a_message_whose_number_fails_to_store_is_not_delivered() {
-    // Delivered unrecorded, it would be retransmitted and delivered again.
+fn a_message_whose_number_fails_to_store_comes_again_marked() {
+    // Handed over, then not recorded: retransmitted on the next connection, marked.
     let mut net = Net::new();
     let flaky = Flaky::default();
     net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(flaky.clone())));
@@ -708,7 +722,33 @@ fn a_message_whose_number_fails_to_store_is_not_delivered() {
     assert_eq!(net.client.ended(), Some(Ended::Error));
     flaky.fail_incoming.store(false, Ordering::Relaxed);
     net.reconnect();
-    assert_eq!(net.client.app.messages(), [(1, Some(1), true)]);
+    assert_eq!(net.client.app.messages(), [(1, Some(1), false), (1, Some(1), true)]);
+    assert_eq!(*net.client.app.redelivered.lock().unwrap(), [1]);
+}
+
+#[test]
+fn a_message_handed_over_but_not_recorded_comes_again_marked() {
+    // DiskStorage keeps changes until they're committed: losing the connection after handing 2
+    // over, before the commit, loses the record of it, but not the window marked in flight.
+    let dir = tempfile::tempdir().unwrap();
+    let mut net = Net::new();
+    let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
+    net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
+    net.connect();
+    net.server_sends(1);
+    net.pump();
+    net.server_sends(2);
+    let now = net.now;
+    net.server.take_commands(now);
+    let order = net.server.written();
+    net.client.feed(order, now);
+    net.reconnect();
+    let messages = net.client.app.messages();
+    assert_eq!(messages, [(1, Some(1), false), (2, Some(2), false), (2, Some(2), true)]);
+    assert_eq!(*net.client.app.redelivered.lock().unwrap(), [2]);
+    // Recorded this time, and the marker cleared or moved on: nothing more comes again.
+    net.reconnect();
+    assert_eq!(net.client.app.messages().len(), 3);
 }
 
 #[test]

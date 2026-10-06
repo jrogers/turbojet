@@ -21,6 +21,7 @@ use crate::registry::{
     apply_sequence_command, command_queues,
 };
 use crate::sbe::{Encode, SbeError};
+use crate::session::DELIVERIES_PER_COMMIT;
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 
@@ -35,6 +36,10 @@ type Uuid = [u8; 16];
 /// it's filled: as much as the connection driver holds unprocessed. Past it they're dropped, and
 /// asked for once what's before them has arrived.
 const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
+/// Most messages held behind a gap: fewer than a window, so that the frame filling the gap and
+/// all those it lets through are handed over in one committed window.
+#[allow(clippy::cast_possible_truncation, reason = "255 fits any usize")]
+const MAX_QUEUED: usize = (DELIVERIES_PER_COMMIT - 1) as usize;
 
 /// Where the session is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,6 +151,16 @@ pub struct FixpSession {
     /// Whether the application was told the session was established, so is owed `on_ended`.
     established: bool,
     ended: Option<Ended>,
+    /// Where the store's in-flight marker stood when the log opened: messages from it on (up to
+    /// a window of them) may have been handed over before a crash or a lost connection, so their
+    /// retransmissions are marked `maybe_redelivered`.
+    recovered: Option<u64>,
+    /// The end (exclusive) of the incoming numbers that may be handed over: the window the last
+    /// commit recorded in flight, so that a crash while they're handled is noticed. Input that
+    /// could hand over more waits for the next commit.
+    window_end: Option<u64>,
+    /// The start of the window the commit under way records.
+    window_opening: Option<u64>,
 }
 
 impl fmt::Debug for FixpSession {
@@ -208,6 +223,9 @@ impl FixpSession {
             waiting_since: now,
             established: false,
             ended: None,
+            recovered: None,
+            window_end: None,
+            window_opening: None,
         };
         (session, receiver)
     }
@@ -286,6 +304,10 @@ impl FixpSession {
     fn bound(&mut self, id: SessionId, session_id: Uuid, log: Box<dyn SessionLog>, then: Option<Request>) {
         tracing::Span::current().record("id", tracing::field::display(&id));
         let handle = self.registry.handle(id.clone());
+        self.recovered = log.in_flight();
+        if let Some(start) = self.recovered {
+            info!(start, "messages from this one on may have been handled before");
+        }
         self.bound = Some(Bound { id, handle, log, session_id });
         match then {
             None => self.client_start(),
@@ -605,10 +627,8 @@ impl FixpSession {
                 // A gap was reported not applied when it was found: always in order.
                 let seq = self.inbound.live_next;
                 self.inbound.live_next += 1;
+                self.handle_application(bytes, Some(seq), false);
                 self.set_next_incoming(seq + 1);
-                if self.state != State::Closed {
-                    self.handle_application(bytes, Some(seq), false);
-                }
             }
             _ => self.handle_application(bytes, None, false),
         }
@@ -635,7 +655,8 @@ impl FixpSession {
         self.inbound.live_next += 1;
         if seq == contiguous {
             self.take_in_order(bytes, seq, false);
-        } else if self.inbound.queued_bytes + bytes.len() <= MAX_QUEUED_BYTES {
+        } else if self.inbound.queued.len() < MAX_QUEUED && self.inbound.queued_bytes + bytes.len() <= MAX_QUEUED_BYTES
+        {
             debug_assert!(seq > contiguous, "live numbers run ahead of the log's");
             self.inbound.queued_bytes += bytes.len();
             self.inbound.queued.push_back((seq, bytes.to_vec()));
@@ -643,29 +664,25 @@ impl FixpSession {
     }
 
     /// Takes message `seq`, the next in order, and then those held behind it that follow on.
+    ///
+    /// Each is recorded as received once it's been handed over: a crash in between leaves it in
+    /// the window marked in flight, so it comes again marked `maybe_redelivered`, never lost.
     fn take_in_order(&mut self, bytes: &[u8], seq: u64, retransmitted: bool) {
-        self.set_next_incoming(seq + 1);
-        // Unrecorded (the store failed), it isn't delivered: it comes again on the next connection.
-        if self.state == State::Closed {
-            return;
-        }
         self.handle_application(bytes, Some(seq), retransmitted);
-        self.take_queued(false);
+        self.set_next_incoming(seq + 1);
+        self.take_queued();
     }
 
-    /// Takes the held messages that are next in order, or with `skip_gaps`, all of them, the
-    /// numbers missing between them lost.
-    fn take_queued(&mut self, skip_gaps: bool) {
+    /// Takes the held messages that are next in order.
+    fn take_queued(&mut self) {
         while self.state == State::Established
             && let Some(&(seq, _)) = self.inbound.queued.front()
-            && (skip_gaps || seq == self.log().next_incoming())
+            && seq == self.log().next_incoming()
         {
             let (seq, bytes) = self.inbound.queued.pop_front().expect("just looked");
             self.inbound.queued_bytes -= bytes.len();
+            self.handle_application(&bytes, Some(seq), false);
             self.set_next_incoming(seq + 1);
-            if self.state != State::Closed {
-                self.handle_application(&bytes, Some(seq), false);
-            }
         }
     }
 
@@ -681,10 +698,20 @@ impl FixpSession {
 
     /// Hands an application message to the application, then sends what it replied.
     fn deliver(&mut self, bytes: &[u8], seq: Option<u64>, retransmitted: bool) {
+        debug_assert!(seq.is_none_or(|seq| self.covers(seq)), "{seq:?} is handed over in a committed window");
+        // One in the window recovered from before may have been handled then if it's coming
+        // again; a live one can't have been.
+        let maybe_redelivered = retransmitted
+            && seq.is_some_and(|seq| {
+                self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq))
+            });
+        if maybe_redelivered {
+            info!(?seq, "delivering a message that may have been handled before");
+        }
         let handle = self.handle();
         let (mut replies, mut ends) = (std::mem::take(&mut self.replies), std::mem::take(&mut self.ends));
         let mut ctx = FixpContext { replies: &mut replies, ends: &mut ends, handle: &handle };
-        self.app.on_message(&mut ctx, Received { bytes, seq, retransmitted });
+        self.app.on_message(&mut ctx, Received { bytes, seq, retransmitted, maybe_redelivered });
         let mut start = 0;
         for &end in &ends {
             self.send_application(&replies[start..end], None);
@@ -794,14 +821,14 @@ impl FixpSession {
     }
 
     fn on_retransmit_reject(&mut self, code: m::RetransmitRejectCode) {
-        let from = self.log().next_incoming();
-        let to = self.inbound.live_next;
-        warn!(?code, from, to, "the counterparty refused to retransmit; those messages are lost");
-        self.inbound.asked = None;
-        self.take_queued(true);
-        if self.state == State::Established {
-            self.set_next_incoming(to);
-        }
+        let Some((from, count)) = self.inbound.asked.take() else { return };
+        warn!(?code, from, count, "the counterparty refused to retransmit; those messages are lost");
+        // What was asked for is skipped. What's held past it is dropped and asked for again,
+        // rather than handed over here, past the committed window.
+        self.inbound.queued.clear();
+        self.inbound.queued_bytes = 0;
+        self.set_next_incoming(from + count);
+        self.ask_for_gap();
         self.check_finished();
     }
 
@@ -950,7 +977,13 @@ impl FixpSession {
         if self.state == State::Closed {
             return;
         }
-        if let Err(e) = self.log().set_next_incoming(seq) {
+        // That clears the in-flight marker, so the open window's is recorded again: a store that
+        // makes each change as it's made must still have it if the process stops mid-batch.
+        let marker = self.window_end.map(|end| end - DELIVERIES_PER_COMMIT);
+        let log = self.log();
+        if let Err(e) =
+            log.set_next_incoming(seq).and_then(|()| marker.map_or(Ok(()), |start| log.set_in_flight(start)))
+        {
             return self.storage_failed(e);
         }
         self.dirty = true;
@@ -962,6 +995,9 @@ impl FixpSession {
         if let Err(e) = self.log().reset() {
             return self.storage_failed(e);
         }
+        // Windows count in the old numbers.
+        self.recovered = None;
+        self.window_end = None;
         self.dirty = true;
     }
 
@@ -1011,6 +1047,7 @@ impl FixpSession {
 
     fn finish_commit(&mut self) {
         self.committed = self.output.len();
+        self.window_end = self.window_opening.take().map(|start| start + DELIVERIES_PER_COMMIT);
         for (receipt, seq) in self.receipts.drain(..) {
             let _ = receipt.send(Ok(seq));
         }
@@ -1177,6 +1214,10 @@ impl FixpSession {
         if self.committing {
             return None;
         }
+        if let Err(e) = self.mark_in_flight() {
+            self.storage_failed(e);
+            return None;
+        }
         if self.dirty
             && let Some(bound) = self.bound.as_mut()
         {
@@ -1207,6 +1248,49 @@ impl FixpSession {
     /// [`on_opened`](Self::on_opened).
     pub fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
         self.opening.as_mut()?.job.take()
+    }
+
+    /// Records the window the next batch is handed over in as in flight, for the commit about to
+    /// start: from the next incoming number on. A recovered window's messages still to come are
+    /// in it too, so a second crash still notices them. Once the session has closed, with nothing
+    /// left in flight, the marker is cleared.
+    fn mark_in_flight(&mut self) -> io::Result<()> {
+        let receiving = self.receiving();
+        // Closed in error (a store failure among them), the store is left as it is.
+        let (closed, failed) = (self.state == State::Closed, self.ended == Some(Ended::Error));
+        let Some(bound) = self.bound.as_mut() else { return Ok(()) };
+        let next = bound.log.next_incoming();
+        if receiving {
+            if bound.log.in_flight() != Some(next) {
+                bound.log.set_in_flight(next)?;
+                self.dirty = true;
+            }
+            self.window_opening = Some(next);
+        } else if closed && !failed && bound.log.in_flight().is_some() {
+            // Everything handed over was recorded with it: nothing is in flight.
+            bound.log.set_next_incoming(next)?;
+            self.dirty = true;
+        }
+        Ok(())
+    }
+
+    /// Whether incoming messages are handed over: established, with a sequenced flow from the
+    /// counterparty.
+    fn receiving(&self) -> bool {
+        self.state == State::Established && sequenced(self.flows().1)
+    }
+
+    /// Whether incoming `seq` may be handed to the application: it's in the committed window.
+    fn covers(&self, seq: u64) -> bool {
+        self.window_end.is_some_and(|end| seq < end)
+    }
+
+    /// Whether the window covers whatever the next frame could hand over: the next in order and
+    /// every message held behind it.
+    fn window_fits(&mut self) -> bool {
+        let held = u64::try_from(self.inbound.queued.len()).expect("bounded by MAX_QUEUED");
+        let last = self.log().next_incoming() + held;
+        self.covers(last)
     }
 
     /// A commit from [`take_commit`](Self::take_commit) has ended.
@@ -1252,8 +1336,9 @@ impl FixpSession {
     }
 
     /// Hands the session the complete frames at the start of `buf`, removing them, until it must
-    /// stop: it's closed or waits for its store. Returns whether input was left waiting for the
-    /// store, rather than for more to arrive.
+    /// stop: it's closed, waits for its store, or waits for a commit to record the next messages
+    /// it hands over as in flight. Returns whether input was left waiting for the store (call
+    /// [`take_commit`](Self::take_commit), then feed it again), rather than for more to arrive.
     pub fn feed(&mut self, buf: &mut Vec<u8>, now: Instant) -> bool {
         self.now = now;
         let mut consumed = 0;
@@ -1261,7 +1346,8 @@ impl FixpSession {
             if self.state == State::Closed {
                 break false;
             }
-            if self.is_waiting_on_store() {
+            // Waiting for the store, or for a commit to record a window to hand messages over in.
+            if self.is_waiting_on_store() || self.receiving() && !self.window_fits() {
                 break consumed < buf.len();
             }
             match framing::frame(&buf[consumed..]) {

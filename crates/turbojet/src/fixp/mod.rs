@@ -243,6 +243,12 @@ pub struct Received<'a> {
     pub seq: Option<u64>,
     /// Whether it came in a retransmission we asked for, rather than live.
     pub retransmitted: bool,
+    /// Whether it may have been handed over already: the connection was lost, or the process
+    /// crashed, while messages from shortly before this one were being handled, before they were
+    /// recorded as received, and this is its retransmission. Up to 256 messages from the first
+    /// that may have been handled are marked, so some never handled may be too; live messages
+    /// never are. Stores that don't record messages in flight never mark one.
+    pub maybe_redelivered: bool,
 }
 
 /// How a FIXP connection ended.
