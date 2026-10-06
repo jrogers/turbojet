@@ -361,7 +361,8 @@ pub(crate) fn debug_check_record(seq: u64, next_outgoing: u64, msg: Option<&[u8]
 
 /// Whether `bytes` is one whole message as sent: a FIX session's frame, or a FIXP session's.
 pub(crate) fn is_one_message(bytes: &[u8]) -> bool {
-    crate::codec::frame_stored(bytes) == Ok(bytes.len()) || crate::fixp::is_one_frame(bytes)
+    // FIXP's check first: cheap, and it allocates nothing, so debug builds count as release ones do.
+    crate::fixp::is_one_frame(bytes) || crate::codec::frame_stored(bytes) == Ok(bytes.len())
 }
 
 /// Commits `log`'s mutations, running any [`Commit`] on this thread: for changes made outside a
