@@ -237,8 +237,13 @@ impl<'s> Renderer<'s> {
                 let read = format!("{buf}[{off}..{}].try_into().expect(\"a slice of {len}\")", off + len);
                 if optional { format!("Some({read}).filter(|c: &[u8; {len}]| c[0] != 0)") } else { read }
             }
+            // Bytes are copied as they are.
+            Kind::Array { prim: Prim::U8, len } => {
+                format!("{buf}[{off}..{}].try_into().expect(\"a slice of {len}\")", off + len)
+            }
             Kind::Array { prim, .. } => {
-                format!("std::array::from_fn(|i| {RT}::{get}::<{}>({buf}, {off} + i * {}))", prim.rust(), prim.size())
+                let at = element_offset(off, prim.size());
+                format!("std::array::from_fn(|i| {RT}::{get}::<{}>({buf}, {at}))", prim.rust())
             }
             Kind::Enum { name, encoding, null, .. } => {
                 let (ty, read) = (ident(type_name(name)), format!("{RT}::{get}::<{}>({buf}, {off})", encoding.rust()));
@@ -276,11 +281,10 @@ impl<'s> Renderer<'s> {
                     format!("{range}.copy_from_slice(&{value});")
                 }
             }
+            Kind::Array { prim: Prim::U8, len } => format!("{buf}[{off}..{}].copy_from_slice(&{value});", off + len),
             Kind::Array { prim, .. } => {
-                format!(
-                    "for (i, v) in {value}.iter().enumerate() {{ {RT}::{put}({buf}, {off} + i * {}, *v); }}",
-                    prim.size()
-                )
+                let at = element_offset(off, prim.size());
+                format!("for (i, v) in {value}.iter().enumerate() {{ {RT}::{put}({buf}, {at}, *v); }}")
             }
             Kind::Enum { name, null, .. } => {
                 let raw = if optional {
@@ -726,6 +730,16 @@ fn since_guard(field: &str, since: u16, read: &str, empty: &str) -> String {
         format!("        let ({field}, at) = {read};\n")
     } else {
         format!("        let ({field}, at) = if version >= {since} {{ {read} }} else {{ ({empty}, at) }};\n")
+    }
+}
+
+/// The offset of an array's element `i`, as Rust, without arithmetic that does nothing.
+fn element_offset(offset: usize, size: usize) -> String {
+    match (offset, size) {
+        (0, 1) => "i".to_string(),
+        (0, size) => format!("i * {size}"),
+        (offset, 1) => format!("{offset} + i"),
+        (offset, size) => format!("{offset} + i * {size}"),
     }
 }
 
