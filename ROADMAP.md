@@ -337,8 +337,10 @@ From the benchmarks.
   both roles, every flow type, through the FIX connection driver, made generic over the session it
   runs (the registry and handles generic over what they send); validated against our own client
   and server and fuzzed rather than a venue. A pipelined round trip carries 2.97M msg/s against
-  0.81M for FIX. Follow-ups: TLS, failover and metrics for FIXP; starting finalization ourselves;
-  multiplexed sessions; venues' dialects (see section 2).
+  0.81M for FIX. Follow-ups: simulation testing of FIXP sessions (`turbojet-sim` covers only FIX,
+  and FIXP has no outside peer to check it against); a FIXP stage in the allocation budget; TLS,
+  failover and metrics for FIXP; starting finalization ourselves; multiplexed sessions; venues'
+  dialects (see section 2).
 
 ### Ideas not yet measured
 
