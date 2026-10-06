@@ -62,3 +62,10 @@ path = "fuzz_targets/sbe_decode.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fixp_session"
+path = "fuzz_targets/fixp_session.rs"
+test = false
+doc = false
+bench = false
