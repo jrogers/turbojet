@@ -962,8 +962,7 @@ See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for t
   segments (up to 1 GiB by default) there.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
-- FIXP sessions run over TCP only (no Aeron yet), without TLS, and only standard FIXP: not yet a
-  venue's dialect.
+- FIXP sessions run over TCP without TLS, and only standard FIXP: not yet a venue's dialect.
 
 ## Releases and security
 

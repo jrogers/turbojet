@@ -157,6 +157,17 @@ Nothing left: the crates.io and docs.rs pages are linked and render correctly.
 What the session layer covers is under *Where things stand*. A venue that negotiates cancel on
 disconnect at logon, in Logon fields of its own, is asked through `Application::to_admin`.
 
+Venues' own binary order-entry protocols, which we may want to support:
+
+- **CME iLink 3** (L). CME's dialect of FIXP over SBE: Negotiate and Establish signed with HMAC
+  over an access key, sequence numbers in each message's business header, and its own framing.
+  Its specification and SBE schema are public on CME's Client Systems Wiki, but testing against
+  CME needs certification credentials; a dialect beside `turbojet::fixp`'s standard FIXP,
+  sharing its driver and much of its session.
+- **Nasdaq OUCH** (L). Nasdaq's binary order-entry protocol, over SoupBinTCP (login, sequenced
+  messages, heartbeats) rather than FIXP; its fixed-length messages would be a codec of their own.
+  A session layer beside the FIX and FIXP ones, through the same connection driver.
+
 ## 3. Dictionaries and code generation
 
 Typed messages come from data dictionaries. `turbojet-dictionary` loads and validates the FIX
@@ -314,32 +325,33 @@ From the benchmarks.
     `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
     AF_XDP would need a userspace TCP stack, so stay parked;
   - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
-- **Aeron and SBE** (L, research). Low-latency venues and in-house systems increasingly use binary
-  encodings over messaging rather than tag=value over TCP: SBE (Simple Binary Encoding, the FIX
-  Trading Community's binary standard) for messages, under FIXP for the session, and Aeron (reliable
-  UDP unicast and multicast, and shared memory between processes on one host) as the transport.
-  Done: SBE codecs, generated from SBE message schemas as venues publish them (`turbojet-codegen
-  sbe`), checked against real-logic's own codecs on SBE's example schema and B3's Binary
-  Entrypoint, fuzzed, and measured against tag=value (a B3 NewOrderSingle encodes in 7.5 ns and
-  decodes, with its order fields read, in 4.8 ns, against 37 ns and 258 ns for tag=value). Schemas
-  aren't derived from the FIX dictionaries: generic FIX messages, mostly optional strings and
-  nested groups, make poor SBE, and no venue speaks such a schema. Also done: FIXP 1.0 sessions
-  (`turbojet::fixp`) over TCP, both roles, every flow type, through the FIX connection driver,
-  made generic over the session it runs (the registry and handles generic over what they send);
-  validated against our own client and server and fuzzed rather than a venue. A pipelined round
-  trip carries 2.97M msg/s against 0.81M for FIX. Follow-ups: TLS, failover and metrics for FIXP;
-  starting finalization ourselves; multiplexed sessions; venues' dialects (B3's Binary Entrypoint
-  was built first and set aside; CME's iLink 3 is documented publicly but has no open peer). Still
-  to do:
-  - Aeron as a transport. Aeron's Rust clients mostly wrap its C library, through `unsafe` code
-    the workspace lints forbid in Turbojet's own crates, so it would live in a crate of its own,
-    as `turbojet-sql` does. A publication and subscription presented as a byte stream would carry
-    FIXP or tag=value through the existing spinning driver unchanged. Also a candidate transport
-    for replicating session state to a standby (section 7, high availability).
+- **SBE and FIXP** (L). Low-latency venues increasingly use binary encodings rather than
+  tag=value: SBE (Simple Binary Encoding, the FIX Trading Community's binary standard) for
+  messages, under FIXP (the FIX Performance Session Layer) for the session. Done: SBE codecs,
+  generated from SBE message schemas as venues publish them (`turbojet-codegen sbe`), checked
+  against real-logic's own codecs on SBE's example schema and B3's Binary Entrypoint, fuzzed, and
+  measured against tag=value (a B3 NewOrderSingle encodes in 7.5 ns and decodes, with its order
+  fields read, in 4.8 ns, against 37 ns and 258 ns for tag=value). Schemas aren't derived from the
+  FIX dictionaries: generic FIX messages, mostly optional strings and nested groups, make poor SBE,
+  and no venue speaks such a schema. Also done: FIXP 1.0 sessions (`turbojet::fixp`) over TCP,
+  both roles, every flow type, through the FIX connection driver, made generic over the session it
+  runs (the registry and handles generic over what they send); validated against our own client
+  and server and fuzzed rather than a venue. A pipelined round trip carries 2.97M msg/s against
+  0.81M for FIX. Follow-ups: TLS, failover and metrics for FIXP; starting finalization ourselves;
+  multiplexed sessions; venues' dialects (see section 2).
 
 ### Ideas not yet measured
 
 Each needs a benchmark that shows the cost before the change is worth its complexity.
+
+- **Memory-mapped disk storage** (M, research). `DiskStorage` writes each commit with a system
+  call (and, with sync, an `fsync`). Writing its segments through a memory map instead would
+  replace the write calls with stores to mapped memory, the kernel writing pages back (or
+  `msync` making a commit durable). Measure it against `DiskStorage`, with and without sync, on
+  the store and round-trip benchmarks. What it would cost: `unsafe` (a mapping crate such as
+  `memmap2`, so a crate of its own or a reviewed exception), files sized ahead of use, and a
+  process killed with `SIGBUS` if a mapped file is truncated or the disk fills; the power-loss
+  tests (`turbojet-sim`) would have to hold for it as they do for `DiskStorage`.
 
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
@@ -384,8 +396,9 @@ Each needs a benchmark that shows the cost before the change is worth its comple
     on a timer would let an idle session notice sooner.
 - **High availability with replicated state** (L). A hot standby that receives every sequence
   number change and stored message as it happens, and takes over a session on failover with no
-  gap and no resend storm. Replicate the session journal to the standby (over TCP, or something
-  like Aeron), with the exclusive-session lease deciding which instance is active.
+  gap and no resend storm. Replicate the session journal to the standby, with the exclusive-session
+  lease deciding which instance is active. Cluster coordination and replication would be a separate
+  project; Turbojet's part is what it needs from the engine.
 - **TLS certificate revocation** (S). Client and server certificates are checked against their
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
@@ -415,7 +428,7 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 
 Listed so the decisions are explicit; any of these could be built on Turbojet separately.
 
-- **Other encodings**. FIXML and FAST. (SBE and FIXP are in section 6, under "Aeron and SBE".)
+- **Other encodings**. FIXML and FAST. (SBE and FIXP are in section 6, under "SBE and FIXP".)
 - **Routing and translation between counterparties**. A hub that routes messages between
   sessions and maps one counterparty's dialect to another's with rules (like FIX Antenna's
   FIXEdge). Routing fields (section 2) are in scope; the hub is an application.
