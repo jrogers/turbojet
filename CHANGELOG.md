@@ -92,7 +92,10 @@ Notable changes to the published crates.
   once, and at least once across a crash or a lost connection, a possible repeat marked
   `Received::maybe_redelivered` (an in-flight marker, as FIX sessions keep). Sessions keep their
   state in any store, `DiskStorage` included (which stores each FIXP frame after a header with
-  its sequence number, as frames carry none).
+  its sequence number, as frames carry none). `FixpHandle::finish` finishes sending, finalizing
+  the logical session once the counterparty has everything.
+- Breaking: `Command` is `#[non_exhaustive]`, and has a `Finish` variant (FIXP's finish sending,
+  which FIX sessions ignore): a match on it from outside needs a wildcard arm.
 - `Command`, `CommandSender`, `CommandReceiver`, `SessionRegistry`, `SessionHandle` and `SendError`
   take the type of what's sent, defaulting to `Message`, so existing code is unchanged;
   `SessionRegistry::with_storage` builds a registry of any kind.
