@@ -101,14 +101,20 @@ pub struct Failure {
     pub at: SimTime,
     pub violation: Violation,
     pub trace: Vec<String>,
+    /// A FIXP seed (`crate::fixp`), replayed with `--fixp`.
+    pub fixp: bool,
 }
 
 impl fmt::Display for Failure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "seed {} failed at {}: {}\n  replay: scripts/sim.sh 0 {} -v",
-            self.seed, self.at, self.violation, self.seed
+            "seed {} failed at {}: {}\n  replay: scripts/sim.sh 0 {} -v{}",
+            self.seed,
+            self.at,
+            self.violation,
+            self.seed,
+            if self.fixp { " --fixp" } else { "" }
         )
     }
 }
@@ -407,6 +413,7 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             at: world.clocks.now(),
             violation,
             trace: std::mem::take(&mut world.trace),
+            fixp: false,
         }),
     }
 }
@@ -568,7 +575,7 @@ fn schedule(faults: &Faults, options: &Options) -> (Option<SessionSchedule>, Sim
 /// The initiator's reconnects, fixed or backing off from `reconnect`, chosen and jittered from
 /// `rng`, apart from the world's random stream so that seeds keep the faults they had before
 /// reconnects backed off.
-fn reconnect_policy(reconnect: Duration, rng: &mut Rng) -> ReconnectPolicy {
+pub(crate) fn reconnect_policy(reconnect: Duration, rng: &mut Rng) -> ReconnectPolicy {
     if rng.chance(500_000) {
         ReconnectPolicy::fixed(reconnect)
     } else {

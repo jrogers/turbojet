@@ -1,0 +1,2 @@
+# FIXP seeds (of the per-push 100) expected to fail: the seed, then the rule it breaks and why.
+# A listed seed that passes, or fails some other way, fails the test.

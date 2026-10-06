@@ -112,3 +112,30 @@ fn a_late_cancel_on_disconnect_is_caught() {
 fn a_spurious_cancel_on_disconnect_is_caught() {
     caught(Plant::SpuriousCancel, &["8 cancel"]);
 }
+
+#[test]
+fn fixp_seeds_pass_or_fail_as_known() {
+    let known = listed(include_str!("../fixp_known_failures.txt"));
+    let start = Instant::now();
+    let mut problems = Vec::new();
+    for seed in 0..SEEDS {
+        match (turbojet_sim::fixp::run(&Options::per_push(seed)), known.get(&seed)) {
+            (Ok(_), None) => {}
+            (Err(failure), Some(why)) if why.starts_with(failure.violation.rule) => {}
+            (Ok(_), Some(why)) => {
+                problems.push(format!("seed {seed} passes now: remove it from fixp_known_failures.txt ({why})"))
+            }
+            (Err(failure), _) => problems.push(failure.to_string()),
+        }
+    }
+    eprintln!("{SEEDS} FIXP seeds in {:?}", start.elapsed());
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+}
+
+#[test]
+fn a_fixp_seed_replays_identically() {
+    let first = turbojet_sim::fixp::run(&Options::per_push(7)).unwrap();
+    let second = turbojet_sim::fixp::run(&Options::per_push(7)).unwrap();
+    assert_eq!(first.digest, second.digest);
+    assert_eq!(first.events, second.events);
+}

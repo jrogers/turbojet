@@ -1,26 +1,29 @@
 //! Runs simulation seeds: one, to replay it, or random ones for a while. See `scripts/sim.sh`.
 //!
 //! ```text
-//! turbojet-sim <seconds> [seed] [-v]
+//! turbojet-sim <seconds> [seed] [-v] [--fixp]
 //! ```
 //!
 //! With a seed, runs just that one (printing its trace with `-v`). Without, runs seeds from a
-//! random start for `seconds`, stopping at the first failure.
+//! random start for `seconds`, stopping at the first failure. `--fixp` runs the FIXP simulation
+//! rather than the FIX one.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime};
 
-use turbojet_sim::{Options, run};
+use turbojet_sim::{Failure, Options, Report};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let verbose = args.iter().any(|a| a == "-v");
-    let numbers: Vec<u64> = args.iter().filter(|a| *a != "-v").map(|a| a.parse().expect("a number")).collect();
+    let run: fn(&Options) -> Result<Report, Failure> =
+        if args.iter().any(|a| a == "--fixp") { turbojet_sim::fixp::run } else { turbojet_sim::run };
+    let numbers: Vec<u64> = args.iter().filter(|a| !a.starts_with('-')).map(|a| a.parse().expect("a number")).collect();
     let (seconds, seed) = match numbers.as_slice() {
         [seconds] => (*seconds, None),
         [seconds, seed] => (*seconds, Some(*seed)),
         _ => {
-            eprintln!("usage: turbojet-sim <seconds> [seed] [-v]");
+            eprintln!("usage: turbojet-sim <seconds> [seed] [-v] [--fixp]");
             return ExitCode::FAILURE;
         }
     };
