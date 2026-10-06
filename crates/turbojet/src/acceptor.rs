@@ -113,11 +113,11 @@ impl Acceptor {
     /// A handle to the session with counterparty `target_comp_id`, usable whenever it is
     /// connected.
     pub fn session(&self, target_comp_id: &str) -> SessionHandle {
-        self.registry.handle(SessionId {
-            begin_string: self.config.begin_string.clone(),
-            sender_comp_id: self.config.sender_comp_id.clone(),
-            target_comp_id: target_comp_id.into(),
-        })
+        self.registry.handle(SessionId::new(
+            self.config.begin_string.clone(),
+            self.config.sender_comp_id.clone(),
+            target_comp_id,
+        ))
     }
 
     /// Sessions currently connected.

@@ -413,7 +413,7 @@ mod tests {
     use crate::message::tags;
 
     fn session_id() -> SessionId {
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() }
+        SessionId::new("FIX.4.4", "GATEWAY", "CLIENT")
     }
 
     /// A typed reply is built in a spare message, which `send` takes from the outbox; a message

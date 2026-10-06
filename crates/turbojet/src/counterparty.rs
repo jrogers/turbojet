@@ -264,11 +264,7 @@ mod tests {
     }
 
     fn resolve(map: &CounterpartyMap, comp_id: &str) -> Result<Counterparty, String> {
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GATEWAY".into(),
-            target_comp_id: comp_id.into(),
-        };
+        let id = SessionId::new("FIX.4.4", "GATEWAY", comp_id);
         map.resolve(&base(), &id, &Message::default(), &ConnectionInfo::default())
     }
 

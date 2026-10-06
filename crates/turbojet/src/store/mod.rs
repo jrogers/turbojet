@@ -19,6 +19,10 @@ pub use memory::MemoryStorage;
 use crate::fields::UtcTimestamp;
 
 /// Identifies a FIX session from the gateway's side.
+///
+/// Two sessions with the same CompIDs are different sessions if their SubIDs, LocationIDs or
+/// qualifier differ, as in QuickFIX: an acceptor takes them from each Logon, and an initiator
+/// from its [`InitiatorConfig`](crate::InitiatorConfig).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct SessionId {
@@ -26,13 +30,23 @@ pub struct SessionId {
     pub begin_string: String,
     /// Our CompID.
     pub sender_comp_id: String,
+    /// Our SenderSubID(50), if the session has one.
+    pub sender_sub_id: Option<String>,
+    /// Our SenderLocationID(142), if the session has one.
+    pub sender_location_id: Option<String>,
     /// The counterparty's CompID.
     pub target_comp_id: String,
+    /// The counterparty's SubID, our TargetSubID(57), if the session has one.
+    pub target_sub_id: Option<String>,
+    /// The counterparty's LocationID, our TargetLocationID(143), if the session has one.
+    pub target_location_id: Option<String>,
+    /// Tells apart sessions whose other fields are the same. Local: never sent.
+    pub qualifier: Option<String>,
 }
 
 impl SessionId {
     /// The session with BeginString `begin_string`, our CompID `sender_comp_id` and the
-    /// counterparty's `target_comp_id`.
+    /// counterparty's `target_comp_id`, and no SubIDs, LocationIDs or qualifier.
     pub fn new(
         begin_string: impl Into<String>,
         sender_comp_id: impl Into<String>,
@@ -41,14 +55,108 @@ impl SessionId {
         Self {
             begin_string: begin_string.into(),
             sender_comp_id: sender_comp_id.into(),
+            sender_sub_id: None,
+            sender_location_id: None,
             target_comp_id: target_comp_id.into(),
+            target_sub_id: None,
+            target_location_id: None,
+            qualifier: None,
         }
+    }
+
+    /// With our SenderSubID(50).
+    #[must_use]
+    pub fn with_sender_sub_id(mut self, id: impl Into<String>) -> Self {
+        self.sender_sub_id = Some(id.into());
+        self
+    }
+
+    /// With our SenderLocationID(142).
+    #[must_use]
+    pub fn with_sender_location_id(mut self, id: impl Into<String>) -> Self {
+        self.sender_location_id = Some(id.into());
+        self
+    }
+
+    /// With the counterparty's SubID, our TargetSubID(57).
+    #[must_use]
+    pub fn with_target_sub_id(mut self, id: impl Into<String>) -> Self {
+        self.target_sub_id = Some(id.into());
+        self
+    }
+
+    /// With the counterparty's LocationID, our TargetLocationID(143).
+    #[must_use]
+    pub fn with_target_location_id(mut self, id: impl Into<String>) -> Self {
+        self.target_location_id = Some(id.into());
+        self
+    }
+
+    /// With a qualifier, to tell it apart from a session whose other fields are the same.
+    #[must_use]
+    pub fn with_qualifier(mut self, qualifier: impl Into<String>) -> Self {
+        self.qualifier = Some(qualifier.into());
+        self
+    }
+
+    /// What a store keys the session on beyond its BeginString and CompIDs: its SubIDs,
+    /// LocationIDs and qualifier, as `ss=..;sl=..;ts=..;tl=..;q=..` with only those it has, in
+    /// that order, each value [`escaped`](Self::escape). Empty if it has none, so such a session
+    /// keeps the key it had before these fields existed.
+    pub fn key_suffix(&self) -> String {
+        let parts = [
+            ("ss", &self.sender_sub_id),
+            ("sl", &self.sender_location_id),
+            ("ts", &self.target_sub_id),
+            ("tl", &self.target_location_id),
+            ("q", &self.qualifier),
+        ];
+        let present =
+            parts.iter().filter_map(|(key, value)| Some(format!("{key}={}", Self::escape(value.as_deref()?))));
+        present.collect::<Vec<_>>().join(";")
+    }
+
+    /// `value` with anything other than ASCII alphanumerics, `.` and `_` percent-encoded, so it
+    /// is safe in a file name and can't be confused with a separator.
+    pub fn escape(value: &str) -> String {
+        value
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' => (b as char).to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
     }
 }
 
+/// `FIX.4.4:GATEWAY->CLIENT`, or as QuickFIX writes one with more:
+/// `FIX.4.4:GATEWAY/DESK/NY->CLIENT/TRADER7:qualifier`, a LocationID without a SubID following an
+/// empty one (`GATEWAY//NY`).
 impl fmt::Display for SessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}->{}", self.begin_string, self.sender_comp_id, self.target_comp_id)
+        fn side(
+            f: &mut fmt::Formatter<'_>,
+            comp: &str,
+            sub: Option<&String>,
+            location: Option<&String>,
+        ) -> fmt::Result {
+            f.write_str(comp)?;
+            if sub.is_some() || location.is_some() {
+                write!(f, "/{}", sub.map_or("", String::as_str))?;
+            }
+            if let Some(location) = location {
+                write!(f, "/{location}")?;
+            }
+            Ok(())
+        }
+        write!(f, "{}:", self.begin_string)?;
+        side(f, &self.sender_comp_id, self.sender_sub_id.as_ref(), self.sender_location_id.as_ref())?;
+        f.write_str("->")?;
+        side(f, &self.target_comp_id, self.target_sub_id.as_ref(), self.target_location_id.as_ref())?;
+        if let Some(qualifier) = &self.qualifier {
+            write!(f, ":{qualifier}")?;
+        }
+        Ok(())
     }
 }
 
@@ -500,6 +608,26 @@ pub(crate) mod deferring {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_id_shows_only_the_fields_it_has() {
+        let plain = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
+        assert_eq!(plain.to_string(), "FIX.4.4:GATEWAY->CLIENT");
+        assert_eq!(plain.key_suffix(), "", "a plain session keeps its old key");
+
+        let full = plain
+            .clone()
+            .with_sender_sub_id("DESK")
+            .with_sender_location_id("NY")
+            .with_target_sub_id("TRADER 7")
+            .with_qualifier("b");
+        assert_eq!(full.to_string(), "FIX.4.4:GATEWAY/DESK/NY->CLIENT/TRADER 7:b");
+        assert_eq!(full.key_suffix(), "ss=DESK;sl=NY;ts=TRADER%207;q=b");
+
+        let location_only = plain.with_target_location_id("LDN");
+        assert_eq!(location_only.to_string(), "FIX.4.4:GATEWAY->CLIENT//LDN");
+        assert_eq!(location_only.key_suffix(), "tl=LDN");
+    }
 
     #[test]
     fn a_commit_runs_its_job() {

@@ -23,7 +23,7 @@ use crate::message::{Message, tags};
 
 /// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `F`.
 pub fn id(target: &str) -> SessionId {
-    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: target.into() }
+    SessionId::new("FIX.4.4", "GATEWAY", target)
 }
 
 /// An encoded ExecutionReport with MsgSeqNum `seq`, as a session would store it.

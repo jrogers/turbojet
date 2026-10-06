@@ -216,7 +216,7 @@ mod tests {
     }
 
     fn id(target: &str) -> SessionId {
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: target.into() }
+        SessionId::new("FIX.4.4", "GATEWAY", target)
     }
 
     /// A handle for `id`, for the callbacks.

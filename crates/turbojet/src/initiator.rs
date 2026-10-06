@@ -318,11 +318,11 @@ impl Initiator {
     /// The session this initiator logs on to: its BeginString, our CompID and the target's.
     pub fn session_id(&self) -> SessionId {
         let config = &self.plan().config;
-        SessionId {
-            begin_string: config.session.begin_string.clone(),
-            sender_comp_id: config.session.sender_comp_id.clone(),
-            target_comp_id: config.target_comp_id.clone(),
-        }
+        SessionId::new(
+            config.session.begin_string.clone(),
+            config.session.sender_comp_id.clone(),
+            config.target_comp_id.clone(),
+        )
     }
 
     /// A handle for sending on the session; valid across reconnects and failovers.

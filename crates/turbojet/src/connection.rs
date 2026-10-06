@@ -1369,7 +1369,7 @@ mod tests {
 
     /// The session [`logged_on_over`] logs on, as the acceptor sees it.
     fn peer_session() -> SessionId {
-        SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "US".into(), target_comp_id: "PEER".into() }
+        SessionId::new("FIX.4.2", "US", "PEER")
     }
 
     /// An acceptor config sending at most `messages` application messages per `per`.
@@ -2059,11 +2059,7 @@ mod tests {
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
 
-        let handle = registry.handle(SessionId {
-            begin_string: "FIX.4.2".into(),
-            sender_comp_id: "US".into(),
-            target_comp_id: "PEER".into(),
-        });
+        let handle = registry.handle(SessionId::new("FIX.4.2", "US", "PEER"));
         let receipts: Vec<_> = ["A", "B"]
             .map(|id| handle.send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id)).unwrap())
             .into();
@@ -2105,11 +2101,7 @@ mod tests {
         receive(&mut peer, &mut buf, 1).await;
 
         // The peer reads nothing more.
-        let handle = registry.handle(SessionId {
-            begin_string: "FIX.4.2".into(),
-            sender_comp_id: "US".into(),
-            target_comp_id: "PEER".into(),
-        });
+        let handle = registry.handle(SessionId::new("FIX.4.2", "US", "PEER"));
         let mut sent = 0;
         let full = loop {
             let order = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, format!("E{sent}"));
@@ -2399,11 +2391,7 @@ mod tests {
         assert_eq!(writes.load(Ordering::SeqCst), 1, "Logon reply and {ORDERS} acks should go out in one write");
 
         // A burst of sends through the handle is also written at once.
-        let handle = registry.handle(SessionId {
-            begin_string: "FIX.4.2".into(),
-            sender_comp_id: "US".into(),
-            target_comp_id: "PEER".into(),
-        });
+        let handle = registry.handle(SessionId::new("FIX.4.2", "US", "PEER"));
         for i in 0..50 {
             handle.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, format!("E{i}"))).unwrap();
         }

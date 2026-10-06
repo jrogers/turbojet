@@ -205,8 +205,9 @@ pub(crate) fn apply_sequence_command(
 /// Why a session couldn't be bound.
 #[derive(Debug)]
 pub(crate) enum AcquireError {
-    AlreadyConnected(SessionId),
-    Storage(SessionId, io::Error),
+    // Boxed: a `SessionId` is large, and this is only built when acquiring fails.
+    AlreadyConnected(Box<SessionId>),
+    Storage(Box<SessionId>, io::Error),
 }
 
 /// A session claimed in the registry for an operator change, released when dropped.
@@ -535,13 +536,13 @@ impl<T> SessionRegistry<T> {
         {
             let mut sessions = self.lock();
             if sessions.contains_key(id) {
-                return Err(AcquireError::AlreadyConnected(id.clone()));
+                return Err(AcquireError::AlreadyConnected(Box::new(id.clone())));
             }
             sessions.insert(id.clone(), Entry { commands: commands.clone(), appl_ver_id });
         }
         self.storage.begin_open(id).map_err(|e| {
             self.release(id, &commands);
-            AcquireError::Storage(id.clone(), e)
+            AcquireError::Storage(Box::new(id.clone()), e)
         })
     }
 
@@ -1110,7 +1111,7 @@ mod tests {
         let storage = Arc::new(crate::store::deferring::DeferringStorage::deferring_all());
         let calls = storage.calls.clone();
         let registry = Arc::new(SessionRegistry::new(storage.clone()));
-        let id = SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "A".into(), target_comp_id: "B".into() };
+        let id = SessionId::new("FIX.4.4", "A", "B");
         let handle = registry.handle(id.clone());
         let numbers = handle.set_next_outgoing(9).await.unwrap();
         assert_eq!(numbers.next_outgoing, 9);
@@ -1153,8 +1154,7 @@ mod tests {
     }
 
     fn start(registry: &SessionRegistry, target: &str, app: &Arc<Counter>, grace: Duration) {
-        let id =
-            SessionId { begin_string: "FIX.4.2".into(), sender_comp_id: "US".into(), target_comp_id: target.into() };
+        let id = SessionId::new("FIX.4.2", "US", target);
         let deadline = tokio::time::Instant::now().into_std() + grace;
         registry.start_cancel(id, Disconnect::ConnectionLost, CancelTrigger::Disconnect, deadline, app.clone());
     }

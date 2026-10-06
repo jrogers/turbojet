@@ -1668,11 +1668,7 @@ impl Session {
     }
 
     fn session_id_for(&self, target_comp_id: String) -> SessionId {
-        SessionId {
-            begin_string: self.config.begin_string.clone(),
-            sender_comp_id: self.config.sender_comp_id.clone(),
-            target_comp_id,
-        }
+        SessionId::new(self.config.begin_string.clone(), self.config.sender_comp_id.clone(), target_comp_id)
     }
 
     /// FIXT sessions: the application version in use.

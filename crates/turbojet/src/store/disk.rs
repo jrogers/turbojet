@@ -930,21 +930,18 @@ fn msg_seq_num(frame: &[u8]) -> Option<u64> {
     u64::from_fix(std::str::from_utf8(&frame[start..end]).ok()?).ok()
 }
 
-/// `BEGINSTRING-SENDER-TARGET`, with anything other than ASCII alphanumerics, `.` and `_`
-/// percent-encoded so CompIDs cannot escape the directory or collide via the separator.
+/// `BEGINSTRING-SENDER-TARGET`, each [`escaped`](SessionId::escape) so CompIDs cannot escape the
+/// directory or collide via the separator, then `-` and the [`key_suffix`](SessionId::key_suffix)
+/// escaped again if the session has one.
 fn file_stem(id: &SessionId) -> String {
-    [&id.begin_string, &id.sender_comp_id, &id.target_comp_id]
-        .iter()
-        .map(|part| {
-            part.bytes()
-                .map(|b| match b {
-                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' => (b as char).to_string(),
-                    _ => format!("%{b:02X}"),
-                })
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>()
-        .join("-")
+    let mut stem =
+        [&id.begin_string, &id.sender_comp_id, &id.target_comp_id].map(|part| SessionId::escape(part)).join("-");
+    let suffix = id.key_suffix();
+    if !suffix.is_empty() {
+        stem.push('-');
+        stem.push_str(&SessionId::escape(&suffix));
+    }
+    stem
 }
 
 fn invalid_data(msg: String) -> io::Error {
@@ -1520,11 +1517,10 @@ mod tests {
 
     #[test]
     fn file_names_are_sanitised() {
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GW".into(),
-            target_comp_id: "../evil-co/x".into(),
-        };
+        let id = SessionId::new("FIX.4.4", "GW", "../evil-co/x");
         assert_eq!(file_stem(&id), "FIX.4.4-GW-..%2Fevil%2Dco%2Fx");
+        // A SubID can't escape either, and its key is kept apart from the CompIDs'.
+        let id = SessionId::new("FIX.4.4", "GW", "CO").with_target_sub_id("../x");
+        assert_eq!(file_stem(&id), "FIX.4.4-GW-CO-ts%3D..%252Fx");
     }
 }

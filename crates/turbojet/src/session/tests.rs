@@ -1038,11 +1038,7 @@ fn the_incoming_number_is_saved_after_the_application() {
 fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
     let storage = Arc::new(MemoryStorage::new());
     {
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GATEWAY".into(),
-            target_comp_id: "CLIENT".into(),
-        };
+        let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
         let mut log = storage.open(&id).unwrap();
         log.record_outgoing(1, None).unwrap(); // our Logon
         log.set_next_incoming(2).unwrap();
@@ -1130,8 +1126,7 @@ fn a_clean_end_clears_the_window_and_a_dropped_connection_keeps_it() {
     let mut s = h.logged_on();
     s.recv(order(2, "A"), h.t0);
     drop(s); // the connection drops
-    let id =
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
     assert_eq!(storage.open(&id).unwrap().in_flight(), Some(3));
 }
 
@@ -1156,7 +1151,7 @@ fn a_resend_step_costs_no_commit() {
 }
 
 fn client_id() -> SessionId {
-    SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() }
+    SessionId::new("FIX.4.4", "GATEWAY", "CLIENT")
 }
 
 /// An acceptor's logon waits for the store to open the session's log: the session is claimed
@@ -1417,11 +1412,7 @@ fn an_operator_hears_of_a_change_once_it_is_committed() {
 fn a_recovered_window_outlives_the_batches_before_its_messages_return() {
     let storage = Arc::new(MemoryStorage::new());
     {
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GATEWAY".into(),
-            target_comp_id: "CLIENT".into(),
-        };
+        let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
         let mut log = storage.open(&id).unwrap();
         log.record_outgoing(1, None).unwrap();
         log.set_next_incoming(2).unwrap();
@@ -2558,8 +2549,7 @@ fn storage_failure_during_logon_disconnects_without_reply() {
 #[test]
 fn storage_failure_during_logon_sends_no_resend() {
     let storage = FailingStorage { ok_writes: 0, once: false, inner: MemoryStorage::new() };
-    let id =
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
     {
         // We've sent up to 3 on an earlier connection.
         let mut log = storage.inner.open(&id).unwrap();
@@ -2619,11 +2609,7 @@ fn a_stored_message_over_64_kib_is_resent() {
     let storage = Arc::new(MemoryStorage::new());
     let text = "x".repeat(70 * 1024);
     {
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GATEWAY".into(),
-            target_comp_id: "CLIENT".into(),
-        };
+        let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
         let report = Message::default()
             .with(tags::BEGIN_STRING, "FIX.4.4")
             .with(tags::MSG_TYPE, MsgType::ExecutionReport)
@@ -2655,8 +2641,7 @@ fn outbound_log_shows_no_content_it_cannot_decode() {
 /// Stores, as our `seq` to CLIENT, an ExecutionReport whose framing is intact but which doesn't
 /// parse: its ExecID(17) isn't UTF-8.
 fn store_corrupt_report(storage: &MemoryStorage, seq: u64) {
-    let id =
-        SessionId { begin_string: "FIX.4.4".into(), sender_comp_id: "GATEWAY".into(), target_comp_id: "CLIENT".into() };
+    let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
     let report = Message::default()
         .with(tags::BEGIN_STRING, "FIX.4.4")
         .with(tags::MSG_TYPE, MsgType::ExecutionReport)
@@ -3068,11 +3053,7 @@ mod schedule_tests {
     fn existing_state_without_a_creation_time_is_kept_until_the_next_period() {
         // State written before creation times were recorded: sequence numbers but no timestamp.
         let storage = Arc::new(MemoryStorage::new());
-        let id = SessionId {
-            begin_string: "FIX.4.4".into(),
-            sender_comp_id: "GATEWAY".into(),
-            target_comp_id: "CLIENT".into(),
-        };
+        let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
         {
             let mut log = storage.open(&id).unwrap();
             log.record_outgoing(4, None).unwrap();
@@ -3790,11 +3771,7 @@ fn a_fixt_initiator_offers_its_first_version() {
 #[test]
 fn handles_report_the_application_version_while_connected() {
     let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
-    let handle = h.registry.handle(SessionId {
-        begin_string: "FIXT.1.1".into(),
-        sender_comp_id: "GATEWAY".into(),
-        target_comp_id: "CLIENT".into(),
-    });
+    let handle = h.registry.handle(SessionId::new("FIXT.1.1", "GATEWAY", "CLIENT"));
     assert_eq!(handle.appl_ver_id(), None);
     let mut s = h.initiator(false);
     s.connect(h.t0);
