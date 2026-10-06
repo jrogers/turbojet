@@ -18,16 +18,19 @@ use crate::Side;
 use crate::app::Sent;
 use crate::check::Violation;
 use crate::files::DiskFiles;
+use crate::files::Tear;
 use crate::net::{ConnId, Net, Params};
 use crate::queue::Queue;
 use crate::rng::Rng;
-use crate::store::LedgerStorage;
+use crate::store::{Call, LedgerStorage, Trap};
 use crate::time::{Clocks, SimTime};
 use crate::world::{Failure, Options, Report};
 
 /// How long a slow store's commit takes, mostly, and now and then: as in the FIX world.
 const COMMIT_TIME: Duration = Duration::from_millis(5);
 const SLOW_COMMIT_TIME: Duration = Duration::from_millis(50);
+/// How often the OS writes back a disk store without sync.
+const WRITE_BACK_EVERY: Duration = Duration::from_secs(5);
 /// As `FixpInitiator`'s.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Most events at one instant, and in a run, before the run counts as spinning.
@@ -55,6 +58,22 @@ struct Faults {
     terminate_every: Option<Duration>,
     send_queue: usize,
     burst_every: Option<Duration>,
+    /// Mean time between process crashes (of either node), if any, and the longest a restart takes.
+    crash_every: Option<Duration>,
+    restart_max: Duration,
+    /// A disk store with sync: a power loss tears the call in progress. Without, the files go
+    /// back to what the OS had written back.
+    sync: bool,
+    /// Mean time between traps set in a store call, if any, and the chance in a million that one
+    /// crashes the process rather than just failing the call.
+    trap_every: Option<Duration>,
+    trap_crashes: u32,
+    /// With sync: the chance in a million that a trap that crashes is a power loss tearing the
+    /// call's write, and whether a record can tear within a sector.
+    tears: u32,
+    sub_sector: bool,
+    /// Without sync: mean time between power losses, if any.
+    power_loss_every: Option<Duration>,
 }
 
 impl Faults {
@@ -90,22 +109,37 @@ impl Faults {
             terminate_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
             send_queue: rng.pick(&[10_000, 10_000, 50, 5]),
             burst_every: rng.pick(&[None, Some(secs(10)), Some(secs(3))]),
+            crash_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
+            restart_max: rng.pick(&[ms(100), secs(5), secs(30)]),
+            sync: rng.chance(500_000),
+            trap_every: rng.pick(&[None, Some(secs(30)), Some(secs(5))]),
+            trap_crashes: rng.pick(&[0, 500_000, 1_000_000]),
+            tears: rng.pick(&[0, 500_000]),
+            sub_sector: rng.chance(300_000),
+            power_loss_every: rng.pick(&[None, Some(secs(60)), Some(secs(20))]),
         }
     }
 
     /// Longest the sessions can take to settle once faults stop: TCP giving up on a black hole,
     /// the slowest reconnect and handshake, and time over for retransmissions.
     fn settle_limit(&self, reconnect: Duration) -> Duration {
-        self.give_up + self.stall_max + self.connect_max + reconnect + self.keepalive * 10 + Duration::from_secs(60)
+        self.give_up
+            + self.stall_max
+            + self.connect_max
+            + self.restart_max
+            + reconnect
+            + self.keepalive * 10
+            + Duration::from_secs(60)
     }
 }
 
 #[derive(Debug)]
 enum Event {
-    /// The client tries to connect, and its connect succeeds or fails.
-    Connect,
-    Established,
-    ConnectFailed,
+    /// The client tries to connect, and its connect succeeds or fails. Each attempt carries the
+    /// client's process generation, so one begun before a crash is dropped after it.
+    Connect(u64),
+    Established(u64),
+    ConnectFailed(u64),
     Arrive {
         to: Side,
         conn: ConnId,
@@ -132,6 +166,15 @@ enum Event {
     BlackHole,
     Stall,
     GiveUp(ConnId),
+    /// A node's process crashes, and later restarts.
+    Crash,
+    Restart(Side),
+    /// A trap is set in the next store call of a kind on one node.
+    Trap,
+    /// The OS writes back both disk stores (without sync).
+    WriteBack,
+    /// A node loses power (a disk store without sync).
+    PowerLoss,
 }
 
 /// What's scheduled for one connection's driver, so each kind of wake-up is queued once.
@@ -164,6 +207,10 @@ struct World {
     reset: BTreeSet<ConnId>,
     black_holed: BTreeSet<ConnId>,
     connecting: bool,
+    /// Each node is down after a crash, until it restarts.
+    down: [bool; 2],
+    /// The client's process generation: one more after each crash.
+    generation: u64,
     busy_end: SimTime,
     in_flight: usize,
     next_id: u64,
@@ -184,7 +231,11 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s)),
             connections: world.connections,
             resent: world.checker.resent,
-            redelivered: 0,
+            redelivered: world
+                .nodes
+                .iter()
+                .map(|n| n.app.deliveries.lock().unwrap().iter().filter(|d| d.redelivered).count())
+                .sum(),
             refused: world.refused,
             trace: world.trace,
         }),
@@ -270,6 +321,8 @@ impl World {
             reset: BTreeSet::new(),
             black_holed: BTreeSet::new(),
             connecting: true,
+            down: [false; 2],
+            generation: 0,
             in_flight: 0,
             next_id: 0,
             digest: 0xcbf2_9ce4_8422_2325,
@@ -286,7 +339,14 @@ impl World {
     fn schedule_start(&mut self) {
         let header = format!("seed {} (FIXP): {:?}, {:?}", self.options.seed, self.reconnect, self.faults);
         self.record(&header);
-        self.queue.push(SimTime(0), Event::Connect);
+        self.queue.push(SimTime(0), Event::Connect(0));
+        if self.faults.disk && !self.faults.sync {
+            self.queue.push(SimTime(0), Event::WriteBack);
+            if let Some(every) = self.faults.power_loss_every {
+                let at = self.after_about(SimTime(0), every);
+                self.queue.push(at, Event::PowerLoss);
+            }
+        }
         for side in [Side::Initiator, Side::Acceptor] {
             if self.flow(side) != FlowType::None {
                 self.queue.push(SimTime(0), Event::SendOrder(side));
@@ -297,6 +357,8 @@ impl World {
             (self.faults.black_hole_every, Event::BlackHole),
             (self.faults.stall_every, Event::Stall),
             (self.faults.terminate_every, Event::Terminate),
+            (self.faults.crash_every, Event::Crash),
+            (self.faults.trap_every, Event::Trap),
             (self.faults.burst_every.filter(|_| self.flow(Side::Initiator) != FlowType::None), Event::Burst),
         ] {
             if let Some(every) = every {
@@ -341,7 +403,8 @@ impl World {
                     detail: format!("{} events, {} at {at}", self.events, same_time.1),
                 });
             }
-            if at > end && self.idle() && self.check_settled().is_ok() {
+            // A seed that lost data to a power loss isn't required to settle.
+            if at > end && (self.checker.is_lossy() || self.idle() && self.check_settled().is_ok()) {
                 return Ok(());
             }
             if at > limit {
@@ -353,6 +416,12 @@ impl World {
             self.events += 1;
             self.record(&describe(&event));
             self.dispatch(event, at)?;
+            // A trap's crash kills the process when its call is made, not at some later step.
+            assert!(
+                self.storage.iter().all(|s| !s.crash_pending()),
+                "seed {} at {at}: a trap's crash outlived the event",
+                self.options.seed
+            );
             self.check_all()?;
         }
         // Timers keep a running session's driver waking, so an empty queue means every driver is
@@ -365,25 +434,31 @@ impl World {
     fn dispatch(&mut self, event: Event, now: SimTime) -> Result<(), Violation> {
         let busy = now < self.busy_end;
         match event {
-            Event::Connect => {
+            // A crashed client's attempt went with it; its restart starts again.
+            Event::Connect(g) | Event::ConnectFailed(g) | Event::Established(g) if g != self.generation => {}
+            // A crashed server's port refuses connections.
+            Event::Connect(g) | Event::Established(g) if self.down[Side::Acceptor.index()] => {
+                self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed(g));
+            }
+            Event::Connect(g) => {
                 if busy && self.rng.chance(self.faults.refuse) {
-                    self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed);
+                    self.queue.push(now.after(Duration::from_millis(1)), Event::ConnectFailed(g));
                 } else {
                     let connect_max =
                         if busy { self.faults.connect_max } else { self.faults.connect_max.min(CONNECT_TIMEOUT / 2) };
                     let takes = Duration::from_nanos(self.rng.between(0, SimTime::from_duration(connect_max).0));
                     if takes >= CONNECT_TIMEOUT {
-                        self.queue.push(now.after(CONNECT_TIMEOUT), Event::ConnectFailed);
+                        self.queue.push(now.after(CONNECT_TIMEOUT), Event::ConnectFailed(g));
                     } else {
-                        self.queue.push(now.after(takes), Event::Established);
+                        self.queue.push(now.after(takes), Event::Established(g));
                     }
                 }
             }
-            Event::ConnectFailed => {
+            Event::ConnectFailed(g) => {
                 let delay = self.reconnect_delay(false);
-                self.queue.push(now.after(delay), Event::Connect);
+                self.queue.push(now.after(delay), Event::Connect(g));
             }
-            Event::Established => {
+            Event::Established(_) => {
                 assert!(self.nodes[Side::Initiator.index()].conns().next().is_none(), "the client connects once");
                 self.connecting = false;
                 self.connections += 1;
@@ -510,8 +585,109 @@ impl World {
                     }
                 }
             }
+            Event::Crash | Event::Restart(_) | Event::Trap | Event::WriteBack | Event::PowerLoss => {
+                self.process_fault(event, now, busy);
+            }
         }
         Ok(())
+    }
+
+    /// The faults that strike a node's process or its store.
+    fn process_fault(&mut self, event: Event, now: SimTime, busy: bool) {
+        match event {
+            Event::Crash => {
+                let side = self.pick_side();
+                if !self.down[side.index()] {
+                    self.crash(side, now);
+                }
+                self.again(busy, now, self.faults.crash_every, Event::Crash);
+            }
+            Event::Restart(side) => {
+                self.down[side.index()] = false;
+                let storage: Arc<dyn SessionStorage> = self.storage[side.index()].clone();
+                let registry = Arc::new(FixpRegistry::with_storage(storage).with_clock(self.clocks.wall_clock()));
+                self.nodes[side.index()].restart(registry);
+                if side == Side::Initiator {
+                    // A new process: its backoff starts again.
+                    self.reconnect_attempt = 0;
+                    self.connecting = true;
+                    self.queue.push(now, Event::Connect(self.generation));
+                }
+            }
+            Event::Trap => {
+                let side = self.pick_side();
+                let trap = self.draw_trap();
+                self.record(&format!("trap {side:?} {trap:?}"));
+                self.storage[side.index()].arm(trap);
+                self.again(busy, now, self.faults.trap_every, Event::Trap);
+            }
+            Event::WriteBack => {
+                for storage in &self.storage {
+                    storage.write_back();
+                }
+                if busy {
+                    self.queue.push(now.after(WRITE_BACK_EVERY), Event::WriteBack);
+                }
+            }
+            Event::PowerLoss => {
+                let side = self.pick_side();
+                if !self.down[side.index()] {
+                    self.crash(side, now);
+                    let (kept, new_seqnums) = (self.rng.between(0, 1000), self.rng.chance(500_000));
+                    self.record(&format!("power lost {side:?}: kept {kept}/1000, new seqnums {new_seqnums}"));
+                    self.storage[side.index()].lose_power(kept, new_seqnums);
+                    self.checker.lose();
+                }
+                self.again(busy, now, self.faults.power_loss_every, Event::PowerLoss);
+            }
+            other => unreachable!("not a process fault: {other:?}"),
+        }
+    }
+
+    /// A trap for one store call: it applies or not and fails, maybe crashing the process; on a
+    /// disk store with sync, a crash may be a power loss tearing a commit's write.
+    fn draw_trap(&mut self) -> Trap {
+        let crash = self.rng.chance(self.faults.trap_crashes);
+        let tear =
+            (crash && self.faults.disk && self.faults.sync && self.rng.chance(self.faults.tears)).then(|| Tear {
+                cut: self.rng.between(0, 1000),
+                in_record: self.rng.chance(500_000).then(|| self.rng.between(0, 1000)),
+                sub_sector: self.faults.sub_sector,
+            });
+        // Only a commit writes a disk store's files, so only a commit tears, and only a disk
+        // store's commit can fail untaken.
+        let calls: &[Call] = if self.faults.disk {
+            &[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight, Call::Commit]
+        } else {
+            &[Call::RecordOutgoing, Call::SetNextIncoming, Call::SetInFlight]
+        };
+        let call = self.rng.pick(calls);
+        Trap { call: if tear.is_some() { Call::Commit } else { call }, applies: self.rng.chance(500_000), crash, tear }
+    }
+
+    fn pick_side(&mut self) -> Side {
+        if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor }
+    }
+
+    /// `side`'s process dies: its sessions go without another write, the OS resets its
+    /// connections (so the other end's fail), and it restarts after a while.
+    fn crash(&mut self, side: Side, now: SimTime) {
+        self.down[side.index()] = true;
+        if side == Side::Initiator {
+            self.connecting = false;
+            self.generation += 1;
+        }
+        for conn in self.nodes[side.index()].crash() {
+            self.pending.remove(&(side, conn));
+            if self.net.reset(conn) {
+                self.reset.insert(conn);
+                let at = now.after(Duration::from_micros(self.rng.between(0, 1_000)));
+                self.in_flight += 1;
+                self.queue.push(at, Event::Fail { side: side.other(), conn });
+            }
+        }
+        let after = Duration::from_nanos(self.rng.between(0, SimTime::from_duration(self.faults.restart_max).0));
+        self.queue.push(now.after(after), Event::Restart(side));
     }
 
     fn again(&mut self, busy: bool, now: SimTime, every: Option<Duration>, event: Event) {
@@ -537,6 +713,20 @@ impl World {
 
     /// What a driver step did: its output checked and written, or the connection closed.
     fn apply(&mut self, side: Side, conn: ConnId, effects: Effects, now: SimTime) -> Result<(), Violation> {
+        match self.storage[side.index()].sprung() {
+            // A trap that crashed the process: nothing this step produced is written.
+            Some(true) => {
+                self.record(&format!("crash {side:?} in a store call"));
+                // The session went on to fail and say so, but the process died in the call.
+                let seen = self.checker.ended_seen(side);
+                self.nodes[side.index()].app.ended.lock().unwrap().truncate(seen);
+                self.sync_ledger(side)?;
+                self.crash(side, now);
+                return Ok(());
+            }
+            Some(false) => self.checker.store_failed(side),
+            None => {}
+        }
         if effects.read > 0 {
             self.net.read(conn, side, effects.read);
             self.wake_writer(side.other(), conn, now);
@@ -604,10 +794,10 @@ impl World {
         }
         if side == Side::Initiator {
             let established = self.nodes[side.index()].had_established(conn);
-            if !self.connecting {
+            if !self.connecting && !self.down[side.index()] {
                 self.connecting = true;
                 let delay = self.reconnect_delay(established);
-                self.queue.push(now.after(delay), Event::Connect);
+                self.queue.push(now.after(delay), Event::Connect(self.generation));
             }
         }
     }
@@ -692,6 +882,7 @@ impl World {
     fn idle(&self) -> bool {
         self.in_flight == 0
             && !self.connecting
+            && !self.down.iter().any(|d| *d)
             && self.pending.values().all(|p| !p.read && !p.commands && !p.writable && !p.commit)
     }
 
@@ -699,6 +890,9 @@ impl World {
     /// each side sent delivered or accounted for, with the sequence numbers agreed.
     fn check_settled(&self) -> Result<(), Violation> {
         let fail = |detail: String| Err(Violation { rule: "liveness", detail });
+        if self.checker.is_lossy() {
+            return Ok(());
+        }
         for node in &self.nodes {
             if let Some((id, _)) = node.app.receipts.lock().unwrap().first() {
                 return fail(format!("{:?}'s receipt for {id} never resolved", node.side));

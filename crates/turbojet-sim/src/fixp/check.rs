@@ -162,11 +162,18 @@ pub struct Checker {
     /// The session the client negotiated, and whether it may negotiate another (its log reset).
     client_session: Option<[u8; 16]>,
     may_negotiate: bool,
-    /// The server has answered the client's Negotiate.
-    negotiated: bool,
+    /// Sessions the server has answered a Negotiate for, and the session each connection's
+    /// Establish names.
+    negotiated: BTreeSet<[u8; 16]>,
+    establishing: BTreeMap<ConnId, [u8; 16]>,
     /// The client has negotiated a new session: the server's next open is of that session's log.
     server_log_new: bool,
     ended_seen: [usize; 2],
+    /// A store call failed on this side in the step being checked: its session ends in error.
+    store_failed: [bool; 2],
+    /// A power loss on a store without fsync lost what the OS hadn't written back: from then on
+    /// only rule 1 and stores reopening are checked, and the sessions needn't settle.
+    lossy: bool,
     /// Retransmitted application messages written, for the report.
     pub resent: u64,
 }
@@ -183,11 +190,33 @@ impl Checker {
             established: BTreeSet::new(),
             client_session: None,
             may_negotiate: true,
-            negotiated: false,
+            negotiated: BTreeSet::new(),
+            establishing: BTreeMap::new(),
             server_log_new: false,
             ended_seen: [0; 2],
+            store_failed: [false; 2],
+            lossy: false,
             resent: 0,
         }
+    }
+
+    /// A power loss without fsync: see `lossy`.
+    pub fn lose(&mut self) {
+        self.lossy = true;
+    }
+
+    pub fn is_lossy(&self) -> bool {
+        self.lossy
+    }
+
+    /// Endings of `side`'s connections already checked.
+    pub fn ended_seen(&self, side: Side) -> usize {
+        self.ended_seen[side.index()]
+    }
+
+    /// A store call on `side` failed (a trap): the session's ending in error is expected.
+    pub fn store_failed(&mut self, side: Side) {
+        self.store_failed[side.index()] = true;
     }
 
     /// Rules 4 and 9 on what `side`'s store recorded since the last call.
@@ -208,6 +237,11 @@ impl Checker {
                     }
                     if !sent.opened {
                         sent.opened = true;
+                        (sent.next_recorded, sent.incoming) = opened;
+                    } else if self.lossy {
+                        // What was lost is lost: carry on from what the store has.
+                        sent.recorded.retain(|seq, _| *seq < opened.0);
+                        sent.ids.retain(|seq, _| *seq < opened.0);
                         (sent.next_recorded, sent.incoming) = opened;
                     } else if opened != (sent.next_recorded, sent.incoming) {
                         let Some(applied) = sent.settle(side, &uncertain, opened) else {
@@ -231,7 +265,8 @@ impl Checker {
                         self.received[side.index()] =
                             Received { seen: self.received[side.index()].seen, ..Received::default() };
                     }
-                    sent.apply(side, change)?;
+                    let lossy = self.lossy;
+                    sent.apply(side, change).or_else(|e| if lossy { Ok(()) } else { Err(e) })?;
                 }
             }
             sent.ledger_seen += 1;
@@ -244,6 +279,9 @@ impl Checker {
         let frames = wire::frames(bytes).map_err(|e| violation("1 frames", format!("{side:?} wrote {e}")))?;
         for frame in frames {
             let decoded = wire::decode(frame).map_err(|e| violation("1 frames", format!("{side:?} wrote {e}")))?;
+            if self.lossy {
+                continue;
+            }
             if decoded.is_application() {
                 self.application(side, conn, frame, &decoded)?;
             } else {
@@ -261,18 +299,28 @@ impl Checker {
                     return Err(violation("2 handshake", "the client negotiated again, its session not finished"));
                 }
                 self.may_negotiate = false;
-                self.negotiated = false;
                 self.server_log_new = true;
                 self.client_session = Some(session_id);
             }
-            Frame::NegotiationResponse => self.negotiated = true,
-            // A connection lost before the server committed the client's Negotiate: the client
-            // establishes, is told it never negotiated, and negotiates another session.
-            Frame::EstablishmentReject { code: UNNEGOTIATED } if !self.negotiated => {}
-            Frame::Establish { session_id, .. } if self.client_session != Some(session_id) => {
-                return Err(violation("2 handshake", "the client established a session it never negotiated"));
+            Frame::NegotiationResponse => {
+                self.negotiated.extend(self.client_session);
             }
+            // The client may name a session its Negotiate never reached the server with (lost with
+            // the connection, or never sent, its store failing first): refused, it negotiates anew.
+            Frame::Establish { session_id, .. } => {
+                self.establishing.insert(conn, session_id);
+            }
+            Frame::EstablishmentReject { code: UNNEGOTIATED }
+                if self.establishing.get(&conn).is_some_and(|id| !self.negotiated.contains(id)) => {}
+            // The server may have recorded a Negotiate whose answer a store failure kept from
+            // going out: the session the client asked for, and established, is still its own.
             Frame::EstablishmentAck { .. } => {
+                if self.establishing.get(&conn).copied() != self.client_session {
+                    return Err(violation(
+                        "2 handshake",
+                        "the server established a session the client never asked for",
+                    ));
+                }
                 self.established.insert(conn);
             }
             Frame::NegotiationReject | Frame::EstablishmentReject { .. } | Frame::RetransmitReject => {
@@ -388,6 +436,10 @@ impl Checker {
         let flow = self.flows[side.other().index()];
         let sender = &self.sent[side.other().index()];
         let received = &mut self.received[side.index()];
+        if self.lossy {
+            received.seen = deliveries.len();
+            return Ok(());
+        }
         for d in &deliveries[received.seen..] {
             let Some(seq) = d.seq else {
                 if flow != FlowType::Unsequenced {
@@ -412,6 +464,10 @@ impl Checker {
                     "5 delivery",
                     format!("{side:?} got {} as {seq}, but {sent:?} was sent as {seq}", d.id),
                 ));
+            }
+            // A repeat is fine only when marked as possibly one, after a crash or a lost connection.
+            if d.redelivered && received.delivered.contains_key(&seq) {
+                continue;
             }
             if let Some(first) = received.delivered.insert(seq, d.retransmitted) {
                 let how = |retransmitted| if retransmitted { "retransmitted" } else { "live" };
@@ -445,6 +501,9 @@ impl Checker {
     /// Rule 8 on a receipt `side`'s application got for order `id`.
     pub fn receipt(&mut self, side: Side, id: u64, outcome: &Result<u64, Dropped>) -> Result<(), Violation> {
         let flow = self.flows[side.index()];
+        if self.lossy {
+            return Ok(());
+        }
         let seq = match outcome {
             Ok(seq) => *seq,
             Err(Dropped::Rejected(why)) => {
@@ -475,7 +534,11 @@ impl Checker {
 
     /// Rule 3 on how `side`'s established connections ended.
     pub fn ended(&mut self, side: Side, ended: &[Ended]) -> Result<(), Violation> {
+        let excused = std::mem::take(&mut self.store_failed[side.index()]);
         for how in &ended[self.ended_seen[side.index()]..] {
+            if self.lossy || excused && *how == Ended::Error {
+                continue;
+            }
             if matches!(how, Ended::Error | Ended::NegotiationRejected(_) | Ended::EstablishmentRejected(_)) {
                 return Err(violation("3 protocol", format!("{side:?}'s connection ended {how:?}")));
             }
@@ -496,7 +559,11 @@ impl Checker {
         let lossy_reports = self.flows[side.other().index()] != FlowType::Recoverable;
         // With no flow back, a gap can't be reported at all: at most once is all that's promised.
         let silent = self.flows[side.other().index()] == FlowType::None;
-        let reported = |seq: u64| silent || covers(not_applied, seq) || lossy_reports && covers(written, seq);
+        // The receiver's store moving past a number is its decision that it wasn't applied: on a
+        // flow back that isn't recoverable, the report may be lost, written or not.
+        let passed = |seq: u64| seq < self.sent[side.other().index()].incoming;
+        let reported =
+            |seq: u64| silent || covers(not_applied, seq) || lossy_reports && (covers(written, seq) || passed(seq));
         let lacking = sent.recorded.keys().find(|&&seq| match flow {
             FlowType::Recoverable => sent.ids.contains_key(&seq) && !received.delivered.contains_key(&seq),
             FlowType::Idempotent => {
@@ -516,6 +583,9 @@ impl Checker {
 
     /// Rule 6 on an idempotent flow: `side`'s application only hears of numbers it sent.
     pub fn not_applied(&self, side: Side, not_applied: &[(u64, u64)]) -> Result<(), Violation> {
+        if self.lossy {
+            return Ok(());
+        }
         let next = self.sent[side.index()].next_recorded;
         match not_applied.iter().find(|&&(from, n)| from == 0 || n == 0 || from + n > next) {
             Some((from, n)) => Err(violation(

@@ -235,6 +235,22 @@ impl Node {
         self.established.remove(&conn)
     }
 
+    /// The process crashes: every session goes, without writing anything more, with the
+    /// process's registry; the connections it had are returned for the OS to reset.
+    pub fn crash(&mut self) -> Vec<ConnId> {
+        let conns = self.running.keys().copied().collect();
+        let app = self.app.clone();
+        app.crash(|| self.running.clear());
+        self.established.clear();
+        conns
+    }
+
+    /// A restart, with a new registry.
+    pub fn restart(&mut self, registry: Arc<FixpRegistry>) {
+        assert!(self.running.is_empty(), "a crashed node has no sessions");
+        self.registry = registry;
+    }
+
     /// The session closed and its output has gone: the driver returns.
     pub fn remove(&mut self, conn: ConnId) {
         let removed = self.running.remove(&conn);

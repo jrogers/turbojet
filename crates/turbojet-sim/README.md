@@ -62,32 +62,38 @@ rule holds there too.
 
 `--fixp` (and `turbojet_sim::fixp::run`) runs FIXP sessions instead: a client and a server, each a
 `FixpSession` fed by a driver that mirrors the connection driver, over the same network, with the
-same stores (memory or `DiskStorage`, slow to commit on half the seeds). Each seed picks the flow
-each way (recoverable, idempotent or unsequenced, and on some seeds `None` one way), the keepalive
-and the retransmission limit; the applications send orders, the server's acknowledges them, and
-now and then one ends the connection with a Terminate. A decoder of the simulator's own reads
-what each side writes. After every event:
+same stores (memory or `DiskStorage`, slow to commit on half the seeds) and the same crashes,
+store traps and power losses, with and without sync. Each seed picks the flow each way
+(recoverable, idempotent or unsequenced, and on some seeds `None` one way), the keepalive and the
+retransmission limit; the applications send orders, the server's acknowledges them, and now and
+then one ends the connection with a Terminate. A decoder of the simulator's own reads what each
+side writes. After every event:
 
 1. Everything written is whole SOFH frames, each a FIXP session message or an order.
 2. No application message goes out on a connection before the server's EstablishmentAck, and the
    client establishes only the session it negotiated.
-3. No protocol errors: no rejects or error Terminates (but for a lapsed keepalive), and no
-   connection ends `Ended::Error`.
+3. No protocol errors: no rejects or error Terminates (but for a lapsed keepalive, and an
+   Unnegotiated reject of a session whose Negotiate never got an answer), and no connection ends
+   `Ended::Error` but for a store failure.
 4. On a sequenced flow, the store records consecutive numbers; live messages go out in order, each
    once and as stored, after a Sequence; a retransmission carries only stored messages, as stored,
    within what was asked for.
-5. On a sequenced flow, each number is delivered once, in order.
+5. On a sequenced flow, each number is delivered once, in order (a repeat only when marked
+   `maybe_redelivered`, after a crash, a store failure or a lost connection).
 6. Nothing is lost silently: a recoverable flow skips no message, and an idempotent flow's gaps
-   are reported (NotApplied) unless there's no flow back to report them on.
+   are reported (NotApplied); on a flow back that isn't recoverable the report may be lost, and
+   with no flow back there's none.
 7. On an unsequenced flow, deliveries are some of what was sent, in order, once each.
 8. A receipt gives the message's number on a sequenced flow and 0 on an unsequenced one, as the
    store recorded it.
-9. A store reopens with the numbers it last recorded.
+9. A store reopens with the numbers it last recorded; a change a power loss tore, or a session
+   ended before committing, shows up as made or not. After a power loss without sync only rule 1
+   and this are checked, and the sessions needn't settle.
 
 Once the faults stop the sessions must settle: one connection, established, everything sent
 delivered or reported, and the numbers agreed. 100 seeds run on every push
-(`fixp_known_failures.txt` lists any expected to fail). Crashes, store failures, power loss, a
-hostile middlebox, finalization and planted bugs are still to come.
+(`fixp_known_failures.txt` lists any expected to fail). A hostile middlebox, finalization and
+planted bugs are still to come.
 
 ## Checking the checker
 

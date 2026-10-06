@@ -35,6 +35,7 @@ pub struct Delivery {
     pub id: u64,
     pub seq: Option<u64>,
     pub retransmitted: bool,
+    pub redelivered: bool,
 }
 
 #[derive(Default)]
@@ -50,6 +51,9 @@ pub struct RecordingApp {
     pub not_applied: Mutex<Vec<(u64, u64)>>,
     /// How each established connection ended.
     pub ended: Mutex<Vec<Ended>>,
+    /// The process is crashing: its sessions, dropped as it does, still tell it they ended, which
+    /// a dead process never hears, so those calls are ignored.
+    crashing: Mutex<bool>,
 }
 
 impl RecordingApp {
@@ -59,6 +63,15 @@ impl RecordingApp {
 
     pub fn client() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// The process crashes, `drop_sessions` dropping its sessions: the handle goes with it, and
+    /// what they tell it as they go is never heard. What it recorded survives.
+    pub fn crash(&self, drop_sessions: impl FnOnce()) {
+        *self.handle.lock().unwrap() = None;
+        *self.crashing.lock().unwrap() = true;
+        drop_sessions();
+        *self.crashing.lock().unwrap() = false;
     }
 
     /// Sends order `id` through the session's handle: whether it was queued, refused as the queue
@@ -89,7 +102,8 @@ impl FixpApplication for RecordingApp {
             *acked += 1;
             ctx.send(&Order(ACK | *acked)).expect("an order encodes");
         }
-        let delivery = Delivery { id, seq: msg.seq, retransmitted: msg.retransmitted };
+        let delivery =
+            Delivery { id, seq: msg.seq, retransmitted: msg.retransmitted, redelivered: msg.maybe_redelivered };
         self.deliveries.lock().unwrap().push(delivery);
     }
 
@@ -98,6 +112,9 @@ impl FixpApplication for RecordingApp {
     }
 
     fn on_ended(&self, _session: &FixpHandle, how: Ended) {
+        if *self.crashing.lock().unwrap() {
+            return;
+        }
         self.ended.lock().unwrap().push(how);
     }
 }
