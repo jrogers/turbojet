@@ -988,12 +988,15 @@ Limited and licensed under the Apache License, Version 2.0 (see the `LICENSE` an
 as the `NOTICE` there explains. The generated crates take their names and structure from them, but
 don't reproduce their documentation; see their `NOTICE` files.
 
-The SBE schemas in [`dictionaries/sbe`](https://github.com/jrogers/turbojet/tree/main/dictionaries/sbe),
-used only by tests and benchmarks, are SBE's example schema (real-logic, Apache License 2.0) and
-B3's Binary Entrypoint schema, by way of Artio, and FIXP 1.0's session schema, © FIX Protocol Ltd.
-under the Creative Commons Attribution-NoDerivatives 4.0 licence, from which `turbojet::fixp`'s
-session messages are generated; the `README.md` and `NOTICE` there give their sources, and the
-`turbojet` crate's `NOTICE` credits the FIXP schema.
+The FIXP 1.0 session schema, `fixp-1.0.xml` in [`dictionaries/sbe`](https://github.com/jrogers/turbojet/tree/main/dictionaries/sbe),
+is © FIX Protocol Ltd. and reproduced unmodified under the Creative Commons
+Attribution-NoDerivatives 4.0 International licence (see the `NOTICE` there). `turbojet::fixp`'s
+generated session messages take their names and structure from it, but don't reproduce its
+documentation; see the `turbojet` crate's `NOTICE`.
+
+The other SBE schemas there, used only by tests and benchmarks, are SBE's example schema
+(real-logic, Apache License 2.0) and B3's Binary Entrypoint schema, by way of Artio; the
+`README.md` there gives their sources.
 
 The session acceptance scripts in
 [`crates/turbojet-acceptance/definitions`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance/definitions) are QuickFIX's,
