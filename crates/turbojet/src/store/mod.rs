@@ -344,7 +344,7 @@ pub(crate) fn debug_check_sent(messages: &SentMessages, begin: u64, end: u64, ev
         debug_assert!(*seq >= begin, "stored message {seq} below {begin}");
         debug_assert!(*seq <= end, "stored message {seq} above {end}");
         debug_assert!(Some(*seq) > evicted_through, "stored message {seq} was evicted");
-        debug_assert_eq!(crate::codec::frame_stored(bytes), Ok(bytes.len()), "stored message {seq} is one message");
+        debug_assert!(is_one_message(bytes), "stored message {seq} is one message");
     }
 }
 
@@ -355,8 +355,13 @@ pub(crate) fn debug_check_record(seq: u64, next_outgoing: u64, msg: Option<&[u8]
     debug_assert!(seq >= next_outgoing, "outgoing {seq} recorded again: the next is {next_outgoing}");
     if let Some(bytes) = msg {
         debug_assert_eq!(seq, next_outgoing, "a message stored takes the next number");
-        debug_assert_eq!(crate::codec::frame_stored(bytes), Ok(bytes.len()), "one whole message");
+        debug_assert!(is_one_message(bytes), "one whole message");
     }
+}
+
+/// Whether `bytes` is one whole message as sent: a FIX session's frame, or a FIXP session's.
+fn is_one_message(bytes: &[u8]) -> bool {
+    crate::codec::frame_stored(bytes) == Ok(bytes.len()) || crate::fixp::is_one_frame(bytes)
 }
 
 /// Commits `log`'s mutations, running any [`Commit`] on this thread: for changes made outside a

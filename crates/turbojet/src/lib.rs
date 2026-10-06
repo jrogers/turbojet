@@ -208,6 +208,10 @@
 // (STYLE.md). Tests, benches and examples may unwrap.
 #![warn(clippy::unwrap_used)]
 
+// Code generated for other crates names `turbojet::…`; this lets the engine's own generated
+// code (fixp's B3 session messages) say the same.
+extern crate self as turbojet;
+
 #[macro_use]
 mod macros;
 
@@ -219,6 +223,7 @@ pub mod codec;
 pub mod connection;
 pub mod counterparty;
 pub mod fields;
+pub mod fixp;
 pub mod initiator;
 pub mod message;
 pub mod peer;
