@@ -161,6 +161,8 @@ pub struct FixpSession {
     window_end: Option<u64>,
     /// The start of the window the commit under way records.
     window_opening: Option<u64>,
+    /// The store failed: nothing more is committed, so what it holds is what it last committed.
+    store_failed: bool,
 }
 
 impl fmt::Debug for FixpSession {
@@ -226,6 +228,7 @@ impl FixpSession {
             recovered: None,
             window_end: None,
             window_opening: None,
+            store_failed: false,
         };
         (session, receiver)
     }
@@ -1021,6 +1024,7 @@ impl FixpSession {
     /// The store failed: nothing uncommitted goes out, and the session ends.
     fn storage_failed(&mut self, e: io::Error) {
         warn!("FIXP session store failed: {e}");
+        self.store_failed = true;
         self.output.truncate(self.committed);
         for (receipt, _) in self.receipts.drain(..) {
             let _ = receipt.send(Err(Dropped::Storage));
@@ -1211,7 +1215,9 @@ impl FixpSession {
     /// it after every call into the session. `None` when nothing waits (the store committed at
     /// once).
     pub fn take_commit(&mut self) -> Option<Commit> {
-        if self.committing {
+        // After a failure, what the store may half hold (a change made before the call failed)
+        // isn't committed: the next connection starts from the last commit.
+        if self.committing || self.store_failed {
             return None;
         }
         if let Err(e) = self.mark_in_flight() {
@@ -1256,8 +1262,7 @@ impl FixpSession {
     /// left in flight and no recovered window's messages still to come, the marker is cleared.
     fn mark_in_flight(&mut self) -> io::Result<()> {
         let receiving = self.receiving();
-        // Closed in error (a store failure among them), the store is left as it is.
-        let (closed, failed) = (self.state == State::Closed, self.ended == Some(Ended::Error));
+        let closed = self.state == State::Closed;
         let recovered = self.recovered;
         let Some(bound) = self.bound.as_mut() else { return Ok(()) };
         let next = bound.log.next_incoming();
@@ -1270,7 +1275,7 @@ impl FixpSession {
                 self.dirty = true;
             }
             self.window_opening = Some(next);
-        } else if closed && !failed && !recovering && bound.log.in_flight().is_some() {
+        } else if closed && !recovering && bound.log.in_flight().is_some() {
             // Everything handed over was recorded with it: nothing is in flight.
             bound.log.set_next_incoming(next)?;
             self.dirty = true;

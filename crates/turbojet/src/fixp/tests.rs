@@ -628,13 +628,27 @@ fn live_messages_behind_a_gap_arent_delivered_twice_after_a_reconnect() {
     assert_eq!(net.client.app.messages(), [(1, Some(1), true), (2, Some(2), true), (3, Some(3), true)]);
 }
 
-/// A memory store whose logs fail `record_outgoing`, or `set_next_incoming`, while told to,
-/// keeping their state across reopening.
-#[derive(Clone, Default)]
+/// A store (memory, by default) whose logs fail `record_outgoing`, or `set_next_incoming`, while
+/// told to, with `applies` after making the change, as a write that reached the store before it
+/// failed.
+#[derive(Clone)]
 struct Flaky {
-    inner: Arc<MemoryStorage>,
+    inner: Arc<dyn SessionStorage>,
     fail_records: Arc<AtomicBool>,
     fail_incoming: Arc<AtomicBool>,
+    applies: Arc<AtomicBool>,
+}
+
+impl Default for Flaky {
+    fn default() -> Self {
+        Self::over(Arc::new(MemoryStorage::new()))
+    }
+}
+
+impl Flaky {
+    fn over(inner: Arc<dyn SessionStorage>) -> Self {
+        Self { inner, fail_records: Arc::default(), fail_incoming: Arc::default(), applies: Arc::default() }
+    }
 }
 
 struct FlakyLog {
@@ -657,9 +671,15 @@ impl SessionLog for FlakyLog {
     }
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
         if self.store.fail_incoming.load(Ordering::Relaxed) {
+            if self.store.applies.load(Ordering::Relaxed) {
+                self.inner.set_next_incoming(seq)?;
+            }
             return Err(io::Error::other("disk full"));
         }
         self.inner.set_next_incoming(seq)
+    }
+    fn commit(&mut self) -> io::Result<Option<Commit>> {
+        self.inner.commit()
     }
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         if self.store.fail_records.load(Ordering::Relaxed) {
@@ -783,6 +803,36 @@ fn a_clean_close_keeps_a_recovered_window_still_to_come() {
     net.client.written();
     net.reconnect();
     assert_eq!(*net.client.app.redelivered.lock().unwrap(), [2]);
+}
+
+#[test]
+fn nothing_is_committed_once_the_store_has_failed() {
+    // 2 and 3 were handed over but never recorded. Handing 2 over again, recording it reaches the
+    // store but fails, clearing the marker: committing that would leave 3 to come unmarked.
+    // The client answers each order, so the batch that fails has its reply to commit too.
+    let dir = tempfile::tempdir().unwrap();
+    let echo = Recorder { echo: true, ..Recorder::default() };
+    let mut net = Net::with(echo, Recorder::default(), |_| {});
+    let flaky = Flaky::over(Arc::new(crate::DiskStorage::new(dir.path(), false).unwrap()));
+    net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(flaky.clone())));
+    net.connect();
+    net.server_sends(1);
+    net.pump();
+    net.server_sends(2);
+    net.server_sends(3);
+    let now = net.now;
+    net.server.take_commands(now);
+    let orders = net.server.written();
+    net.client.feed(orders, now);
+    net.client.disconnect(net.now);
+    net.server.disconnect(net.now);
+    flaky.applies.store(true, Ordering::Relaxed);
+    flaky.fail_incoming.store(true, Ordering::Relaxed);
+    net.connect();
+    assert_eq!(net.client.ended(), Some(Ended::Error));
+    flaky.fail_incoming.store(false, Ordering::Relaxed);
+    net.reconnect();
+    assert_eq!(*net.client.app.redelivered.lock().unwrap(), [2, 2, 3]);
 }
 
 #[test]
