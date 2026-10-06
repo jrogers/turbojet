@@ -11,6 +11,7 @@ use tracing::{Instrument, info, warn};
 use super::{FixpApplication, FixpConfig, FixpHandle, FixpRegistry, FixpSession, Role};
 use crate::acceptor::{DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP, Limits, accept_loop};
 use crate::connection;
+use crate::initiator::Endpoint;
 use crate::peer::ConnectionInfo;
 use crate::reconnect::{Backoff, ReconnectPolicy};
 use crate::session::ConfigError;
@@ -170,34 +171,39 @@ impl FixpAcceptor {
 /// shutdown.
 #[derive(Clone)]
 pub struct FixpInitiator {
-    addr: String,
+    /// The primary endpoint, then backups, in the order they're tried.
+    endpoints: Vec<Endpoint>,
     config: FixpConfig,
     reconnect: ReconnectPolicy,
     connect_timeout: Duration,
     registry: Arc<FixpRegistry>,
     app: Arc<dyn FixpApplication>,
     shutdown: Arc<Shutdown>,
-    /// Connects over TLS with this connector, verifying the server as this name.
+    /// Connects over TLS with this connector, verifying the server as this name unless an
+    /// endpoint names its own.
     #[cfg(feature = "tls")]
-    tls: Option<(crate::tls::TlsConnector, crate::tls::ServerName<'static>)>,
+    tls: Option<(crate::tls::TlsConnector, String)>,
 }
 
 impl std::fmt::Debug for FixpInitiator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FixpInitiator").field("addr", &self.addr).field("session", &self.session_id()).finish()
+        f.debug_struct("FixpInitiator")
+            .field("endpoints", &self.endpoints)
+            .field("session", &self.session_id())
+            .finish()
     }
 }
 
 impl FixpInitiator {
-    /// A client of the server at `addr` (`host:port`), keeping its state in `storage`, which
-    /// reconnects after 1 s and then backs off to 60 s (see [`ReconnectPolicy`]), and gives a
-    /// TCP connect 10 s.
+    /// A client of the server at `addr` (`host:port`, or an [`Endpoint`]), keeping its state in
+    /// `storage`, which reconnects after 1 s and then backs off to 60 s (see [`ReconnectPolicy`]),
+    /// and gives a TCP connect 10 s.
     ///
     /// # Errors
     ///
     /// If `config` is invalid (see [`FixpConfig::check`]) or isn't a client's.
     pub fn new(
-        addr: impl Into<String>,
+        addr: impl Into<Endpoint>,
         config: FixpConfig,
         storage: Arc<dyn SessionStorage>,
         app: Arc<dyn FixpApplication>,
@@ -208,7 +214,7 @@ impl FixpInitiator {
         }
         let registry = Arc::new(FixpRegistry::with_storage(storage).with_clock(config.clock.clone()));
         Ok(Self {
-            addr: addr.into(),
+            endpoints: vec![addr.into()],
             config,
             reconnect: ReconnectPolicy::default(),
             connect_timeout: Duration::from_secs(10),
@@ -220,16 +226,35 @@ impl FixpInitiator {
         })
     }
 
-    /// Connects over TLS with `connector`, verifying the server's certificate as `server_name`.
-    /// The handshake must complete within the configuration's `handshake_timeout`.
+    /// Adds a backup endpoint, tried after the primary and any earlier backups, as the FIX
+    /// [`Initiator::with_failover`](crate::Initiator::with_failover). All of them are assumed to
+    /// serve the same sessions (a venue's primary and backup gateways), sharing their state.
+    #[must_use]
+    pub fn with_failover(mut self, endpoint: impl Into<Endpoint>) -> Self {
+        self.endpoints.push(endpoint.into());
+        self
+    }
+
+    /// The endpoints in the order they're tried.
+    #[must_use]
+    pub fn endpoints(&self) -> Vec<Endpoint> {
+        self.endpoints.clone()
+    }
+
+    /// Connects over TLS with `connector`, verifying the server's certificate as `server_name`,
+    /// unless an endpoint names its own ([`Endpoint::tls_server_name`]). The handshake must
+    /// complete within the configuration's `handshake_timeout`.
     ///
     /// # Errors
     ///
-    /// If `server_name` isn't a valid DNS name or IP address.
+    /// If `server_name`, or an endpoint's, isn't a valid DNS name or IP address.
     #[cfg(feature = "tls")]
     pub fn with_tls(mut self, connector: crate::tls::TlsConnector, server_name: &str) -> io::Result<Self> {
-        let name = crate::initiator::tls_server_name(server_name)?;
-        self.tls = Some((connector, name));
+        crate::initiator::tls_server_name(server_name)?;
+        for name in self.endpoints.iter().filter_map(|e| e.tls_server_name.as_deref()) {
+            crate::initiator::tls_server_name(name)?;
+        }
+        self.tls = Some((connector, server_name.to_string()));
         Ok(self)
     }
 
@@ -261,7 +286,7 @@ impl FixpInitiator {
     /// waits as the reconnect policy says before the next, until [shutdown](Self::shutdown)
     /// (returning once the session has closed) or the future is dropped.
     pub async fn run(self) {
-        let span = tracing::info_span!("fixp initiator", addr = %self.addr);
+        let span = tracing::info_span!("fixp initiator", addr = %self.endpoints[0].addr);
         async {
             let mut backoff = Backoff::new(self.reconnect);
             while !self.shutdown.is_started() {
@@ -287,23 +312,50 @@ impl FixpInitiator {
         .await;
     }
 
-    /// Connects once and runs the session until the connection ends.
+    /// Tries the endpoints in order, starting with the primary, until one establishes the session,
+    /// then runs it until the connection ends. An endpoint fails over to the next if the TCP
+    /// connect fails or times out, the TLS handshake fails, or the connection ends before the
+    /// session is established.
     ///
     /// # Errors
     ///
-    /// If the connect fails or times out, or shutdown has started; or the transport's error that
-    /// ended the session.
+    /// Every endpoint's failure if none established the session, or shutdown has started; or the
+    /// transport's error that ended the session.
     pub async fn connect_once(&self) -> io::Result<()> {
         self.connect().await.1
     }
 
     /// [`connect_once`](Self::connect_once), also saying whether the session was established.
     async fn connect(&self) -> (bool, io::Result<()>) {
-        if self.shutdown.is_started() {
-            return (false, Err(io::Error::new(io::ErrorKind::Interrupted, "shutting down")));
+        let mut errors = Vec::with_capacity(self.endpoints.len());
+        for (index, endpoint) in self.endpoints.iter().enumerate() {
+            if self.shutdown.is_started() {
+                return (false, Err(io::Error::new(io::ErrorKind::Interrupted, "shutting down")));
+            }
+            let role = if index == 0 { "primary" } else { "backup" };
+            let span = tracing::info_span!("endpoint", addr = %endpoint.addr, role);
+            match self.attempt(endpoint).instrument(span).await {
+                (true, result) => return (true, result),
+                (false, result) => {
+                    let e = result.err().unwrap_or_else(|| {
+                        io::Error::new(io::ErrorKind::ConnectionAborted, "the connection ended before establishing")
+                    });
+                    let next = self.endpoints.get(index + 1).map_or("none left", |next| next.addr.as_str());
+                    warn!(addr = %endpoint.addr, role, next, "endpoint failed: {e}");
+                    errors.push(format!("{}: {e}", endpoint.addr));
+                }
+            }
         }
+        let error =
+            io::Error::new(io::ErrorKind::NotConnected, format!("no endpoint available ({})", errors.join("; ")));
+        (false, Err(error))
+    }
+
+    /// Connects to `endpoint` and runs the session there: whether it was established, and how
+    /// the connection ended.
+    async fn attempt(&self, endpoint: &Endpoint) -> (bool, io::Result<()>) {
         let _open = self.shutdown.track();
-        let stream = match tokio::time::timeout(self.connect_timeout, TcpStream::connect(&self.addr)).await {
+        let stream = match tokio::time::timeout(self.connect_timeout, TcpStream::connect(&endpoint.addr)).await {
             Ok(Ok(stream)) => stream,
             Ok(Err(e)) => return (false, Err(e)),
             Err(_) => {
@@ -319,7 +371,8 @@ impl FixpInitiator {
         }
         info!("connected");
         #[cfg(feature = "tls")]
-        if let Some((connector, name)) = &self.tls {
+        if let Some((connector, default_name)) = &self.tls {
+            let name = endpoint.tls_server_name.as_deref().unwrap_or(default_name);
             let stream = match self.tls_handshake(connector, name, stream).await {
                 Ok(stream) => stream,
                 Err(e) => return (false, Err(e)),
@@ -334,10 +387,11 @@ impl FixpInitiator {
     async fn tls_handshake(
         &self,
         connector: &crate::tls::TlsConnector,
-        name: &crate::tls::ServerName<'static>,
+        name: &str,
         stream: TcpStream,
     ) -> io::Result<tokio_rustls::client::TlsStream<TcpStream>> {
-        let handshake = tokio::time::timeout(self.config.handshake_timeout, connector.connect(name.clone(), stream));
+        let name = crate::initiator::tls_server_name(name)?;
+        let handshake = tokio::time::timeout(self.config.handshake_timeout, connector.connect(name, stream));
         let mut shutdown = self.shutdown.signal();
         let handshake = tokio::select! {
             handshake = handshake => handshake,

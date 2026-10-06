@@ -760,3 +760,21 @@ async fn fixp_plain_tcp_reports_the_address_without_certificates() {
     assert!(verified[0].addr.is_some());
     assert!(verified[0].peer_certificates.is_empty());
 }
+
+#[tokio::test]
+async fn fixp_failover_endpoints_verify_their_own_server_names() {
+    let pki = Pki::new();
+    let (addr, _, mut server) = start_fixp_server(Some(pki.acceptor(Auth::None)), None).await;
+    let (app, mut client_established) = fixp_recorder(None);
+    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    // The same server twice: verified as a name its certificate lacks, then as the default.
+    let primary = Endpoint::new(&addr).with_tls_server_name("wrong.example");
+    let client = FixpInitiator::new(primary, config, Arc::new(MemoryStorage::new()), app)
+        .unwrap()
+        .with_failover(addr.as_str())
+        .with_tls(pki.connector("ca.pem", None), "localhost")
+        .unwrap();
+    tokio::spawn(async move { client.connect_once().await });
+    assert!(established(&mut client_established).await);
+    assert!(established(&mut server).await);
+}

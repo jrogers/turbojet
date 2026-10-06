@@ -183,3 +183,81 @@ async fn a_client_reconnects_over_tcp_and_reestablishes_the_session() {
     initiator.shutdown().await;
     second.shutdown().await;
 }
+
+/// A server on `listener`, refusing every client if `refuse`, and its events.
+fn fixp_server(
+    listener: tokio::net::TcpListener,
+    refuse: bool,
+) -> (turbojet::fixp::FixpAcceptor, mpsc::UnboundedReceiver<Event>) {
+    struct Refusing(Events);
+    impl FixpApplication for Refusing {
+        fn verify(&self, _client: &turbojet::fixp::ClientLogin<'_>) -> bool {
+            false
+        }
+        fn on_message(&self, ctx: &mut FixpContext<'_>, msg: Received<'_>) {
+            self.0.on_message(ctx, msg);
+        }
+    }
+    let (events, received) = mpsc::unbounded_channel();
+    let app: Arc<dyn FixpApplication> = if refuse {
+        Arc::new(Refusing(Events { server: true, events }))
+    } else {
+        Arc::new(Events { server: true, events })
+    };
+    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let acceptor = turbojet::fixp::FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
+    tokio::spawn(acceptor.clone().serve(listener));
+    (acceptor, received)
+}
+
+/// A client of `primary`, failing over to `backup`, and its events.
+fn fixp_client_with_backup(
+    primary: &str,
+    backup: &str,
+) -> (turbojet::fixp::FixpInitiator, mpsc::UnboundedReceiver<Event>) {
+    let (events, received) = mpsc::unbounded_channel();
+    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let app = Arc::new(Events { server: false, events });
+    let initiator = turbojet::fixp::FixpInitiator::new(primary, config, Arc::new(MemoryStorage::new()), app)
+        .unwrap()
+        .with_failover(backup);
+    (initiator, received)
+}
+
+#[tokio::test]
+async fn a_client_fails_over_to_its_backup_when_the_primary_is_down() {
+    // A port nothing listens on.
+    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().to_string();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backup = listener.local_addr().unwrap().to_string();
+    let (_server, mut server_events) = fixp_server(listener, false);
+    let (client, mut client_events) = fixp_client_with_backup(&primary, &backup);
+    assert_eq!(client.endpoints(), [turbojet::Endpoint::new(&primary), turbojet::Endpoint::new(&backup)]);
+    tokio::spawn(async move { client.connect_once().await });
+    assert!(matches!(next(&mut client_events).await, Event::Established(_)));
+    assert!(matches!(next(&mut server_events).await, Event::Established(_)));
+}
+
+#[tokio::test]
+async fn a_client_fails_over_when_the_primary_ends_the_connection_before_establishing() {
+    let refusing = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let primary = refusing.local_addr().unwrap().to_string();
+    let (_refuser, _) = fixp_server(refusing, true);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backup = listener.local_addr().unwrap().to_string();
+    let (_server, mut server_events) = fixp_server(listener, false);
+    let (client, mut client_events) = fixp_client_with_backup(&primary, &backup);
+    tokio::spawn(async move { client.connect_once().await });
+    assert!(matches!(next(&mut client_events).await, Event::Established(_)));
+    assert!(matches!(next(&mut server_events).await, Event::Established(_)));
+}
+
+#[tokio::test]
+async fn a_client_with_no_endpoint_available_says_why_for_each() {
+    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().to_string();
+    let backup = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().to_string();
+    let (client, _) = fixp_client_with_backup(&primary, &backup);
+    let error = client.connect_once().await.unwrap_err().to_string();
+    assert!(error.contains("no endpoint available"), "{error}");
+    assert!(error.contains(&primary) && error.contains(&backup), "{error}");
+}
