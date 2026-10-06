@@ -1,7 +1,7 @@
 //! A FIXP client and server, in memory, on clocks the tests move: each test pumps what one writes
 //! into the other and checks what the applications saw, flow by flow, against FIXP 1.0.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -9,9 +9,11 @@ use chrono::{DateTime, TimeZone, Utc};
 
 use super::*;
 use crate::MemoryStorage;
+use crate::fields::UtcTimestamp;
 use crate::fixp::{ClientConfig, ServerConfig};
 use crate::registry::{Receipt, SessionHandle};
 use crate::schedule::Clock;
+use crate::store::SessionStorage;
 
 /// An application message of another schema: an order, with a body of one number.
 struct Order(u64);
@@ -616,6 +618,97 @@ fn live_messages_behind_a_gap_arent_delivered_twice_after_a_reconnect() {
     a_gap_with_a_live_message_behind_it(&mut net);
     net.reconnect();
     assert_eq!(net.client.app.messages(), [(1, Some(1), true), (2, Some(2), true), (3, Some(3), true)]);
+}
+
+/// A memory store whose logs fail `record_outgoing`, or `set_next_incoming`, while told to,
+/// keeping their state across reopening.
+#[derive(Clone, Default)]
+struct Flaky {
+    inner: Arc<MemoryStorage>,
+    fail_records: Arc<AtomicBool>,
+    fail_incoming: Arc<AtomicBool>,
+}
+
+struct FlakyLog {
+    inner: Box<dyn SessionLog>,
+    store: Flaky,
+}
+
+impl SessionStorage for Flaky {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        Ok(Box::new(FlakyLog { inner: self.inner.open(id)?, store: self.clone() }))
+    }
+}
+
+impl SessionLog for FlakyLog {
+    fn next_outgoing(&self) -> u64 {
+        self.inner.next_outgoing()
+    }
+    fn next_incoming(&self) -> u64 {
+        self.inner.next_incoming()
+    }
+    fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
+        if self.store.fail_incoming.load(Ordering::Relaxed) {
+            return Err(io::Error::other("disk full"));
+        }
+        self.inner.set_next_incoming(seq)
+    }
+    fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
+        if self.store.fail_records.load(Ordering::Relaxed) {
+            return Err(io::Error::other("disk full"));
+        }
+        self.inner.record_outgoing(seq, msg)
+    }
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<SentMessages> {
+        self.inner.sent_messages(begin, end)
+    }
+    fn reset(&mut self) -> io::Result<()> {
+        self.inner.reset()
+    }
+    fn created_at(&self) -> Option<UtcTimestamp> {
+        self.inner.created_at()
+    }
+    fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
+        self.inner.set_created_at(at)
+    }
+}
+
+#[test]
+fn an_idempotent_gap_is_reported_even_if_the_first_report_fails_to_store() {
+    // The server can't store its NotApplied, so it ends the connection: it must not have moved
+    // past the gap, or the next connection never reports it.
+    let mut net = Net::new();
+    net.client.config.client_flow = FlowType::Idempotent;
+    net.server.config.client_flow = FlowType::Idempotent;
+    let flaky = Flaky::default();
+    net.server.registry = Arc::new(FixpRegistry::with_storage(Arc::new(flaky.clone())));
+    net.connect();
+    drop(net.send_order(1));
+    net.pump_losing(true, false);
+    net.client.disconnect(net.now);
+    net.server.disconnect(net.now);
+    flaky.fail_records.store(true, Ordering::Relaxed);
+    net.connect();
+    assert_eq!(net.server.ended(), Some(Ended::Error));
+    flaky.fail_records.store(false, Ordering::Relaxed);
+    net.reconnect();
+    assert_eq!(*net.client.app.not_applied.lock().unwrap(), [(1, 1)]);
+}
+
+#[test]
+fn a_message_whose_number_fails_to_store_is_not_delivered() {
+    // Delivered unrecorded, it would be retransmitted and delivered again.
+    let mut net = Net::new();
+    let flaky = Flaky::default();
+    net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(flaky.clone())));
+    net.connect();
+    flaky.fail_incoming.store(true, Ordering::Relaxed);
+    net.server_sends(1);
+    net.pump();
+    assert_eq!(net.client.ended(), Some(Ended::Error));
+    flaky.fail_incoming.store(false, Ordering::Relaxed);
+    net.reconnect();
+    assert_eq!(net.client.app.messages(), [(1, Some(1), true)]);
 }
 
 #[test]

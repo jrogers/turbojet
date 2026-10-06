@@ -606,7 +606,9 @@ impl FixpSession {
                 let seq = self.inbound.live_next;
                 self.inbound.live_next += 1;
                 self.set_next_incoming(seq + 1);
-                self.handle_application(bytes, Some(seq), false);
+                if self.state != State::Closed {
+                    self.handle_application(bytes, Some(seq), false);
+                }
             }
             _ => self.handle_application(bytes, None, false),
         }
@@ -643,6 +645,10 @@ impl FixpSession {
     /// Takes message `seq`, the next in order, and then those held behind it that follow on.
     fn take_in_order(&mut self, bytes: &[u8], seq: u64, retransmitted: bool) {
         self.set_next_incoming(seq + 1);
+        // Unrecorded (the store failed), it isn't delivered: it comes again on the next connection.
+        if self.state == State::Closed {
+            return;
+        }
         self.handle_application(bytes, Some(seq), retransmitted);
         self.take_queued(false);
     }
@@ -657,7 +663,9 @@ impl FixpSession {
             let (seq, bytes) = self.inbound.queued.pop_front().expect("just looked");
             self.inbound.queued_bytes -= bytes.len();
             self.set_next_incoming(seq + 1);
-            self.handle_application(&bytes, Some(seq), false);
+            if self.state != State::Closed {
+                self.handle_application(&bytes, Some(seq), false);
+            }
         }
     }
 
@@ -887,6 +895,10 @@ impl FixpSession {
 
     /// Frames a session message into the output.
     fn send(&mut self, msg: &impl Encode) {
+        // Closed (a store failure, say) partway through handling something: nothing more goes out.
+        if self.state == State::Closed {
+            return;
+        }
         self.last_sent = self.now;
         if let Err(e) = framing::push(&mut self.output, msg) {
             // Session messages are fixed or bounded by the configuration: this is a bug.
@@ -906,6 +918,9 @@ impl FixpSession {
         };
         if ours == FlowType::None {
             return refuse(receipt, Dropped::Rejected("our flow is None: no application messages".into()));
+        }
+        if self.state == State::Closed {
+            return refuse(receipt, Dropped::Disconnected);
         }
         let start = self.output.len();
         if let Err(e) = framing::push_bytes(&mut self.output, sbe) {
@@ -930,6 +945,11 @@ impl FixpSession {
     }
 
     fn set_next_incoming(&mut self, seq: u64) {
+        // Closed partway through (a store failure): what it would record never happened, so the
+        // counterparty sends it again, or it's reported, on the next connection.
+        if self.state == State::Closed {
+            return;
+        }
         if let Err(e) = self.log().set_next_incoming(seq) {
             return self.storage_failed(e);
         }
