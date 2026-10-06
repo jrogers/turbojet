@@ -337,8 +337,13 @@ From the benchmarks.
   both roles, every flow type, through the FIX connection driver, made generic over the session it
   runs (the registry and handles generic over what they send); validated against our own client
   and server and fuzzed rather than a venue. A pipelined round trip carries 2.97M msg/s against
-  0.81M for FIX. Follow-ups: simulation testing of FIXP sessions (`turbojet-sim` covers only FIX,
-  and FIXP has no outside peer to check it against); a FIXP stage in the allocation budget; TLS,
+  0.81M for FIX. Simulation testing of FIXP sessions (`turbojet-sim --fixp`) is under way: client
+  and server over the simulated network, every flow type, through resets, black holes, stalls and
+  terminations, on memory and disk stores; it found four bugs, since fixed (a client on disk
+  couldn't re-establish or reopen its log, messages past a gap could be delivered twice after a
+  reconnect, and messages in flight after our Terminate were taken for a protocol error). Still
+  to come: crashes, store failures and power loss, a hostile middlebox, finalization, and planted
+  bugs. Follow-ups: a FIXP stage in the allocation budget; TLS,
   failover and metrics for FIXP; starting finalization ourselves; multiplexed sessions; venues'
   dialects (see section 2).
 
