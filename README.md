@@ -371,8 +371,9 @@ a server asking for client certificates sees the one a client presented in `Fixp
 
 It's validated against itself, not a venue: a client and server in memory, each rule of the
 specification a test (every flow, gaps both ways, each reject), over TCP and TLS through reconnects,
-fuzzed, and run through the deterministic simulator. Not supported: multiplexed or multicast
-sessions, failover and metrics, and venues' own dialects (B3's, CME's iLink 3).
+fuzzed, and run through the deterministic simulator. A client fails over to backup endpoints
+(`FixpInitiator::with_failover`), and sessions record the same metrics as FIX ones. Not supported:
+multiplexed or multicast sessions, throttling, and venues' own dialects (B3's, CME's iLink 3).
 
 ## Operating on sequence numbers
 

@@ -96,6 +96,8 @@ Notable changes to the published crates.
   the logical session once the counterparty has everything. `FixpAcceptor::serve_tls` and
   `FixpInitiator::with_tls` run sessions over TLS (feature `tls`), and `ClientLogin::connection`
   gives `FixpApplication::verify` the client's address and the certificate it presented.
+  `FixpInitiator::with_failover` adds backup endpoints, and FIXP sessions record the per-session
+  metrics (feature `metrics`), with `FixpConfig::latency_metrics` for the latency histograms.
 - Breaking: `Command` is `#[non_exhaustive]`, and has a `Finish` variant (FIXP's finish sending,
   which FIX sessions ignore): a match on it from outside needs a wildcard arm.
 - `Command`, `CommandSender`, `CommandReceiver`, `SessionRegistry`, `SessionHandle` and `SendError`

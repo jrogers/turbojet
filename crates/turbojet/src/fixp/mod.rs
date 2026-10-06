@@ -34,8 +34,12 @@
 //! [`FixpAcceptor::serve_tls`] and [`FixpInitiator::with_tls`] run sessions over TLS (feature
 //! `tls`), and [`FixpApplication::verify`] sees the client certificate a server asked for.
 //!
+//! A [`FixpInitiator`] fails over to backup endpoints ([`FixpInitiator::with_failover`]), and
+//! sessions record the per-session metrics (feature `metrics`; see
+//! [`telemetry`](crate::telemetry)).
+//!
 //! Not supported: multiplexing sessions over one transport (`Context`), multicast (`Topic`),
-//! in-band templates (`MessageTemplate`), failover, metrics and throttling.
+//! in-band templates (`MessageTemplate`), and throttling.
 
 mod endpoints;
 pub(crate) mod framing;
