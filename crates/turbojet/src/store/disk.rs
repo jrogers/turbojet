@@ -384,7 +384,8 @@ impl SessionLog for DiskLog {
             let (segment, start) = self.pending_at.expect("just placed");
             // A FIXP frame doesn't carry its number, so a header before it does.
             if crate::fixp::is_one_frame(bytes) {
-                self.pending.extend_from_slice(format!("{FRAME_MARK} {seq:020}\n").as_bytes());
+                // Written in place: a `format!` would allocate a string per frame, and grow it.
+                writeln!(self.pending, "{FRAME_MARK} {seq:020}").expect("writing to a Vec doesn't fail");
             }
             let len = u32::try_from(bytes.len()).expect("a Message is below 4 GiB");
             self.index.insert(seq, Location { offset: start + self.pending.len() as u64, len, segment });
