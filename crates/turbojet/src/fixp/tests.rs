@@ -565,6 +565,22 @@ fn a_session_the_server_doesnt_know_is_negotiated_again() {
 }
 
 #[test]
+fn a_client_on_disk_establishes_the_session_it_negotiated() {
+    // The session ID comes from the log's creation time to the nanosecond, which DiskStorage
+    // writes as text: it must keep every digit, or the next connection derives another ID.
+    let dir = tempfile::tempdir().unwrap();
+    let mut net = Net::new();
+    net.wall.advance(Duration::from_nanos(123_456_789));
+    let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
+    net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
+    net.connect();
+    let first = net.client.session().session_id();
+    net.reconnect();
+    assert!(net.client.session().is_established(), "{:?}", net.client.ended());
+    assert_eq!(net.client.session().session_id(), first);
+}
+
+#[test]
 fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session() {
     let mut net = Net::new();
     net.connect();

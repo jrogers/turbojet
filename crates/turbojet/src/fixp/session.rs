@@ -14,6 +14,7 @@ use super::{
     ClientLogin, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, Received, Role, SbeMessage,
 };
 use crate::connection::Driven;
+use crate::fields::{Precision, UtcTimestamp};
 use crate::registry::{
     Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
     apply_sequence_command, command_queues,
@@ -296,7 +297,10 @@ impl FixpSession {
             Some(at) => (at.into(), false),
             None => {
                 let at = self.config.clock.now();
-                if let Err(e) = self.log().set_created_at(at.into()) {
+                // To the nanosecond, as the ID is derived from it: a store that writes it as text
+                // (DiskStorage, SQL) writes what it's given, by default milliseconds.
+                let stored = UtcTimestamp::new(at, Precision::Nanos);
+                if let Err(e) = self.log().set_created_at(stored) {
                     return self.storage_failed(e);
                 }
                 self.dirty = true;
