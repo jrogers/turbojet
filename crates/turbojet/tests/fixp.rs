@@ -130,3 +130,56 @@ async fn a_client_and_server_exchange_orders_over_the_driver() {
     client_task.await.unwrap().unwrap();
     server_task.await.unwrap().unwrap();
 }
+
+/// A server restarted on the same port and store: the client reconnects by itself and
+/// re-establishes the same session, numbering carrying on.
+#[tokio::test]
+async fn a_client_reconnects_over_tcp_and_reestablishes_the_session() {
+    use turbojet::fixp::{FixpAcceptor, FixpInitiator};
+    use turbojet::{ReconnectPolicy, SessionStorage};
+
+    let server_store: Arc<dyn SessionStorage> = Arc::new(MemoryStorage::new());
+    let (server_events, mut server_received) = mpsc::unbounded_channel();
+    let server_app: Arc<dyn FixpApplication> = Arc::new(Events { server: true, events: server_events });
+    let serve = |listener: tokio::net::TcpListener| {
+        let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+        let acceptor = FixpAcceptor::new(config, server_store.clone(), server_app.clone()).unwrap();
+        tokio::spawn(acceptor.clone().serve(listener));
+        acceptor
+    };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let first = serve(listener);
+
+    let (client_events, mut client_received) = mpsc::unbounded_channel();
+    let client_config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let client_app = Arc::new(Events { server: false, events: client_events });
+    let initiator = FixpInitiator::new(addr.to_string(), client_config, Arc::new(MemoryStorage::new()), client_app)
+        .unwrap()
+        .with_reconnect(ReconnectPolicy::fixed(Duration::from_millis(50)))
+        .unwrap();
+    tokio::spawn(initiator.clone().run());
+
+    assert!(matches!(next(&mut client_received).await, Event::Established(_)));
+    assert!(matches!(next(&mut server_received).await, Event::Established(_)));
+    let handle = initiator.handle();
+    assert_eq!(handle.send(SbeMessage::encode(&order(1)).unwrap()).unwrap().await, Ok(1));
+    assert_eq!(next(&mut server_received).await, Event::Order { cl_ord_id: 1, seq: 1 });
+    assert_eq!(next(&mut client_received).await, Event::Order { cl_ord_id: 1001, seq: 1 });
+
+    // The server shuts down, terminating the session; a new one takes its port and store.
+    first.shutdown().await;
+    let finished = TerminationCode::Finished;
+    assert_eq!(next(&mut client_received).await, Event::Ended(Ended::TerminatedByPeer(finished)));
+    assert_eq!(next(&mut server_received).await, Event::Ended(Ended::TerminatedByUs(finished)));
+    let second = serve(tokio::net::TcpListener::bind(addr).await.unwrap());
+
+    assert!(matches!(next(&mut client_received).await, Event::Established(_)));
+    assert!(matches!(next(&mut server_received).await, Event::Established(_)));
+    assert_eq!(handle.send(SbeMessage::encode(&order(2)).unwrap()).unwrap().await, Ok(2));
+    assert_eq!(next(&mut server_received).await, Event::Order { cl_ord_id: 2, seq: 2 });
+    assert_eq!(next(&mut client_received).await, Event::Order { cl_ord_id: 1002, seq: 2 });
+
+    initiator.shutdown().await;
+    second.shutdown().await;
+}

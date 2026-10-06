@@ -15,8 +15,9 @@
 //! `Terminate` ends the connection, not the logical session, which the client establishes again
 //! on the next. `FinishedSending` and `FinishedReceiving` end the logical session for good.
 //!
-//! A [`FixpSession`] is the protocol as a sans-IO state machine, run over any byte stream by
-//! [`run`] or [`run_spinning`], as a FIX [`Session`](crate::Session) is. It keeps its state in a
+//! [`FixpAcceptor`] serves clients over TCP, and [`FixpInitiator`] connects to a server and
+//! reconnects. Underneath, a [`FixpSession`] is the protocol as a sans-IO state machine, run over
+//! any byte stream by [`run`] or [`run_spinning`], as a FIX [`Session`](crate::Session) is. It keeps its state in a
 //! [`SessionStorage`](crate::SessionStorage):
 //!
 //! - **The client** keeps one log per [`ClientConfig::name`], as `FIXP <name> → <server>`. The
@@ -31,9 +32,10 @@
 //! through its [`FixpContext`] or [`FixpHandle`].
 //!
 //! Not supported: multiplexing sessions over one transport (`Context`), multicast (`Topic`),
-//! in-band templates (`MessageTemplate`), and starting finalization ourselves (a peer's
-//! `FinishedSending` is answered).
+//! in-band templates (`MessageTemplate`), starting finalization ourselves (a peer's
+//! `FinishedSending` is answered), TLS, failover, metrics and throttling.
 
+mod endpoints;
 mod framing;
 // Generated from the FIX Trading Community's schema (scripts/codegen.sh); the session uses part.
 #[allow(dead_code)]
@@ -47,6 +49,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::runtime::Handle;
 
+pub use endpoints::{FixpAcceptor, FixpInitiator};
 pub use messages::{EstablishmentRejectCode, FlowType, NegotiationRejectCode, TerminationCode};
 pub use session::FixpSession;
 
