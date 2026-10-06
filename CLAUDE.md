@@ -2,8 +2,9 @@
 
 Turbojet is a FIX engine in Rust: a sans-IO session state machine with an injected clock, tokio
 transport, and typed messages generated from the FIX Orchestra files. Read [STYLE.md](STYLE.md)
-before writing code; it's the house style and isn't repeated here. [ROADMAP.md](ROADMAP.md) says
-what's done, what's next and the known caveats.
+before writing code; it's the house style and isn't repeated here. [DESIGN.md](DESIGN.md) says how
+it's built and what's been measured, [ROADMAP.md](ROADMAP.md) what's still to do (open work only),
+and [CAVEATS.md](CAVEATS.md) the behaviour worth knowing about.
 
 ## Checking a change
 
@@ -34,7 +35,7 @@ on, so check with `--all-features` and `--no-default-features` at least.
   `fuzz-build` job fails.
 - **The allocation budget** (`crates/turbojet/tests/allocations.rs`) is exact. It fails if any
   stage's count changes, up or down. When a change moves it on purpose, update the budget and the
-  README table, and say why in the commit.
+  README table, say why in the commit, and add the old numbers to DESIGN.md's measurement history.
 - **Acceptance known failures.** `crates/turbojet-acceptance/known_failures.txt` lists scenarios
   expected to fail, with a reason. A listed scenario that passes fails its test, so remove it from
   the list when it's fixed.
@@ -47,14 +48,16 @@ on, so check with `--all-features` and `--no-default-features` at least.
 
 ## How work is done here
 
-- Plans and design notes go in `docs/plans/` (gitignored). Feature branches are git worktrees under
+- Plans and working notes go in `docs/plans/` (gitignored). Feature branches are git worktrees under
   `.worktrees/` (gitignored). Leave the main checkout on `main`: several sessions may share it, and
   one that switches branch there makes another's merge land on the wrong branch. Before merging,
   check which branch the checkout is on.
 - Commits are small and each says why. Performance commits give before and after numbers (criterion
   medians on an idle machine). Running benchmarks needs no permission.
-- A feature ends with a commit that records it in README.md, ROADMAP.md and CHANGELOG.md
-  (`## Unreleased`), e.g. "Record X in the readme, roadmap and changelog".
+- A feature ends with a commit that records it: how to use it in README.md (for users: no
+  measurement history or internals), how it works and its numbers in DESIGN.md, its entry taken
+  off ROADMAP.md (not marked done), any caveat in CAVEATS.md, and CHANGELOG.md
+  (`## Unreleased`), e.g. "Record X in the readme, design notes and changelog".
 - Public documents (README, SECURITY.md, the changelog, crate docs) make no promises: no
   timelines, support commitments or fix commitments unless the maintainer says so.
 - Expensive checks that aren't regressions (long fuzzing) stay off the per-push CI path. They run
