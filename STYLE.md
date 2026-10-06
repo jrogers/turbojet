@@ -28,7 +28,7 @@ named constant or a configuration field, with a comment saying why it has that v
 turns an unbounded failure (memory exhaustion, a stalled task, a latency tail) into one that is
 bounded and visible. Examples: `MAX_BODY_LENGTH` and `MAX_HEADER_FIELD_LEN` in `codec.rs`,
 `MAX_QUEUED` for messages held ahead of a gap in `session.rs`, and `MAX_COMMANDS_PER_BATCH` in
-`connection.rs`. Where something still grows without a limit, the roadmap lists it.
+`connection.rs`. Where something still grows without a limit, [CAVEATS.md](CAVEATS.md) lists it.
 
 Recursion must have a depth that Turbojet's own types fix, never one that input controls. For
 example, `scan_group` in `message.rs` recurses into nested repeating groups only as deep as the
@@ -107,9 +107,9 @@ tested, and fuzzed, without sockets or real time.
   afford checks and allocation. The per-message path can't.
 - **Batch.** Amortise system calls, disk writes and wake-ups over many messages: outbound
   messages go into one reused buffer and one write.
-- **Allocate at setup, not per message.** This is the zero-allocation goal in the roadmap.
-  `tests/allocations.rs` counts the allocations per order → ack exactly, and the build fails if
-  the count changes.
+- **Allocate at setup, not per message.** This is the zero-allocation goal in
+  [DESIGN.md](DESIGN.md). `tests/allocations.rs` counts the allocations per order → ack exactly,
+  and the build fails if the count changes.
 - **Keep hot loops simple.** Put a hot loop in a function that takes plain values rather than
   `&self`, so both the compiler and the reader can see what it touches.
 - **Measure what you change.** Benchmarks are criterion, compiled with fat LTO and one codegen

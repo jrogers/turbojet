@@ -14,7 +14,7 @@
 > QuickFIX/J, in CI; passes 221 of QuickFIX's 235 scripted session acceptance scenarios (the rest
 > are listed with their reasons); and has its parsers and session state machine fuzzed. It hasn't
 > been certified with any venue or run against a real counterparty, its APIs will change before
-> 1.0, and it has known gaps (see [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md)). Don't use it to trade real money or to
+> 1.0, and it has known gaps (see [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md) and [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md)). Don't use it to trade real money or to
 > connect to real counterparties without testing it thoroughly yourself. It is provided as is,
 > without warranty of any kind; see the licenses below.
 
@@ -78,7 +78,7 @@ practice, and where Turbojet differs.
 
 - **Safe.** What a counterparty sends is bounded (message size, header fields, messages held
   ahead of a gap, how much of a resend is held at once, output it won't read), and what still
-  grows without a limit is listed in the roadmap. Invariants are asserted, paired where they can
+  grows without a limit is listed in [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md). Invariants are asserted, paired where they can
   be (a message is checked as it's stored and again as it's read back), and the parsers and
   session state machine are fuzzed with those assertions on. Two sessions, FIX or FIXP, are also
   run against each other in a deterministic simulator (`crates/turbojet-sim`), over a network
@@ -100,7 +100,8 @@ practice, and where Turbojet differs.
   transports are traits or plain streams you can replace.
 - **Tested.** CI tests every feature combination and the minimum supported Rust version, runs
   clippy with warnings as errors, and checks every dependency's licence and known advisories.
-  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md). Until a 1.0 release, APIs may still change (see the warning above).
+  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md), and how Turbojet is built in
+  [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/DESIGN.md). Until a 1.0 release, APIs may still change (see the warning above).
 
 ## Using the engine
 
@@ -858,76 +859,51 @@ cargo bench -p turbojet --all-features -- --quick # fast smoke run
 cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
 ```
 
-Snapshot (Apple M3, macOS 27, Rust 1.98.1, 2026-09-27; medians). Benchmarks build with one
+Apple M3, macOS 27, Rust 1.98.1; criterion medians. Benchmarks build with one
 codegen unit and fat LTO (`[profile.bench]`), so results don't shift with how the compiler happens
 to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one¹ | 197 ns / 164 ns | 817 / 985 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 197 ns / 164 ns | 817 / 985 MiB/s |
 | Encode NewOrderSingle (169 B) | 47 ns | 3.4 GiB/s |
 | Encode ExecutionReport (209 B) | 54 ns | 3.6 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations)² | 98 ns / 173 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations)⁶ | 148 ns / 273 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned² ⁶ | 448 ns / 722 ns / 692 ns | |
-| Typed build ExecutionReport¹ | 156 ns | |
-| Format a timestamp (same second / new second)¹ | 11 ns / 33 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store)⁵ | 755 ns | 1.32M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes)⁵ | 939 ns | 1.06M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync³ | 48 ns / 1.7 µs / 4.0 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync³ | 70 ns / 41 µs | |
-| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL⁴ | 75 µs / 4.5 ms / 112 µs | |
-| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL⁴ | 3.0 µs / 55 µs / 7.1 µs | |
-| Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
-| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer⁹ | 7.5 ns / 37 ns | |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed⁹ | 4.8 ns / 258 ns | |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight¹⁰ | 15.6 µs | 2.97M msg/s |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 98 ns / 173 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 148 ns / 273 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 448 ns / 722 ns / 692 ns | |
+| Typed build ExecutionReport | 156 ns | |
+| Format a timestamp (same second / new second) | 11 ns / 33 ns | |
+| Session: order → ack, no I/O, encoded reply (memory store) | 755 ns | 1.32M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 939 ns | 1.06M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 48 ns / 1.7 µs / 4.0 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 70 ns / 41 µs | |
+| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 75 µs / 4.5 ms / 112 µs | |
+| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 3.0 µs / 55 µs / 7.1 µs | |
+| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 157 µs / 196 µs / 149 µs | |
+| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 7.5 ns / 37 ns | |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 258 ns | |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 15.6 µs | 2.97M msg/s |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
-| Round trip over localhost TCP, one at a time, replying from `on_message`⁷ | 16.3 µs | 61.4k/s |
-| The same, both ends spinning (`run_spinning`)⁸ | 10.3 µs | 96.7k/s |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 16.3 µs | 61.4k/s |
+| The same, both ends spinning (`run_spinning`) | 10.3 µs | 96.7k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
 | Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
-| Round trip over localhost TLS, one at a time, replying from `on_message`⁷ | 20.4 µs | 49.0k/s |
+| Round trip over localhost TLS, one at a time, replying from `on_message` | 20.4 µs | 49.0k/s |
 | Round trip over localhost TLS, 1,000 in flight | | 508k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight³ | 31.3 µs | 715k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight³ | 4.1 ms | 13.4k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 31.3 µs | 715k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 4.1 ms | 13.4k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor
-stores to `DiskStorage`. Session benchmarks restart the session every
-10,000 messages, untimed, to keep the in-memory resend store from growing without bound.
-¹ Re-measured 2026-09-30 on the same machine, after the session started encoding what it sends
-straight into its output, decimals and integers were written without `core::fmt`, and each inbound
-message was decoded into one reused for the connection. ² Re-measured 2026-10-01, after typed
-messages gained borrowed forms (`NewOrderSingleRef`); the owned form is now parsed as the borrowed
-one and then made owned, so it costs more than it did. ³ Measured 2026-10-02, with group commit:
-before it, storing 100 messages with fsync took 837 ms, and the disk + fsync round trip managed 62
-messages a second with 100 in flight; and with each commit recording the next in-flight window
-(before that, 12.2 ms one at a time with fsync); re-measured 2026-10-03, after a commit took one
-write and one `fsync` rather than one of each file (just before, on the same day: 3.2 µs and
-8.0 ms one per commit, 84 ns and 81 µs at 100 per commit, and round trips of 33.2 µs, 689k msg/s,
-8.1 ms and 9.5k msg/s). The other rows are the 2026-09-27 snapshot.
-The FIX 4.4 order has three parties with two sub-IDs each. ⁴ Measured 2026-10-03
-(`cargo bench -p turbojet-sql --all-features`), PostgreSQL 14 on the same machine over TCP; SQLite
-synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. ⁵ Re-measured
-2026-10-03, after the application's replies were built in messages the session reuses: 945 ns and
-1.20 µs just before, on the same day. ⁶ Owned re-measured 2026-10-03, after owned messages were
-parsed straight into their owned form: 166 ns, 335 ns and 1.04 µs just before, on the same day.
-⁷ Measured 2026-10-04. The other round trips send each order from the benchmark's task through a
-`SessionHandle`, and the initiator's application hands each acknowledgement back to it: a hop
-between tasks each way, on a multi-threaded runtime. Here the initiator's application sends each
-next order from `on_message`. On the same day, the round trips through the benchmark's task took
-26.5 µs (TCP) and 28.3 µs (TLS). Of the 16.3 µs, about 13 µs is the operating system: the same
-sizes ping-ponged between two threads over plain blocking sockets took 12.9 µs.
-⁸ Measured 2026-10-04, each end on a thread of its own; 16.45 µs without spinning in the same run.
-Raw sockets with both ends spinning took 6.8 µs for the same sizes.
-⁹ Measured 2026-10-05 (`cargo bench -p turbojet --bench codec -- sbe`). The B3 order has no
-session header (FIXP sequences messages without one) and its fields are integers at fixed
-offsets; the tag=value order has its standard header, and reading it means splitting it into
-fields and parsing them.
-¹⁰ Measured 2026-10-06 (`cargo bench -p turbojet --bench fixp`), B3 NewOrderSingles under FIXP 1.0
-with recoverable flows, each end storing in memory; the FIX round trips in the same run: 16.2 µs and
-0.81M msg/s.
+stores to `DiskStorage`. Most send each order from the benchmark's task through a `SessionHandle`;
+the "replying from `on_message`" rows send the next order from the initiator's application, with
+no hop between tasks (see [Using the engine](#using-the-engine)). Of their 16.3 µs, about 13 µs is
+the operating system. The SBE rows use B3's Binary Entrypoint schema; the FIXP rows carry its
+orders under FIXP 1.0 with recoverable flows, each end storing in memory. The SQL rows used
+PostgreSQL 14 on the same machine over TCP, and SQLite synced is `synchronous = FULL` with
+`fullfsync`, as `DiskStorage`'s fsync is. Rows were measured between 2026-09-27 and 2026-10-06 on
+the same machine; [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/DESIGN.md#measurement-history) says when, and what each was
+before.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
@@ -940,18 +916,16 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 |---|---|---|---|
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
-| Application (typed parse and ack)³ | 0 | 0 | 0 |
+| Application (typed parse and ack) | 0 | 0 | 0 |
 | Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 | Engine (all but the application): memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
 
-Means of 1,000 orders after 100 warm-up, 2026-09-30, with each store (the disk store without
-fsync). Store allocations are fractional because the stores' maps allocate a node every few
-messages; the memory store also copies each message it keeps. Debug and release builds count the
-same. ³ Measured 2026-10-03. The application parses the order borrowed, without allocating, and
-copies the strings it needs into its owned ExecutionReport, whose `CompactString`s keep them
-inline (as `String`s, they cost 5 allocations). `Context::send` writes the ExecutionReport into a
-message the session reuses, which allocates nothing once warmed up (before 2026-10-03 the reply
-list and the message cost 3 allocations more).
+Means of 1,000 orders after 100 warm-up, with each store (the disk store without fsync). Store
+allocations are fractional because the stores' maps allocate a node every few messages; the
+memory store also copies each message it keeps. Debug and release builds count the same. The
+application parses the order borrowed, without allocating, and copies the strings it needs into
+its owned ExecutionReport, whose `CompactString`s keep them inline. `Context::send` writes the
+ExecutionReport into a message the session reuses, which allocates nothing once warmed up.
 
 The same test counts a FIXP server (`turbojet::fixp`) answering each B3 NewOrderSingle with an
 order, recoverable flows both ways, as the FIXP benchmark does:
@@ -962,7 +936,7 @@ order, recoverable flows both ways, as the FIXP benchmark does:
 | Application (B3 decode and answer) | 0 | 0 | 0 |
 | Store: memory / disk | 1.2 / 0.2 | 0 | 182 / 49 |
 
-Means of 1,000 orders after 100 warm-up, 2026-10-06. The stores cost what they do for FIX: the
+Means of 1,000 orders after 100 warm-up. The stores cost what they do for FIX: the
 memory store copies each answer it keeps, and both index them.
 
 Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
@@ -977,7 +951,8 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
 
 ## Limitations
 
-See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for the planned work. In brief:
+[CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md) lists behaviour worth knowing about, and
+[ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) the planned work. In brief:
 
 - Gateway orders live in memory; a restart keeps session state but forgets orders, and orders
   are acknowledged but not routed or matched.
