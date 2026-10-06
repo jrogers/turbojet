@@ -20,3 +20,6 @@ cargo run --quiet --locked -p turbojet-codegen -- sbe dictionaries/sbe/example-s
 cargo run --quiet --locked -p turbojet-codegen -- sbe dictionaries/sbe/b3-entrypoint.xml --out crates/turbojet/tests/sbe/b3.rs
 cargo run --quiet --locked -p turbojet-codegen -- sbe crates/turbojet/tests/sbe/versioned.xml \
     --out crates/turbojet/tests/sbe/versioned.rs
+# FIXP 1.0's session messages, for turbojet::fixp, from the FIX Trading Community's schema.
+cargo run --quiet --locked -p turbojet-codegen -- sbe dictionaries/sbe/fixp-1.0.xml \
+    --out crates/turbojet/src/fixp/messages.rs
