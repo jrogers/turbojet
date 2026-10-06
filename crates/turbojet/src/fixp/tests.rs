@@ -836,6 +836,41 @@ fn nothing_is_committed_once_the_store_has_failed() {
 }
 
 #[test]
+fn finishing_sends_finished_sending_and_finalizes_once_received() {
+    let mut net = Net::new();
+    net.connect();
+    let first = net.client.session().session_id();
+    let receipt = net.send_order(1);
+    net.client_handle().finish().unwrap();
+    net.pump();
+    assert_eq!(seq_of(receipt), 1, "sent before finishing");
+    assert_eq!(net.server.app.messages(), [(1, Some(1), false)]);
+    assert_eq!(net.client.ended(), Some(Ended::Finalized));
+    assert_eq!(net.server.ended(), Some(Ended::Finalized));
+    // Finalized: the next connection negotiates a new session.
+    net.wall.advance(Duration::from_secs(1));
+    net.reconnect();
+    assert!(net.client.session().is_established());
+    assert_ne!(net.client.session().session_id(), first);
+}
+
+#[test]
+fn a_finishing_session_refuses_sends_and_repeats_finished_sending_as_its_keepalive() {
+    let mut net = Net::new();
+    net.connect();
+    net.client_handle().finish().unwrap();
+    let now = net.now;
+    net.client.take_commands(now);
+    assert_eq!(written_messages(&net.client.written()), ["FinishedSending"]);
+    let mut late = net.send_order(2);
+    net.client.take_commands(now);
+    assert_eq!(late.try_outcome(), Some(Err(Dropped::LoggingOut)));
+    let later = now + net.client.config.keepalive;
+    net.client.session().on_timer(later);
+    assert_eq!(written_messages(&net.client.written()), ["FinishedSending"]);
+}
+
+#[test]
 fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session() {
     let mut net = Net::new();
     net.connect();

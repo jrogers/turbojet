@@ -163,6 +163,9 @@ pub struct FixpSession {
     window_opening: Option<u64>,
     /// The store failed: nothing more is committed, so what it holds is what it last committed.
     store_failed: bool,
+    /// We've sent `FinishedSending`: no more application messages go out, and the counterparty's
+    /// `FinishedReceiving` finalizes the session.
+    finishing: bool,
 }
 
 impl fmt::Debug for FixpSession {
@@ -229,6 +232,7 @@ impl FixpSession {
             window_end: None,
             window_opening: None,
             store_failed: false,
+            finishing: false,
         };
         (session, receiver)
     }
@@ -595,7 +599,12 @@ impl FixpSession {
             }
             Decoded::RestransmitReject(r) if theirs == FlowType::Recoverable => self.on_retransmit_reject(r.code()),
             Decoded::FinishedSending(f) => self.on_finished_sending(f.last_seq_no()),
-            Decoded::FinishedReceiving(_) => warn!("ignoring FinishedReceiving: we never finish sending"),
+            Decoded::FinishedReceiving(_) if self.finishing => {
+                info!("the counterparty has everything we sent: the session ends");
+                self.finalized = true;
+                self.terminate(m::TerminationCode::Finished);
+            }
+            Decoded::FinishedReceiving(_) => warn!("ignoring FinishedReceiving: we haven't finished sending"),
             message => self.protocol_error(&format!("{message:?} breaks the session's flows")),
         }
     }
@@ -952,6 +961,10 @@ impl FixpSession {
         if self.state == State::Closed {
             return refuse(receipt, Dropped::Disconnected);
         }
+        // A reply from a callback, say: we've said we've sent our last.
+        if self.finishing {
+            return refuse(receipt, Dropped::LoggingOut);
+        }
         let start = self.output.len();
         if let Err(e) = framing::push_bytes(&mut self.output, sbe) {
             return refuse(receipt, Dropped::Rejected(e.to_string()));
@@ -1091,13 +1104,33 @@ impl FixpSession {
             self.send(&m::Terminate { session_id: self.session_id(), code, reason: b"keepalive interval lapsed" });
             self.close(Ended::TerminatedByUs(code));
         } else if now >= self.last_sent + self.config.keepalive {
-            if sequenced(self.flows().0) {
+            if self.finishing {
+                // Repeated until it's answered.
+                self.send_finished_sending();
+            } else if sequenced(self.flows().0) {
                 let next = self.log().next_outgoing();
                 self.send(&m::Sequence { next_seq_no: next });
             } else {
                 self.send(&m::UnsequencedHeartbeat {});
             }
         }
+    }
+}
+
+impl FixpSession {
+    /// Finishes sending: `FinishedSending`, with the last number on a sequenced flow.
+    fn finish(&mut self) {
+        if self.finishing {
+            return;
+        }
+        info!("finished sending: waiting for the counterparty to have everything");
+        self.finishing = true;
+        self.send_finished_sending();
+    }
+
+    fn send_finished_sending(&mut self) {
+        let last_seq_no = sequenced(self.flows().0).then(|| self.log().next_outgoing() - 1);
+        self.send(&m::FinishedSending { session_id: self.session_id(), last_seq_no });
     }
 }
 
@@ -1164,8 +1197,9 @@ impl FixpSession {
     pub fn on_disconnect(&mut self, now: Instant) {
         self.now = now;
         let how = match self.ended {
-            Some(how @ Ended::TerminatedByUs(_)) if self.state == State::Terminating => how,
+            // The counterparty has finalized too, whether or not our Terminate reached it.
             _ if self.finalized => Ended::Finalized,
+            Some(how @ Ended::TerminatedByUs(_)) if self.state == State::Terminating => how,
             _ => Ended::ConnectionLost,
         };
         self.close(how);
@@ -1195,19 +1229,21 @@ impl FixpSession {
     pub fn on_command(&mut self, command: Command<SbeMessage>, now: Instant) {
         self.now = now;
         match command {
-            Command::Send(msg, receipt) if self.state == State::Established => {
+            Command::Send(msg, receipt) if self.state == State::Established && !self.finishing => {
                 self.send_application(msg.bytes(), receipt);
             }
             Command::Send(_, receipt) => {
                 if let Some(receipt) = receipt {
-                    let dropped =
-                        if self.state == State::Terminating { Dropped::LoggingOut } else { Dropped::Disconnected };
+                    let ending = self.state == State::Terminating || self.finishing;
+                    let dropped = if ending { Dropped::LoggingOut } else { Dropped::Disconnected };
                     let _ = receipt.send(Err(dropped));
                 }
             }
             Command::Logout(_) if self.state == State::Established => self.terminate(m::TerminationCode::Finished),
             Command::Logout(_) => self.close(Ended::TerminatedByUs(m::TerminationCode::Finished)),
             Command::Sequence(command, reply) => self.on_sequence_command(command, reply),
+            Command::Finish if self.state == State::Established => self.finish(),
+            Command::Finish => debug!("ignoring a request to finish sending: not established"),
         }
     }
 

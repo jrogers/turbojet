@@ -89,6 +89,22 @@ impl SbeMessage {
 /// message's sequence number, or 0 on an unsequenced flow.
 pub type FixpHandle = SessionHandle<SbeMessage>;
 
+impl SessionHandle<SbeMessage> {
+    /// Finishes sending, once the messages already queued through
+    /// [`send`](SessionHandle::send) have gone: the session sends `FinishedSending` with the
+    /// last of them, refuses further sends, and once the counterparty answers that it has them
+    /// all (`FinishedReceiving`), terminates, ending the logical session for good
+    /// ([`Ended::Finalized`]); the next connection negotiates a new one. A connection lost first
+    /// leaves the session unfinished: call it again once it's re-established.
+    ///
+    /// # Errors
+    ///
+    /// As [`logout`](SessionHandle::logout).
+    pub fn finish(&self) -> Result<(), crate::registry::CommandError> {
+        self.finish_sending()
+    }
+}
+
 /// Tracks live FIXP sessions; see [`SessionRegistry`]. Build one with
 /// [`SessionRegistry::with_storage`].
 pub type FixpRegistry = SessionRegistry<SbeMessage>;

@@ -1,7 +1,7 @@
 //! Bytes from a counterparty fed to a FIXP server, and to a client that has just sent its
 //! Negotiate, in the chunks the input picks, with timers between, under each kind of flow the
-//! input picks: whatever arrives, the session must not panic and must only ever write whole
-//! frames.
+//! input picks, now and then finishing sending: whatever arrives, the session must not panic and
+//! must only ever write whole frames.
 
 #![no_main]
 
@@ -14,6 +14,7 @@ use turbojet::fixp::{
     ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, FlowType, Received, Role,
     ServerConfig,
 };
+use turbojet::registry::Command;
 
 /// Answers every message with its own bytes, so replies are framed and stored too.
 struct Echo;
@@ -53,17 +54,24 @@ fn run(role: Role, flows: u8, input: &[u8]) {
     let (mut session, _commands) = FixpSession::new(config, registry, Arc::new(Echo), now);
     session.on_connect(now);
     let mut buf = Vec::new();
-    // Each chunk: a length byte, then up to that many bytes; a zero length is a second passing.
+    // Each chunk: a length byte, then up to that many bytes; a zero length is a second passing,
+    // and 255 also finishes sending.
     let mut rest = input;
     while let Some((&len, tail)) = rest.split_first() {
         let take = usize::from(len).min(tail.len());
         buf.extend_from_slice(&tail[..take]);
         rest = &tail[take..];
+        if len == 255 {
+            session.on_command(Command::Finish, now);
+        }
         if len == 0 {
             now += Duration::from_secs(1);
             session.on_timer(now);
         } else {
-            session.feed(&mut buf, now);
+            // Input that waits for a window to hand messages over in goes on once it's committed.
+            while session.feed(&mut buf, now) {
+                assert!(session.take_commit().is_none(), "memory stores commit at once");
+            }
         }
         assert!(session.take_commit().is_none(), "memory stores commit at once");
         assert!(session.take_open().is_none() && session.take_fetch().is_none(), "memory stores answer at once");

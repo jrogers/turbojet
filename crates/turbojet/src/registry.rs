@@ -20,6 +20,7 @@ use crate::store::{MemoryStorage, Opened, SessionId, SessionLog, SessionStorage}
 /// A request to a session's connection task. `T` is what it sends: a FIX [`Message`], or for a
 /// FIXP session an encoded SBE message.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Command<T = Message> {
     /// Send an application message, and say what became of it on the reply, if any; see
     /// [`SessionHandle::send`].
@@ -28,6 +29,9 @@ pub enum Command<T = Message> {
     Logout(Option<String>),
     /// An operator change to sequence numbers, answered on the channel.
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
+    /// FIXP: finish sending, ending the logical session; see
+    /// [`FixpHandle::finish`](crate::fixp::FixpHandle). FIX sessions ignore it.
+    Finish,
 }
 
 impl<T> Command<T> {
@@ -235,12 +239,29 @@ const _: () = assert!(CONTROL_QUEUE > 0);
 /// A logout or operator command, as queued.
 #[derive(Debug)]
 enum Control {
-    /// Log out once the first `after` sends have been taken: those queued before it.
-    Logout {
-        text: Option<String>,
+    /// Log out, or finish sending, once the first `after` sends have been taken: those queued
+    /// before it.
+    Ending {
+        ending: Ending,
         after: u64,
     },
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
+}
+
+/// A command that ends the session once the sends queued before it have gone.
+#[derive(Debug)]
+enum Ending {
+    Logout(Option<String>),
+    Finish,
+}
+
+impl Ending {
+    fn command<T>(self) -> Command<T> {
+        match self {
+            Ending::Logout(text) => Command::Logout(text),
+            Ending::Finish => Command::Finish,
+        }
+    }
 }
 
 /// The queues that carry [`SessionHandle`] commands to a session's connection task: application
@@ -277,8 +298,8 @@ pub struct CommandReceiver<T = Message> {
     control: mpsc::Receiver<Control>,
     /// Sends taken so far.
     taken: u64,
-    /// A Logout waiting for the sends queued before it.
-    held: Option<(Option<String>, u64)>,
+    /// A Logout (or Finish) waiting for the sends queued before it.
+    held: Option<(Ending, u64)>,
     /// A send taken off its queue only to notice it (see [`Sends::Notice`]), first in line. It
     /// isn't counted in `taken` until it's handed out, so a Logout queued after it still waits.
     /// It has left the bounded queue, so while it's here one more send than `send_queue` waits.
@@ -322,8 +343,8 @@ impl<T> CommandReceiver<T> {
             if let Some((_, after)) = &self.held
                 && self.taken >= *after
             {
-                let (text, _) = self.held.take().expect("checked");
-                return Some(Command::Logout(text));
+                let (ending, _) = self.held.take().expect("checked");
+                return Some(ending.command());
             }
             let control = self.control.try_recv().ok()?;
             if let Some(command) = self.take(control) {
@@ -393,11 +414,9 @@ impl<T> CommandReceiver<T> {
     fn take(&mut self, control: Control) -> Option<Command<T>> {
         match control {
             Control::Sequence(command, reply) => Some(Command::Sequence(command, reply)),
-            Control::Logout { text, after } if self.taken >= after && self.held.is_none() => {
-                Some(Command::Logout(text))
-            }
-            Control::Logout { text, after } => {
-                self.held.get_or_insert((text, after));
+            Control::Ending { ending, after } if self.taken >= after && self.held.is_none() => Some(ending.command()),
+            Control::Ending { ending, after } => {
+                self.held.get_or_insert((ending, after));
                 None
             }
         }
@@ -838,13 +857,23 @@ impl<T> SessionHandle<T> {
     /// [`CommandError::NotConnected`] if no connection has the session, or [`CommandError::Full`]
     /// if its control queue is full.
     pub fn logout(&self, text: Option<&str>) -> Result<(), CommandError> {
+        self.end(Ending::Logout(text.map(String::from)))
+    }
+
+    /// Queues `ending` behind the sends already queued.
+    fn end(&self, ending: Ending) -> Result<(), CommandError> {
         let sender = self.registry.sender(&self.id).ok_or(CommandError::NotConnected)?;
         let after = sender.queued.load(Ordering::Acquire);
-        let logout = Control::Logout { text: text.map(String::from), after };
-        sender.control.try_send(logout).map_err(|e| match e {
+        sender.control.try_send(Control::Ending { ending, after }).map_err(|e| match e {
             mpsc::error::TrySendError::Full(_) => CommandError::Full,
             mpsc::error::TrySendError::Closed(_) => CommandError::NotConnected,
         })
+    }
+
+    /// FIXP: finishes sending once the messages already queued have gone, ending the logical
+    /// session; see [`FixpHandle::finish`](crate::fixp::FixpHandle).
+    pub(crate) fn finish_sending(&self) -> Result<(), CommandError> {
+        self.end(Ending::Finish)
     }
 
     // ---- Operator control of sequence numbers ----
@@ -990,7 +1019,7 @@ mod tests {
     /// Queues a Logout as [`SessionHandle::logout`] does.
     fn logout(sender: &CommandSender) {
         let after = sender.queued.load(Ordering::Acquire);
-        sender.control.try_send(Control::Logout { text: None, after }).unwrap();
+        sender.control.try_send(Control::Ending { ending: Ending::Logout(None), after }).unwrap();
     }
 
     fn sent_id(command: Option<Command>) -> String {

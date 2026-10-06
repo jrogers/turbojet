@@ -1159,6 +1159,7 @@ impl Session {
                 self.logout(text.as_deref(), Disconnect::Logout, now)
             }
             Command::Logout(_) => debug!("ignoring logout request: session is already logging out"),
+            Command::Finish => debug!("ignoring a request to finish sending: FIX sessions don't"),
             Command::Sequence(..) => unreachable!("handled in on_command"),
         }
     }
