@@ -176,61 +176,14 @@ impl Acceptor {
     }
 
     /// Accept loop: spawns `handle` on its own task for each connection.
-    async fn serve_with<L, F, Fut>(self, mut listener: L, handle: F) -> io::Result<()>
+    async fn serve_with<L, F, Fut>(self, listener: L, handle: F) -> io::Result<()>
     where
         L: Listen,
         F: Fn(Acceptor, TcpStream) -> Fut,
         Fut: Future<Output = io::Result<()>> + Send + 'static,
     {
-        let mut shutdown = self.shutdown.signal();
-        // One task per connection, at most `limits.max_total` of them; each waits at most the
-        // logon timeout for a Logon.
-        loop {
-            let accepted = tokio::select! {
-                biased;
-                _ = shutdown.started() => {
-                    info!("shutting down; no longer accepting connections");
-                    return Ok(());
-                }
-                accepted = listener.accept() => accepted,
-            };
-            let (stream, addr) = match accepted {
-                Ok(accepted) => accepted,
-                // One connection failed before it was accepted (e.g. the client reset): carry on.
-                Err(e) if is_connection_error(&e) => {
-                    warn!("failed to accept a connection: {e}");
-                    continue;
-                }
-                // Others, such as running out of file descriptors, may persist for a while: pause
-                // rather than spin, then try again. Existing connections are unaffected.
-                Err(e) => {
-                    warn!("accept failed, retrying in {ACCEPT_RETRY_DELAY:?}: {e}");
-                    tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
-                    continue;
-                }
-            };
-            // Past a limit, closed at once: no handshake, no task.
-            let Some(place) = self.limits.admit(addr.ip()) else { continue };
-            if let Err(e) = stream.set_nodelay(true) {
-                warn!(%addr, "cannot set TCP_NODELAY: {e}");
-            }
-            let connection = handle(self.clone(), stream);
-            let span = tracing::info_span!("conn", %addr);
-            // Counted from here, so shutdown also waits for TLS handshakes.
-            let open = self.shutdown.track();
-            tokio::spawn(
-                async move {
-                    let _open = open;
-                    let _place = place;
-                    info!("connection accepted");
-                    match connection.await {
-                        Ok(()) => info!("connection closed"),
-                        Err(e) => warn!("connection closed with error: {e}"),
-                    }
-                }
-                .instrument(span),
-            );
-        }
+        let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
+        accept_loop(listener, &shutdown, &limits, |stream| handle(self.clone(), stream)).await
     }
 
     /// Runs one acceptor session over an already-established stream (e.g. from a custom
@@ -313,8 +266,73 @@ impl Acceptor {
     }
 }
 
+/// Accepts connections from `listener` until `shutdown` starts, running `handle` for each on a
+/// task of its own, within `limits`: what an [`Acceptor`] and a FIXP acceptor share. Accept errors
+/// are logged and retried (after a short pause, unless they concern a single connection).
+pub(crate) async fn accept_loop<L, F, Fut>(
+    mut listener: L,
+    shutdown: &Arc<Shutdown>,
+    limits: &Arc<Limits>,
+    handle: F,
+) -> io::Result<()>
+where
+    L: Listen,
+    F: Fn(TcpStream) -> Fut,
+    Fut: Future<Output = io::Result<()>> + Send + 'static,
+{
+    let mut signal = shutdown.signal();
+    // One task per connection, at most `limits.max_total` of them; each session bounds how long
+    // it waits for the counterparty's first message.
+    loop {
+        let accepted = tokio::select! {
+            biased;
+            _ = signal.started() => {
+                info!("shutting down; no longer accepting connections");
+                return Ok(());
+            }
+            accepted = listener.accept() => accepted,
+        };
+        let (stream, addr) = match accepted {
+            Ok(accepted) => accepted,
+            // One connection failed before it was accepted (e.g. the client reset): carry on.
+            Err(e) if is_connection_error(&e) => {
+                warn!("failed to accept a connection: {e}");
+                continue;
+            }
+            // Others, such as running out of file descriptors, may persist for a while: pause
+            // rather than spin, then try again. Existing connections are unaffected.
+            Err(e) => {
+                warn!("accept failed, retrying in {ACCEPT_RETRY_DELAY:?}: {e}");
+                tokio::time::sleep(ACCEPT_RETRY_DELAY).await;
+                continue;
+            }
+        };
+        // Past a limit, closed at once: no handshake, no task.
+        let Some(place) = limits.admit(addr.ip()) else { continue };
+        if let Err(e) = stream.set_nodelay(true) {
+            warn!(%addr, "cannot set TCP_NODELAY: {e}");
+        }
+        let connection = handle(stream);
+        let span = tracing::info_span!("conn", %addr);
+        // Counted from here, so shutdown also waits for TLS handshakes.
+        let open = shutdown.track();
+        tokio::spawn(
+            async move {
+                let _open = open;
+                let _place = place;
+                info!("connection accepted");
+                match connection.await {
+                    Ok(()) => info!("connection closed"),
+                    Err(e) => warn!("connection closed with error: {e}"),
+                }
+            }
+            .instrument(span),
+        );
+    }
+}
+
 /// How many connections an acceptor has open, overall and by IP address, against its limits.
-struct Limits {
+pub(crate) struct Limits {
     max_total: usize,
     max_per_ip: usize,
     open: Mutex<Open>,
@@ -332,7 +350,7 @@ struct Open {
 }
 
 impl Limits {
-    fn new(max_total: usize, max_per_ip: usize) -> Self {
+    pub(crate) fn new(max_total: usize, max_per_ip: usize) -> Self {
         Self { max_total, max_per_ip, open: Mutex::default() }
     }
 
@@ -416,7 +434,7 @@ fn is_connection_error(e: &io::Error) -> bool {
 }
 
 /// Where accepted connections come from: a [`TcpListener`], or a stand-in in tests.
-trait Listen {
+pub(crate) trait Listen {
     fn accept(&mut self) -> impl Future<Output = io::Result<(TcpStream, SocketAddr)>> + Send;
 }
 
