@@ -752,6 +752,40 @@ fn a_message_handed_over_but_not_recorded_comes_again_marked() {
 }
 
 #[test]
+fn a_clean_close_keeps_a_recovered_window_still_to_come() {
+    // 2 was handed over but not recorded; the next connection ends cleanly before it comes
+    // again, so the marker must survive for the one after.
+    let dir = tempfile::tempdir().unwrap();
+    let mut net = Net::new();
+    let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
+    net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
+    net.connect();
+    net.server_sends(1);
+    net.pump();
+    net.server_sends(2);
+    let now = net.now;
+    net.server.take_commands(now);
+    let order = net.server.written();
+    net.client.feed(order, now);
+    net.client.disconnect(net.now);
+    net.server.disconnect(net.now);
+    // Established, its request for 2 lost, then terminated cleanly.
+    net.server.connect(now);
+    net.client.connect(now);
+    net.pump_losing(true, false);
+    let handle = net.client_handle();
+    handle.logout(None).unwrap();
+    net.pump_losing(false, true);
+    net.client.take_commands(now);
+    let id = net.client.session().session_id();
+    net.client.feed_message(&m::Terminate { session_id: id, code: m::TerminationCode::Finished, reason: b"" }, now);
+    assert!(net.client.session().is_closed());
+    net.client.written();
+    net.reconnect();
+    assert_eq!(*net.client.app.redelivered.lock().unwrap(), [2]);
+}
+
+#[test]
 fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session() {
     let mut net = Net::new();
     net.connect();

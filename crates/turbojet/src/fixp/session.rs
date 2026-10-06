@@ -1253,20 +1253,24 @@ impl FixpSession {
     /// Records the window the next batch is handed over in as in flight, for the commit about to
     /// start: from the next incoming number on. A recovered window's messages still to come are
     /// in it too, so a second crash still notices them. Once the session has closed, with nothing
-    /// left in flight, the marker is cleared.
+    /// left in flight and no recovered window's messages still to come, the marker is cleared.
     fn mark_in_flight(&mut self) -> io::Result<()> {
         let receiving = self.receiving();
         // Closed in error (a store failure among them), the store is left as it is.
         let (closed, failed) = (self.state == State::Closed, self.ended == Some(Ended::Error));
+        let recovered = self.recovered;
         let Some(bound) = self.bound.as_mut() else { return Ok(()) };
         let next = bound.log.next_incoming();
+        // Messages from the window recovered from before that are still to come may have been
+        // handled then: its marker stays until they've come.
+        let recovering = recovered.is_some_and(|start| next < start + DELIVERIES_PER_COMMIT);
         if receiving {
             if bound.log.in_flight() != Some(next) {
                 bound.log.set_in_flight(next)?;
                 self.dirty = true;
             }
             self.window_opening = Some(next);
-        } else if closed && !failed && bound.log.in_flight().is_some() {
+        } else if closed && !failed && !recovering && bound.log.in_flight().is_some() {
             // Everything handed over was recorded with it: nothing is in flight.
             bound.log.set_next_incoming(next)?;
             self.dirty = true;
