@@ -77,6 +77,10 @@ harness = false
 name = "roundtrip"
 harness = false
 
+[[bench]]
+name = "fixp"
+harness = false
+
 # The order-entry gateway: an Acceptor serving an Application. `test = true` makes `cargo test`
 # run its tests (which need the features, e.g. `cargo test --all-features`).
 [[example]]
