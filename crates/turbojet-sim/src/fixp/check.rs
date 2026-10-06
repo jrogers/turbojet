@@ -23,6 +23,10 @@ const KEEPALIVE_LAPSED: &[u8] = b"keepalive interval lapsed";
 /// EstablishmentRejectCode Unnegotiated.
 const UNNEGOTIATED: u8 = 0;
 
+/// Sessions kept from before, on each side: enough for an old connection's last deliveries,
+/// which a stall can hold back for a few finalizations.
+const PAST_SESSIONS: usize = 4;
+
 fn sequenced(flow: FlowType) -> bool {
     matches!(flow, FlowType::Recoverable | FlowType::Idempotent)
 }
@@ -31,11 +35,12 @@ fn sequenced(flow: FlowType) -> bool {
 /// the wire.
 #[derive(Clone, Default)]
 struct Sent {
-    /// Which logical session this is, counting from 0, and the one before it: a connection's
-    /// writes belong to the session it began in, which a finalization may have ended in the same
-    /// commit as they were recorded.
+    /// Which logical session this is, counting from 0, and the last few before it, latest last:
+    /// a connection's writes belong to the session it began in, which a finalization may have
+    /// ended in the same commit as they were recorded, and an old connection may still deliver
+    /// some after more sessions have come and gone.
     epoch: u64,
-    previous: Option<Box<Sent>>,
+    past: Vec<Sent>,
     /// The store has opened at least once: its numbers are known.
     opened: bool,
     /// The sequence number the store must record next, and the next incoming it last recorded.
@@ -100,21 +105,29 @@ impl Sent {
     /// A new logical session, keeping the last for what's still written or delivered of it.
     fn new_session(&mut self) {
         let mut old = std::mem::take(self);
-        old.previous = None;
+        let mut past = std::mem::take(&mut old.past);
         // Unsequenced orders have no numbers to start again: their order runs on across sessions.
         let unsequenced = std::mem::take(&mut old.unsequenced);
-        *self = Sent {
-            epoch: old.epoch + 1,
-            ledger_seen: old.ledger_seen,
-            unsequenced,
-            previous: Some(Box::new(old)),
-            ..Sent::default()
-        };
+        *self = Sent { epoch: old.epoch + 1, ledger_seen: old.ledger_seen, unsequenced, ..Sent::default() };
+        past.push(old);
+        if past.len() > PAST_SESSIONS {
+            past.remove(0);
+        }
+        self.past = past;
     }
 
     /// The order sent as `seq`, in this session or, failing that, the one before.
     fn id_of(&self, seq: u64) -> Option<u64> {
-        self.ids.get(&seq).or_else(|| self.previous.as_ref()?.ids.get(&seq)).copied()
+        self.ids.get(&seq).or_else(|| self.past.last()?.ids.get(&seq)).copied()
+    }
+
+    /// Session `epoch`: this one or one kept from before.
+    fn session(&self, epoch: u64) -> Option<&Sent> {
+        if self.epoch == epoch { Some(self) } else { self.past.iter().find(|p| p.epoch == epoch) }
+    }
+
+    fn session_mut(&mut self, epoch: u64) -> Option<&mut Sent> {
+        if self.epoch == epoch { Some(self) } else { self.past.iter_mut().find(|p| p.epoch == epoch) }
     }
 
     /// Order `id` goes with number `seq`: agreeing with what was stored, written or receipted.
@@ -217,7 +230,9 @@ pub struct Checker {
     /// The server's last session, by its key, and what it received: it may still deliver what
     /// was on its way over an old connection after the next session has begun. And the key of
     /// the session the server's current received state is of.
-    received_old: Option<(String, Received)>,
+    received_old: BTreeMap<String, Received>,
+    /// The client's session that negotiated each session ID (as a log names it).
+    client_epochs: BTreeMap<String, u64>,
     followed_key: Option<String>,
     not_applied_from: [usize; 2],
     /// Sessions finalized, for the report.
@@ -250,7 +265,8 @@ impl Checker {
             claims: Vec::new(),
             not_applied_seen: [0; 2],
             received_reset: [false; 2],
-            received_old: None,
+            received_old: BTreeMap::new(),
+            client_epochs: BTreeMap::new(),
             followed_key: None,
             not_applied_from: [0; 2],
             finalized: 0,
@@ -349,7 +365,14 @@ impl Checker {
         self.not_applied_from[i] = self.not_applied_seen[i];
         let last = std::mem::take(&mut self.received[i]);
         self.received[i] = Received { seen: last.seen, unsequenced_next: last.unsequenced_next, ..Received::default() };
-        self.received_old = self.followed_key.take().map(|key| (key, last));
+        if let Some(key) = self.followed_key.take() {
+            self.received_old.insert(key, last);
+            // As many as the sessions kept on the client's side.
+            while self.received_old.len() > PAST_SESSIONS {
+                let oldest = self.received_old.keys().next().cloned().expect("not empty");
+                self.received_old.remove(&oldest);
+            }
+        }
         self.followed_key = self.server_key();
     }
 
@@ -455,6 +478,8 @@ impl Checker {
                     return Err(violation("2 handshake", "the client negotiated again, its session not finished"));
                 }
                 self.may_negotiate = false;
+                let key = session_id.iter().map(|b| format!("{b:02x}")).collect();
+                self.client_epochs.insert(key, self.sent[Side::Initiator.index()].epoch);
                 self.server_session = Some(session_id);
                 self.server_fresh = true;
                 self.client_session = Some(session_id);
@@ -529,11 +554,8 @@ impl Checker {
                 _ => Err(violation("4 sequence", format!("{side:?} wrote {decoded:?} on a {flow:?} flow"))),
             };
         }
-        let current = self.sent[side.index()].epoch;
         let (seq, replayed, epoch) = self.number_written(side, conn, decoded)?;
-        let sent = &mut self.sent[side.index()];
-        let sent =
-            if epoch == current { Some(sent) } else { sent.previous.as_deref_mut().filter(|p| p.epoch == epoch) };
+        let sent = self.sent[side.index()].session_mut(epoch);
         let Some(sent) = sent else {
             return Err(violation("4 sequence", format!("{side:?} wrote {seq} for a session two back")));
         };
@@ -592,11 +614,13 @@ impl Checker {
             // connection: checked against that session's own records.
             let old = side == Side::Acceptor && Some(&d.session) != current.as_ref();
             if old {
-                let Some((key, received)) = self.received_old.as_mut() else { continue };
-                let Some(sender) = self.sent[side.other().index()].previous.as_deref() else { continue };
-                if *key == d.session {
-                    check_delivery(side, flow, sender, received, d)?;
-                }
+                // The client's session that negotiated it, and what the server's received of it.
+                let epoch = self.client_epochs.get(&d.session).copied();
+                let sender = epoch.and_then(|epoch| self.sent[side.other().index()].session(epoch));
+                let (Some(sender), Some(received)) = (sender, self.received_old.get_mut(&d.session)) else {
+                    continue;
+                };
+                check_delivery(side, flow, sender, received, d)?;
                 continue;
             }
             check_delivery(side, flow, &self.sent[side.other().index()], &mut self.received[side.index()], d)?;
@@ -644,7 +668,7 @@ impl Checker {
     /// `side`'s session `epoch`: the current one or the one before.
     fn sent_in(&self, side: Side, epoch: u64) -> Option<&Sent> {
         let sent = &self.sent[side.index()];
-        if sent.epoch == epoch { Some(sent) } else { sent.previous.as_deref().filter(|p| p.epoch == epoch) }
+        sent.session(epoch)
     }
 
     /// Rule 8 on a receipt `side`'s application got for order `id`.
@@ -779,7 +803,7 @@ fn check_delivery(
     };
     if sender.id_of(seq) != Some(d.id) {
         let sent = sender.id_of(seq);
-        return Err(violation("5 delivery", format!("{side:?} got {} as {seq}, but {sent:?} was sent as {seq}", d.id)));
+        return Err(violation("5 delivery", format!("{side:?} got {d:?}, but {sent:?} was sent as {seq}")));
     }
     // A repeat is fine only when marked as possibly one, after a crash or a lost connection.
     if d.redelivered && received.delivered.contains_key(&seq) {
