@@ -419,7 +419,7 @@ impl Drop for Place {
 }
 
 #[cfg(feature = "tls")]
-fn shutting_down() -> io::Error {
+pub(crate) fn shutting_down() -> io::Error {
     io::Error::new(io::ErrorKind::Interrupted, "shutting down")
 }
 

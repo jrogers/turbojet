@@ -31,9 +31,11 @@
 //! with a codec generated from its schema (see [`crate::sbe`]), and sends any generated message
 //! through its [`FixpContext`] or [`FixpHandle`].
 //!
+//! [`FixpAcceptor::serve_tls`] and [`FixpInitiator::with_tls`] run sessions over TLS (feature
+//! `tls`), and [`FixpApplication::verify`] sees the client certificate a server asked for.
+//!
 //! Not supported: multiplexing sessions over one transport (`Context`), multicast (`Topic`),
-//! in-band templates (`MessageTemplate`), starting finalization ourselves (a peer's
-//! `FinishedSending` is answered), TLS, failover, metrics and throttling.
+//! in-band templates (`MessageTemplate`), failover, metrics and throttling.
 
 mod endpoints;
 pub(crate) mod framing;
@@ -53,6 +55,7 @@ pub use endpoints::{FixpAcceptor, FixpInitiator};
 pub use messages::{EstablishmentRejectCode, FlowType, NegotiationRejectCode, TerminationCode};
 pub use session::FixpSession;
 
+use crate::peer::ConnectionInfo;
 use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
 use crate::sbe::{Encode, SbeError};
 use crate::schedule::Clock;
@@ -245,6 +248,9 @@ pub struct ClientLogin<'a> {
     pub session_id: [u8; 16],
     /// Its credentials, as sent.
     pub credentials: &'a [u8],
+    /// The connection it came on: the client's address and, over TLS with client certificates,
+    /// the certificate chain it presented, already verified against the configured CAs.
+    pub connection: &'a ConnectionInfo,
 }
 
 /// An application message received, as the application sees it. On a sequenced flow, messages

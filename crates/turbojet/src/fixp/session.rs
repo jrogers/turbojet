@@ -16,6 +16,7 @@ use super::{
 };
 use crate::connection::Driven;
 use crate::fields::{Precision, UtcTimestamp};
+use crate::peer::ConnectionInfo;
 use crate::registry::{
     Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
     apply_sequence_command, command_queues,
@@ -166,6 +167,8 @@ pub struct FixpSession {
     /// We've sent `FinishedSending`: no more application messages go out, and the counterparty's
     /// `FinishedReceiving` finalizes the session.
     finishing: bool,
+    /// The connection the session runs on, for [`FixpApplication::verify`].
+    connection: ConnectionInfo,
 }
 
 impl fmt::Debug for FixpSession {
@@ -233,8 +236,17 @@ impl FixpSession {
             window_opening: None,
             store_failed: false,
             finishing: false,
+            connection: ConnectionInfo::default(),
         };
         (session, receiver)
+    }
+
+    /// Describes the connection the session runs on, for [`FixpApplication::verify`]: the
+    /// client's address and, over TLS, its certificates. Without it, `verify` sees neither.
+    #[must_use]
+    pub fn with_connection(mut self, connection: ConnectionInfo) -> Self {
+        self.connection = connection;
+        self
     }
 
     /// Whether the session is established.
@@ -421,7 +433,7 @@ impl FixpSession {
 
     fn on_negotiate(&mut self, negotiate: &m::NegotiateRef<'_>) {
         let (session_id, timestamp) = (negotiate.session_id(), negotiate.timestamp());
-        let login = ClientLogin { session_id, credentials: negotiate.credentials() };
+        let login = ClientLogin { session_id, credentials: negotiate.credentials(), connection: &self.connection };
         let reject = if self.state != State::AwaitingClient {
             Some((m::NegotiationRejectCode::Unspecified, "already negotiated on this connection"))
         } else if !self.timestamp_ok(timestamp) {
@@ -480,7 +492,7 @@ impl FixpSession {
     fn on_establish(&mut self, establish: &m::EstablishRef<'_>) {
         let (session_id, timestamp) = (establish.session_id(), establish.timestamp());
         let keepalive = Duration::from_millis(u64::from(establish.keepalive_interval()));
-        let login = ClientLogin { session_id, credentials: establish.credentials() };
+        let login = ClientLogin { session_id, credentials: establish.credentials(), connection: &self.connection };
         let reject = match self.state {
             State::Negotiated if session_id != self.session_id() => {
                 Some((m::EstablishmentRejectCode::Unnegotiated, "another session was negotiated"))

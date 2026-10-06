@@ -597,7 +597,7 @@ fn shutting_down() -> io::Error {
 }
 
 #[cfg(feature = "tls")]
-fn tls_server_name(name: &str) -> io::Result<crate::tls::ServerName<'static>> {
+pub(crate) fn tls_server_name(name: &str) -> io::Result<crate::tls::ServerName<'static>> {
     crate::tls::ServerName::try_from(name.to_string())
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid TLS server name '{name}': {e}")))
 }

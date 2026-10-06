@@ -10,6 +10,10 @@ use rcgen::{BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
+use turbojet::fixp::{
+    ClientConfig, ClientLogin, FixpAcceptor, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpInitiator,
+    Received, Role, ServerConfig,
+};
 use turbojet::message::tags;
 use turbojet::tls;
 use turbojet::{
@@ -633,4 +637,126 @@ async fn an_acceptor_trusts_new_client_cas_once_given_them() {
     server.set_client_trust(tls::ClientTrust::Required(pki.trust("other-ca"))).unwrap();
     let mut client = tokio::spawn(async move { initiator.connect_once().await });
     assert!(timeout(Duration::from_millis(500), &mut client).await.is_err(), "connected and running");
+}
+
+// ---- FIXP over TLS ----
+
+/// A FIXP application recording what `verify` saw and telling the test of each establishment;
+/// with `required_cn`, refusing clients whose certificate CN differs.
+struct FixpRecorder {
+    established: mpsc::UnboundedSender<()>,
+    verified: Mutex<Vec<ConnectionInfo>>,
+    required_cn: Option<&'static str>,
+}
+
+impl FixpApplication for FixpRecorder {
+    fn verify(&self, client: &ClientLogin<'_>) -> bool {
+        self.verified.lock().unwrap().push(client.connection.clone());
+        let cn = client.connection.peer_certificate().and_then(|cert| cert.subject_common_name());
+        self.required_cn.is_none_or(|required| cn.as_deref() == Some(required))
+    }
+
+    fn on_established(&self, _session: &FixpHandle) {
+        let _ = self.established.send(());
+    }
+
+    fn on_message(&self, _ctx: &mut FixpContext<'_>, _msg: Received<'_>) {}
+}
+
+fn fixp_recorder(required_cn: Option<&'static str>) -> (Arc<FixpRecorder>, mpsc::UnboundedReceiver<()>) {
+    let (established, rx) = mpsc::unbounded_channel();
+    (Arc::new(FixpRecorder { established, verified: Mutex::default(), required_cn }), rx)
+}
+
+/// A FIXP server over TLS (or plain TCP, without `tls`): its address, application and
+/// establishments.
+async fn start_fixp_server(
+    tls: Option<tls::TlsAcceptor>,
+    required_cn: Option<&'static str>,
+) -> (String, Arc<FixpRecorder>, mpsc::UnboundedReceiver<()>) {
+    let (app, established) = fixp_recorder(required_cn);
+    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let server = FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), app.clone()).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    match tls {
+        Some(tls) => tokio::spawn(server.serve_tls(listener, tls)),
+        None => tokio::spawn(server.serve(listener)),
+    };
+    (addr, app, established)
+}
+
+/// A FIXP client of `addr` over TLS with `connector` (or plain TCP, without it), and its
+/// establishments.
+fn fixp_client(addr: &str, connector: Option<tls::TlsConnector>) -> (FixpInitiator, mpsc::UnboundedReceiver<()>) {
+    let (app, established) = fixp_recorder(None);
+    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let client = FixpInitiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap();
+    let client = match connector {
+        Some(connector) => client.with_tls(connector, "localhost").unwrap(),
+        None => client,
+    };
+    (client, established)
+}
+
+/// Whether an establishment arrives within a second.
+async fn established(rx: &mut mpsc::UnboundedReceiver<()>) -> bool {
+    timeout(Duration::from_secs(1), rx.recv()).await.is_ok_and(|e| e.is_some())
+}
+
+#[tokio::test]
+async fn fixp_session_runs_over_mutual_tls_and_verify_sees_the_client_certificate() {
+    let pki = Pki::new();
+    let (addr, app, mut server) = start_fixp_server(Some(pki.acceptor(Auth::Required)), None).await;
+    let (client, mut client_established) = fixp_client(&addr, Some(pki.connector("ca.pem", Some("client"))));
+    tokio::spawn(client.run());
+    assert!(established(&mut client_established).await);
+    assert!(established(&mut server).await);
+    let verified = app.verified.lock().unwrap().clone();
+    let cn = verified[0].peer_certificate().and_then(|cert| cert.subject_common_name());
+    assert_eq!(cn.as_deref(), Some("client"));
+}
+
+#[tokio::test]
+async fn fixp_application_can_refuse_a_trusted_certificate_for_the_wrong_identity() {
+    let pki = Pki::new();
+    let (addr, app, mut server) = start_fixp_server(Some(pki.acceptor(Auth::Required)), Some("client")).await;
+    let (client, _) = fixp_client(&addr, Some(pki.connector("ca.pem", Some("mallory"))));
+    let _ = timeout(Duration::from_secs(5), client.connect_once()).await.expect("attempt hung");
+    assert!(!established(&mut server).await);
+    let verified = app.verified.lock().unwrap().clone();
+    let cn = verified[0].peer_certificate().and_then(|cert| cert.subject_common_name());
+    assert_eq!(cn.as_deref(), Some("mallory"));
+}
+
+#[tokio::test]
+async fn fixp_server_refuses_a_client_without_a_certificate() {
+    let pki = Pki::new();
+    let (addr, app, mut server) = start_fixp_server(Some(pki.acceptor(Auth::Required)), None).await;
+    let (client, _) = fixp_client(&addr, Some(pki.connector("ca.pem", None)));
+    let _ = timeout(Duration::from_secs(5), client.connect_once()).await.expect("attempt hung");
+    assert!(!established(&mut server).await);
+    assert!(app.verified.lock().unwrap().is_empty(), "never got as far as verify");
+}
+
+#[tokio::test]
+async fn fixp_client_refuses_an_untrusted_server_certificate() {
+    let pki = Pki::new();
+    let (addr, _, mut server) = start_fixp_server(Some(pki.acceptor(Auth::None)), None).await;
+    let (client, _) = fixp_client(&addr, Some(pki.connector("other-ca.pem", None)));
+    let result = timeout(Duration::from_secs(5), client.connect_once()).await.expect("attempt hung");
+    let error = result.expect_err("an untrusted server");
+    assert!(error.to_string().contains("TLS handshake failed"), "{error}");
+    assert!(!established(&mut server).await);
+}
+
+#[tokio::test]
+async fn fixp_plain_tcp_reports_the_address_without_certificates() {
+    let (addr, app, mut server) = start_fixp_server(None, None).await;
+    let (client, _) = fixp_client(&addr, None);
+    tokio::spawn(client.run());
+    assert!(established(&mut server).await);
+    let verified = app.verified.lock().unwrap().clone();
+    assert!(verified[0].addr.is_some());
+    assert!(verified[0].peer_certificates.is_empty());
 }

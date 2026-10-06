@@ -11,6 +11,7 @@ use tracing::{Instrument, info, warn};
 use super::{FixpApplication, FixpConfig, FixpHandle, FixpRegistry, FixpSession, Role};
 use crate::acceptor::{DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP, Limits, accept_loop};
 use crate::connection;
+use crate::peer::ConnectionInfo;
 use crate::reconnect::{Backoff, ReconnectPolicy};
 use crate::session::ConfigError;
 use crate::shutdown::Shutdown;
@@ -92,31 +93,67 @@ impl FixpAcceptor {
         let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
         accept_loop(listener, &shutdown, &limits, |stream| {
             let acceptor = self.clone();
-            async move { acceptor.run_connection(stream).await }
+            async move {
+                let connection = ConnectionInfo::new(stream.peer_addr().ok(), Vec::new());
+                acceptor.run_connection(stream, connection).await
+            }
         })
         .await
     }
 
-    /// Runs one server session over an already-established stream. After
-    /// [shutdown](Self::shutdown) has started, closes it at once.
+    /// Like [`serve`](Self::serve), for TLS connections; [`FixpApplication::verify`] sees the
+    /// certificate a client presented, if `tls` asks for one. Each handshake runs on the
+    /// connection's own task and must complete within the configuration's `handshake_timeout`.
+    ///
+    /// # Errors
+    ///
+    /// As [`serve`](Self::serve); a failed or slow handshake ends only its connection.
+    #[cfg(feature = "tls")]
+    pub async fn serve_tls(self, listener: TcpListener, tls: crate::tls::TlsAcceptor) -> io::Result<()> {
+        let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
+        accept_loop(listener, &shutdown, &limits, |stream| {
+            let (acceptor, tls) = (self.clone(), tls.clone());
+            async move {
+                let addr = stream.peer_addr().ok();
+                let handshake = tokio::time::timeout(acceptor.config.handshake_timeout, tls.accept(stream));
+                let mut shutdown = acceptor.shutdown.signal();
+                let stream = tokio::select! {
+                    handshake = handshake => handshake,
+                    _ = shutdown.started() => return Err(crate::acceptor::shutting_down()),
+                };
+                let stream = stream
+                    .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TLS handshake timed out"))?
+                    .map_err(|e| io::Error::new(e.kind(), format!("TLS handshake failed: {e}")))?;
+                let certificates = crate::tls::peer_certificates(stream.get_ref().1.peer_certificates());
+                info!(client_certificate = !certificates.is_empty(), "TLS handshake complete");
+                acceptor.run_connection(stream, ConnectionInfo::new(addr, certificates)).await
+            }
+        })
+        .await
+    }
+
+    /// Runs one server session over an already-established stream, described by `connection`
+    /// for [`FixpApplication::verify`]. After [shutdown](Self::shutdown) has started, closes it
+    /// at once.
     ///
     /// # Errors
     ///
     /// The transport's error, if reading or writing failed, or the client stopped reading.
-    pub async fn accept_stream<S>(&self, stream: S) -> io::Result<()>
+    pub async fn accept_stream<S>(&self, stream: S, connection: ConnectionInfo) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let _open = self.shutdown.track();
-        self.run_connection(stream).await
+        self.run_connection(stream, connection).await
     }
 
-    async fn run_connection<S>(&self, stream: S) -> io::Result<()>
+    async fn run_connection<S>(&self, stream: S, connection: ConnectionInfo) -> io::Result<()>
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let (session, commands) =
             FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
+        let session = session.with_connection(connection);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
 
@@ -140,6 +177,9 @@ pub struct FixpInitiator {
     registry: Arc<FixpRegistry>,
     app: Arc<dyn FixpApplication>,
     shutdown: Arc<Shutdown>,
+    /// Connects over TLS with this connector, verifying the server as this name.
+    #[cfg(feature = "tls")]
+    tls: Option<(crate::tls::TlsConnector, crate::tls::ServerName<'static>)>,
 }
 
 impl std::fmt::Debug for FixpInitiator {
@@ -175,7 +215,22 @@ impl FixpInitiator {
             registry,
             app,
             shutdown: Arc::new(Shutdown::new()),
+            #[cfg(feature = "tls")]
+            tls: None,
         })
+    }
+
+    /// Connects over TLS with `connector`, verifying the server's certificate as `server_name`.
+    /// The handshake must complete within the configuration's `handshake_timeout`.
+    ///
+    /// # Errors
+    ///
+    /// If `server_name` isn't a valid DNS name or IP address.
+    #[cfg(feature = "tls")]
+    pub fn with_tls(mut self, connector: crate::tls::TlsConnector, server_name: &str) -> io::Result<Self> {
+        let name = crate::initiator::tls_server_name(server_name)?;
+        self.tls = Some((connector, name));
+        Ok(self)
     }
 
     /// Reconnects as `policy` says.
@@ -263,6 +318,44 @@ impl FixpInitiator {
             return (false, Err(e));
         }
         info!("connected");
+        #[cfg(feature = "tls")]
+        if let Some((connector, name)) = &self.tls {
+            let stream = match self.tls_handshake(connector, name, stream).await {
+                Ok(stream) => stream,
+                Err(e) => return (false, Err(e)),
+            };
+            return self.run_session(stream).await;
+        }
+        self.run_session(stream).await
+    }
+
+    /// The TLS handshake over `stream`, within the handshake timeout, unless shutdown starts.
+    #[cfg(feature = "tls")]
+    async fn tls_handshake(
+        &self,
+        connector: &crate::tls::TlsConnector,
+        name: &crate::tls::ServerName<'static>,
+        stream: TcpStream,
+    ) -> io::Result<tokio_rustls::client::TlsStream<TcpStream>> {
+        let handshake = tokio::time::timeout(self.config.handshake_timeout, connector.connect(name.clone(), stream));
+        let mut shutdown = self.shutdown.signal();
+        let handshake = tokio::select! {
+            handshake = handshake => handshake,
+            _ = shutdown.started() => return Err(crate::acceptor::shutting_down()),
+        };
+        let stream = handshake
+            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "TLS handshake timed out"))?
+            .map_err(|e| io::Error::new(e.kind(), format!("TLS handshake failed: {e}")))?;
+        info!("TLS handshake complete");
+        Ok(stream)
+    }
+
+    /// Runs a session over `stream` until the connection ends: whether it was established, and how
+    /// it ended.
+    async fn run_session<S>(&self, stream: S) -> (bool, io::Result<()>)
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
         let (session, commands) =
             FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
         let mut established = false;
