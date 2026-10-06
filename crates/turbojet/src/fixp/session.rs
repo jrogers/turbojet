@@ -725,9 +725,10 @@ impl FixpSession {
         if maybe_redelivered {
             info!(?seq, "delivering a message that may have been handled before");
         }
-        let handle = self.handle();
         let (mut replies, mut ends) = (std::mem::take(&mut self.replies), std::mem::take(&mut self.ends));
-        let mut ctx = FixpContext { replies: &mut replies, ends: &mut ends, handle: &handle };
+        // Lent, not cloned: a clone copies the session ID's strings, for every message.
+        let handle = &self.bound.as_ref().expect("bound once established").handle;
+        let mut ctx = FixpContext { replies: &mut replies, ends: &mut ends, handle };
         self.app.on_message(&mut ctx, Received { bytes, seq, retransmitted, maybe_redelivered });
         let mut start = 0;
         for &end in &ends {
