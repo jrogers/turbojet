@@ -349,9 +349,10 @@ From the benchmarks.
   for a protocol error; a crash could lose a message or repeat it unmarked (now at least once, with
   an in-flight marker as FIX sessions keep); after a store failure a session kept recording,
   delivering and committing; and at finalization a session could send after answering
-  FinishedReceiving, or ignore what came before the answer while terminating. Follow-ups: a FIXP
-  stage in the allocation budget; TLS, failover and metrics for FIXP; multiplexed sessions; venues'
-  dialects (see section 2).
+  FinishedReceiving, or ignore what came before the answer while terminating. The allocation
+  budget counts a FIXP server's order → answer too: nothing but the stores', as for FIX.
+  Follow-ups: TLS, failover and metrics for FIXP; multiplexed sessions; venues' dialects (see
+  section 2).
 
 ### Ideas not yet measured
 

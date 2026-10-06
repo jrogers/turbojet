@@ -942,6 +942,18 @@ inline (as `String`s, they cost 5 allocations). `Context::send` writes the Execu
 message the session reuses, which allocates nothing once warmed up (before 2026-10-03 the reply
 list and the message cost 3 allocations more).
 
+The same test counts a FIXP server (`turbojet::fixp`) answering each B3 NewOrderSingle with an
+order, recoverable flows both ways, as the FIXP benchmark does:
+
+| Stage | Allocations | Reallocs | Bytes |
+|---|---|---|---|
+| Session (framing, the session's own messages, encoding the answer) | 0 | 0 | 0 |
+| Application (B3 decode and answer) | 0 | 0 | 0 |
+| Store: memory / disk | 1.2 / 0.2 | 0 | 182 / 49 |
+
+Means of 1,000 orders after 100 warm-up, 2026-10-06. The stores cost what they do for FIX: the
+memory store copies each answer it keeps, and both index them.
+
 Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
 
 | Parse | Allocations | Reallocs | Bytes |
