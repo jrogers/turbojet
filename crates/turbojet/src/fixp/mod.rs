@@ -231,7 +231,9 @@ pub struct ClientLogin<'a> {
     pub credentials: &'a [u8],
 }
 
-/// An application message received, as the application sees it.
+/// An application message received, as the application sees it. On a sequenced flow, messages
+/// arrive in order, each once: on a recoverable one, live messages that arrive past a gap wait
+/// for the retransmission that fills it.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct Received<'a> {

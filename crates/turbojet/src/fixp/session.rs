@@ -1,5 +1,6 @@
 //! The FIXP session: FIXP 1.0 point to point, as a sans-IO state machine, in either role.
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::io;
 use std::sync::Arc;
@@ -29,6 +30,11 @@ const BEGIN_STRING: &str = "FIXP";
 
 /// A session ID: a UUID.
 type Uuid = [u8; 16];
+
+/// Most bytes of live messages held behind a gap on a recoverable flow, to deliver in order once
+/// it's filled: as much as the connection driver holds unprocessed. Past it they're dropped, and
+/// asked for once what's before them has arrived.
+const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 
 /// Where the session is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,11 +90,15 @@ struct Fetch {
 /// first not yet received in order: everything before it has been.
 #[derive(Debug, Default)]
 struct Inbound {
-    /// The number the next live message takes.
+    /// The number the next live message takes. On a recoverable flow, past the log's next
+    /// incoming number while there's a gap, which is asked for.
     live_next: u64,
-    /// Recoverable: the end (exclusive) of what's missing, being asked for from the log's next
-    /// incoming number.
-    gap_end: Option<u64>,
+    /// Recoverable: live messages past a gap, held to deliver in order once it's filled, ascending
+    /// by number. Never delivered first: the log records only what's in order, so a message
+    /// delivered past a gap would be asked for, and delivered, again after a reconnect.
+    queued: VecDeque<(u64, Vec<u8>)>,
+    /// The bytes in `queued`.
+    queued_bytes: usize,
     /// A retransmission under way: the number the next replayed message takes, and how many are
     /// left.
     replay: Option<(u64, u64)>,
@@ -588,44 +598,77 @@ impl FixpSession {
         if self.state != State::Established {
             return self.protocol_error("an application message before the session is established");
         }
-        let theirs = self.flows().1;
-        let (seq, retransmitted) = match theirs {
+        match self.flows().1 {
             FlowType::None => return self.protocol_error("an application message on a None flow"),
-            FlowType::Recoverable | FlowType::Idempotent => {
-                let (seq, retransmitted) = self.number_inbound(theirs);
-                (Some(seq), retransmitted)
+            FlowType::Recoverable => self.on_recoverable(bytes),
+            FlowType::Idempotent => {
+                // A gap was reported not applied when it was found: always in order.
+                let seq = self.inbound.live_next;
+                self.inbound.live_next += 1;
+                self.set_next_incoming(seq + 1);
+                self.handle_application(bytes, Some(seq), false);
             }
-            _ => (None, false),
-        };
+            _ => self.handle_application(bytes, None, false),
+        }
+        self.check_finished();
+    }
+
+    /// An application message on a recoverable flow: replayed or live, taken if it's the next in
+    /// order, held if it's live past a gap.
+    fn on_recoverable(&mut self, bytes: &[u8]) {
+        let contiguous = self.log().next_incoming();
+        if let Some((next, left)) = self.inbound.replay {
+            debug_assert!(left > 0, "a replay ends when nothing is left");
+            self.inbound.replay = (left > 1).then(|| (next + 1, left - 1));
+            // One already taken (held messages fill the gap from its end) is a repeat.
+            if next == contiguous {
+                self.take_in_order(bytes, next, true);
+            }
+            if self.inbound.replay.is_none() {
+                self.replay_done();
+            }
+            return;
+        }
+        let seq = self.inbound.live_next;
+        self.inbound.live_next += 1;
+        if seq == contiguous {
+            self.take_in_order(bytes, seq, false);
+        } else if self.inbound.queued_bytes + bytes.len() <= MAX_QUEUED_BYTES {
+            debug_assert!(seq > contiguous, "live numbers run ahead of the log's");
+            self.inbound.queued_bytes += bytes.len();
+            self.inbound.queued.push_back((seq, bytes.to_vec()));
+        }
+    }
+
+    /// Takes message `seq`, the next in order, and then those held behind it that follow on.
+    fn take_in_order(&mut self, bytes: &[u8], seq: u64, retransmitted: bool) {
+        self.set_next_incoming(seq + 1);
+        self.handle_application(bytes, Some(seq), retransmitted);
+        self.take_queued(false);
+    }
+
+    /// Takes the held messages that are next in order, or with `skip_gaps`, all of them, the
+    /// numbers missing between them lost.
+    fn take_queued(&mut self, skip_gaps: bool) {
+        while self.state == State::Established
+            && let Some(&(seq, _)) = self.inbound.queued.front()
+            && (skip_gaps || seq == self.log().next_incoming())
+        {
+            let (seq, bytes) = self.inbound.queued.pop_front().expect("just looked");
+            self.inbound.queued_bytes -= bytes.len();
+            self.set_next_incoming(seq + 1);
+            self.handle_application(&bytes, Some(seq), false);
+        }
+    }
+
+    /// Hands a numbered (or unsequenced) application message on: the session's own Applied and
+    /// NotApplied to itself, the rest to the application.
+    fn handle_application(&mut self, bytes: &[u8], seq: Option<u64>, retransmitted: bool) {
         match m::decode(bytes) {
             Ok((Decoded::Applied(a), _)) => self.on_acknowledged(a.from_seq_no(), a.count(), true),
             Ok((Decoded::NotApplied(n), _)) => self.on_acknowledged(n.from_seq_no(), n.count(), false),
             _ => self.deliver(bytes, seq, retransmitted),
         }
-        self.check_finished();
-    }
-
-    /// The sequence number of the application message just received, and whether it was replayed.
-    fn number_inbound(&mut self, theirs: FlowType) -> (u64, bool) {
-        let contiguous = self.log().next_incoming();
-        if let Some((next, left)) = self.inbound.replay {
-            debug_assert!(left > 0, "a replay ends when nothing is left");
-            self.inbound.replay = (left > 1).then(|| (next + 1, left - 1));
-            if next == contiguous {
-                self.set_next_incoming(next + 1);
-            }
-            if self.inbound.replay.is_none() {
-                self.replay_done();
-            }
-            return (next, true);
-        }
-        let seq = self.inbound.live_next;
-        self.inbound.live_next += 1;
-        // In order, unless a gap is still being filled.
-        if theirs == FlowType::Idempotent || self.inbound.gap_end.is_none() {
-            self.set_next_incoming(seq + 1);
-        }
-        (seq, false)
     }
 
     /// Hands an application message to the application, then sends what it replied.
@@ -680,7 +723,6 @@ impl FixpSession {
                 self.set_next_incoming(next);
             } else {
                 warn!(from = live, to = next, "missed messages; asking for them");
-                self.inbound.gap_end = Some(self.inbound.gap_end.map_or(next, |end| end.max(next)));
             }
         }
         self.ask_for_gap();
@@ -700,31 +742,23 @@ impl FixpSession {
         self.scratch = scratch;
     }
 
-    /// A retransmission we asked for has been answered: if the gap is filled, the flow is in order
-    /// again; if not, the rest is asked for.
+    /// A retransmission we asked for has been answered: what's still missing is asked for.
     fn replay_done(&mut self) {
         self.inbound.asked = None;
-        let contiguous = self.log().next_incoming();
-        if let Some(end) = self.inbound.gap_end
-            && contiguous >= end
-        {
-            self.inbound.gap_end = None;
-            let live = self.inbound.live_next;
-            self.set_next_incoming(live);
-        }
         self.ask_for_gap();
     }
 
-    /// Asks for the next part of a gap, if there's one and nothing's outstanding.
+    /// Asks for the next part of a gap on a recoverable flow, if there's one and nothing's
+    /// outstanding: from the log's next incoming number up to the first message held, or the live
+    /// flow's next.
     fn ask_for_gap(&mut self) {
-        let Some(end) = self.inbound.gap_end else { return };
-        if self.inbound.asked.is_some() || self.state != State::Established {
+        if self.inbound.asked.is_some() || self.state != State::Established || self.flows().1 != FlowType::Recoverable {
             return;
         }
         let from = self.log().next_incoming();
+        let end = self.inbound.queued.front().map_or(self.inbound.live_next, |&(seq, _)| seq);
         let count = end.saturating_sub(from).min(u64::from(self.config.max_retransmit));
         if count == 0 {
-            self.inbound.gap_end = None;
             return;
         }
         let request = m::RetransmitRequest {
@@ -756,8 +790,10 @@ impl FixpSession {
         let to = self.inbound.live_next;
         warn!(?code, from, to, "the counterparty refused to retransmit; those messages are lost");
         self.inbound.asked = None;
-        self.inbound.gap_end = None;
-        self.set_next_incoming(to);
+        self.take_queued(true);
+        if self.state == State::Established {
+            self.set_next_incoming(to);
+        }
         self.check_finished();
     }
 

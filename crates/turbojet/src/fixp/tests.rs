@@ -580,6 +580,44 @@ fn a_client_on_disk_establishes_the_session_it_negotiated() {
     assert_eq!(net.client.session().session_id(), first);
 }
 
+/// The server sent 1 and 2, which the client lost with the connection; on the next, the client
+/// learns of the gap, and 3 arrives live before the retransmission it asks for.
+fn a_gap_with_a_live_message_behind_it(net: &mut Net) {
+    net.connect();
+    net.server_sends(1);
+    net.server_sends(2);
+    net.pump_losing(false, true);
+    net.client.disconnect(net.now);
+    net.server.disconnect(net.now);
+    let now = net.now;
+    net.server.connect(now);
+    net.client.connect(now);
+    let establish = net.client.written();
+    net.server.feed(establish, now);
+    net.server_sends(3);
+    net.server.take_commands(now);
+    let ack_and_order = net.server.written();
+    net.client.feed(ack_and_order, now);
+}
+
+#[test]
+fn live_messages_behind_a_gap_are_delivered_in_order_once_it_fills() {
+    let mut net = Net::new();
+    a_gap_with_a_live_message_behind_it(&mut net);
+    assert!(net.client.app.messages().is_empty(), "3 waits for 1 and 2");
+    net.pump();
+    assert_eq!(net.client.app.messages(), [(1, Some(1), true), (2, Some(2), true), (3, Some(3), false)]);
+}
+
+#[test]
+fn live_messages_behind_a_gap_arent_delivered_twice_after_a_reconnect() {
+    // Held, not delivered, when the connection drops: asked for again on the next, once.
+    let mut net = Net::new();
+    a_gap_with_a_live_message_behind_it(&mut net);
+    net.reconnect();
+    assert_eq!(net.client.app.messages(), [(1, Some(1), true), (2, Some(2), true), (3, Some(3), true)]);
+}
+
 #[test]
 fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session() {
     let mut net = Net::new();
