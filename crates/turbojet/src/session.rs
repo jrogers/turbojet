@@ -583,8 +583,9 @@ pub struct Session {
     /// Sequence numbers resent per step: `MAX_RESEND_BATCH`, a field so tests can shrink it.
     resend_batch: u64,
     /// Handle commands received while logon is in progress, applied in order once it completes.
-    /// The logon timeout bounds how long it fills, but not how much: it's as unbounded as the
-    /// handle's channel (ROADMAP "Bound the session command queue").
+    /// Turbojet's drivers take sends only once logged on, operator commands are answered at once,
+    /// and only the first Logout is kept, so with them it holds one command at most. A driver of
+    /// its own that gives sends before logon bounds it by how many it gives.
     pending: Vec<Command>,
     /// The times of the last application messages sent, under `config.outbound_limit`; see
     /// [`can_send`](Self::can_send). A new connection starts with an empty window.
@@ -1079,7 +1080,8 @@ impl Session {
     /// Carries out a command from a [`SessionHandle`].
     ///
     /// Commands that arrive while logon is in progress are queued and applied, in order, as soon
-    /// as it completes. Once logout has started, sends are dropped and logged. With an
+    /// as it completes; a Logout after the first, which would be ignored then, isn't kept. Once
+    /// logout has started, sends are dropped and logged. With an
     /// [`outbound_limit`](SessionConfig::outbound_limit), give it sends only once
     /// [`has_logged_on`](Self::has_logged_on), and while [`can_send`](Self::can_send): a send
     /// before logon would go out past the window, and panics in debug builds.
@@ -1108,8 +1110,18 @@ impl Session {
                 self.outbound.is_none() || !matches!(command, Command::Send(..)),
                 "with an outbound limit, sends are taken only once logged on"
             );
-            debug!(queued = self.pending.len() + 1, "logon in progress; queueing handle command");
-            self.pending.push(command);
+            // Only the first Logout would act once logged on, and FIX sessions ignore Finish, so
+            // neither repeats here: with no sends before logon, pending holds one command at most.
+            match command {
+                Command::Finish => self.apply_command(command, now),
+                Command::Logout(_) if self.pending.iter().any(|c| matches!(c, Command::Logout(_))) => {
+                    debug!("ignoring logout request: one is already queued for logon");
+                }
+                command => {
+                    debug!(queued = self.pending.len() + 1, "logon in progress; queueing handle command");
+                    self.pending.push(command);
+                }
+            }
         } else {
             self.apply_command(command, now);
         }

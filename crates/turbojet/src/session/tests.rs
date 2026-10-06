@@ -2391,6 +2391,24 @@ fn queued_logout_applies_after_queued_sends() {
 }
 
 #[test]
+fn only_the_first_logout_is_queued_during_logon() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.connect(h.t0);
+    s.command(Command::Finish, h.t0); // ignored, so it doesn't stand in for a Logout
+    s.command(Command::Logout(Some("first".into())), h.t0);
+    for _ in 0..100 {
+        s.command(Command::Logout(Some("again".into())), h.t0);
+        s.command(Command::Finish, h.t0);
+    }
+    assert_eq!(s.pending.len(), 1, "later endings would be ignored once logged on");
+
+    let out = s.recv(logon(1), h.t0);
+    assert_eq!(types(&out), ["Logout"]);
+    assert_eq!(sent(&out)[0].get(tags::TEXT), Some("first"));
+}
+
+#[test]
 fn queued_commands_are_discarded_if_logon_fails() {
     let h = Harness::new();
     let mut s = h.initiator(false);
