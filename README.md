@@ -33,7 +33,8 @@ messages, groups and enums from it (from a `build.rs`, or as a command), and
 every FIX 4.2, 4.3, 4.4 and 5.0 SP2 application message, generated from the FIX Trading
 Community's official data and checked in. `turbojet-codegen sbe` generates codecs for SBE (Simple
 Binary Encoding) message schemas, the binary encoding venues such as B3 and CME publish (see
-[SBE codecs](#sbe-codecs)).
+[SBE codecs](#sbe-codecs)), and `turbojet::fixp` runs FIXP sessions, the FIX Performance Session
+Layer, to carry them (see [FIXP sessions](#fixp-sessions)).
 
 [`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) keeps session
 state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
@@ -338,8 +339,36 @@ afterwards can't fail and copies nothing. Fields newer than the message's schema
 absent, and a longer block from a newer version is read as far as the schema knows it. Enums keep a
 value the schema doesn't list as `Unknown`. SBE 1.0 schemas are supported, in either byte order.
 The generated code is checked against real-logic's SBE codecs, decoding what they encode and
-encoding the same bytes, for SBE's example schema and B3's Binary Entrypoint. The codecs encode and
-decode messages; there's no FIXP session to carry them yet (see the roadmap).
+encoding the same bytes, for SBE's example schema and B3's Binary Entrypoint. FIXP sessions carry
+the messages (next).
+
+## FIXP sessions
+
+FIXP (the FIX Performance Session Layer, version 1.0) is the session protocol under SBE order entry,
+as FIX's session layer is under tag=value. `turbojet::fixp` runs it point to point over TCP, in
+either role, through the same connection driver as FIX sessions: a client *negotiates* a session (a
+UUID) and the type of flow each way, then *establishes* it on each connection. Sequence numbers are
+implicit, set by `Sequence` messages. Each direction's flow is recoverable (gaps retransmitted),
+idempotent (gaps reported as not applied), unsequenced or none, configured on both ends.
+
+```rust
+let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "EXCHANGE")));
+let initiator = FixpInitiator::new("exchange:9000", config, storage, app)?;
+tokio::spawn(initiator.clone().run());
+// Once established: any message from a generated SBE codec.
+initiator.handle().send(SbeMessage::encode(&order)?)?;
+```
+
+A `FixpAcceptor` serves clients. The application sees each message as its SBE bytes, decoded with
+the venue's codec, with its sequence number and whether it was retransmitted; it's told what the
+counterparty didn't apply on an idempotent flow. A client derives its session ID from when it
+negotiated, so it re-establishes the same session after a restart; a server keeps a log per
+session. Messages sent on a recoverable flow are stored for retransmission.
+
+It's validated against itself, not a venue: a client and server in memory, each rule of the
+specification a test (every flow, gaps both ways, each reject), over TCP through reconnects, and
+fuzzed. Not supported: multiplexed or multicast sessions, starting finalization (a peer's is
+answered), TLS, failover and metrics, and venues' own dialects (B3's, CME's iLink 3).
 
 ## Operating on sequence numbers
 
@@ -841,6 +870,7 @@ to partition the crate.
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL⁴ | 157 µs / 196 µs / 149 µs | |
 | SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer⁹ | 7.5 ns / 37 ns | |
 | SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed⁹ | 4.8 ns / 258 ns | |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight¹⁰ | 15.6 µs | 2.97M msg/s |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, one at a time, replying from `on_message`⁷ | 16.3 µs | 61.4k/s |
 | The same, both ends spinning (`run_spinning`)⁸ | 10.3 µs | 96.7k/s |
@@ -884,6 +914,9 @@ Raw sockets with both ends spinning took 6.8 µs for the same sizes.
 session header (FIXP sequences messages without one) and its fields are integers at fixed
 offsets; the tag=value order has its standard header, and reading it means splitting it into
 fields and parsing them.
+¹⁰ Measured 2026-10-06 (`cargo bench -p turbojet --bench fixp`), B3 NewOrderSingles under FIXP 1.0
+with recoverable flows, each end storing in memory; the FIX round trips in the same run: 16.2 µs and
+0.81M msg/s.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:
@@ -929,8 +962,8 @@ See [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) for t
   segments (up to 1 GiB by default) there.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
-- SBE messages can be encoded and decoded, but there's no FIXP session layer or Aeron transport to
-  carry them.
+- FIXP sessions run over TCP only (no Aeron yet), without TLS, and only standard FIXP: not yet a
+  venue's dialect.
 
 ## Releases and security
 
@@ -957,7 +990,9 @@ don't reproduce their documentation; see their `NOTICE` files.
 
 The SBE schemas in [`dictionaries/sbe`](https://github.com/jrogers/turbojet/tree/main/dictionaries/sbe),
 used only by tests and benchmarks, are SBE's example schema (real-logic, Apache License 2.0) and
-B3's Binary Entrypoint schema, by way of Artio; the `README.md` there gives their sources.
+B3's Binary Entrypoint schema, by way of Artio, and FIXP 1.0's session schema, © FIX Protocol Ltd.
+under the Creative Commons Attribution-NoDerivatives 4.0 licence, from which `turbojet::fixp`'s
+session messages are generated; the `README.md` there gives their sources.
 
 The session acceptance scripts in
 [`crates/turbojet-acceptance/definitions`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance/definitions) are QuickFIX's,
