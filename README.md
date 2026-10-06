@@ -57,6 +57,7 @@ cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --
     [--schedule "daily 08:00-17:00 mon-fri America/New_York" [--holidays holidays.txt]] \
     [--inbound-limit 100/1s [--over-limit reject]] \
     [--metrics-listen 127.0.0.1:9000 [--latency-metrics]] [--log-format json]
+cargo run --example gateway --all-features -- --help   # every option, including --config FILE
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
 cargo run --example client --features tls -- primary:9876 --failover backup:9876
@@ -265,6 +266,8 @@ parsed from, so parsing it allocates nothing; read messages with it, and call `i
 one worth keeping:
 
 ```rust
+use turbojet::FixMessageRef; // into_owned
+
 let order: SpreadOrderRef = msg.parse()?; // borrows from msg
 for leg in &order.legs {
     println!("{}", leg.symbol);
@@ -302,7 +305,10 @@ for alloc in &order.allocs {
 }
 
 // Raw access, without a typed definition: one zero-copy view per entry.
-const PARTIES: GroupSpec = GroupSpec { fields: &[(448, None), (447, None), (452, None)] };
+const PARTIES: GroupSpec = GroupSpec {
+    fields: &[(448, None), (447, None), (452, None)],
+    lengths: &[0; 3], // a data field's Length tag, else 0
+};
 for party in msg.group(453, &PARTIES)? {
     println!("{:?} role {:?}", party.get(448), party.get(452));
 }
@@ -323,15 +329,15 @@ codec from a venue's SBE message schema: for each message, a decoder that reads 
 message header and picks the decoder by template ID.
 
 ```sh
-turbojet-codegen sbe b3-entrypoint.xml --out src/b3.rs
+turbojet-codegen sbe exchange.xml --out src/orders.rs
 ```
 
 ```rust
-let (b3::Decoded::NewOrderSingle(order), len) = b3::decode(bytes)? else { … };
+let (orders::Decoded::NewOrderSingle(order), len) = orders::decode(bytes)? else { … };
 println!("{} {:?} {}", order.cl_ord_id(), order.side(), order.order_qty());
 
 let mut out = Vec::new();
-b3::NewOrderSingle { cl_ord_id: 1, side: b3::Side::Buy, /* … */ }.encode_into(&mut out)?;
+orders::NewOrderSingle { cl_ord_id: 1, side: orders::Side::Buy, /* … */ }.encode_into(&mut out)?;
 ```
 
 A decoder checks the whole message when it's wrapped, groups and data included, so reading a field
@@ -847,7 +853,7 @@ about 0.35 µs to a 27.4 µs round trip, and nothing measurable to pipelined thr
 
 ```sh
 cargo bench -p turbojet --all-features            # everything (~3 minutes)
-cargo bench -p turbojet --bench codec             # one group: codec, session or roundtrip
+cargo bench -p turbojet --bench codec             # one group: codec, session, roundtrip or fixp
 cargo bench -p turbojet --all-features -- --quick # fast smoke run
 cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
 ```
