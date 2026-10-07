@@ -611,6 +611,16 @@ fn gateway_records_latency_only_with_a_metrics_listener() {
 }
 
 #[test]
+fn gateway_logs_messages_to_files_kept_for_the_days_given() {
+    let parsed = crate::parse_args(args(&["--allow-any", "--message-log", "log", "--message-log-days", "30"])).unwrap();
+    assert_eq!(parsed.message_log, Some(("log".into(), Some(Duration::from_secs(30 * 86_400)))));
+    assert_eq!(crate::parse_args(args(&["--allow-any"])).unwrap().message_log, None, "off by default");
+
+    let err = crate::parse_args(args(&["--allow-any", "--message-log-days", "30"])).err().expect("needs the log");
+    assert!(err.contains("--message-log-days requires --message-log"), "{err}");
+}
+
+#[test]
 fn gateway_cancels_on_disconnect_after_a_grace_period() {
     let cancel = crate::parse_args(args(&["--allow-any"])).unwrap().config.cancel_on_disconnect;
     let cancel = cancel.expect("on by default");
