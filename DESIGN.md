@@ -87,6 +87,20 @@ store.
   writes the non-blocking socket on every poll, since tokio's `try_read` answers from readiness
   its reactor caches. TLS isn't supported over it: its handshake would need driving by polling
   too.
+- **The message log.** A `MessageLog` is called by the driver, not the session: `inbound` with
+  each frame as it's cut from the read buffer, before the session handles it, and `outbound` with
+  each frame of the session's output as it's moved to be written (`Driver::stage_output`). Only
+  there do the bytes exist as they are on the wire: a decoded `Message` doesn't keep its frame,
+  and a session's output isn't final until its store commits, since a failed commit cuts it back
+  and messages held behind a resend are added after the resend. So the log sees what goes out in
+  wire order, and within one wake-up the replies to a batch of input after the whole batch, as
+  they cross the wire. For FIXP, `FixpSession::feed` makes the inbound call itself. The
+  allocation stages set a log that does nothing and call it as the driver does, with every count
+  unchanged. Measured 2026-10-07 on an M3 under a load average of 2.5 to 4.5, not idle, as
+  criterion point estimates over three alternating runs: with no log the round trips are within
+  noise of before (one at a time 26.0 to 26.6 µs before, 26.0 to 26.2 µs after); with a log at
+  both ends (the "roundtrip tcp, message log" group) one at a time is about 0.3 µs (1%) slower,
+  at the edge of the noise, and 1,000 pipelined orders aren't slower.
 
 ## Storage
 
@@ -125,7 +139,7 @@ store.
   stopped as they're added and removed, and a file that doesn't load leaves the one in use).
 - **Observability**: structured logging and Prometheus-compatible metrics, with opt-in latency
   histograms (handling each inbound message, store commits, and reading input to its replies
-  being ready to write).
+  being ready to write), and an optional `MessageLog` that sees every message's bytes.
 
 ## Dictionaries and code generation
 

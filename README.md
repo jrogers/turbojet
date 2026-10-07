@@ -417,8 +417,8 @@ An initiator sends Username(553) and Password(554) from `InitiatorConfig::userna
 `password`; an acceptor checks them in `Application::verify_logon`, where
 `logon.parse::<turbojet::admin::LogonRef>()` gives them typed. Passwords are `fields::Secret`
 (`SecretRef` when borrowed), which `Debug` and `Display` show as `***` (`.expose()` gives the
-text); the message log masks them too, and generated messages type Password(554) and
-NewPassword(925) fields as `Secret` as well.
+text); the `tracing` message log masks them too (a `MessageLog` sees them raw), and generated
+messages type Password(554) and NewPassword(925) fields as `Secret` as well.
 
 With `InitiatorConfig::next_expected_msg_seq_num`, the initiator's Logon carries
 NextExpectedMsgSeqNum(789), the FIX 4.4 way to recover a gap at logon: each side resends what the
@@ -839,6 +839,36 @@ whose `id` (e.g. `FIX.4.2:GATEWAY->CLIENT1`) is filled in once known, so engine 
 own target, `turbojet::messages`, with `direction` = `in`/`out`, so the FIX message log can be
 enabled or routed separately: `RUST_LOG=info,turbojet::messages=debug`; passwords in it are shown
 as `***`. The gateway can emit JSON logs (`--log-format json`).
+
+**A message log** of one's own sees every message a session receives and sends, framed exactly as on
+the wire, for an audit trail or a store of what was received. Implement `turbojet::MessageLog`
+(`inbound` and `outbound`, each given the `SessionId`, if known yet, and the frame) and set it in
+`SessionConfig::message_log`, or for FIXP with `with_message_log` on a `FixpSession`, `FixpAcceptor`
+or `FixpInitiator`. Inbound messages are shown before the session handles them, outbound ones once
+the store has committed, as they're queued to be written. The calls are made on the session's task,
+so they must not block: hand the bytes to a channel or a buffer that something else writes out, as
+the trait's example does. Entries carry no timestamp, so stamp them yourself. The bytes are raw:
+Password(554), NewPassword(925) and FIXP credentials are in them. An acceptor's Logon (a FIXP
+server's first `Negotiate` or `Establish`) comes with no `SessionId`, to the acceptor's own log; a
+`Counterparty` config may set another log for the rest. CAVEATS.md lists the finer points.
+
+```rust
+#[derive(Debug)]
+struct Audit(Mutex<Sender<(bool, Option<String>, Vec<u8>)>>);
+
+impl MessageLog for Audit {
+    fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
+        let entry = (true, session.map(ToString::to_string), frame.to_vec());
+        let _ = self.0.lock().unwrap().send(entry);
+    }
+    fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
+        let entry = (false, session.map(ToString::to_string), frame.to_vec());
+        let _ = self.0.lock().unwrap().send(entry);
+    }
+}
+
+config.message_log = Some(Arc::new(Audit(Mutex::new(sender))));
+```
 
 **Metrics** use the [`metrics`](https://docs.rs/metrics) facade, behind turbojet's optional
 `metrics` feature. Install a recorder (e.g. `metrics-exporter-prometheus`) before starting

@@ -118,11 +118,10 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   and their state; starts, stops, logs out and resets them; triggers resends; and browses and
   searches the message log live. A web console on top is what commercial engines sell on. The
   gateway should use it.
-- **Inbound message persistence** (M). Only sent messages are stored. An optional audit store of
-  received messages would help post-incident analysis beyond what the logs keep.
-- **Message log retention** (M). A message log of both directions, kept apart from the resend
-  store and from diagnostic logging, with rotation, compression, retention periods and archiving.
-  Regulated firms must keep these for years. Pairs with inbound message persistence.
+- **Message log retention** (M). A `MessageLog` that ships with Turbojet and writes both
+  directions to files, kept apart from the resend store and from diagnostic logging, with
+  rotation, compression, retention periods and archiving. Regulated firms must keep these for
+  years.
 - **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass

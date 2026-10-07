@@ -51,5 +51,15 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   SubIDs share them. A `Counterparties` resolver of one's own sees the full `SessionId`.
 - The sessions file refuses an initiator to a CompID the acceptor serves as a listed counterparty,
   even with different SubIDs that would make it another session.
+- A `MessageLog` sees an acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`)
+  with no `SessionId`, and the acceptor's own log sees it even when a `Counterparty` sets
+  another for the rest. An outbound message is logged as it's queued to be written, so one may be
+  logged that a failing connection never writes, and the replies to a batch of input are logged
+  after the whole batch. Garbled input the codec skips isn't logged. The bytes are raw,
+  Password(554), NewPassword(925) and FIXP credentials included.
+- A driver of one's own for a sans-IO `Session` makes both `MessageLog` calls itself; for a
+  `FixpSession`, only the outbound one, since `feed` makes the inbound call.
+- A `MessageLog` is set in code: the sessions file (`turbojet-config`) can't set one. The
+  simulator (`turbojet-sim`) doesn't exercise it; connection tests do.
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.

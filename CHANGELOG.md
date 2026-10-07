@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `MessageLog` sees every message a session receives and sends, framed as on the wire, for an
+  audit trail: set it with `SessionConfig::message_log`, or `with_message_log` on `FixpSession`,
+  `FixpAcceptor` and `FixpInitiator`. `Session::message_log` and `FixpSession::message_log` give
+  it to a driver of one's own.
 - Breaking: `SessionId` has `sender_sub_id`, `sender_location_id`, `target_sub_id`,
   `target_location_id` and `qualifier`, with `with_*` builders, and displays them as QuickFIX
   does (`FIX.4.4:GATEWAY/DESK->CLIENT/TRADER7:qualifier`). An acceptor takes them from each Logon,
