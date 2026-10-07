@@ -158,9 +158,71 @@ async fn the_oldest_messages_go_past_the_budget(database: &Database) {
     assert_eq!(log.evicted_through(), Some(evicted), "survives reopening");
 }
 
+/// The tables as 0.2 made them, before sessions were keyed on `extra` too.
+const OLD_SESSIONS: &str = "CREATE TABLE turbojet_sessions (
+    id ID_TYPE PRIMARY KEY,
+    begin_string TEXT NOT NULL,
+    sender_comp_id TEXT NOT NULL,
+    target_comp_id TEXT NOT NULL,
+    next_outgoing BIGINT NOT NULL DEFAULT 1,
+    next_incoming BIGINT NOT NULL DEFAULT 1,
+    in_flight BIGINT,
+    created_at TEXT,
+    evicted_through BIGINT,
+    stored_bytes BIGINT NOT NULL DEFAULT 0,
+    lease_holder TEXT,
+    lease_token TEXT,
+    lease_until BIGINT,
+    UNIQUE (begin_string, sender_comp_id, target_comp_id)
+)";
+const OLD_MESSAGES: &str = "CREATE TABLE turbojet_messages (
+    session BIGINT NOT NULL REFERENCES turbojet_sessions (id),
+    seq BIGINT NOT NULL,
+    size BIGINT NOT NULL,
+    body BODY_TYPE NOT NULL,
+    PRIMARY KEY (session, seq)
+)";
+
+/// A database made by 0.2, holding a session with a message, migrates on opening: the session
+/// keeps its state and messages, and sessions told apart by a SubID can be added beside it.
+async fn an_old_database_migrates(database: &Database, postgres: bool) {
+    sqlx::any::install_default_drivers();
+    let pool = sqlx::AnyPool::connect(&database.url).await.unwrap();
+    let (id_type, body_type) =
+        if postgres { ("BIGINT GENERATED ALWAYS AS IDENTITY", "BYTEA") } else { ("INTEGER", "BLOB") };
+    for sql in [
+        "DROP TABLE IF EXISTS turbojet_messages".to_owned(),
+        "DROP TABLE IF EXISTS turbojet_sessions".to_owned(),
+        OLD_SESSIONS.replace("ID_TYPE", id_type),
+        OLD_MESSAGES.replace("BODY_TYPE", body_type),
+        "INSERT INTO turbojet_sessions (begin_string, sender_comp_id, target_comp_id, next_outgoing, next_incoming)
+         VALUES ('FIX.4.4', 'GATEWAY', 'A', 5, 7)"
+            .to_owned(),
+    ] {
+        sqlx::query(&sql).execute(&pool).await.unwrap();
+    }
+    let body = app_message(2);
+    sqlx::query("INSERT INTO turbojet_messages (session, seq, size, body) SELECT id, 2, $1, $2 FROM turbojet_sessions")
+        .bind(i64::try_from(body.len()).unwrap())
+        .bind(&body)
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+
+    let storage = database.store("A", |_| {}).await;
+    storage.migrate().await.unwrap(); // a second migration finds nothing to do
+    let mut log = open(&storage, &id("A")).await.unwrap();
+    assert_eq!((log.next_outgoing(), log.next_incoming()), (5, 7), "the session keeps its state");
+    assert_eq!(fetch(log.as_mut(), 1, u64::MAX).await.unwrap(), [(2, body)], "and its messages");
+    let desk = open(&storage, &id("A").with_target_sub_id("DESK")).await.unwrap();
+    assert_eq!(desk.next_incoming(), 1, "a session with a SubID is one of its own");
+}
+
 #[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn sqlite() {
+    an_old_database_migrates(&Database::sqlite(), false).await;
     for check in CHECKS {
         check(&Database::sqlite()).await;
     }
@@ -173,5 +235,6 @@ async fn postgres() {
         eprintln!("TURBOJET_POSTGRES_URL is unset; skipping");
         return;
     };
+    an_old_database_migrates(&database, true).await;
     all(&database).await;
 }

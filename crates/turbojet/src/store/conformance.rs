@@ -21,7 +21,7 @@ use crate::codec::encode;
 use crate::fields::{MsgType, UtcTimestamp};
 use crate::message::{Message, tags};
 
-/// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `F`.
+/// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `G`.
 pub fn id(target: &str) -> SessionId {
     SessionId::new("FIX.4.4", "GATEWAY", target)
 }
@@ -87,6 +87,7 @@ pub async fn check(storage: &dyn SessionStorage) {
     check_in_flight(storage).await;
     check_data_fields(storage).await;
     check_uncommitted_reads(storage).await;
+    check_full_ids(storage).await;
 }
 
 /// [`check`] on a runtime of its own, for synchronous tests.
@@ -228,4 +229,37 @@ async fn check_uncommitted_reads(storage: &dyn SessionStorage) {
     assert!(log.next_outgoing() >= 2, "committed numbers survive");
     let sent = fetch(log.as_mut(), 1, 1).await.unwrap();
     assert_eq!(sent.len(), 1, "committed messages survive");
+}
+
+/// Sessions that differ only in a SubID, a LocationID or the qualifier are independent, and one
+/// with all of them keeps its state across reopening.
+async fn check_full_ids(storage: &dyn SessionStorage) {
+    let plain = id("G");
+    let full = plain
+        .clone()
+        .with_sender_sub_id("DESK")
+        .with_sender_location_id("NY")
+        .with_target_sub_id("TRADER 7")
+        .with_target_location_id("LDN")
+        .with_qualifier("b");
+    let variants = [
+        plain.clone().with_sender_sub_id("DESK"),
+        plain.clone().with_sender_location_id("NY"),
+        plain.clone().with_target_sub_id("TRADER 7"),
+        plain.clone().with_target_location_id("LDN"),
+        plain.clone().with_qualifier("b"),
+        full.clone(),
+    ];
+    let mut log = open(storage, &plain).await.unwrap();
+    log.set_next_incoming(5).unwrap();
+    commit(log.as_mut()).await.unwrap();
+    drop(log);
+    for (n, variant) in (2..).zip(&variants) {
+        let mut log = open(storage, variant).await.unwrap();
+        assert_eq!(log.next_incoming(), 1, "{variant} is a session of its own");
+        log.set_next_incoming(n).unwrap();
+        commit(log.as_mut()).await.unwrap();
+    }
+    assert_eq!(open(storage, &plain).await.unwrap().next_incoming(), 5, "the plain session is untouched");
+    assert_eq!(open(storage, &full).await.unwrap().next_incoming(), 7, "{full} keeps its state");
 }

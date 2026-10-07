@@ -31,26 +31,29 @@ pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn Sess
     let token = new_token();
     let now = now_millis();
     let until = now.saturating_add(millis(shared.config.lease));
+    let extra = id.key_suffix();
     let mut tx = shared.pool.begin().await.map_err(database("opening a session"))?;
     sqlx::query(
-        "INSERT INTO turbojet_sessions (begin_string, sender_comp_id, target_comp_id) VALUES ($1, $2, $3)
-         ON CONFLICT (begin_string, sender_comp_id, target_comp_id) DO NOTHING",
+        "INSERT INTO turbojet_sessions (begin_string, sender_comp_id, target_comp_id, extra) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (begin_string, sender_comp_id, target_comp_id, extra) DO NOTHING",
     )
     .bind(&id.begin_string)
     .bind(&id.sender_comp_id)
     .bind(&id.target_comp_id)
+    .bind(&extra)
     .execute(&mut *tx)
     .await
     .map_err(database("creating a session"))?;
     // Free, expired, or ours: this process's registry already lets one connection run a session.
     let taken = sqlx::query(
-        "UPDATE turbojet_sessions SET lease_holder = $4, lease_token = $5, lease_until = $6
-         WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3
-           AND (lease_holder IS NULL OR lease_until < $7 OR lease_holder = $4)",
+        "UPDATE turbojet_sessions SET lease_holder = $5, lease_token = $6, lease_until = $7
+         WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3 AND extra = $4
+           AND (lease_holder IS NULL OR lease_until < $8 OR lease_holder = $5)",
     )
     .bind(&id.begin_string)
     .bind(&id.sender_comp_id)
     .bind(&id.target_comp_id)
+    .bind(&extra)
     .bind(&shared.config.holder)
     .bind(&token)
     .bind(until)
@@ -60,11 +63,13 @@ pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn Sess
     .map_err(database("taking a session's lease"))?;
     let row = sqlx::query(
         "SELECT id, next_outgoing, next_incoming, in_flight, created_at, evicted_through, lease_holder, lease_until
-         FROM turbojet_sessions WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3",
+         FROM turbojet_sessions
+         WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3 AND extra = $4",
     )
     .bind(&id.begin_string)
     .bind(&id.sender_comp_id)
     .bind(&id.target_comp_id)
+    .bind(&extra)
     .fetch_one(&mut *tx)
     .await
     .map_err(database("reading a session"))?;
