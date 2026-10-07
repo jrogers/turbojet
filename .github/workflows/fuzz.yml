@@ -36,3 +36,19 @@ jobs:
         with:
           name: fuzz-artifacts
           path: crates/turbojet/fuzz/artifacts/
+
+  # Opens an issue when a scheduled run fails (or comments on the open one), and closes it when one
+  # passes, so a failure doesn't go unnoticed for days. Manual runs are watched by whoever ran them.
+  report:
+    needs: fuzz
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/nightly-report.sh "${{ github.workflow }}" "${{ needs.fuzz.result }}" "$URL"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

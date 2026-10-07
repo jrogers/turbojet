@@ -34,7 +34,9 @@ scripts/fuzz.sh 600 session     # one target, ten minutes
 `fix.dict` gives libFuzzer FIX tokens to splice in. `fuzz.sh` runs every target even if one
 fails, then fails if any did. A failing input is saved under `artifacts/<target>/` (the Fuzz
 workflow uploads them as `fuzz-artifacts`); replay it from `crates/turbojet` with
-`cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`. The corpus each run builds is
+`cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`. A scheduled run that fails
+opens an issue (or comments on the open one), closed when one passes; `scripts/nightly.sh`
+downloads a failed run's inputs and prints the commands that replay them. The corpus each run builds is
 kept in `corpus/`, which isn't checked in.
 
 ## Regressions

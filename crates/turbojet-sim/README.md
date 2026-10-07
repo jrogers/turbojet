@@ -129,7 +129,9 @@ output waits.
 ## Running
 
 Every push runs 100 fixed seeds; a nightly workflow (`.github/workflows/simulate.yml`) runs random
-ones for half an hour and uploads the trace of any that fails.
+ones for half an hour and uploads the trace of any that fails. A scheduled run that fails opens
+an issue (or comments on the open one), closed when one passes; `scripts/nightly.sh` downloads a
+failed run's traces and prints the commands that replay its seeds.
 
 ```sh
 cargo test -p turbojet-sim          # the fixed seeds, as on every push
