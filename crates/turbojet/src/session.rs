@@ -123,6 +123,11 @@ pub struct SessionConfig {
     /// and the last chunk to the end (EndSeqNo 0). `None` (the default) asks for the whole gap at
     /// once.
     pub resend_request_chunk: Option<u64>,
+    /// Acceptors: at most this many sessions of one counterparty connected at once. A
+    /// counterparty's SubIDs and LocationIDs, and those it addresses us by, make sessions of their
+    /// own (see [`SessionId`]), each with its own store, so this bounds what one CompID can open.
+    /// A Logon past it is refused. 16 by default.
+    pub max_sessions_per_counterparty: usize,
     /// At most this many application messages sent per window (see [`RateLimit`]).
     /// [`SessionHandle::send`](crate::SessionHandle::send)s beyond it wait in the send queue
     /// until the window allows them, so a full queue hands them back as usual. Replies the
@@ -228,6 +233,7 @@ impl SessionConfig {
             data_fields: DataFields::standard(),
             send_queue: 10_000,
             resend_request_chunk: None,
+            max_sessions_per_counterparty: 16,
             outbound_limit: None,
             inbound_limit: None,
             cancel_on_disconnect: None,
@@ -309,6 +315,9 @@ impl SessionConfig {
         }
         if self.resend_request_chunk == Some(0) {
             return Err("resend_request_chunk must be at least 1".into());
+        }
+        if self.max_sessions_per_counterparty == 0 {
+            return Err("max_sessions_per_counterparty must be at least 1".into());
         }
         if let Some(limit) = &self.outbound_limit {
             limit.check().map_err(|e| format!("outbound_limit: {e}"))?;
@@ -415,7 +424,8 @@ struct Peer {
 /// DefaultApplVerID are acceptable depends on the counterparty (see
 /// [`Session::logon_terms`]).
 struct LogonRequest {
-    comp_id: String,
+    /// The session the Logon names.
+    id: SessionId,
     heartbeat: Duration,
     seq_num: u64,
     their_next: Option<u64>,
@@ -1409,15 +1419,13 @@ impl Session {
 
     /// Acceptor: validate the counterparty's Logon and reply.
     fn accept_logon(&mut self, msg: &Message, now: Instant) {
-        let LogonRequest { comp_id, heartbeat, seq_num, their_next, appl_ver_id } =
-            match self.validate_logon_request(msg) {
-                Ok(v) => v,
-                Err(reason) => {
-                    warn!("refusing logon: {reason}");
-                    return self.close(Disconnect::Error, now);
-                }
-            };
-        let id = self.session_id_for(comp_id);
+        let LogonRequest { id, heartbeat, seq_num, their_next, appl_ver_id } = match self.validate_logon_request(msg) {
+            Ok(v) => v,
+            Err(reason) => {
+                warn!("refusing logon: {reason}");
+                return self.close(Disconnect::Error, now);
+            }
+        };
         let terms = self.take_counterparty(&id, msg).and_then(|()| self.logon_terms(heartbeat, appl_ver_id));
         let appl_version = match terms {
             Ok(version) => version,
@@ -1606,6 +1614,13 @@ impl Session {
             return Err(format!("TargetCompID(56) must be '{}'", self.config.sender_comp_id));
         }
         let comp_id = msg.get(tags::SENDER_COMP_ID).ok_or("SenderCompID(49) missing")?;
+        // The session is the one the Logon names: their SubID and LocationID, and those they
+        // address us by.
+        let mut id = self.session_id_for(comp_id.to_string());
+        id.target_sub_id = msg.get(tags::SENDER_SUB_ID).map(str::to_string);
+        id.target_location_id = msg.get(tags::SENDER_LOCATION_ID).map(str::to_string);
+        id.sender_sub_id = msg.get(tags::TARGET_SUB_ID).map(str::to_string);
+        id.sender_location_id = msg.get(tags::TARGET_LOCATION_ID).map(str::to_string);
         let logon: Logon = msg.parse().map_err(|e| e.to_string())?;
         if logon.encrypt_method != EncryptMethod::None {
             return Err("only EncryptMethod(98)=0 is supported".into());
@@ -1616,7 +1631,7 @@ impl Session {
             false => None,
         };
         Ok(LogonRequest {
-            comp_id: comp_id.to_string(),
+            id,
             heartbeat: Duration::from_secs(logon.heart_bt_int),
             seq_num,
             their_next: logon.next_expected_msg_seq_num,
@@ -1701,7 +1716,11 @@ impl Session {
         // A session binds to one log, once: a second Logon on the connection is refused first.
         assert!(self.peer.is_none(), "the session is bound once");
         assert!(self.opening_log.is_none(), "the session is bound once");
-        match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id()) {
+        let per_counterparty = match self.role {
+            Role::Acceptor => self.config.max_sessions_per_counterparty,
+            Role::Initiator { .. } => usize::MAX,
+        };
+        match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id(), per_counterparty) {
             Ok(Opened::Ready(log)) => self.bound(id, heartbeat, log, then, now),
             Ok(Opened::Pending(job)) => {
                 debug!(session = %id, "waiting for the store to open the session's log");

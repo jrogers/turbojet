@@ -207,6 +207,8 @@ pub(crate) fn apply_sequence_command(
 pub(crate) enum AcquireError {
     // Boxed: a `SessionId` is large, and this is only built when acquiring fails.
     AlreadyConnected(Box<SessionId>),
+    /// The counterparty already has this many sessions connected.
+    TooManySessions(Box<SessionId>, usize),
     Storage(Box<SessionId>, io::Error),
 }
 
@@ -227,6 +229,9 @@ impl fmt::Display for AcquireError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AlreadyConnected(id) => write!(f, "{id} is already connected"),
+            Self::TooManySessions(id, limit) => {
+                write!(f, "{} already has {limit} sessions connected, the most it may", id.target_comp_id)
+            }
             Self::Storage(id, e) => write!(f, "cannot open session store for {id}: {e}"),
         }
     }
@@ -526,17 +531,28 @@ impl<T> SessionRegistry<T> {
 
     /// Binds `id` to a connection and opens its log, at once or by a job (see
     /// [`SessionStorage::begin_open`]); if the job fails, the caller releases `id`. Fails if it is
-    /// already bound elsewhere or storage cannot be opened.
+    /// already bound elsewhere, if its counterparty (BeginString and CompIDs) already has
+    /// `per_counterparty` sessions bound, or if storage cannot be opened.
     pub(crate) fn acquire(
         &self,
         id: &SessionId,
         commands: CommandSender<T>,
         appl_ver_id: Option<ApplVerId>,
+        per_counterparty: usize,
     ) -> Result<Opened, AcquireError> {
         {
             let mut sessions = self.lock();
             if sessions.contains_key(id) {
                 return Err(AcquireError::AlreadyConnected(Box::new(id.clone())));
+            }
+            // A scan, but only at logon, over sessions the acceptor's connection limit bounds.
+            let same_counterparty = |other: &&SessionId| {
+                other.target_comp_id == id.target_comp_id
+                    && other.sender_comp_id == id.sender_comp_id
+                    && other.begin_string == id.begin_string
+            };
+            if sessions.keys().filter(same_counterparty).count() >= per_counterparty {
+                return Err(AcquireError::TooManySessions(Box::new(id.clone()), per_counterparty));
             }
             sessions.insert(id.clone(), Entry { commands: commands.clone(), appl_ver_id });
         }
@@ -551,8 +567,9 @@ impl<T> SessionRegistry<T> {
     async fn apply_offline(&self, id: &SessionId, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
         // No receiver: a send through a handle during the change fails as not connected.
         let (placeholder, _) = command_queues(1);
-        let opened = self.acquire(id, placeholder.clone(), None).map_err(|e| match e {
+        let opened = self.acquire(id, placeholder.clone(), None, usize::MAX).map_err(|e| match e {
             AcquireError::AlreadyConnected(_) => SequenceError::Connected,
+            AcquireError::TooManySessions(..) => unreachable!("no limit is given"),
             AcquireError::Storage(_, e) => SequenceError::Storage(e),
         })?;
         // Declared before the log, so dropped after it: the log is closed (its lock released)

@@ -69,6 +69,8 @@
 //! }`), `dictionary` (feature `validation`), `latency_metrics` (feature `metrics`), `heartbeat =
 //! { min, max }` (the HeartBtInt a counterparty may ask for), `require_client_certificate`,
 //! `resend_request_chunk` (the most messages one ResendRequest asks for),
+//! `max_sessions_per_counterparty` (how many sessions, told apart by SubIDs and LocationIDs, one
+//! counterparty may have connected at once; 16 by default),
 //! `cancel_on_disconnect` (`off`, the default, `disconnect`, or `disconnect_or_logout`, under
 //! which Logouts from either side count too; see [`CancelOnDisconnect`](turbojet::CancelOnDisconnect)) and
 //! `cancel_grace` (how long the counterparty has to log back on before the cancel: `0s`, the

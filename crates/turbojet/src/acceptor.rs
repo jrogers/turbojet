@@ -110,14 +110,21 @@ impl Acceptor {
         self
     }
 
-    /// A handle to the session with counterparty `target_comp_id`, usable whenever it is
-    /// connected.
+    /// A handle to the session with counterparty `target_comp_id` and no SubIDs, LocationIDs or
+    /// qualifier, usable whenever it is connected. For one with them, see
+    /// [`handle`](Self::handle).
     pub fn session(&self, target_comp_id: &str) -> SessionHandle {
         self.registry.handle(SessionId::new(
             self.config.begin_string.clone(),
             self.config.sender_comp_id.clone(),
             target_comp_id,
         ))
+    }
+
+    /// A handle to session `id`, usable whenever it is connected: one from
+    /// [`sessions`](Self::sessions), say, or one whose counterparty logs on with a SubID.
+    pub fn handle(&self, id: &SessionId) -> SessionHandle {
+        self.registry.handle(id.clone())
     }
 
     /// Sessions currently connected.

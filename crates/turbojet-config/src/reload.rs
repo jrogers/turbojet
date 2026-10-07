@@ -174,7 +174,8 @@ pub(crate) fn log_out_removed(loaded: &Loaded, acceptor: &Acceptor) -> Vec<Strin
         if loaded.acceptor().listed.contains_key(comp_id) {
             continue;
         }
-        match acceptor.session(comp_id).logout(Some("no longer configured")) {
+        // By its full ID: a counterparty may have several sessions, one per SubID.
+        match acceptor.handle(&id).logout(Some("no longer configured")) {
             Ok(()) => {
                 info!(session = %id, "logging out a counterparty no longer configured");
                 logged_out.push(comp_id.clone());
@@ -184,5 +185,6 @@ pub(crate) fn log_out_removed(loaded: &Loaded, acceptor: &Acceptor) -> Vec<Strin
         }
     }
     logged_out.sort();
+    logged_out.dedup();
     logged_out
 }

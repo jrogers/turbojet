@@ -190,6 +190,7 @@ pub(crate) struct RawSettings {
     pub cancel_on_disconnect: Option<RawCancelTrigger>,
     pub cancel_grace: Option<String>,
     pub resend_request_chunk: Option<u64>,
+    pub max_sessions_per_counterparty: Option<usize>,
 }
 
 /// Field by field, `self`'s keys over `defaults`'.
@@ -225,6 +226,7 @@ impl RawSettings {
             cancel_on_disconnect,
             cancel_grace,
             resend_request_chunk,
+            max_sessions_per_counterparty,
         )
     }
 }

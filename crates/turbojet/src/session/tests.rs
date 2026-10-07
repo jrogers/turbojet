@@ -188,6 +188,22 @@ fn logon(seq: u64) -> Message {
     client(seq, MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, "30")
 }
 
+/// A Logon from `comp_id` with `ids` (SubIDs and LocationIDs) in its header.
+fn logon_naming(comp_id: &str, ids: &[(u32, &str)]) -> Message {
+    let mut msg = Message::default()
+        .with(tags::BEGIN_STRING, "FIX.4.4")
+        .with(tags::MSG_TYPE, MsgType::Logon)
+        .with(tags::SENDER_COMP_ID, comp_id)
+        .with(tags::TARGET_COMP_ID, "GATEWAY");
+    for &(tag, value) in ids {
+        msg.push(tag, value);
+    }
+    msg.with(tags::MSG_SEQ_NUM, 1u64)
+        .with(tags::SENDING_TIME, utc_timestamp())
+        .with(tags::ENCRYPT_METHOD, "0")
+        .with(tags::HEART_BT_INT, "30")
+}
+
 fn order(seq: u64, cl_ord_id: &str) -> Message {
     client(seq, MsgType::NewOrderSingle)
         .with(tags::CL_ORD_ID, cl_ord_id)
@@ -528,6 +544,43 @@ fn initiator_sends_next_expected_only_when_configured() {
     let mut s = h.initiator_with(|config| config.next_expected_msg_seq_num = true);
     let out = s.connect(h.t0);
     assert_eq!(sent(&out)[0].get(tags::NEXT_EXPECTED_MSG_SEQ_NUM), Some("1"));
+}
+
+#[test]
+fn an_acceptor_session_is_the_one_its_logon_names() {
+    let h = Harness::new();
+    let mut desk = h.session();
+    let ids = [(tags::SENDER_SUB_ID, "DESK"), (tags::TARGET_SUB_ID, "OMS"), (tags::SENDER_LOCATION_ID, "NY")];
+    assert_eq!(types(&desk.recv(logon_naming("CLIENT", &ids), h.t0)), ["Logon"]);
+    let mut plain = h.session();
+    assert_eq!(types(&plain.recv(logon(1), h.t0)), ["Logon"], "the plain session is another");
+
+    let mut connected = h.registry.sessions();
+    connected.sort_by_key(ToString::to_string);
+    // Their SubID and LocationID are the counterparty's; the SubID they address us by is ours.
+    let named = client_id().with_sender_sub_id("OMS").with_target_sub_id("DESK").with_target_location_id("NY");
+    assert_eq!(named.to_string(), "FIX.4.4:GATEWAY/OMS->CLIENT/DESK/NY");
+    assert_eq!(connected, [client_id(), named]);
+}
+
+#[test]
+fn an_acceptor_caps_a_counterpartys_sessions() {
+    let mut h = Harness::new();
+    h.config.max_sessions_per_counterparty = 2;
+    let mut sessions: Vec<Session> = Vec::new();
+    for desk in ["A", "B", "C"] {
+        let mut s = h.session();
+        let out = s.recv(logon_naming("CLIENT", &[(tags::SENDER_SUB_ID, desk)]), h.t0);
+        let expected: &[&str] = if desk == "C" { &["DISCONNECT"] } else { &["Logon"] };
+        assert_eq!(types(&out), expected, "desk {desk}");
+        sessions.push(s);
+    }
+    let mut other = h.session();
+    assert_eq!(types(&other.recv(logon_naming("OTHER", &[]), h.t0)), ["Logon"], "another counterparty isn't held up");
+    sessions.remove(0); // desk A disconnects, freeing a place
+    let mut again = h.session();
+    let out = again.recv(logon_naming("CLIENT", &[(tags::SENDER_SUB_ID, "C")]), h.t0);
+    assert_eq!(types(&out), ["Logon"]);
 }
 
 #[test]
