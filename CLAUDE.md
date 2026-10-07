@@ -20,6 +20,7 @@ cargo test -p turbojet-acceptance                           # the QuickFIX scena
 scripts/interop.sh gap_fill_from_peer                       # one interop test (JDK 21+)
 cargo bench -p turbojet --all-features -- --quick           # benchmark smoke run
 scripts/fuzz.sh 60 session                                  # fuzz one target (nightly, cargo-fuzz)
+scripts/nightly.sh                                          # last night's runs, and how to replay a failure
 ```
 
 Features: `tls`, `metrics`, `tz`, `validation`. Feature-gated code only builds when its feature is
