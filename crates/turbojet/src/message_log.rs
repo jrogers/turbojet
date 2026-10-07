@@ -5,11 +5,9 @@ use std::fmt;
 use crate::SessionId;
 
 /// Sees every message a FIX or FIXP session receives and sends, framed exactly as on the wire:
-/// for an audit trail, or a store of what was received. Set it with
-/// [`SessionConfig::message_log`](crate::SessionConfig::message_log), or a FIXP session or
-/// endpoint's `with_message_log`: [`FixpSession`](crate::fixp::FixpSession::with_message_log),
-/// [`FixpAcceptor`](crate::fixp::FixpAcceptor::with_message_log) or
-/// [`FixpInitiator`](crate::fixp::FixpInitiator::with_message_log).
+/// for an audit trail, or a store of what was received. Set it in
+/// [`SessionConfig::message_log`](crate::SessionConfig::message_log) or
+/// [`FixpConfig::message_log`](crate::fixp::FixpConfig::message_log).
 ///
 /// Turbojet's connection drivers call it: [`inbound`](Self::inbound) for each message read, just
 /// before the session handles it, and [`outbound`](Self::outbound) for each message the session

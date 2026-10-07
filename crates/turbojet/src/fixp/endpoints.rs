@@ -8,14 +8,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{Instrument, info, warn};
 
-use super::{FixpApplication, FixpConfig, FixpHandle, FixpRegistry, FixpSession, Role, SbeMessage};
+use super::{FixpApplication, FixpConfig, FixpHandle, FixpRegistry, FixpSession, Role};
 use crate::acceptor::{DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP, Limits, accept_loop};
 use crate::connection;
 use crate::initiator::Endpoint;
-use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::reconnect::{Backoff, ReconnectPolicy};
-use crate::registry::CommandReceiver;
 use crate::session::ConfigError;
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -36,7 +34,6 @@ pub struct FixpAcceptor {
     app: Arc<dyn FixpApplication>,
     shutdown: Arc<Shutdown>,
     limits: Arc<Limits>,
-    message_log: Option<Arc<dyn MessageLog>>,
 }
 
 impl std::fmt::Debug for FixpAcceptor {
@@ -62,7 +59,7 @@ impl FixpAcceptor {
         }
         let registry = Arc::new(FixpRegistry::with_storage(storage).with_clock(config.clock.clone()));
         let limits = Arc::new(Limits::new(DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP));
-        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, message_log: None })
+        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits })
     }
 
     /// Keeps at most `connections` connections open at once, and at most `per_ip` from one IP
@@ -70,14 +67,6 @@ impl FixpAcceptor {
     #[must_use]
     pub fn with_max_connections(mut self, connections: usize, per_ip: usize) -> Self {
         self.limits = Arc::new(Limits::new(connections, per_ip));
-        self
-    }
-
-    /// Shows every message each session receives and sends, as its bytes on the wire, to `log`;
-    /// see [`FixpSession::with_message_log`].
-    #[must_use]
-    pub fn with_message_log(mut self, log: Arc<dyn MessageLog>) -> Self {
-        self.message_log = Some(log);
         self
     }
 
@@ -163,9 +152,8 @@ impl FixpAcceptor {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let (mut session, commands) =
+        let (session, commands) =
             FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
-        session.message_log = self.message_log.clone();
         let session = session.with_connection(connection);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
@@ -195,7 +183,6 @@ pub struct FixpInitiator {
     /// endpoint names its own.
     #[cfg(feature = "tls")]
     tls: Option<(crate::tls::TlsConnector, String)>,
-    message_log: Option<Arc<dyn MessageLog>>,
 }
 
 impl std::fmt::Debug for FixpInitiator {
@@ -236,7 +223,6 @@ impl FixpInitiator {
             shutdown: Arc::new(Shutdown::new()),
             #[cfg(feature = "tls")]
             tls: None,
-            message_log: None,
         })
     }
 
@@ -246,14 +232,6 @@ impl FixpInitiator {
     #[must_use]
     pub fn with_failover(mut self, endpoint: impl Into<Endpoint>) -> Self {
         self.endpoints.push(endpoint.into());
-        self
-    }
-
-    /// Shows every message the session receives and sends, as its bytes on the wire, to `log`;
-    /// see [`FixpSession::with_message_log`].
-    #[must_use]
-    pub fn with_message_log(mut self, log: Arc<dyn MessageLog>) -> Self {
-        self.message_log = Some(log);
         self
     }
 
@@ -426,21 +404,14 @@ impl FixpInitiator {
         Ok(stream)
     }
 
-    /// A session for one connection, showing its messages to the message log, if there is one.
-    fn new_session(&self) -> (FixpSession, CommandReceiver<SbeMessage>) {
-        let (mut session, commands) =
-            FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
-        session.message_log = self.message_log.clone();
-        (session, commands)
-    }
-
     /// Runs a session over `stream` until the connection ends: whether it was established, and how
     /// it ended.
     async fn run_session<S>(&self, stream: S) -> (bool, io::Result<()>)
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let (session, commands) = self.new_session();
+        let (session, commands) =
+            FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
         let mut established = false;
         let signal = Some(self.shutdown.signal());
         let result = connection::run_tracked(stream, session, commands, &mut established, signal).await;
@@ -457,7 +428,8 @@ impl FixpInitiator {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let _open = self.shutdown.track();
-        let (session, commands) = self.new_session();
+        let (session, commands) =
+            FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
 

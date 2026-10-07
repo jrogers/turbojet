@@ -50,6 +50,7 @@ mod session;
 
 use std::fmt;
 use std::io;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -59,6 +60,7 @@ pub use endpoints::{FixpAcceptor, FixpInitiator};
 pub use messages::{EstablishmentRejectCode, FlowType, NegotiationRejectCode, TerminationCode};
 pub use session::FixpSession;
 
+use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
 use crate::sbe::{Encode, SbeError};
@@ -198,6 +200,10 @@ pub struct FixpConfig {
     /// Off by default: they cost a clock read per inbound message, and a few per batch.
     #[cfg(feature = "metrics")]
     pub latency_metrics: bool,
+    /// Sees every message the session receives and sends, as its bytes on the wire (see
+    /// [`MessageLog`]). `None` by default. A server's log sees a client's
+    /// first `Negotiate` or `Establish` with no session, since that's what binds it.
+    pub message_log: Option<Arc<dyn MessageLog>>,
 }
 
 impl FixpConfig {
@@ -219,6 +225,7 @@ impl FixpConfig {
             clock: Clock::system(),
             #[cfg(feature = "metrics")]
             latency_metrics: false,
+            message_log: None,
         }
     }
 

@@ -1018,9 +1018,10 @@ async fn the_message_log_sees_both_directions_on_the_wire() {
     let net = Net::new();
     let (client_log, server_log) = (Arc::new(Logged::default()), Arc::new(Logged::default()));
     let start = |end: &End, stream, log: &Arc<Logged>| {
-        let (session, commands) =
-            FixpSession::new(end.config.clone(), end.registry.clone(), end.app.clone(), Instant::now());
-        tokio::spawn(super::super::run(stream, session.with_message_log(log.clone()), commands))
+        let mut config = end.config.clone();
+        config.message_log = Some(log.clone());
+        let (session, commands) = FixpSession::new(config, end.registry.clone(), end.app.clone(), Instant::now());
+        tokio::spawn(super::super::run(stream, session, commands))
     };
     let server_task = start(&net.server, server_stream, &server_log);
     let client_task = start(&net.client, client_stream, &client_log);

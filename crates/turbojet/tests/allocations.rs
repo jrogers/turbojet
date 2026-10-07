@@ -457,10 +457,10 @@ fn fixp_step(session: &mut FixpSession, bytes: &[u8], now: Instant) -> Vec<u8> {
 fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.len()] {
     let now = Instant::now();
     let server_registry = Arc::new(FixpRegistry::with_storage(Arc::new(StagedStorage(storage))));
-    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
-    let (server, _server_commands) = FixpSession::new(config, server_registry, Arc::new(FixpAcker), now);
+    let mut config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
     // `feed` shows each message to the log; `fixp_feed` shows it the answers.
-    let mut server = server.with_message_log(Arc::new(NoLog));
+    config.message_log = Some(Arc::new(NoLog));
+    let (mut server, _server_commands) = FixpSession::new(config, server_registry, Arc::new(FixpAcker), now);
     let client_registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
     let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
     let (mut client, _client_commands) = FixpSession::new(config, client_registry, Arc::new(FixpAcker), now);

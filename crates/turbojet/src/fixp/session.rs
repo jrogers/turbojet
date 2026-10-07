@@ -172,8 +172,6 @@ pub struct FixpSession {
     finishing: bool,
     /// The connection the session runs on, for [`FixpApplication::verify`].
     connection: ConnectionInfo,
-    /// Set by [`with_message_log`](Self::with_message_log), or by an endpoint for each session.
-    pub(super) message_log: Option<Arc<dyn MessageLog>>,
 }
 
 impl fmt::Debug for FixpSession {
@@ -242,7 +240,6 @@ impl FixpSession {
             store_failed: false,
             finishing: false,
             connection: ConnectionInfo::default(),
-            message_log: None,
         };
         (session, receiver)
     }
@@ -255,22 +252,15 @@ impl FixpSession {
         self
     }
 
-    /// Shows every message the session receives and sends, as its bytes on the wire, to `log`
-    /// (see [`MessageLog`]). None by default.
-    #[must_use]
-    pub fn with_message_log(mut self, log: Arc<dyn MessageLog>) -> Self {
-        self.message_log = Some(log);
-        self
-    }
-
-    /// The [`MessageLog`] this session's messages go to, if any. Turbojet's drivers call it; a
+    /// The [`MessageLog`] this session's messages go to, if any: its
+    /// [`FixpConfig::message_log`]. Turbojet's drivers call it; a
     /// driver of your own calls [`MessageLog::outbound`] with each message in
     /// [`output`](Self::output) as it takes it. [`feed`](Self::feed) calls
     /// [`MessageLog::inbound`] itself. Each message there starts with its Simple Open Framing
     /// Header, whose first 4 bytes, big-endian, are the message's length, the header included.
     #[must_use]
     pub fn message_log(&self) -> Option<&dyn MessageLog> {
-        self.message_log.as_deref()
+        self.config.message_log.as_deref()
     }
 
     /// The session's ID, once it's bound to its log: a client's from
@@ -1517,7 +1507,7 @@ impl FixpSession {
             match framing::frame(&buf[consumed..]) {
                 Framed::Message(len) => {
                     debug_assert!(len > framing::HEADER);
-                    if let Some(log) = &self.message_log {
+                    if let Some(log) = &self.config.message_log {
                         log.inbound(self.session_id(), &buf[consumed..consumed + len]);
                     }
                     let frame = consumed + framing::HEADER..consumed + len;
