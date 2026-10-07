@@ -53,7 +53,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   even with different SubIDs that would make it another session.
 - A `MessageLog` sees an acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`)
   with no `SessionId`, and the acceptor's own log sees it even when a `Counterparty` sets
-  another for the rest. An outbound message is logged as it's queued to be written, so one may be
+  another for the rest. Anything sent on a connection whose Logon is refused, or whose FIXP
+  handshake is refused before the session's log is open, is logged with no `SessionId` too. An outbound message is logged as it's queued to be written, so one may be
   logged that a failing connection never writes, and the replies to a batch of input are logged
   after the whole batch. Garbled input the codec skips isn't logged. The bytes are raw,
   Password(554), NewPassword(925) and FIXP credentials included.

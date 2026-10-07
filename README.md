@@ -854,20 +854,20 @@ server's first `Negotiate` or `Establish`) comes with no `SessionId`, to the acc
 
 ```rust
 #[derive(Debug)]
-struct Audit(Mutex<Sender<(bool, Option<String>, Vec<u8>)>>);
+struct Audit(Sender<(bool, Option<String>, Vec<u8>)>);
 
 impl MessageLog for Audit {
     fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
         let entry = (true, session.map(ToString::to_string), frame.to_vec());
-        let _ = self.0.lock().unwrap().send(entry);
+        let _ = self.0.send(entry);
     }
     fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
         let entry = (false, session.map(ToString::to_string), frame.to_vec());
-        let _ = self.0.lock().unwrap().send(entry);
+        let _ = self.0.send(entry);
     }
 }
 
-config.message_log = Some(Arc::new(Audit(Mutex::new(sender))));
+config.message_log = Some(Arc::new(Audit(sender)));
 ```
 
 **Metrics** use the [`metrics`](https://docs.rs/metrics) facade, behind turbojet's optional

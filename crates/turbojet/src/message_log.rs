@@ -30,28 +30,28 @@ use crate::SessionId;
 /// The message itself names the counterparty.
 ///
 /// ```
-/// use std::sync::Mutex;
 /// use std::sync::mpsc::{Sender, channel};
 ///
 /// use turbojet::{MessageLog, SessionId};
 ///
-/// /// Hands each message to a thread that writes the audit trail.
+/// /// Hands each message to a thread that writes the audit trail. The channel is unbounded, so it
+/// /// grows if the writer falls behind; use a bounded one, with `try_send`, to cap it.
 /// #[derive(Debug)]
-/// struct Audit(Mutex<Sender<(bool, Option<String>, Vec<u8>)>>);
+/// struct Audit(Sender<(bool, Option<String>, Vec<u8>)>);
 ///
 /// impl MessageLog for Audit {
 ///     fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
 ///         let entry = (true, session.map(ToString::to_string), frame.to_vec());
-///         let _ = self.0.lock().unwrap().send(entry);
+///         let _ = self.0.send(entry);
 ///     }
 ///     fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
 ///         let entry = (false, session.map(ToString::to_string), frame.to_vec());
-///         let _ = self.0.lock().unwrap().send(entry);
+///         let _ = self.0.send(entry);
 ///     }
 /// }
 ///
 /// let (sender, receiver) = channel();
-/// let audit = Audit(Mutex::new(sender));
+/// let audit = Audit(sender);
 /// audit.inbound(None, b"8=FIX.4.4\x01...");
 /// assert!(receiver.recv().unwrap().0);
 /// ```
