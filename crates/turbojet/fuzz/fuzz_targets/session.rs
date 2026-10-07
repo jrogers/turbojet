@@ -167,11 +167,19 @@ impl Application for App {
     }
 }
 
+/// The MsgSeqNum the session should send next, and the numbers an operator moved it to during a
+/// resend, in order. Messages held behind a resend already have their numbers, so they go out
+/// before the operator's.
+struct Outgoing {
+    next: u64,
+    operator: Vec<u64>,
+}
+
 /// Commits what the session did, checks what it sent, and takes it from its output. Returns false once it has
 /// disconnected. With `may_skip`, new messages may skip sequence numbers: a ResendRequest fed in
 /// during a resend replaces it, dropping the new messages held behind it, and the counterparty
 /// finds the gap.
-fn check(session: &mut Session, now: Instant, next_out: &mut u64, may_skip: bool) -> bool {
+fn check(session: &mut Session, now: Instant, out: &mut Outgoing, may_skip: bool) -> bool {
     session.commit_blocking(now);
     let mut rest = session.output();
     while !rest.is_empty() {
@@ -184,21 +192,25 @@ fn check(session: &mut Session, now: Instant, next_out: &mut u64, may_skip: bool
         let seq: u64 = msg.field(tags::MSG_SEQ_NUM).unwrap();
         // A Logon with ResetSeqNumFlag (answering an intraday reset) starts again at 1.
         if msg.msg_type() == MsgType::Logon && msg.flag(tags::RESET_SEQ_NUM_FLAG) {
-            *next_out = 1;
+            out.next = 1;
         }
         if msg.flag(tags::POSS_DUP_FLAG) {
-            assert!(seq < *next_out, "resent {seq}, but only sent up to {}: {msg}", *next_out - 1);
+            assert!(seq < out.next, "resent {seq}, but only sent up to {}: {msg}", out.next - 1);
             continue;
         }
-        if may_skip {
-            assert!(seq >= *next_out, "{msg}");
-            *next_out = seq;
+        if let Some(i) = out.operator.iter().position(|&n| n == seq) {
+            out.operator.drain(..=i);
+            out.next = seq;
         }
-        assert_eq!(seq, *next_out, "{msg}");
-        *next_out += 1;
+        if may_skip {
+            assert!(seq >= out.next, "{msg}");
+            out.next = seq;
+        }
+        assert_eq!(seq, out.next, "{msg}");
+        out.next += 1;
         if msg.msg_type() == MsgType::SequenceReset && !msg.flag(tags::GAP_FILL_FLAG) {
             // An operator's SequenceReset-Reset: sending continues from NewSeqNo.
-            *next_out = msg.field(tags::NEW_SEQ_NO).unwrap();
+            out.next = msg.field(tags::NEW_SEQ_NO).unwrap();
         }
     }
     session.clear_output();
@@ -241,7 +253,7 @@ fuzz_target!(|input: Input| {
     let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
     let mut now = Instant::now();
     let heartbeat = 1 + u32::from(input.heartbeat_secs % 60);
-    let mut next_out = 1;
+    let mut out = Outgoing { next: 1, operator: Vec::new() };
     let resend_batch = u64::from(input.resend_batch % 4) + 1;
     let (mut session, _commands) = if input.initiator {
         let mut config = InitiatorConfig::new(config, "CLIENT");
@@ -249,7 +261,7 @@ fuzz_target!(|input: Input| {
         let (mut session, commands) = Session::initiator(&config, registry.clone(), Arc::new(App), now);
         session.set_resend_batch(resend_batch);
         session.on_connect(now);
-        assert!(check(&mut session, now, &mut next_out, false));
+        assert!(check(&mut session, now, &mut out, false));
         (session, commands)
     } else {
         let (mut session, commands) = Session::acceptor(config, registry.clone(), Arc::new(App), now);
@@ -262,10 +274,10 @@ fuzz_target!(|input: Input| {
     if input.fixt {
         fields.extend_from_slice(b"1137=9\x01");
     }
-    push_fields(&mut fields, &input.logon, 1, next_out);
+    push_fields(&mut fields, &input.logon, 1, out.next);
     let Some(logon) = inbound(&begin_string, "A", 1, false, 0, &fields) else { return };
     session.on_message(&logon, now);
-    if !check(&mut session, now, &mut next_out, false) {
+    if !check(&mut session, now, &mut out, false) {
         return;
     }
 
@@ -276,14 +288,14 @@ fuzz_target!(|input: Input| {
                 let msg_type = MSG_TYPES[usize::from(msg.msg_type) % MSG_TYPES.len()];
                 let seq = msg.seq.resolve(next_in);
                 let mut fields = Vec::new();
-                push_fields(&mut fields, &msg.fields, next_in, next_out);
+                push_fields(&mut fields, &msg.fields, next_in, out.next);
                 let Some(msg) = inbound(&begin_string, msg_type, seq, msg.poss_dup, msg.omit, &fields) else {
                     continue;
                 };
                 next_in = next_in.max(seq + 1);
                 let may_skip = session.is_resending();
                 session.on_message(&msg, now);
-                if !check(&mut session, now, &mut next_out, may_skip) {
+                if !check(&mut session, now, &mut out, may_skip) {
                     break;
                 }
             }
@@ -300,6 +312,7 @@ fuzz_target!(|input: Input| {
             Step::Resume => session.on_resume(now),
             Step::Disconnect => session.on_disconnect(now),
             Step::Sequence(request) => {
+                let sets_outgoing = matches!(request, Sequence::SetNextOutgoing(_));
                 let request = match request {
                     Sequence::Get => SequenceCommand::Get,
                     Sequence::SetNextIncoming(seq) => SequenceCommand::SetNextIncoming(seq.resolve(next_in)),
@@ -308,24 +321,28 @@ fuzz_target!(|input: Input| {
                 };
                 let (reply, mut numbers) = oneshot::channel();
                 session.on_command(Command::Sequence(request, reply), now);
-                if !check(&mut session, now, &mut next_out, false) {
+                if !check(&mut session, now, &mut out, false) {
                     break;
                 }
                 // The operator may move either number anywhere, backwards included.
                 if let Ok(Ok(numbers)) = numbers.try_recv() {
                     next_in = numbers.next_incoming;
-                    next_out = numbers.next_outgoing;
+                    if !session.is_resending() {
+                        out = Outgoing { next: numbers.next_outgoing, operator: Vec::new() };
+                    } else if sets_outgoing {
+                        out.operator.push(numbers.next_outgoing);
+                    }
                 }
             }
         }
-        if !check(&mut session, now, &mut next_out, false) {
+        if !check(&mut session, now, &mut out, false) {
             break;
         }
         // Each step covers at least one sequence number, and a range is at most the u16 an
-        // operator can set next_out to, so this ends.
+        // operator can set the next outgoing number to, so this ends.
         while input.resume_at_once && session.is_resending() {
             session.on_resume(now);
-            if !check(&mut session, now, &mut next_out, false) {
+            if !check(&mut session, now, &mut out, false) {
                 break;
             }
         }
