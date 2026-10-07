@@ -226,6 +226,7 @@ pub mod fields;
 pub mod fixp;
 pub mod initiator;
 pub mod message;
+mod message_log;
 pub mod peer;
 mod reconnect;
 pub mod registry;
@@ -248,6 +249,7 @@ pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
+pub use message_log::MessageLog;
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use reconnect::ReconnectPolicy;
 pub use registry::{

@@ -2555,10 +2555,10 @@ fn shutdown_before_logon_disconnects() {
 
 /// Storage whose logs fail every write after the first `ok_writes` (counted per log), or with
 /// `once`, only the one after them, over a memory store that keeps its state across reopening.
-struct FailingStorage {
-    ok_writes: usize,
-    once: bool,
-    inner: MemoryStorage,
+pub(crate) struct FailingStorage {
+    pub(crate) ok_writes: usize,
+    pub(crate) once: bool,
+    pub(crate) inner: MemoryStorage,
 }
 
 struct FailingLog {
@@ -2654,7 +2654,7 @@ fn storage_failure_during_logon_sends_no_resend() {
 
 /// Logon uses three writes: our Logon reply, the incoming sequence number, and the window the
 /// first batch is handed over in.
-const LOGON_WRITES: usize = 3;
+pub(crate) const LOGON_WRITES: usize = 3;
 
 /// The order was handed over, but its reply couldn't be stored: the session disconnects without
 /// recording the order as received, so it's resent, inside the window, and marked.

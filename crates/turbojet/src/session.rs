@@ -34,6 +34,7 @@ use crate::fields::{
 };
 use crate::initiator::InitiatorConfig;
 use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags};
+use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{
     Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
@@ -217,6 +218,10 @@ pub struct SessionConfig {
     /// per inbound message, and a few per batch.
     #[cfg(feature = "metrics")]
     pub latency_metrics: bool,
+    /// Sees every message the session receives and sends, as its bytes on the wire (see
+    /// [`MessageLog`]). `None` by default. An acceptor's own log sees a counterparty's Logon;
+    /// a [`Counterparty`]'s config may set another for the rest.
+    pub message_log: Option<Arc<dyn MessageLog>>,
 }
 
 impl SessionConfig {
@@ -248,6 +253,7 @@ impl SessionConfig {
             validator: None,
             #[cfg(feature = "metrics")]
             latency_metrics: false,
+            message_log: None,
         }
     }
 
@@ -764,6 +770,14 @@ impl Session {
         self.peer.as_ref().map(|p| &p.id)
     }
 
+    /// The [`MessageLog`] this session's messages go to, if any. Turbojet's drivers call it; a
+    /// driver of your own calls [`MessageLog::inbound`] with each frame before
+    /// [`on_message`](Self::on_message), and [`MessageLog::outbound`] with each message in
+    /// [`output`](Self::output) as it takes it.
+    pub fn message_log(&self) -> Option<&dyn MessageLog> {
+        self.config.message_log.as_deref()
+    }
+
     /// Whether the session is logged on: Logon exchanged, and logout not yet started.
     pub fn is_logged_on(&self) -> bool {
         self.status == Status::Active
@@ -778,7 +792,8 @@ impl Session {
     /// Encoded messages to write to the counterparty, in order, since the last
     /// [`clear_output`](Self::clear_output): it grows until cleared. It holds only what the store
     /// has committed, so call [`take_commit`](Self::take_commit) after each call into the session.
-    /// Once [`is_closed`](Self::is_closed), write them, then close the connection.
+    /// Once [`is_closed`](Self::is_closed), write them, then close the connection. Hand each to
+    /// the [`message_log`](Self::message_log), if there is one, as you take it.
     pub fn output(&self) -> &[u8] {
         debug_assert!(self.committed <= self.output.len(), "only output that exists is committed");
         &self.output[..self.committed]
@@ -1064,7 +1079,8 @@ impl Session {
         }
     }
 
-    /// A message was decoded from the transport.
+    /// A message was decoded from the transport. Hand its frame to the
+    /// [`message_log`](Self::message_log), if there is one, first.
     pub fn on_message(&mut self, msg: &Message, now: Instant) {
         self.wall_clock.set(None);
         if self.opening_log.is_some() {
@@ -3273,4 +3289,4 @@ fn empty_field(msg: &Message) -> Option<u32> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

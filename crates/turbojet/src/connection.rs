@@ -14,10 +14,11 @@ use tracing::{Instrument, debug, warn};
 
 use crate::codec::{DecodedInto, decode_into};
 use crate::message::Message;
+use crate::message_log::MessageLog;
 use crate::registry::{Command, CommandReceiver, Next, Sends};
 use crate::session::Session;
 use crate::shutdown::Signal;
-use crate::store::{Commit, Job, SentMessages, SessionLog};
+use crate::store::{Commit, Job, SentMessages, SessionId, SessionLog};
 use crate::telemetry::{self, LatencyMetrics, SessionMetrics};
 
 // The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
@@ -102,6 +103,10 @@ pub(crate) trait Driven {
     fn on_committed(&mut self, result: io::Result<()>, now: std::time::Instant);
     fn on_fetched(&mut self, result: io::Result<SentMessages>, now: std::time::Instant);
     fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: std::time::Instant);
+    fn message_log(&self) -> Option<&dyn MessageLog>;
+    fn session_id(&self) -> Option<&SessionId>;
+    /// The length of the frame at the start of `output`, which holds whole frames.
+    fn frame_len(output: &[u8]) -> usize;
     /// Hands the session the complete messages at the start of `buf`, removing them, until it
     /// must stop: it's resending, closed, waiting for its store or its inbound window. Returns
     /// whether input was left waiting for one of those to end, rather than for more to arrive.
@@ -736,8 +741,21 @@ impl<P: Driven> Driver<P> {
         }
     }
 
-    /// Moves what the session sent into the outbox, counting the bytes either way.
+    /// Moves what the session sent into the outbox, counting the bytes either way, and shows each
+    /// message to the message log. Only here is the session's output final: it cuts back what its
+    /// store fails to commit, and messages held behind a resend arrive after it.
     fn stage_output(&mut self) {
+        if let Some(log) = self.session.message_log() {
+            let id = self.session.session_id();
+            let mut rest = self.session.output();
+            while !rest.is_empty() {
+                let len = P::frame_len(rest);
+                debug_assert!(len > 0);
+                debug_assert!(len <= rest.len());
+                log.outbound(id, &rest[..len]);
+                rest = &rest[len..];
+            }
+        }
         if let Some(metrics) = self.session.metrics() {
             metrics.bytes_received(std::mem::take(&mut self.unattributed_bytes));
             metrics.bytes_sent(self.session.output().len());
@@ -1160,6 +1178,15 @@ impl Driven for Session {
     fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: std::time::Instant) {
         self.on_opened(result, now);
     }
+    fn message_log(&self) -> Option<&dyn MessageLog> {
+        self.message_log()
+    }
+    fn session_id(&self) -> Option<&SessionId> {
+        self.session_id()
+    }
+    fn frame_len(output: &[u8]) -> usize {
+        crate::codec::frame_stored(output).expect("the session frames what it sends")
+    }
     fn feed(&mut self, buf: &mut Vec<u8>, scratch: &mut Message, now: std::time::Instant) -> bool {
         feed(self, buf, scratch, now)
     }
@@ -1185,6 +1212,9 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
             DecodedInto::Message(len) => {
                 // Each turn of the loop moves on, so it ends.
                 debug_assert!(len > 0);
+                if let Some(log) = session.message_log() {
+                    log.inbound(session.session_id(), &buf[consumed..consumed + len]);
+                }
                 consumed += len;
                 debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
                 session.on_message(scratch, now);
@@ -1397,6 +1427,134 @@ mod tests {
 
     fn order(id: &str) -> Message {
         Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id)
+    }
+
+    /// Every message the log saw: inbound or not, the session it named, the bytes.
+    #[derive(Debug, Default)]
+    struct Recorded(std::sync::Mutex<Vec<Logged>>);
+
+    type Logged = (bool, Option<String>, Vec<u8>);
+
+    impl crate::MessageLog for Recorded {
+        fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
+            self.0.lock().unwrap().push((true, session.map(ToString::to_string), frame.to_vec()));
+        }
+        fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
+            self.0.lock().unwrap().push((false, session.map(ToString::to_string), frame.to_vec()));
+        }
+    }
+
+    impl Recorded {
+        /// Each message's direction and the message, in the order seen.
+        fn messages(&self) -> Vec<(bool, Message)> {
+            let decoded = |frame: &[u8]| match crate::codec::decode(frame) {
+                Decoded::Message(msg, len) if len == frame.len() => msg,
+                other => panic!("not one whole frame: {other:?}"),
+            };
+            self.0.lock().unwrap().iter().map(|(inbound, _, frame)| (*inbound, decoded(frame))).collect()
+        }
+
+        /// The outbound messages' MsgSeqNum and PossDupFlag, in the order seen.
+        fn sent(&self) -> Vec<(Option<String>, Option<String>)> {
+            let sent = self.messages().into_iter().filter(|(inbound, _)| !inbound);
+            sent.map(|(_, msg)| seq_and_poss_dup(&msg)).collect()
+        }
+    }
+
+    fn seq_and_poss_dup(msg: &Message) -> (Option<String>, Option<String>) {
+        (msg.get(tags::MSG_SEQ_NUM).map(String::from), msg.get(tags::POSS_DUP_FLAG).map(String::from))
+    }
+
+    fn logging_to(log: &Arc<Recorded>) -> SessionConfig {
+        let mut config = SessionConfig::new("FIX.4.2", "US");
+        config.message_log = Some(log.clone());
+        config
+    }
+
+    /// The log sees the Logons and an order and its reply, in the order they cross the wire, the
+    /// order as the peer wrote it, and no session until the acceptor's Logon identified it.
+    #[tokio::test]
+    async fn the_message_log_sees_both_directions_in_order() {
+        let log = Arc::new(Recorded::default());
+        let (mut peer, mut buf, _handle) = logged_on_with(logging_to(&log), 30).await;
+        let order_bytes = from_peer(2, order("A"));
+        peer.write_all(&order_bytes).await.unwrap();
+        receive(&mut peer, &mut buf, 1).await;
+
+        let types: Vec<_> = log.messages().into_iter().map(|(inbound, msg)| (inbound, msg.msg_type())).collect();
+        let expected = [
+            (true, MsgType::Logon),
+            (false, MsgType::Logon),
+            (true, MsgType::NewOrderSingle),
+            (false, MsgType::ExecutionReport),
+        ];
+        assert_eq!(types, expected);
+        let entries = log.0.lock().unwrap();
+        assert_eq!(entries[0].1, None, "the Logon that identifies the session");
+        assert!(entries[1..].iter().all(|(_, session, _)| session.as_deref() == Some("FIX.4.2:US->PEER")));
+        assert_eq!(entries[2].2, order_bytes);
+    }
+
+    /// A reply stored and framed, then cut back when a later write in its commit fails, isn't
+    /// written, so it isn't logged: what the log saw go out is exactly what the peer read.
+    #[tokio::test]
+    async fn the_message_log_sees_only_what_is_written() {
+        use crate::session::tests::{FailingStorage, LOGON_WRITES};
+        let log = Arc::new(Recorded::default());
+        // The reply's own write succeeds; the order's sequence number, after it, fails.
+        let ok_writes = LOGON_WRITES + 1;
+        let storage = FailingStorage { ok_writes, once: false, inner: crate::MemoryStorage::new() };
+        let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
+        let (ours, mut peer) = duplex(1 << 20);
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) = Session::acceptor(logging_to(&log), registry, Arc::new(Acker), now);
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        peer.write_all(&from_peer(2, order("A"))).await.unwrap();
+        let mut read = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut read)).await.unwrap().unwrap();
+
+        let entries = log.0.lock().unwrap();
+        let logged: Vec<u8> = entries.iter().filter(|(inbound, ..)| !inbound).flat_map(|(_, _, f)| f.clone()).collect();
+        assert_eq!(logged, read);
+        drop(entries);
+        let types: Vec<_> = log.messages().into_iter().map(|(inbound, msg)| (inbound, msg.msg_type())).collect();
+        // The order may arrive in the Logon's batch, before the Logon reply is staged.
+        assert!(types.contains(&(true, MsgType::NewOrderSingle)), "{types:?}");
+        assert!(!types.contains(&(false, MsgType::ExecutionReport)), "{types:?}");
+    }
+
+    /// Our own ResendRequest, which the session frames during a resend and holds until it ends,
+    /// reaches the log after the resend's last step, as it reaches the peer; so does a send made
+    /// once the resend has begun.
+    #[tokio::test]
+    async fn the_message_log_sees_held_messages_after_the_resend() {
+        // More than one step of a resend.
+        const ORDERS: u64 = 300;
+        let orders = usize::try_from(ORDERS).unwrap();
+        let log = Arc::new(Recorded::default());
+        let (mut peer, mut buf, handle) = logged_on_with(logging_to(&log), 30).await;
+        for seq in 2..ORDERS + 2 {
+            peer.write_all(&from_peer(seq, order(&format!("O{seq}")))).await.unwrap();
+        }
+        let mut read = receive(&mut peer, &mut buf, orders).await;
+
+        // Ahead of a gap (ORDERS + 2 is missing): the session resends, holding its own request.
+        let request = Message::new(MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, 1u64).with(tags::END_SEQ_NO, 0u64);
+        peer.write_all(&from_peer(ORDERS + 3, request)).await.unwrap();
+        // The gap fill for the Logon; then a send, once the resend has begun.
+        read.extend(receive(&mut peer, &mut buf, 1).await);
+        handle.send(order("SENT")).unwrap();
+        // The orders' replies again, our ResendRequest and the send.
+        read.extend(receive(&mut peer, &mut buf, orders + 2).await);
+
+        let mut sent = log.sent();
+        assert_eq!(sent.remove(0), (Some("1".into()), None), "the Logon reply");
+        assert_eq!(sent, read.iter().map(seq_and_poss_dup).collect::<Vec<_>>());
+        assert!(read[orders..=2 * orders].iter().all(|msg| msg.get(tags::POSS_DUP_FLAG) == Some("Y")));
+        assert_eq!(read[2 * orders + 1].msg_type(), MsgType::ResendRequest, "held until after");
+        assert_eq!(read[2 * orders + 2].get(tags::CL_ORD_ID), Some("SENT"));
     }
 
     /// Queued sends past the outbound limit wait for the window, and go out, in order, as soon as

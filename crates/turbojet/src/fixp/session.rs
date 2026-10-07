@@ -16,6 +16,7 @@ use super::{
 };
 use crate::connection::Driven;
 use crate::fields::{Precision, UtcTimestamp};
+use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{
     Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
@@ -1611,6 +1612,16 @@ impl Driven for FixpSession {
     }
     fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: Instant) {
         FixpSession::on_opened(self, result, now);
+    }
+    fn message_log(&self) -> Option<&dyn MessageLog> {
+        None
+    }
+    fn session_id(&self) -> Option<&SessionId> {
+        None
+    }
+    fn frame_len(output: &[u8]) -> usize {
+        let Framed::Message(len) = framing::frame(output) else { panic!("the session frames what it sends") };
+        len
     }
     fn feed(&mut self, buf: &mut Vec<u8>, _scratch: &mut (), now: Instant) -> bool {
         FixpSession::feed(self, buf, now)
