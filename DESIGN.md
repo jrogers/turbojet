@@ -243,10 +243,15 @@ invariants, and tests that look for bugs rather than confirm what already works.
   random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write
   deadlock in the connection driver, torn sequence-number records in `DiskStorage`, and an
   operator's skip ahead making a counterparty abandon a gap, all since fixed. It exercises outbound
-  limits and inbound `Delay`, but not `Reject` (see [CAVEATS.md](CAVEATS.md)).  ## Performance  ###
-  The hot path  The long-term goal is that a message in steady state, from the read buffer through
-  the session and application and back out to the socket, is neither copied nor allocated beyond
-  what the application itself asks for. Where it stands:
+  limits and inbound `Delay`, but not `Reject` (see [CAVEATS.md](CAVEATS.md)).
+
+## Performance
+
+### The hot path
+
+The long-term goal is that a message in steady state, from the read buffer through the session
+and application and back out to the socket, is neither copied nor allocated beyond what the
+application itself asks for. Where it stands:
 - A `Message` keeps all its fields in one buffer with an offset index (two allocations, not one per
   field), and each inbound frame is decoded into one `Message` reused for the connection, so
   decoding doesn't allocate once it has grown. It still copies each frame, once, out of the read
