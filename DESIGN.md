@@ -101,6 +101,31 @@ store.
   noise of before (one at a time 26.0 to 26.6 µs before, 26.0 to 26.2 µs after); with a log at
   both ends (the "roundtrip tcp, message log" group) one at a time is about 0.3 µs (1%) slower,
   at the edge of the noise, and 1,000 pipelined orders aren't slower.
+- **Message log files.** `FileMessageLog` keeps the calls off the disk: each appends a record
+  (the time, direction, length and session as a text line, then the frame) to a buffer under a
+  mutex, and a thread of its own swaps that buffer for an empty one and writes it. Swapping keeps
+  both buffers' capacity, so a warm log allocates nothing per message. A record's time is read as
+  it's appended, so it's the time the driver saw the message. The writer waits on a condition
+  variable when there's nothing to write, and an append wakes it only if it's waiting; after
+  waking, it sleeps a millisecond (`GATHER_INTERVAL`) to gather a batch. So a busy log costs the
+  session's task no system call per message, only about one wake-up per millisecond per log.
+  The buffer is bounded (`buffer_bytes_max`), and over it messages are counted and dropped rather
+  than block the session, with a `dropped` line written in their place; a failed write counts
+  its batch the same way, and the next write starts a new file. Files are rotated by UTC day and
+  size between batches, so a file can pass `file_bytes_max` by one batch. A file is never
+  appended to after reopening: the log starts the next number, so a file that a crash cut short
+  stays as it was. Retention deletes only files whose names the log would have made, by the day
+  in the name, so a file's last record is past retention before the file goes. No `fsync`: the
+  resend store is what must be durable, and the log's records survive a crash of the process.
+
+  Measured 2026-10-07 on an M3, under a load average of about 2.5 (not idle), criterion medians
+  with a log at both ends against the no-op log: one order at a time 27.5 µs against 26.5 µs
+  (26.8 µs with no log), replying from `on_message` 19.3 µs against 16.3 µs, and 1,000 pipelined
+  orders 1.39 ms against 1.11 ms, about 70 ns per record. One append on its own is about 128 ns,
+  36 of it reading the clock. The first version woke the writer for every message and formatted
+  the time with chrono's `format`: 33.1 µs, 22.8 µs and 2.07 ms. Writing nothing to disk, or
+  waking the writer every 10 ms rather than every 1, changes neither number, so what remains is
+  the append on the session's task.
 
 ## Storage
 

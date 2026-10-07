@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `FileMessageLog` is a `MessageLog` that writes every message to files in a directory, a new
+  one each UTC day and at a size limit, deleting files past an optional retention period, on a
+  thread of its own so sessions don't wait for the disk. `FileLogOptions` sets its limits. The
+  example gateway writes one with `--message-log DIR` and `--message-log-days N`.
 - `MessageLog` sees every message a session receives and sends, framed as on the wire, for an
   audit trail: set it in `SessionConfig::message_log` or `FixpConfig::message_log`.
   `Session::message_log` and `FixpSession::message_log` give it to a driver of one's own, and

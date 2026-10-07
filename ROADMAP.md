@@ -118,10 +118,10 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   and their state; starts, stops, logs out and resets them; triggers resends; and browses and
   searches the message log live. A web console on top is what commercial engines sell on. The
   gateway should use it.
-- **Message log retention** (M). A `MessageLog` that ships with Turbojet and writes both
-  directions to files, kept apart from the resend store and from diagnostic logging, with
-  rotation, compression, retention periods and archiving. Regulated firms must keep these for
-  years.
+- **Message log compression and archiving** (S). `FileMessageLog` rotates files and deletes them
+  after a retention period, but leaves compressing and archiving finished files to the operator.
+  Compressing them as they're finished would need a compression crate, behind a feature; a hook
+  called with each finished file would let one archive it.
 - **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass

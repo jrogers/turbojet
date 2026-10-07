@@ -56,7 +56,8 @@ cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --
       [--tls-client-ca ca.pem [--tls-client-auth optional] [--tls-match-comp-id]]] \
     [--schedule "daily 08:00-17:00 mon-fri America/New_York" [--holidays holidays.txt]] \
     [--inbound-limit 100/1s [--over-limit reject]] \
-    [--metrics-listen 127.0.0.1:9000 [--latency-metrics]] [--log-format json]
+    [--metrics-listen 127.0.0.1:9000 [--latency-metrics]] [--log-format json] \
+    [--message-log ./messages [--message-log-days 2555]]
 cargo run --example gateway --all-features -- --help   # every option, including --config FILE
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
@@ -870,6 +871,34 @@ impl MessageLog for Audit {
 
 config.message_log = Some(Arc::new(Audit(sender)));
 ```
+
+**Message log files.** `turbojet::FileMessageLog` is a `MessageLog` that writes both directions to
+files in one directory, kept apart from the store and from diagnostic logging. A new file is
+started each UTC day, when the current one reaches `file_bytes_max` (256 MiB by default), and when
+the log is opened; files are named `messages-YYYYMMDD-NNNNNN.log`. With `retention` set, files whose
+day ended longer ago than that are deleted. Each message is a line
+`<time> <in|out> <length> <session>` (the time in UTC to the microsecond, the session `-` until
+it's known), then the message's bytes and a newline, so FIX messages read as they stand and
+binary FIXP ones by their length. The calls copy each message into a buffer that a thread of the
+log's own writes out, so they don't wait for the disk. A message that would pass the buffer's
+limit (`buffer_bytes_max`, 16 MiB by default) is dropped, and a line `<time> dropped <count>`
+shows the gap. The example gateway writes one with `--message-log DIR` (and
+`--message-log-days N`).
+
+```rust
+let options = FileLogOptions { retention: Some(Duration::from_secs(7 * 365 * 86_400)), ..Default::default() };
+config.message_log = Some(Arc::new(FileMessageLog::open("/var/log/fix", options)?));
+```
+
+```text
+20261007-22:33:54.251693 in 97 -
+8=FIX.4.2|9=75|35=A|49=CLIENT1|56=GATEWAY|34=1|52=20261007-22:33:54.249|98=0|108=30|141=Y|10=051|
+20261007-22:33:54.252557 out 97 FIX.4.2:GATEWAY->CLIENT1
+8=FIX.4.2|9=75|35=A|49=GATEWAY|56=CLIENT1|34=1|52=20261007-22:33:54.251|98=0|108=30|141=Y|10=044|
+```
+
+(SOH shown as `|`.) Compression and archiving are left to the operator: a file is finished once
+a later one exists.
 
 **Metrics** use the [`metrics`](https://docs.rs/metrics) facade, behind turbojet's optional
 `metrics` feature. Install a recorder (e.g. `metrics-exporter-prometheus`) before starting

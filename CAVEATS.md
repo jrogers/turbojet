@@ -61,5 +61,11 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - A driver of one's own for a sans-IO `Session` makes both `MessageLog` calls itself; for a
   `FixpSession`, only the outbound one, since `feed` makes the inbound call.
 - The simulator (`turbojet-sim`) doesn't exercise a `MessageLog`; connection tests do.
+- `FileMessageLog` drops messages, and writes a `dropped` line with how many, rather than block a
+  session when its buffer is full (16 MiB by default) or a write fails. It doesn't `fsync`, so a
+  machine's crash can lose its last records. Records reach the file about a millisecond after
+  they're logged. A file can pass `file_bytes_max` by up to one batch. Two logs must not share a
+  directory. Dropping the log waits for its thread to write what it holds. It neither compresses
+  nor archives files; retention deletes them.
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.
