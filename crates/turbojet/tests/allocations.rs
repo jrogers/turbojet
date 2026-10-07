@@ -24,7 +24,9 @@ use turbojet::fixp::{
 };
 use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
-use turbojet::{Application, Context, DiskStorage, MemoryStorage, Message, MessageReject, SessionId};
+use turbojet::{
+    Application, Context, DiskStorage, MemoryStorage, Message, MessageLog, MessageReject, SessionConfig, SessionId,
+};
 use turbojet_fix42::{NewOrderSingle, NewOrderSingleRef, PreAllocGrp};
 
 #[global_allocator]
@@ -239,6 +241,16 @@ const WARM_UP: u64 = 100;
 /// Orders counted; budgets are totals over these.
 const COUNTED: u64 = 1_000;
 
+/// A message log that does nothing, set on every session here, and called as the connection driver
+/// calls it, so that the budgets cover the hook: the engine's side of it must allocate nothing.
+#[derive(Debug)]
+struct NoLog;
+
+impl MessageLog for NoLog {
+    fn inbound(&self, _session: Option<&SessionId>, _frame: &[u8]) {}
+    fn outbound(&self, _session: Option<&SessionId>, _frame: &[u8]) {}
+}
+
 /// Per-stage counts over COUNTED orders, each decoded from bytes into one reused message as the
 /// connection does (the warm-up grows it before counting starts), processed by a logged-on
 /// session with `storage`, acknowledged by the application, and the ack recorded in the store and
@@ -246,7 +258,9 @@ const COUNTED: u64 = 1_000;
 /// driver does.
 fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.len()] {
     let storage = Arc::new(StagedStorage(storage));
-    let mut session = common::logged_on(storage, Arc::new(StagedApp::default()));
+    let mut config = SessionConfig::new("FIX.4.2", "GATEWAY");
+    config.message_log = Some(Arc::new(NoLog));
+    let mut session = common::logged_on_with(config, storage, Arc::new(StagedApp::default()));
     let wire: Vec<Vec<u8>> = common::orders(WARM_UP + COUNTED).iter().map(|o| encode(o).unwrap()).collect();
     let now = Instant::now();
     let data = DataFields::standard();
@@ -257,7 +271,10 @@ fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.l
             counting::set_counting(true);
         }
         counting::in_stage(Stage::Decode, || match decode_into(bytes, &data, &mut msg) {
-            DecodedInto::Message(_) => {}
+            DecodedInto::Message(len) => {
+                let log = session.message_log().expect("a message log is set");
+                log.inbound(session.session_id(), &bytes[..len]);
+            }
             _ => panic!("order {i} didn't decode"),
         });
         counting::in_stage(Stage::Session, || {
@@ -266,6 +283,9 @@ fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.l
         });
         let out = session.output();
         assert!(out.starts_with(b"8=FIX.4.2\x01") && out.windows(5).any(|w| w == b"\x0135=8"), "order {i}: no ack");
+        // The ack is the only message out, so the output is its frame.
+        assert_eq!(out.windows(4).filter(|w| w == b"\x0110=").count(), 1, "order {i}: more than the ack");
+        counting::in_stage(Stage::Session, || session.message_log().unwrap().outbound(session.session_id(), out));
         session.clear_output();
     }
     counting::set_counting(false);
@@ -402,8 +422,8 @@ fn sofh_framed(msg: &impl turbojet::sbe::Encode) -> Vec<u8> {
 }
 
 /// Feeds `bytes` to `session` through `buf` (the driver's input buffer, reused), committing
-/// whenever input waits for it, as the driver does; then clears what it wrote, as the driver does
-/// once it's written, returning how many bytes that was.
+/// whenever input waits for it, as the driver does; then shows what it wrote to its message log
+/// and clears it, as the driver does once it's written, returning how many bytes that was.
 fn fixp_feed(session: &mut FixpSession, buf: &mut Vec<u8>, bytes: &[u8], now: Instant) -> usize {
     buf.extend_from_slice(bytes);
     while session.feed(buf, now) {
@@ -411,6 +431,9 @@ fn fixp_feed(session: &mut FixpSession, buf: &mut Vec<u8>, bytes: &[u8], now: In
     }
     assert!(session.take_commit().is_none(), "the stores commit at once");
     let written = session.output().len();
+    // One order, one answer, so the output is its frame. The session's id isn't public; passing it
+    // would cost nothing more.
+    session.message_log().expect("a message log is set").outbound(None, session.output());
     session.clear_output();
     written
 }
@@ -435,7 +458,9 @@ fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::
     let now = Instant::now();
     let server_registry = Arc::new(FixpRegistry::with_storage(Arc::new(StagedStorage(storage))));
     let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
-    let (mut server, _server_commands) = FixpSession::new(config, server_registry, Arc::new(FixpAcker), now);
+    let (server, _server_commands) = FixpSession::new(config, server_registry, Arc::new(FixpAcker), now);
+    // `feed` shows each message to the log; `fixp_feed` shows it the answers.
+    let mut server = server.with_message_log(Arc::new(NoLog));
     let client_registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
     let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
     let (mut client, _client_commands) = FixpSession::new(config, client_registry, Arc::new(FixpAcker), now);

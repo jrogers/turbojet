@@ -9,7 +9,8 @@
 //! has the initiator's application send each next order from `on_message` instead, as an
 //! application reacting to what it receives would, so only the first order and the last
 //! acknowledgement hop. "tcp, spinning" runs it with each end on a thread of its own, polling a
-//! non-blocking socket without waiting (`run_spinning`).
+//! non-blocking socket without waiting (`run_spinning`). "tcp, message log" sets a message log that
+//! does nothing at both ends, for what the hook costs.
 
 mod common;
 
@@ -24,8 +25,8 @@ use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc;
 use turbojet::connection::SpinningStream;
 use turbojet::{
-    Acceptor, Application, ConnectionInfo, Context, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject,
-    SessionConfig, SessionHandle, SessionStorage,
+    Acceptor, Application, ConnectionInfo, Context, DiskStorage, Initiator, InitiatorConfig, Message, MessageLog,
+    MessageReject, SessionConfig, SessionHandle, SessionId, SessionStorage,
 };
 
 /// Orders in flight at once in the pipelined benchmark.
@@ -66,29 +67,36 @@ struct Connection {
     client: Arc<Client>,
 }
 
-/// A FIX 4.2 session sent as `sender`, recording the latency histograms if `latency`.
-fn config(sender: &str, latency: bool) -> SessionConfig {
-    #[cfg_attr(not(feature = "metrics"), allow(unused_mut))]
+/// A message log that does nothing, for what the hook costs the driver.
+#[derive(Debug)]
+struct NoLog;
+
+impl MessageLog for NoLog {
+    fn inbound(&self, _session: Option<&SessionId>, _frame: &[u8]) {}
+    fn outbound(&self, _session: Option<&SessionId>, _frame: &[u8]) {}
+}
+
+/// A FIX 4.2 session sent as `sender`, changed by `tweak`.
+fn config(sender: &str, tweak: fn(&mut SessionConfig)) -> SessionConfig {
     let mut config = SessionConfig::new("FIX.4.2", sender);
-    #[cfg(feature = "metrics")]
-    {
-        config.latency_metrics = latency;
-    }
-    #[cfg(not(feature = "metrics"))]
-    assert!(!latency, "latency metrics need the metrics feature");
+    tweak(&mut config);
     config
 }
 
-/// Starts an acceptor storing to `storage` and a logged-on initiator. With `tls`, both use TLS;
-/// with `latency`, both record the latency histograms.
-async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, latency: bool) -> Connection {
-    let acceptor = Acceptor::new(config("GATEWAY", latency), storage, Arc::new(common::Acker::default())).unwrap();
+/// Starts an acceptor storing to `storage` and a logged-on initiator, both configured by `tweak`.
+/// With `tls`, both use TLS.
+async fn connect(
+    #[allow(unused)] tls: bool,
+    storage: Arc<dyn SessionStorage>,
+    tweak: fn(&mut SessionConfig),
+) -> Connection {
+    let acceptor = Acceptor::new(config("GATEWAY", tweak), storage, Arc::new(common::Acker::default())).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
 
     let (logged_on, mut logons) = mpsc::unbounded_channel();
     let (received, acks) = mpsc::unbounded_channel();
-    let mut config = InitiatorConfig::new(config("CLIENT", latency), "GATEWAY");
+    let mut config = InitiatorConfig::new(config("CLIENT", tweak), "GATEWAY");
     config.reset_on_logon = true;
     let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
     let initiator = Initiator::new(addr, config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
@@ -115,14 +123,14 @@ async fn connect(#[allow(unused)] tls: bool, storage: Arc<dyn SessionStorage>, l
 /// own. Shutting the initiator down ends both threads.
 async fn connect_spinning() -> (Connection, Initiator) {
     let acceptor =
-        Acceptor::new(config("GATEWAY", false), Arc::new(common::DiscardStorage), Arc::new(common::Acker::default()))
+        Acceptor::new(config("GATEWAY", |_| {}), Arc::new(common::DiscardStorage), Arc::new(common::Acker::default()))
             .unwrap();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
 
     let (logged_on, mut logons) = mpsc::unbounded_channel();
     let (received, acks) = mpsc::unbounded_channel();
-    let mut config = InitiatorConfig::new(config("CLIENT", false), "GATEWAY");
+    let mut config = InitiatorConfig::new(config("CLIENT", |_| {}), "GATEWAY");
     config.reset_on_logon = true;
     let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
     let initiator = Initiator::new(addr.to_string(), config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
@@ -173,20 +181,20 @@ fn spinning(c: &mut Criterion) {
 
 /// The latency and pipelined benchmarks, `window` orders in flight in the latter.
 fn transport(c: &mut Criterion, name: &str, tls: bool, storage: Arc<dyn SessionStorage>, window: u64) {
-    transport_with(c, name, tls, storage, window, false);
+    transport_with(c, name, tls, storage, window, |_| {});
 }
 
-/// [`transport`], recording the latency histograms if `latency`.
+/// [`transport`], both ends' sessions configured by `tweak`.
 fn transport_with(
     c: &mut Criterion,
     name: &str,
     tls: bool,
     storage: Arc<dyn SessionStorage>,
     window: u64,
-    latency: bool,
+    tweak: fn(&mut SessionConfig),
 ) {
     let runtime = Runtime::new().unwrap();
-    let mut conn = runtime.block_on(connect(tls, storage, latency));
+    let mut conn = runtime.block_on(connect(tls, storage, tweak));
     let mut next_id = 0u64;
     let mut group = c.benchmark_group(format!("roundtrip {name}"));
     if name.contains("fsync") {
@@ -325,6 +333,9 @@ fn resend(c: &mut Criterion) {
 fn roundtrip(c: &mut Criterion) {
     resend(c);
     transport(c, "tcp", false, Arc::new(common::DiscardStorage), WINDOW);
+    transport_with(c, "tcp, message log", false, Arc::new(common::DiscardStorage), WINDOW, |config| {
+        config.message_log = Some(Arc::new(NoLog));
+    });
     spinning(c);
     #[cfg(feature = "tls")]
     transport(c, "tls", true, Arc::new(common::DiscardStorage), WINDOW);
@@ -345,7 +356,7 @@ fn roundtrip(c: &mut Criterion) {
             false,
             Arc::new(common::DiscardStorage),
             WINDOW,
-            true,
+            |config| config.latency_metrics = true,
         );
     }
 }
