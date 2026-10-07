@@ -249,7 +249,7 @@ pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
-pub use message_log::MessageLog;
+pub use message_log::{DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, FileLogOptions, FileMessageLog, MessageLog};
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use reconnect::ReconnectPolicy;
 pub use registry::{
