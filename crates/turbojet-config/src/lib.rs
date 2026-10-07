@@ -125,8 +125,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use turbojet::store::{Opened, SessionLog};
 use turbojet::{
-    Acceptor, Application, Clock, ConnectionInfo, Counterparties, Counterparty, Message, SessionConfig, SessionId,
-    SessionRegistry, SessionStorage,
+    Acceptor, Application, Clock, ConnectionInfo, Counterparties, Counterparty, Message, MessageLog, SessionConfig,
+    SessionId, SessionRegistry, SessionStorage,
 };
 
 pub use crate::initiators::Initiators;
@@ -165,6 +165,7 @@ impl std::error::Error for Error {}
 pub struct SessionsFile {
     path: PathBuf,
     clock: Clock,
+    message_log: Option<Arc<dyn MessageLog>>,
     registered: HashMap<String, Arc<dyn SessionStorage>>,
     current: Arc<Current>,
     /// Held while reloading, so two reloads don't interleave.
@@ -186,10 +187,12 @@ impl Current {
     }
 }
 
-/// Loads a sessions file with stores registered in code, or a clock other than the system's.
+/// Loads a sessions file with stores registered in code, a clock other than the system's, or a
+/// message log.
 pub struct SessionsFileBuilder {
     path: PathBuf,
     clock: Clock,
+    message_log: Option<Arc<dyn MessageLog>>,
     registered: HashMap<String, Arc<dyn SessionStorage>>,
 }
 
@@ -218,16 +221,24 @@ impl SessionsFileBuilder {
         self
     }
 
+    /// Gives every session `log`, as [`SessionConfig::message_log`] does.
+    #[must_use]
+    pub fn with_message_log(mut self, log: Arc<dyn MessageLog>) -> Self {
+        self.message_log = Some(log);
+        self
+    }
+
     /// Reads and checks the file.
     ///
     /// # Errors
     ///
     /// If it can't be read, or doesn't load: see [`Error`].
     pub fn load(self) -> Result<SessionsFile, Error> {
-        let loaded = read(&self.path, &self.clock, &self.registered, None)?;
+        let loaded = read(&self.path, &self.clock, self.message_log.as_ref(), &self.registered, None)?;
         Ok(SessionsFile {
             path: self.path,
             clock: self.clock,
+            message_log: self.message_log,
             registered: self.registered,
             current: Arc::new(Current(RwLock::new(Arc::new(loaded)))),
             reloading: Mutex::new(()),
@@ -241,6 +252,7 @@ impl SessionsFileBuilder {
 fn read(
     path: &Path,
     clock: &Clock,
+    message_log: Option<&Arc<dyn MessageLog>>,
     registered: &HashMap<String, Arc<dyn SessionStorage>>,
     previous: Option<&Loaded>,
 ) -> Result<Loaded, Error> {
@@ -248,6 +260,7 @@ fn read(
     let context = Context {
         dir: path.parent().unwrap_or(Path::new(".")),
         clock,
+        message_log,
         registered,
         previous: previous.map(|p| &p.stores),
         previous_defined: previous.map(|p| &p.raw.store),
@@ -265,9 +278,9 @@ impl SessionsFile {
         Self::builder(path).load()
     }
 
-    /// Loads the file at `path` with stores registered in code, or another clock.
+    /// Loads the file at `path` with stores registered in code, another clock or a message log.
     pub fn builder(path: impl Into<PathBuf>) -> SessionsFileBuilder {
-        SessionsFileBuilder { path: path.into(), clock: Clock::system(), registered: HashMap::new() }
+        SessionsFileBuilder { path: path.into(), clock: Clock::system(), message_log: None, registered: HashMap::new() }
     }
 
     /// The address to listen on, `[acceptor] listen`, if the file has an acceptor.
@@ -377,7 +390,7 @@ impl SessionsFile {
         let _reloading = self.reloading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let in_file = |e: Error| Error::file(format!("{}: {e}", self.path.display()));
         let old = self.current.get();
-        let new = read(&self.path, &self.clock, &self.registered, Some(&old))?;
+        let new = read(&self.path, &self.clock, self.message_log.as_ref(), &self.registered, Some(&old))?;
         reload::check(&old, &new).map_err(in_file)?;
         if initiators.is_none() && !(old.initiators.is_empty() && new.initiators.is_empty()) {
             return Err(in_file(Error::at("initiator", "section", "reload a file with initiators with reload_all")));

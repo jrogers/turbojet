@@ -147,6 +147,7 @@ Notable changes to the published crates.
 - `max_sessions_per_counterparty`, in `[defaults]` or a counterparty's section.
 - A reload logs out every session of a counterparty no longer listed, whatever its SubIDs; it
   reached only the one without them.
+- `SessionsFileBuilder::with_message_log` gives every session in the file a `MessageLog`.
 
 ### `turbojet-sql`
 

@@ -843,8 +843,8 @@ as `***`. The gateway can emit JSON logs (`--log-format json`).
 **A message log** of one's own sees every message a session receives and sends, framed exactly as on
 the wire, for an audit trail or a store of what was received. Implement `turbojet::MessageLog`
 (`inbound` and `outbound`, each given the `SessionId`, if known yet, and the frame) and set it in
-`SessionConfig::message_log`, or for FIXP with `with_message_log` on a `FixpSession`, `FixpAcceptor`
-or `FixpInitiator`. Inbound messages are shown before the session handles them, outbound ones once
+`SessionConfig::message_log` (for a sessions file, `SessionsFileBuilder::with_message_log`), or for
+FIXP with `with_message_log` on a `FixpSession`, `FixpAcceptor` or `FixpInitiator`. Inbound messages are shown before the session handles them, outbound ones once
 the store has committed, as they're queued to be written. The calls are made on the session's task,
 so they must not block: hand the bytes to a channel or a buffer that something else writes out, as
 the trait's example does. Entries carry no timestamp, so stamp them yourself. The bytes are raw:

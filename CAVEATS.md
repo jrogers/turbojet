@@ -59,7 +59,6 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   Password(554), NewPassword(925) and FIXP credentials included.
 - A driver of one's own for a sans-IO `Session` makes both `MessageLog` calls itself; for a
   `FixpSession`, only the outbound one, since `feed` makes the inbound call.
-- A `MessageLog` is set in code: the sessions file (`turbojet-config`) can't set one. The
-  simulator (`turbojet-sim`) doesn't exercise it; connection tests do.
+- The simulator (`turbojet-sim`) doesn't exercise a `MessageLog`; connection tests do.
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.

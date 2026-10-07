@@ -13,7 +13,7 @@ use std::time::Duration;
 use turbojet::fields::{ApplVerId, FromFix, Precision};
 use turbojet::{
     CancelOnDisconnect, CancelTrigger, Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar, InboundLimit,
-    InitiatorConfig, MAX_CANCEL_GRACE, MemoryStorage, RateLimit, ReconnectPolicy, SessionConfig, SessionId,
+    InitiatorConfig, MAX_CANCEL_GRACE, MemoryStorage, MessageLog, RateLimit, ReconnectPolicy, SessionConfig, SessionId,
     SessionSchedule, SessionStorage,
 };
 
@@ -138,6 +138,8 @@ pub(crate) struct Context<'a> {
     pub dir: &'a Path,
     /// The clock every session uses, kept across reloads: the acceptor compares by identity.
     pub clock: &'a Clock,
+    /// The message log every session shows its messages to, if any.
+    pub message_log: Option<&'a Arc<dyn MessageLog>>,
     /// Stores registered in code, by name.
     pub registered: &'a HashMap<String, Arc<dyn SessionStorage>>,
     /// The stores of the file loaded before, to keep rather than open again.
@@ -180,7 +182,7 @@ fn load_acceptor(
     stores: &HashMap<String, Arc<dyn SessionStorage>>,
     dictionaries: &mut Dictionaries,
 ) -> Result<AcceptorPart, Error> {
-    let fixed = fixed(acceptor, context.clock)?;
+    let fixed = fixed(acceptor, context)?;
     #[cfg(feature = "tls")]
     let tls = tls(acceptor, context.dir)?;
     #[cfg(not(feature = "tls"))]
@@ -287,9 +289,10 @@ fn fixed_keys(
 }
 
 /// The acceptor's settings fixed until a restart.
-fn fixed(acceptor: &RawAcceptor, clock: &Clock) -> Result<SessionConfig, Error> {
+fn fixed(acceptor: &RawAcceptor, context: &Context<'_>) -> Result<SessionConfig, Error> {
     let mut config = SessionConfig::new(&acceptor.begin_string, &acceptor.sender_comp_id);
-    config.clock = clock.clone();
+    config.clock = context.clock.clone();
+    config.message_log = context.message_log.cloned();
     fixed_keys(&mut config, "acceptor", acceptor.logon_timeout.as_ref(), acceptor.send_queue)?;
     for (key, limit) in
         [("max_connections", acceptor.max_connections), ("max_connections_per_ip", acceptor.max_connections_per_ip)]
@@ -326,6 +329,7 @@ fn resolve_initiator(
     let sender_comp_id = sender_comp_id.ok_or_else(|| at("sender_comp_id", "needed without an [acceptor]".into()))?;
     let mut session = SessionConfig::new(begin_string, sender_comp_id);
     session.clock = context.clock.clone();
+    session.message_log = context.message_log.cloned();
     fixed_keys(&mut session, &section, own.logon_timeout.as_ref(), own.send_queue)?;
     let merged = settings.or(&raw.defaults);
     grace_needs_cancel(settings, &merged, &section)?;
@@ -705,7 +709,14 @@ mod tests {
     fn load_in(dir: &Path, text: &str) -> Result<Loaded, Error> {
         let clock = Clock::system();
         let registered = HashMap::new();
-        let context = Context { dir, clock: &clock, registered: &registered, previous: None, previous_defined: None };
+        let context = Context {
+            dir,
+            clock: &clock,
+            message_log: None,
+            registered: &registered,
+            previous: None,
+            previous_defined: None,
+        };
         parse(&format!("{ACCEPTOR}{text}"), &context)
     }
 
@@ -906,6 +917,7 @@ mod tests {
         let context = Context {
             dir: Path::new("."),
             clock: &clock,
+            message_log: None,
             registered: &registered,
             previous: None,
             previous_defined: None,
@@ -965,6 +977,7 @@ mod tests {
         let context = Context {
             dir: Path::new("."),
             clock: &clock,
+            message_log: None,
             registered: &registered,
             previous: None,
             previous_defined: None,
@@ -1051,12 +1064,40 @@ mod tests {
     }
 
     #[test]
+    fn every_session_gets_the_message_log() {
+        #[derive(Debug)]
+        struct Discard;
+        impl MessageLog for Discard {
+            fn inbound(&self, _: Option<&SessionId>, _: &[u8]) {}
+            fn outbound(&self, _: Option<&SessionId>, _: &[u8]) {}
+        }
+        let log: Arc<dyn MessageLog> = Arc::new(Discard);
+        let clock = Clock::system();
+        let registered = HashMap::new();
+        let context = Context {
+            dir: Path::new("."),
+            clock: &clock,
+            message_log: Some(&log),
+            registered: &registered,
+            previous: None,
+            previous_defined: None,
+        };
+        let loaded = parse(&format!("{ACCEPTOR}[counterparty.BROKER]\n{INITIATOR}"), &context).unwrap();
+        let has_log = |config: &SessionConfig| config.message_log.as_ref().is_some_and(|l| Arc::ptr_eq(l, &log));
+        assert!(has_log(&loaded.acceptor().base), "the acceptor's own, for a Logon");
+        assert!(has_log(&loaded.acceptor().settings("BROKER").counterparty.config));
+        assert!(has_log(&loaded.acceptor().settings("OTHER").counterparty.config), "unlisted");
+        assert!(has_log(&loaded.initiators["LSE"].config.session));
+    }
+
+    #[test]
     fn a_file_may_hold_only_initiators() {
         let clock = Clock::system();
         let registered = HashMap::new();
         let context = Context {
             dir: Path::new("."),
             clock: &clock,
+            message_log: None,
             registered: &registered,
             previous: None,
             previous_defined: None,
