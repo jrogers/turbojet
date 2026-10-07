@@ -27,6 +27,7 @@ const COMMANDS_PAUSE_AT: usize = 256 * 1024;
 const MAX_UNWRITTEN: usize = 16 * 1024 * 1024;
 const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 
+#[expect(clippy::large_enum_variant, reason = "a world has two, made once")]
 pub enum Role {
     Initiator(InitiatorConfig),
     Acceptor(SessionConfig),

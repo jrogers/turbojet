@@ -32,6 +32,17 @@ pub struct InitiatorConfig {
     pub session: SessionConfig,
     /// The counterparty's CompID.
     pub target_comp_id: String,
+    /// Our SenderSubID(50), sent on every message unless the application sets its own.
+    pub sender_sub_id: Option<String>,
+    /// Our SenderLocationID(142), sent on every message unless the application sets its own.
+    pub sender_location_id: Option<String>,
+    /// TargetSubID(57), sent on every message unless the application sets its own.
+    pub target_sub_id: Option<String>,
+    /// TargetLocationID(143), sent on every message unless the application sets its own.
+    pub target_location_id: Option<String>,
+    /// Tells this session apart from another with the same CompIDs, SubIDs and LocationIDs, as
+    /// two initiators logging on to the same counterparty must be. Never sent.
+    pub qualifier: Option<String>,
     /// HeartBtInt(108) to request: whole seconds from 1 to 3600, the range an acceptor accepts
     /// (see [`check`](Self::check)).
     pub heartbeat_interval: Duration,
@@ -66,6 +77,11 @@ impl InitiatorConfig {
         Self {
             session,
             target_comp_id: target_comp_id.into(),
+            sender_sub_id: None,
+            sender_location_id: None,
+            target_sub_id: None,
+            target_location_id: None,
+            qualifier: None,
             heartbeat_interval: Duration::from_secs(30),
             reset_on_logon: false,
             next_expected_msg_seq_num: false,
@@ -74,6 +90,19 @@ impl InitiatorConfig {
             connect_timeout: Duration::from_secs(10),
             local_addr: None,
             reconnect: ReconnectPolicy::default(),
+        }
+    }
+
+    /// The session this configuration logs on to: its BeginString, our CompID and the target's,
+    /// and the SubIDs, LocationIDs and qualifier given.
+    pub fn session_id(&self) -> SessionId {
+        SessionId {
+            sender_sub_id: self.sender_sub_id.clone(),
+            sender_location_id: self.sender_location_id.clone(),
+            target_sub_id: self.target_sub_id.clone(),
+            target_location_id: self.target_location_id.clone(),
+            qualifier: self.qualifier.clone(),
+            ..SessionId::new(&self.session.begin_string, &self.session.sender_comp_id, &self.target_comp_id)
         }
     }
 
@@ -250,8 +279,8 @@ impl Initiator {
     /// # Errors
     ///
     /// If `config` is invalid ([`InitiatorConfig::check`]), `endpoints` is empty, a TLS server
-    /// name in it is invalid, or `config` names another session (BeginString or either CompID) or
-    /// another clock than the one this initiator was made with: those make another initiator.
+    /// name in it is invalid, or `config` names another session (any part of its [`SessionId`])
+    /// or another clock than the one this initiator was made with: those make another initiator.
     pub fn reconfigure(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), ConfigError> {
         self.reconfigure_or(config, endpoints).map_err(ConfigError::from)
     }
@@ -267,6 +296,11 @@ impl Initiator {
             ("begin_string", now.begin_string == then.begin_string),
             ("sender_comp_id", now.sender_comp_id == then.sender_comp_id),
             ("target_comp_id", config.target_comp_id == current.config.target_comp_id),
+            ("sender_sub_id", config.sender_sub_id == current.config.sender_sub_id),
+            ("sender_location_id", config.sender_location_id == current.config.sender_location_id),
+            ("target_sub_id", config.target_sub_id == current.config.target_sub_id),
+            ("target_location_id", config.target_location_id == current.config.target_location_id),
+            ("qualifier", config.qualifier == current.config.qualifier),
             ("clock", now.clock.same_as(&then.clock)),
         ];
         if let Some((field, _)) = fixed.iter().find(|(_, same)| !same) {
@@ -315,14 +349,9 @@ impl Initiator {
         self.plan().endpoints.clone()
     }
 
-    /// The session this initiator logs on to: its BeginString, our CompID and the target's.
+    /// The session this initiator logs on to (see [`InitiatorConfig::session_id`]).
     pub fn session_id(&self) -> SessionId {
-        let config = &self.plan().config;
-        SessionId::new(
-            config.session.begin_string.clone(),
-            config.session.sender_comp_id.clone(),
-            config.target_comp_id.clone(),
-        )
+        self.plan().config.session_id()
     }
 
     /// A handle for sending on the session; valid across reconnects and failovers.

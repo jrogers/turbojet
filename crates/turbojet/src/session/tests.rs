@@ -561,6 +561,42 @@ fn an_acceptor_session_is_the_one_its_logon_names() {
     let named = client_id().with_sender_sub_id("OMS").with_target_sub_id("DESK").with_target_location_id("NY");
     assert_eq!(named.to_string(), "FIX.4.4:GATEWAY/OMS->CLIENT/DESK/NY");
     assert_eq!(connected, [client_id(), named]);
+
+    // Our reply addresses them as they addressed us.
+    let mut reply = h.session();
+    let out =
+        reply.recv(logon_naming("CLIENT", &[(tags::SENDER_SUB_ID, "D2"), (tags::TARGET_LOCATION_ID, "HQ")]), h.t0);
+    let ids = [tags::SENDER_SUB_ID, tags::SENDER_LOCATION_ID, tags::TARGET_SUB_ID, tags::TARGET_LOCATION_ID];
+    assert_eq!(ids.map(|tag| sent(&out)[0].get(tag)), [None, Some("HQ"), Some("D2"), None]);
+}
+
+#[test]
+fn an_initiator_stamps_its_ids_unless_the_application_set_its_own() {
+    let h = Harness::new();
+    let mut s = h.initiator_with(|config| {
+        config.sender_sub_id = Some("DESK".into());
+        config.target_location_id = Some("LDN".into());
+        config.qualifier = Some("second".into());
+    });
+    let out = s.connect(h.t0);
+    let ours = sent(&out)[0];
+    let ids = [tags::SENDER_SUB_ID, tags::SENDER_LOCATION_ID, tags::TARGET_SUB_ID, tags::TARGET_LOCATION_ID];
+    assert_eq!(ids.map(|tag| ours.get(tag)), [Some("DESK"), None, None, Some("LDN")]);
+    assert!(misplaced_header_field(ours).is_none());
+    assert_eq!(h.registry.sessions()[0].to_string(), "FIX.4.4:GATEWAY/DESK->CLIENT//LDN:second");
+    assert!(s.recv(logon(1), h.t0).is_empty(), "the reply needn't name them");
+
+    let mut out = s.command(send_command("A"), h.t0);
+    let trader = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "B").with(tags::SENDER_SUB_ID, "TRADER7");
+    out.extend(s.command(Command::send(trader), h.t0));
+    let [a, b] = sent(&out)[..] else { panic!("two orders: {out:?}") };
+    assert_eq!((a.get(tags::SENDER_SUB_ID), a.get(tags::TARGET_LOCATION_ID)), (Some("DESK"), Some("LDN")));
+    assert_eq!(b.fields().filter(|(tag, _)| *tag == tags::SENDER_SUB_ID).count(), 1);
+    assert_eq!((b.get(tags::SENDER_SUB_ID), b.get(tags::TARGET_LOCATION_ID)), (Some("TRADER7"), Some("LDN")));
+
+    // frame_into writes what its reference does.
+    let bytes = framed_into(&mut s, &app_order(), 12, "20260930-12:00:01.000", None, false);
+    assert_eq!(bytes, encode(&s.frame(&app_order(), 12, "20260930-12:00:01.000", None)).unwrap());
 }
 
 #[test]

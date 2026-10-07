@@ -394,7 +394,9 @@ enum Role {
     Acceptor,
     /// Sends Logon on connect to a known counterparty.
     Initiator {
-        target_comp_id: String,
+        /// The session it logs on to; boxed, as a `SessionId` is large and the acceptor's role
+        /// is empty.
+        id: Box<SessionId>,
         heartbeat: Duration,
         reset_on_logon: bool,
         next_expected: bool,
@@ -660,7 +662,7 @@ impl Session {
     ) -> (Self, CommandReceiver) {
         config.assert_valid();
         let role = Role::Initiator {
-            target_comp_id: config.target_comp_id.clone(),
+            id: Box::new(config.session_id()),
             heartbeat: config.heartbeat_interval,
             reset_on_logon: config.reset_on_logon,
             next_expected: config.next_expected_msg_seq_num,
@@ -1037,8 +1039,8 @@ impl Session {
     /// The transport is connected. An initiator sends Logon; an acceptor waits.
     pub fn on_connect(&mut self, now: Instant) {
         self.wall_clock.set(None);
-        if let Role::Initiator { target_comp_id, heartbeat, reset_on_logon, .. } = self.role.clone() {
-            self.start_logon(target_comp_id, heartbeat, reset_on_logon, now);
+        if let Role::Initiator { id, heartbeat, reset_on_logon, .. } = self.role.clone() {
+            self.start_logon(*id, heartbeat, reset_on_logon, now);
         }
     }
 
@@ -1380,8 +1382,7 @@ impl Session {
     // ---- Logon ----
 
     /// Initiator: bind to the session log and send Logon.
-    fn start_logon(&mut self, target_comp_id: String, heartbeat: Duration, reset: bool, now: Instant) {
-        let id = self.session_id_for(target_comp_id);
+    fn start_logon(&mut self, id: SessionId, heartbeat: Duration, reset: bool, now: Instant) {
         if let Some(reason) = self.outside_schedule() {
             warn!(session = %id, "not logging on: {reason}");
             return self.close(Disconnect::Shutdown, now);
@@ -2851,6 +2852,20 @@ impl Session {
         self.close(Disconnect::Error, now);
     }
 
+    /// The session's SubIDs and LocationIDs to write in each message's header, with their tags
+    /// and `tag=` prefixes: none for most sessions.
+    fn stamped_ids(&self) -> impl Iterator<Item = (u32, &'static str, &str)> {
+        let id = &self.peer().id;
+        [
+            (tags::SENDER_SUB_ID, "50=", &id.sender_sub_id),
+            (tags::SENDER_LOCATION_ID, "142=", &id.sender_location_id),
+            (tags::TARGET_SUB_ID, "57=", &id.target_sub_id),
+            (tags::TARGET_LOCATION_ID, "143=", &id.target_location_id),
+        ]
+        .into_iter()
+        .filter_map(|(tag, prefix, value)| Some((tag, prefix, value.as_deref()?)))
+    }
+
     /// The reference for [`frame_into`](Self::frame_into): the framed message as a `Message`.
     #[cfg(test)]
     fn frame(&self, body: &Message, seq: u64, sending_time: impl ToFix, orig_sending_time: Option<&str>) -> Message {
@@ -2869,6 +2884,11 @@ impl Session {
         msg.push(tags::MSG_TYPE, body.msg_type());
         msg.push(tags::SENDER_COMP_ID, self.config.sender_comp_id.as_str());
         msg.push(tags::TARGET_COMP_ID, target);
+        for (tag, _, value) in self.stamped_ids() {
+            if body.get(tag).is_none() {
+                msg.push(tag, value);
+            }
+        }
         msg.push(tags::MSG_SEQ_NUM, seq);
         if orig_sending_time.is_some() {
             msg.push(tags::POSS_DUP_FLAG, "Y");
@@ -2921,6 +2941,13 @@ impl Session {
         field(&mut header, "35=", body.msg_type());
         field(&mut header, "49=", self.config.sender_comp_id.as_str());
         field(&mut header, "56=", self.peer().id.target_comp_id.as_str());
+        // The session's SubIDs and LocationIDs, but not where the sender set its own (a trader's
+        // SenderSubID, say), which is kept below with the other header fields it set.
+        for (tag, prefix, value) in self.stamped_ids() {
+            if body.get(tag).is_none() {
+                field(&mut header, prefix, value);
+            }
+        }
         field(&mut header, "34=", seq);
         if orig_sending_time.is_some() {
             field(&mut header, "43=", "Y");

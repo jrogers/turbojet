@@ -81,8 +81,10 @@
 //! the file.
 //!
 //! `[initiator.NAME]`, NAME being for logs and errors: `target_comp_id`, `connect` (addresses,
-//! the primary first, then failover), `begin_string` and `sender_comp_id` (the acceptor's by
-//! default; needed without one), `heartbeat_interval`, `reset_on_logon`,
+//! the primary first, then failover), `sender_sub_id`, `sender_location_id`, `target_sub_id`,
+//! `target_location_id` and `qualifier` (part of the session's ID, the first four sent on every
+//! message; see [`SessionId`]), `begin_string` and `sender_comp_id` (the acceptor's by default;
+//! needed without one), `heartbeat_interval`, `reset_on_logon`,
 //! `next_expected_msg_seq_num`, `username`, `password_env` (the environment variable holding the
 //! password: a password isn't kept in the file), `connect_timeout`, `local_address` (the IP address
 //! to connect from, with or without a port), `logon_timeout`, `send_queue`,

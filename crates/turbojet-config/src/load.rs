@@ -92,8 +92,7 @@ pub(crate) struct ClientTlsFiles {
 impl ResolvedInitiator {
     /// The session it logs on to.
     pub fn id(&self) -> SessionId {
-        let session = &self.config.session;
-        SessionId::new(&session.begin_string, &session.sender_comp_id, &self.config.target_comp_id)
+        self.config.session_id()
     }
 
     /// Whether it connects over TLS.
@@ -332,6 +331,11 @@ fn resolve_initiator(
     grace_needs_cancel(settings, &merged, &section)?;
     apply(&merged, &mut session, &section, context.dir, dictionaries)?;
     let mut config = InitiatorConfig::new(session, &own.target_comp_id);
+    config.sender_sub_id.clone_from(&own.sender_sub_id);
+    config.sender_location_id.clone_from(&own.sender_location_id);
+    config.target_sub_id.clone_from(&own.target_sub_id);
+    config.target_location_id.clone_from(&own.target_location_id);
+    config.qualifier.clone_from(&own.qualifier);
     if let Some(interval) = &own.heartbeat_interval {
         config.heartbeat_interval = parse_duration(interval).map_err(|e| at("heartbeat_interval", e))?;
     }
@@ -993,6 +997,17 @@ mod tests {
     "#;
 
     #[test]
+    fn initiators_to_one_counterparty_are_told_apart_by_their_ids() {
+        let loaded = load_text(&format!(
+            "{INITIATOR}sender_sub_id = \"DESK1\"\ntarget_location_id = \"LDN\"\n\
+             [initiator.LSE2]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"DESK2\"\nqualifier = \"b\"\nconnect = [\"x:1\"]"
+        ))
+        .unwrap();
+        assert_eq!(loaded.initiators["LSE"].id().to_string(), "FIX.4.4:VENUE/DESK1->LSE//LDN");
+        assert_eq!(loaded.initiators["LSE2"].id().to_string(), "FIX.4.4:VENUE/DESK2->LSE:b");
+    }
+
+    #[test]
     fn an_initiator_takes_the_acceptors_identity_and_the_defaults() {
         let loaded = load_text(&format!(
             "[defaults]\nmax_latency = \"30s\"\nstore = \"memory\"\n{INITIATOR}heartbeat_interval = \"20s\"\nreset_on_logon = true\nusername = \"firm\"\npassword_env = \"PATH\"\nreconnect = {{ initial = \"100ms\", max = \"5s\", jitter = false }}\nlocal_address = \"10.0.0.5\""
@@ -1091,6 +1106,12 @@ mod tests {
             (
                 format!("{INITIATOR}\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nconnect = [\"x:1\"]"),
                 "initiator LSE: target_comp_id: initiator AGAIN already logs on to FIX.4.4:VENUE->LSE",
+            ),
+            (
+                format!(
+                    "{INITIATOR}sender_sub_id = \"D\"\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"D\"\nconnect = [\"x:1\"]"
+                ),
+                "initiator LSE: target_comp_id: initiator AGAIN already logs on to FIX.4.4:VENUE/D->LSE",
             ),
             (
                 format!("[counterparty.LSE]\n{INITIATOR}"),
