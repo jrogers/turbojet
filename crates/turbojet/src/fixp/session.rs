@@ -172,6 +172,8 @@ pub struct FixpSession {
     finishing: bool,
     /// The connection the session runs on, for [`FixpApplication::verify`].
     connection: ConnectionInfo,
+    /// Set by [`with_message_log`](Self::with_message_log), or by an endpoint for each session.
+    pub(super) message_log: Option<Arc<dyn MessageLog>>,
 }
 
 impl fmt::Debug for FixpSession {
@@ -240,6 +242,7 @@ impl FixpSession {
             store_failed: false,
             finishing: false,
             connection: ConnectionInfo::default(),
+            message_log: None,
         };
         (session, receiver)
     }
@@ -250,6 +253,23 @@ impl FixpSession {
     pub fn with_connection(mut self, connection: ConnectionInfo) -> Self {
         self.connection = connection;
         self
+    }
+
+    /// Shows every message the session receives and sends, as its bytes on the wire, to `log`
+    /// (see [`MessageLog`]). None by default.
+    #[must_use]
+    pub fn with_message_log(mut self, log: Arc<dyn MessageLog>) -> Self {
+        self.message_log = Some(log);
+        self
+    }
+
+    /// The [`MessageLog`] this session's messages go to, if any. Turbojet's drivers call it; a
+    /// driver of your own calls [`MessageLog::outbound`] with each message in
+    /// [`output`](Self::output) as it takes it. [`feed`](Self::feed) calls
+    /// [`MessageLog::inbound`] itself.
+    #[must_use]
+    pub fn message_log(&self) -> Option<&dyn MessageLog> {
+        self.message_log.as_deref()
     }
 
     /// Whether the session is established.
@@ -295,6 +315,12 @@ impl FixpSession {
 
     fn session_id(&self) -> Uuid {
         self.bound.as_ref().map_or([0; 16], |b| b.session_id)
+    }
+
+    /// The ID of the log the session is bound to, once it is: a client's from the start, a
+    /// server's from the `Negotiate` or `Establish` that names it.
+    fn bound_id(&self) -> Option<&SessionId> {
+        self.bound.as_ref().map(|b| &b.id)
     }
 
     fn handle(&self) -> FixpHandle {
@@ -1474,6 +1500,7 @@ impl FixpSession {
     /// stop: it's closed, waits for its store, or waits for a commit to record the next messages
     /// it hands over as in flight. Returns whether input was left waiting for the store (call
     /// [`take_commit`](Self::take_commit), then feed it again), rather than for more to arrive.
+    /// Each frame goes to the [`message_log`](Self::message_log), if there is one, first.
     pub fn feed(&mut self, buf: &mut Vec<u8>, now: Instant) -> bool {
         self.now = now;
         let mut consumed = 0;
@@ -1488,6 +1515,9 @@ impl FixpSession {
             match framing::frame(&buf[consumed..]) {
                 Framed::Message(len) => {
                     debug_assert!(len > framing::HEADER);
+                    if let Some(log) = &self.message_log {
+                        log.inbound(self.bound_id(), &buf[consumed..consumed + len]);
+                    }
                     let frame = consumed + framing::HEADER..consumed + len;
                     consumed += len;
                     // Timed only with the latency histograms, which cost a clock read.
@@ -1614,10 +1644,10 @@ impl Driven for FixpSession {
         FixpSession::on_opened(self, result, now);
     }
     fn message_log(&self) -> Option<&dyn MessageLog> {
-        None
+        FixpSession::message_log(self)
     }
     fn session_id(&self) -> Option<&SessionId> {
-        None
+        self.bound_id()
     }
     fn frame_len(output: &[u8]) -> usize {
         let Framed::Message(len) = framing::frame(output) else { panic!("the session frames what it sends") };

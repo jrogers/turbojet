@@ -962,3 +962,94 @@ fn garbled_framing_ends_the_connection() {
     assert_eq!(net.server.ended(), Some(Ended::Error));
     assert_eq!(net.server.app.ended(), [Ended::Error]);
 }
+
+/// Every message a [`MessageLog`] saw: inbound or not, the session it named, the frame.
+#[derive(Debug, Default)]
+struct Logged(Mutex<Vec<Entry>>);
+
+type Entry = (bool, Option<String>, Vec<u8>);
+
+impl MessageLog for Logged {
+    fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
+        self.0.lock().unwrap().push((true, session.map(ToString::to_string), frame.to_vec()));
+    }
+    fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
+        self.0.lock().unwrap().push((false, session.map(ToString::to_string), frame.to_vec()));
+    }
+}
+
+impl Logged {
+    /// Each message's direction and name, in the order seen, but for `Sequence`s, which each end
+    /// sends once established, in either order; each entry checked to be one whole frame, header
+    /// and all.
+    fn messages(&self) -> Vec<(bool, String)> {
+        let entries = self.0.lock().unwrap();
+        for (_, _, frame) in entries.iter() {
+            assert!(matches!(framing::frame(frame), Framed::Message(len) if len == frame.len()), "{frame:?}");
+        }
+        let named = entries.iter().map(|(inbound, _, frame)| (*inbound, written_messages(frame).remove(0)));
+        named.filter(|(_, name)| name != "Sequence").collect()
+    }
+
+    /// The frames that went one way, end to end.
+    fn bytes(&self, inbound: bool) -> Vec<u8> {
+        let entries = self.0.lock().unwrap();
+        entries.iter().filter(|(i, ..)| *i == inbound).flat_map(|(_, _, frame)| frame.clone()).collect()
+    }
+}
+
+/// Waits, up to 5 s, until `done`.
+async fn until(done: impl Fn() -> bool) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !done() {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("in time");
+}
+
+/// Over the driver, each end's log sees what it reads and writes, in the order they cross the
+/// wire, as the exact bytes the other end's log saw go out; the server's names no session until
+/// the client's `Negotiate` binds it.
+#[tokio::test]
+async fn the_message_log_sees_both_directions_on_the_wire() {
+    let (client_stream, server_stream) = tokio::io::duplex(64 * 1024);
+    let net = Net::new();
+    let (client_log, server_log) = (Arc::new(Logged::default()), Arc::new(Logged::default()));
+    let start = |end: &End, stream, log: &Arc<Logged>| {
+        let (session, commands) =
+            FixpSession::new(end.config.clone(), end.registry.clone(), end.app.clone(), Instant::now());
+        tokio::spawn(super::super::run(stream, session.with_message_log(log.clone()), commands))
+    };
+    let server_task = start(&net.server, server_stream, &server_log);
+    let client_task = start(&net.client, client_stream, &client_log);
+    until(|| net.client.app.established.load(Ordering::Relaxed) == 1).await;
+    drop(net.send_order(7));
+    until(|| !net.client.app.messages().is_empty()).await;
+    net.client_handle().logout(None).unwrap();
+    client_task.await.unwrap().unwrap();
+    server_task.await.unwrap().unwrap();
+
+    let expected = [
+        (true, "Negotiate"),
+        (false, "NegotiationResponse"),
+        (true, "Establish"),
+        (false, "EstablishmentAck"),
+        (true, "application"),
+        (false, "application"),
+        (true, "Terminate"),
+        (false, "Terminate"),
+    ];
+    let expected: Vec<_> = expected.into_iter().map(|(inbound, name)| (inbound, name.to_string())).collect();
+    assert_eq!(server_log.messages(), expected);
+    let mirrored: Vec<_> = expected.into_iter().map(|(inbound, name)| (!inbound, name)).collect();
+    assert_eq!(client_log.messages(), mirrored);
+    assert_eq!(client_log.bytes(false), server_log.bytes(true));
+    assert_eq!(server_log.bytes(false), client_log.bytes(true));
+    let server_sessions: Vec<_> = server_log.0.lock().unwrap().iter().map(|(_, id, _)| id.clone()).collect();
+    assert_eq!(server_sessions[0], None, "the Negotiate that binds it");
+    assert!(server_sessions[1..].iter().all(|id| id.as_deref().is_some_and(|id| id.starts_with("FIXP:SERVER->"))));
+    let client_sessions: Vec<_> = client_log.0.lock().unwrap().iter().map(|(_, id, _)| id.clone()).collect();
+    assert!(client_sessions.iter().all(|id| id.as_deref() == Some("FIXP:CLIENT->SERVER")), "{client_sessions:?}");
+}
