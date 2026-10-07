@@ -266,10 +266,19 @@ impl FixpSession {
     /// The [`MessageLog`] this session's messages go to, if any. Turbojet's drivers call it; a
     /// driver of your own calls [`MessageLog::outbound`] with each message in
     /// [`output`](Self::output) as it takes it. [`feed`](Self::feed) calls
-    /// [`MessageLog::inbound`] itself.
+    /// [`MessageLog::inbound`] itself. Each message there starts with its Simple Open Framing
+    /// Header, whose first 4 bytes, big-endian, are the message's length, the header included.
     #[must_use]
     pub fn message_log(&self) -> Option<&dyn MessageLog> {
         self.message_log.as_deref()
+    }
+
+    /// The session's ID, once it's bound to its log: a client's from
+    /// [`on_connect`](Self::on_connect), a server's from the `Negotiate` or `Establish` that names
+    /// it. Where the store opens logs in the background, it's bound once the log opens.
+    #[must_use]
+    pub fn session_id(&self) -> Option<&SessionId> {
+        self.bound.as_ref().map(|b| &b.id)
     }
 
     /// Whether the session is established.
@@ -313,14 +322,8 @@ impl FixpSession {
         self.bound.as_mut().expect("bound before its log is used").log.as_mut()
     }
 
-    fn session_id(&self) -> Uuid {
+    fn uuid(&self) -> Uuid {
         self.bound.as_ref().map_or([0; 16], |b| b.session_id)
-    }
-
-    /// The ID of the log the session is bound to, once it is: a client's from the start, a
-    /// server's from the `Negotiate` or `Establish` that names it.
-    fn bound_id(&self) -> Option<&SessionId> {
-        self.bound.as_ref().map(|b| &b.id)
     }
 
     fn handle(&self) -> FixpHandle {
@@ -399,12 +402,12 @@ impl FixpSession {
         let Role::Client(client) = &self.config.role else { unreachable!("only a client negotiates") };
         let credentials = client.credentials.clone();
         let negotiate = m::Negotiate {
-            session_id: self.session_id(),
+            session_id: self.uuid(),
             timestamp: self.timestamp(),
             client_flow: self.config.client_flow,
             credentials: &credentials,
         };
-        info!(session_id = %uuid_text(&self.session_id()), "negotiating a new FIXP session");
+        info!(session_id = %uuid_text(&self.uuid()), "negotiating a new FIXP session");
         self.send(&negotiate);
         self.state = State::Negotiating;
     }
@@ -414,7 +417,7 @@ impl FixpSession {
         let credentials = client.credentials.clone();
         let next_seq_no = sequenced(self.config.client_flow).then(|| self.log().next_outgoing());
         let establish = m::Establish {
-            session_id: self.session_id(),
+            session_id: self.uuid(),
             timestamp: self.timestamp(),
             keepalive_interval: millis(self.config.keepalive),
             next_seq_no,
@@ -425,7 +428,7 @@ impl FixpSession {
     }
 
     fn on_negotiation_response(&mut self, response: &m::NegotiationResponseRef<'_>) {
-        if response.session_id() != self.session_id() {
+        if response.session_id() != self.uuid() {
             return self.protocol_error("the NegotiationResponse names another session");
         }
         if response.server_flow() != self.config.server_flow {
@@ -442,7 +445,7 @@ impl FixpSession {
     }
 
     fn on_establishment_ack(&mut self, ack: &m::EstablishmentAckRef<'_>) {
-        if ack.session_id() != self.session_id() {
+        if ack.session_id() != self.uuid() {
             return self.protocol_error("the EstablishmentAck names another session");
         }
         self.peer_keepalive = Duration::from_millis(u64::from(ack.keepalive_interval()).max(1));
@@ -490,7 +493,7 @@ impl FixpSession {
     }
 
     fn answer_negotiate(&mut self, timestamp: u64) {
-        let session_id = self.session_id();
+        let session_id = self.uuid();
         // A session ID is negotiated once, for all time: its log's creation time says it has been.
         if self.log().created_at().is_some() {
             let code = m::NegotiationRejectCode::DuplicateId;
@@ -529,7 +532,7 @@ impl FixpSession {
         let keepalive = Duration::from_millis(u64::from(establish.keepalive_interval()));
         let login = ClientLogin { session_id, credentials: establish.credentials(), connection: &self.connection };
         let reject = match self.state {
-            State::Negotiated if session_id != self.session_id() => {
+            State::Negotiated if session_id != self.uuid() => {
                 Some((m::EstablishmentRejectCode::Unnegotiated, "another session was negotiated"))
             }
             State::Negotiated | State::AwaitingClient => None,
@@ -559,7 +562,7 @@ impl FixpSession {
     }
 
     fn answer_establish(&mut self, timestamp: u64, keepalive: Duration, next_seq: Option<u64>) {
-        let session_id = self.session_id();
+        let session_id = self.uuid();
         if self.log().created_at().is_none() {
             let code = m::EstablishmentRejectCode::Unnegotiated;
             return self.reject_establish(session_id, timestamp, code, "never negotiated, or finalized");
@@ -600,7 +603,7 @@ impl FixpSession {
         self.last_received = self.now;
         let next_incoming = self.log().next_incoming();
         self.inbound = Inbound { live_next: next_incoming, ..Inbound::default() };
-        info!(session_id = %uuid_text(&self.session_id()), "FIXP session established");
+        info!(session_id = %uuid_text(&self.uuid()), "FIXP session established");
         if sequenced(self.flows().0) {
             let next = self.log().next_outgoing();
             self.send(&m::Sequence { next_seq_no: next });
@@ -672,7 +675,7 @@ impl FixpSession {
             return self.close(if self.finalized { Ended::Finalized } else { ours });
         }
         info!(?code, "the counterparty terminated the FIXP connection");
-        let terminate = m::Terminate { session_id: self.session_id(), code, reason: b"" };
+        let terminate = m::Terminate { session_id: self.uuid(), code, reason: b"" };
         self.send(&terminate);
         self.close(if self.finalized { Ended::Finalized } else { Ended::TerminatedByPeer(code) });
     }
@@ -871,7 +874,7 @@ impl FixpSession {
             return;
         }
         let request = m::RetransmitRequest {
-            session_id: self.session_id(),
+            session_id: self.uuid(),
             timestamp: self.timestamp(),
             from_seq_no: from,
             count: u32::try_from(count).expect("at most max_retransmit"),
@@ -934,7 +937,7 @@ impl FixpSession {
         if sequenced(self.flows().1) && self.log().next_incoming() <= last {
             return;
         }
-        self.send(&m::FinishedReceiving { session_id: self.session_id() });
+        self.send(&m::FinishedReceiving { session_id: self.uuid() });
         self.finalized = true;
         info!("the counterparty finished sending: the session ends with this connection");
     }
@@ -949,7 +952,7 @@ impl FixpSession {
         }
         // What the requester can't know (our session's ID, our limit) is refused; what it should
         // have known (what we've sent) ends the connection.
-        if request.session_id() != self.session_id() {
+        if request.session_id() != self.uuid() {
             return self.reject_retransmit(timestamp, m::RetransmitRejectCode::InvalidSession);
         }
         if count > u64::from(self.config.max_retransmit) {
@@ -970,8 +973,7 @@ impl FixpSession {
         if let Some(metrics) = self.metrics() {
             metrics.session_reject();
         }
-        let reject =
-            m::RestransmitReject { session_id: self.session_id(), request_timestamp: timestamp, code, reason: b"" };
+        let reject = m::RestransmitReject { session_id: self.uuid(), request_timestamp: timestamp, code, reason: b"" };
         self.send(&reject);
     }
 
@@ -987,7 +989,7 @@ impl FixpSession {
             return self.reject_retransmit(timestamp, m::RetransmitRejectCode::OutOfRange);
         }
         let retransmission = m::Retransmission {
-            session_id: self.session_id(),
+            session_id: self.uuid(),
             request_timestamp: timestamp,
             next_seq_no: from,
             count: u32::try_from(count).expect("at most max_retransmit"),
@@ -1121,7 +1123,7 @@ impl FixpSession {
 
     /// Sends `Terminate` and waits for the counterparty's.
     fn terminate(&mut self, code: m::TerminationCode) {
-        self.send(&m::Terminate { session_id: self.session_id(), code, reason: b"" });
+        self.send(&m::Terminate { session_id: self.uuid(), code, reason: b"" });
         self.state = State::Terminating;
         self.ended = Some(Ended::TerminatedByUs(code));
         self.waiting_since = self.now;
@@ -1130,7 +1132,7 @@ impl FixpSession {
     fn protocol_error(&mut self, reason: &str) {
         warn!("ending the FIXP connection: {reason}");
         let code = m::TerminationCode::UnspecifiedError;
-        self.send(&m::Terminate { session_id: self.session_id(), code, reason: reason.as_bytes() });
+        self.send(&m::Terminate { session_id: self.uuid(), code, reason: reason.as_bytes() });
         self.close(Ended::Error);
     }
 
@@ -1204,7 +1206,7 @@ impl FixpSession {
         if now >= self.last_received + silence {
             warn!(?silence, "the counterparty has been silent too long");
             let code = m::TerminationCode::UnspecifiedError;
-            self.send(&m::Terminate { session_id: self.session_id(), code, reason: b"keepalive interval lapsed" });
+            self.send(&m::Terminate { session_id: self.uuid(), code, reason: b"keepalive interval lapsed" });
             self.close(Ended::TerminatedByUs(code));
         } else if now >= self.last_sent + self.config.keepalive {
             if self.finishing {
@@ -1240,7 +1242,7 @@ impl FixpSession {
 
     fn send_finished_sending(&mut self) {
         let last_seq_no = sequenced(self.flows().0).then(|| self.log().next_outgoing() - 1);
-        self.send(&m::FinishedSending { session_id: self.session_id(), last_seq_no });
+        self.send(&m::FinishedSending { session_id: self.uuid(), last_seq_no });
     }
 }
 
@@ -1516,7 +1518,7 @@ impl FixpSession {
                 Framed::Message(len) => {
                     debug_assert!(len > framing::HEADER);
                     if let Some(log) = &self.message_log {
-                        log.inbound(self.bound_id(), &buf[consumed..consumed + len]);
+                        log.inbound(self.session_id(), &buf[consumed..consumed + len]);
                     }
                     let frame = consumed + framing::HEADER..consumed + len;
                     consumed += len;
@@ -1647,7 +1649,7 @@ impl Driven for FixpSession {
         FixpSession::message_log(self)
     }
     fn session_id(&self) -> Option<&SessionId> {
-        self.bound_id()
+        FixpSession::session_id(self)
     }
     fn frame_len(output: &[u8]) -> usize {
         let Framed::Message(len) = framing::frame(output) else { panic!("the session frames what it sends") };

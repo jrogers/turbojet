@@ -292,10 +292,10 @@ fn a_new_client_negotiates_then_establishes() {
     assert!(net.server.session().is_established());
     assert_eq!(net.client.app.established.load(Ordering::Relaxed), 1);
     assert_eq!(net.server.app.established.load(Ordering::Relaxed), 1);
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     assert_eq!(id[6] >> 4, 4, "a version 4 UUID");
     assert_eq!(id[8] >> 6, 0b10, "the RFC 4122 variant");
-    assert_eq!(net.server.session().session_id(), id);
+    assert_eq!(net.server.session().uuid(), id);
     assert_eq!(net.server.session().bound.as_ref().unwrap().id.target_comp_id, uuid_text(&id));
 }
 
@@ -329,13 +329,13 @@ fn application_messages_flow_both_ways_with_implicit_sequence_numbers() {
 fn a_reconnect_establishes_the_same_session_and_carries_on_numbering() {
     let mut net = Net::new();
     net.connect();
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     drop(net.send_order(1));
     net.pump();
     net.wall.advance(Duration::from_secs(60));
     net.reconnect();
     assert!(net.client.session().is_established());
-    assert_eq!(net.client.session().session_id(), id, "re-established, not renegotiated");
+    assert_eq!(net.client.session().uuid(), id, "re-established, not renegotiated");
     let receipt = net.send_order(2);
     net.pump();
     assert_eq!(seq_of(receipt), 2);
@@ -441,7 +441,7 @@ fn a_none_flow_carries_no_application_messages() {
 fn a_retransmit_request_on_a_flow_that_isnt_recoverable_ends_the_session() {
     let mut net = Net::with(Recorder::default(), Recorder::default(), |c| c.server_flow = FlowType::Idempotent);
     net.connect();
-    let session_id = net.client.session().session_id();
+    let session_id = net.client.session().uuid();
     let request = m::RetransmitRequest { session_id, timestamp: 1, from_seq_no: 1, count: 1 };
     let now = net.now;
     net.server.feed_message(&request, now);
@@ -456,7 +456,7 @@ fn retransmit_requests_are_checked() {
         net.server_sends(number);
     }
     net.pump();
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     let now = net.now;
     let ask = |from_seq_no, count, session_id| m::RetransmitRequest { session_id, timestamp: 1, from_seq_no, count };
     net.server.feed_message(&ask(1, 1001, id), now);
@@ -472,7 +472,7 @@ fn retransmit_requests_are_checked() {
 fn a_retransmission_no_one_asked_for_ends_the_session() {
     let mut net = Net::new();
     net.connect();
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     let now = net.now;
     let retransmission = m::Retransmission { session_id: id, request_timestamp: 1, next_seq_no: 1, count: 0 };
     net.client.feed_message(&retransmission, now);
@@ -561,7 +561,7 @@ fn a_session_id_is_negotiated_once() {
 fn a_session_the_server_doesnt_know_is_negotiated_again() {
     let mut net = Net::new();
     net.connect();
-    let first = net.client.session().session_id();
+    let first = net.client.session().uuid();
     net.client.disconnect(net.now);
     net.server.disconnect(net.now);
     net.server.registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
@@ -571,7 +571,7 @@ fn a_session_the_server_doesnt_know_is_negotiated_again() {
     net.wall.advance(Duration::from_secs(5));
     net.reconnect();
     assert!(net.client.session().is_established());
-    assert_ne!(net.client.session().session_id(), first, "a new session");
+    assert_ne!(net.client.session().uuid(), first, "a new session");
 }
 
 #[test]
@@ -584,10 +584,10 @@ fn a_client_on_disk_establishes_the_session_it_negotiated() {
     let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
     net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
     net.connect();
-    let first = net.client.session().session_id();
+    let first = net.client.session().uuid();
     net.reconnect();
     assert!(net.client.session().is_established(), "{:?}", net.client.ended());
-    assert_eq!(net.client.session().session_id(), first);
+    assert_eq!(net.client.session().uuid(), first);
 }
 
 /// The server sent 1 and 2, which the client lost with the connection; on the next, the client
@@ -797,7 +797,7 @@ fn a_clean_close_keeps_a_recovered_window_still_to_come() {
     handle.logout(None).unwrap();
     net.pump_losing(false, true);
     net.client.take_commands(now);
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     net.client.feed_message(&m::Terminate { session_id: id, code: m::TerminationCode::Finished, reason: b"" }, now);
     assert!(net.client.session().is_closed());
     net.client.written();
@@ -839,7 +839,7 @@ fn nothing_is_committed_once_the_store_has_failed() {
 fn finishing_sends_finished_sending_and_finalizes_once_received() {
     let mut net = Net::new();
     net.connect();
-    let first = net.client.session().session_id();
+    let first = net.client.session().uuid();
     let receipt = net.send_order(1);
     net.client_handle().finish().unwrap();
     net.pump();
@@ -851,7 +851,7 @@ fn finishing_sends_finished_sending_and_finalizes_once_received() {
     net.wall.advance(Duration::from_secs(1));
     net.reconnect();
     assert!(net.client.session().is_established());
-    assert_ne!(net.client.session().session_id(), first);
+    assert_ne!(net.client.session().uuid(), first);
 }
 
 #[test]
@@ -875,7 +875,7 @@ fn having_answered_finished_receiving_a_session_sends_nothing_more() {
     // The session ends with this connection: a message sent now would be lost with it.
     let mut net = Net::new();
     net.connect();
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     let now = net.now;
     net.client.feed_message(&m::FinishedSending { session_id: id, last_seq_no: Some(0) }, now);
     assert_eq!(written_messages(&net.client.written()), ["FinishedReceiving"]);
@@ -918,7 +918,7 @@ fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session
     net.server_sends(1);
     net.server_sends(2);
     net.pump_losing(false, true);
-    let id = net.client.session().session_id();
+    let id = net.client.session().uuid();
     let now = net.now;
     // The server finishes after message 2, which the client never got: it asks, then answers.
     net.client.feed_message(&m::FinishedSending { session_id: id, last_seq_no: Some(2) }, now);
@@ -935,7 +935,7 @@ fn finished_sending_is_answered_once_everything_has_arrived_and_ends_the_session
     net.client.disconnect(net.now);
     net.server.disconnect(net.now);
     net.connect();
-    assert_ne!(net.client.session().session_id(), id);
+    assert_ne!(net.client.session().uuid(), id);
 }
 
 #[test]
@@ -948,7 +948,7 @@ fn application_messages_after_our_terminate_are_ignored() {
     net.server.feed_message(&Order(1), now);
     assert!(!net.server.session().is_closed(), "{:?}", net.server.ended());
     assert!(net.server.app.messages().is_empty());
-    let id = net.server.session().session_id();
+    let id = net.server.session().uuid();
     net.server.feed_message(&m::Terminate { session_id: id, code: m::TerminationCode::Finished, reason: b"" }, now);
     assert_eq!(net.server.ended(), Some(Ended::TerminatedByUs(m::TerminationCode::Finished)));
 }

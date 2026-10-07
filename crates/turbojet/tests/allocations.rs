@@ -431,9 +431,9 @@ fn fixp_feed(session: &mut FixpSession, buf: &mut Vec<u8>, bytes: &[u8], now: In
     }
     assert!(session.take_commit().is_none(), "the stores commit at once");
     let written = session.output().len();
-    // One order, one answer, so the output is its frame. The session's id isn't public; passing it
-    // would cost nothing more.
-    session.message_log().expect("a message log is set").outbound(None, session.output());
+    // One order, one answer, so the output is its frame.
+    let log = session.message_log().expect("a message log is set");
+    log.outbound(session.session_id(), session.output());
     session.clear_output();
     written
 }

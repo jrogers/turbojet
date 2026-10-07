@@ -766,6 +766,7 @@ impl Session {
     }
 
     /// The session's ID, once known.
+    #[must_use]
     pub fn session_id(&self) -> Option<&SessionId> {
         self.peer.as_ref().map(|p| &p.id)
     }
@@ -773,7 +774,10 @@ impl Session {
     /// The [`MessageLog`] this session's messages go to, if any. Turbojet's drivers call it; a
     /// driver of your own calls [`MessageLog::inbound`] with each frame before
     /// [`on_message`](Self::on_message), and [`MessageLog::outbound`] with each message in
-    /// [`output`](Self::output) as it takes it.
+    /// [`output`](Self::output) as it takes it. Each message there runs on from its BodyLength(9)
+    /// field for that field's value in bytes, then its 7-byte CheckSum(10) field;
+    /// [`codec::decode`](crate::codec::decode) gives its length too, at the cost of a decode.
+    #[must_use]
     pub fn message_log(&self) -> Option<&dyn MessageLog> {
         self.config.message_log.as_deref()
     }
