@@ -42,5 +42,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
+- Counterparty settings (`CounterpartyMap`, the sessions file) and stores
+  (`StorageByCounterparty`) are chosen by CompID, so a counterparty's sessions with different
+  SubIDs share them. A `Counterparties` resolver of one's own sees the full `SessionId`.
+- The sessions file refuses an initiator to a CompID the acceptor serves as a listed counterparty,
+  even with different SubIDs that would make it another session.
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.

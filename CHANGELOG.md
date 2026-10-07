@@ -6,6 +6,21 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- Breaking: `SessionId` has `sender_sub_id`, `sender_location_id`, `target_sub_id`,
+  `target_location_id` and `qualifier`, with `with_*` builders, and displays them as QuickFIX
+  does (`FIX.4.4:GATEWAY/DESK->CLIENT/TRADER7:qualifier`). An acceptor takes them from each Logon,
+  so a counterparty's sessions with different SubIDs or LocationIDs are separate sessions, each
+  with its own store and sequence numbers; `Acceptor::handle` reaches one by its full ID, and
+  `Acceptor::session` the one without them. Every message a session sends carries its SubIDs and
+  LocationIDs unless the application set its own.
+- `InitiatorConfig` has the four IDs and `qualifier`, and `InitiatorConfig::session_id` gives the
+  full ID; `Initiator::reconfigure` refuses to change any of it.
+- `SessionConfig::max_sessions_per_counterparty`, 16 by default: how many sessions one
+  counterparty may have connected to an acceptor at once.
+- `SessionId::key_suffix` is what a store keys a session on beyond its BeginString and CompIDs,
+  empty for one without the new fields, so existing stores open as before; `DiskStorage` adds it
+  to the file name. The store conformance suite checks that sessions differing only in those
+  fields are independent.
 - Breaking: every `Application` callback is given the session's `&SessionHandle` in place of
   its `&SessionId`, and `on_logon` a `&SessionHandle` rather than an owned one (clone it to
   keep it). `handle.id()` gives the ID, and a callback can act on the session, say logging it
@@ -123,6 +138,17 @@ Notable changes to the published crates.
   which Logouts from either side count too) and `cancel_grace` (`0s`, the default, up to `1h`), in
   `[defaults]`, a counterparty's section or an initiator's. Stopping an initiator, removed or
   restarted by a reload, fires its countdown at once.
+- `sender_sub_id`, `sender_location_id`, `target_sub_id`, `target_location_id` and `qualifier` in
+  an initiator's section; two initiators may log on to one counterparty if these differ.
+- `max_sessions_per_counterparty`, in `[defaults]` or a counterparty's section.
+- A reload logs out every session of a counterparty no longer listed, whatever its SubIDs; it
+  reached only the one without them.
+
+### `turbojet-sql`
+
+- Sessions are keyed on their SubIDs, LocationIDs and qualifier too, in a new `extra` column.
+  `SqlStorage::migrate` adds it to a database made by 0.2 (PostgreSQL alters the table, SQLite
+  rebuilds it), keeping existing sessions as they were.
 
 ## 0.2.0 (2026-10-04)
 

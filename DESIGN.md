@@ -53,7 +53,15 @@ machine with an injected clock. It has:
 - optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
   outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
   read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
-- session schedules with holiday calendars, and operator control of sequence numbers.
+- session schedules with holiday calendars, and operator control of sequence numbers;
+- sessions identified as QuickFIX identifies them, by SubIDs, LocationIDs and a local qualifier as
+  well as CompIDs: an acceptor takes them from each Logon, so one counterparty can run a session
+  per desk, each with its own store, and at most `max_sessions_per_counterparty` (16) at once,
+  checked as the session binds. The IDs are part of the session's identity at logon only, as in
+  QuickFIX/J: what the counterparty sends afterwards isn't checked, and what we send carries the
+  session's IDs unless the application set its own. Stores key a session on a suffix of the extra
+  fields, empty without them, so existing stores kept their keys. Stamping cost nothing measurable
+  on sessions without them (order to ack 771 ns before, 758 ns after).
 
 ## Transports and the connection driver
 
@@ -104,6 +112,9 @@ store.
   driver awaits (`SessionStorage::begin_open`, `SessionLog::fetch`, `Job`), so a networked store
   never blocks the runtime; the simulator runs half its seeds over stores that do. The store
   conformance suite is public (`conformance` feature) for other stores to check themselves.
+  Sessions are keyed on an `extra` column as well as BeginString and CompIDs; `migrate` adds it to
+  a database made before it, PostgreSQL altering the table under a lock and SQLite rebuilding it
+  with foreign keys off, so a second gateway migrating at once waits and finds nothing to do.
 
 ## Configuration and operations
 
@@ -194,10 +205,11 @@ invariants, and tests that look for bugs rather than confirm what already works.
   fuzzed nightly in CI.
 - **Interop with QuickFIX/J** (`turbojet-interop`), with Turbojet as initiator and as acceptor, on
   FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2: logon and logout, reconnection, heartbeats
-  and TestRequests, application messages (one with XmlData containing SOH), gap fills and resends
-  in each direction, SequenceResets in both modes and MsgSeqNum too low, directly and through a
-  proxy that loses, garbles, cuts and delays messages, slows the link and silences or stalls either
-  side. They found Heartbeats going out a second late, since fixed.
+  and TestRequests, application messages (one with XmlData containing SOH), gap fills and resends in
+  each direction, SequenceResets in both modes, MsgSeqNum too low and sessions identified by SubIDs
+  and a LocationID, directly and through a proxy that loses, garbles, cuts and delays messages,
+  slows the link and silences or stalls either side. They found Heartbeats going out a second late,
+  since fixed.
 - **QuickFIX's 235 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX
   specification's session test cases, on every build. They found four deviations from the spec's
   test cases, since fixed; 221 pass, and the 14 that fail are listed with their reasons in
@@ -205,27 +217,21 @@ invariants, and tests that look for bugs rather than confirm what already works.
   too-long BodyLength, and no RefTagID for a negative tag) and scripts that rely on QuickFIX's own
   behaviour or dictionaries.
 - **Deterministic simulation** (`crates/turbojet-sim`): an initiator and an acceptor run against
-  each other in one thread from a seed, over a TCP-like network that splits, delays, stalls,
-  resets and black-holes connections (on some seeds behind a middlebox that drops, duplicates,
-  reorders and corrupts messages), with process crashes between events and inside store calls,
-  store errors, power loss on disk stores with and without sync, logout requests, operators
-  skipping numbers ahead and resetting both sides, and daily schedules. After every event a checker
-  holds both sides to what their stores recorded, what they wrote and what their applications
-  received, and once the faults stop they must settle; bugs planted in the simulator show the
-  checker catches what it should. 100 seeds run on every push and random ones nightly, and any
-  failure replays from its seed (`scripts/sim.sh`). It found a write deadlock in the connection
-  driver, torn sequence-number records in `DiskStorage`, and an operator's skip ahead making a
-  counterparty abandon a gap, all since fixed. It exercises outbound limits and inbound `Delay`,
-  but not `Reject` (see [CAVEATS.md](CAVEATS.md)).
-
-## Performance
-
-### The hot path
-
-The long-term goal is that a message in steady state, from the read buffer through the session and
-application and back out to the socket, is neither copied nor allocated beyond what the application
-itself asks for. Where it stands:
-
+  each other in one thread from a seed, over a TCP-like network that splits, delays, stalls, resets
+  and black-holes connections (on some seeds behind a middlebox that drops, duplicates, reorders and
+  corrupts messages), with process crashes between events and inside store calls, store errors,
+  power loss on disk stores with and without sync, logout requests, operators skipping numbers ahead
+  and resetting both sides, daily schedules, and on a third of the seeds sessions with SubIDs and a
+  LocationID. After every event a checker holds both sides to what their stores recorded, what they
+  wrote and what their applications received, and once the faults stop they must settle; bugs
+  planted in the simulator show the checker catches what it should. 100 seeds run on every push and
+  random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write
+  deadlock in the connection driver, torn sequence-number records in `DiskStorage`, and an
+  operator's skip ahead making a counterparty abandon a gap, all since fixed. It exercises outbound
+  limits and inbound `Delay`, but not `Reject` (see [CAVEATS.md](CAVEATS.md)).  ## Performance  ###
+  The hot path  The long-term goal is that a message in steady state, from the read buffer through
+  the session and application and back out to the socket, is neither copied nor allocated beyond
+  what the application itself asks for. Where it stands:
 - A `Message` keeps all its fields in one buffer with an offset index (two allocations, not one per
   field), and each inbound frame is decoded into one `Message` reused for the connection, so
   decoding doesn't allocate once it has grown. It still copies each frame, once, out of the read

@@ -553,6 +553,31 @@ Turbojet's own connection driver. The gateway limits each counterparty with
 `--inbound-limit N/W`, and `--over-limit delay` (the default) or `reject`. Limits that are never
 reached cost about 10 ns an order, within noise.
 
+## Session IDs
+
+A session is identified by its `SessionId`: its BeginString and both CompIDs, and, as in QuickFIX,
+any SubIDs, LocationIDs and qualifier. An acceptor takes them from each Logon: the counterparty's
+SenderSubID and SenderLocationID, and the TargetSubID and TargetLocationID it addresses us by. One
+counterparty can so run several sessions, one per desk say, each with its own sequence numbers and
+store; `SessionConfig::max_sessions_per_counterparty` (16 by default) bounds how many it has
+connected at once. An initiator is given its own, and a qualifier tells apart two initiators to
+the same counterparty:
+
+```rust
+let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
+config.sender_sub_id = Some("DESK1".into());
+config.target_location_id = Some("LDN".into());
+
+let id = SessionId::new("FIX.4.4", "SERVER", "CLIENT").with_target_sub_id("DESK1");
+acceptor.handle(&id).send(msg)?; // acceptor.session("CLIENT") is the session without them
+```
+
+Every message a session sends carries its SubIDs and LocationIDs, unless the application set its
+own, a trader's SenderSubID on an order, say. Those the counterparty sends after logon aren't
+checked. Counterparty settings and stores are chosen by CompID, so a counterparty's sessions
+share them; a `Counterparties` resolver is given the full `SessionId` if they should differ.
+Stores keep a session without SubIDs, LocationIDs or a qualifier where they always have.
+
 ## Per-counterparty settings
 
 An `Acceptor` gives every counterparty its own `SessionConfig` unless told otherwise. With
