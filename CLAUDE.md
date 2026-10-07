@@ -9,7 +9,7 @@ and [CAVEATS.md](CAVEATS.md) the behaviour worth knowing about.
 ## Checking a change
 
 `scripts/check.sh` runs the per-push CI checks (fmt, clippy and tests for each feature combination,
-rustdoc with `-D warnings`, the fuzz crate's lints, the codegen diff). Run it before calling work
+rustdoc with `-D warnings`, the fuzz crate's lints and regression inputs, the codegen diff). Run it before calling work
 done or committing it; it takes about 3 minutes warm. `--interop` adds the QuickFIX/J tests and
 `--msrv` the 1.89 tests. While iterating, narrower runs are fine:
 

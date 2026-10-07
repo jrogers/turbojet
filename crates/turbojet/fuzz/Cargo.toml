@@ -9,7 +9,7 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
-# Kept out of the main workspace: it builds only on nightly, with cargo fuzz.
+# Kept out of the main workspace: fuzzing needs nightly and cargo fuzz.
 [workspace]
 members = ["."]
 

@@ -199,10 +199,11 @@ invariants, and tests that look for bugs rather than confirm what already works.
 - **CI** on every push: clippy and tests for each feature combination, the 1.89 minimum Rust
   version, `cargo fmt --check`, rustdoc with warnings as errors, a compile check of the
   benchmarks, a check that the generated crates match their dictionaries, and a check that the
-  fuzz targets build.
+  fuzz targets build and pass the inputs that once found bugs.
 - **Fuzzing**: cargo-fuzz targets for the codec, message parsing, every generated message type,
   the SBE codecs and the session state machines (`crates/turbojet/fuzz`, `scripts/fuzz.sh`),
-  fuzzed nightly in CI.
+  fuzzed nightly in CI. A failing input, once fixed, is kept in `fuzz/regressions/` and replayed on
+  every push (`scripts/fuzz-regressions.sh`).
 - **Interop with QuickFIX/J** (`turbojet-interop`), with Turbojet as initiator and as acceptor, on
   FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2: logon and logout, reconnection, heartbeats
   and TestRequests, application messages (one with XmlData containing SOH), gap fills and resends in

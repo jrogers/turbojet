@@ -19,8 +19,9 @@ failure along with a panic:
   session sends must encode and decode cleanly and, apart from resends, go out in sequence.
 
 The crate isn't part of the workspace: fuzzing needs nightly and cargo fuzz. CI checks on every
-push that it builds (clippy, on stable), and the Fuzz workflow (`.github/workflows/fuzz.yml`)
-fuzzes each target for ten minutes nightly, or for as long as asked when run by hand.
+push that it builds (clippy, on stable) and passes its regression inputs, and the Fuzz workflow
+(`.github/workflows/fuzz.yml`) fuzzes each target for ten minutes nightly, or for as long as asked
+when run by hand.
 
 ## Running
 
@@ -30,10 +31,18 @@ scripts/fuzz.sh                 # every target, a minute each
 scripts/fuzz.sh 600 session     # one target, ten minutes
 ```
 
-`fix.dict` gives libFuzzer FIX tokens to splice in. A failing input is saved under
-`artifacts/<target>/`; replay it from `crates/turbojet` with
+`fix.dict` gives libFuzzer FIX tokens to splice in. `fuzz.sh` runs every target even if one
+fails, then fails if any did. A failing input is saved under `artifacts/<target>/` (the Fuzz
+workflow uploads them as `fuzz-artifacts`); replay it from `crates/turbojet` with
 `cargo +nightly fuzz run <target> fuzz/artifacts/<target>/<file>`. The corpus each run builds is
 kept in `corpus/`, which isn't checked in.
+
+## Regressions
+
+Once a failing input is fixed, whether the bug was in Turbojet or in the target, copy it to
+`regressions/<target>/`, named for what it found. `scripts/fuzz-regressions.sh` runs each one
+through its target, on stable and without cargo-fuzz (a target built by plain cargo is a libFuzzer
+binary that runs the files it's given), and CI runs it on every push.
 
 `cargo +nightly fuzz coverage <target>` and `llvm-cov` (from `rustup component add
 llvm-tools-preview`) show what a corpus reaches; the session target's corpus should reach

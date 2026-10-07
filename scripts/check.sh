@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Runs the per-push CI checks (.github/workflows/ci.yml) locally, stopping at the first failure:
 # formatting, clippy and tests for each feature combination CI uses, rustdoc with warnings as
-# errors, the fuzz crate's lints, and generated crates matching the generator. Flags add the slower
-# jobs:
+# errors, the fuzz crate's lints and regression inputs, and generated crates matching the
+# generator. Flags add the slower jobs:
 #   scripts/check.sh            # what most changes need
 #   scripts/check.sh --interop  # also the QuickFIX/J interop tests (needs a JDK, 21 or later)
 #   scripts/check.sh --msrv     # also the tests on the minimum supported Rust (rustup toolchain 1.89)
@@ -49,6 +49,9 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --lock
 
 step fuzz clippy
 cargo clippy --manifest-path crates/turbojet/fuzz/Cargo.toml --all-targets --locked --quiet -- -D warnings
+
+step fuzz regressions
+scripts/fuzz-regressions.sh
 
 step codegen
 # Compare against the working tree as it was, so uncommitted generator changes are checked too.
