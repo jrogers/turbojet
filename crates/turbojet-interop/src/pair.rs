@@ -12,12 +12,14 @@ use tracing_subscriber::EnvFilter;
 use turbojet::message::tags;
 use turbojet::{
     Acceptor, ApplVerId, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
-    MessageReject, MsgType, SessionConfig, SessionHandle,
+    MessageReject, MsgType, SessionConfig, SessionHandle, SessionId,
 };
 
 use crate::mailbox::{Mailbox, Missing};
 use crate::orders::{peer_order, tj_order};
-use crate::{EVENT_TIMEOUT, FixMsg, Peer, PeerConfig, PeerEvent, Proxy, ProxyEvent, QFJ, TJ};
+use crate::{
+    EVENT_TIMEOUT, FixMsg, Peer, PeerConfig, PeerEvent, Proxy, ProxyEvent, QFJ, QFJ_SUB, TJ, TJ_LOCATION, TJ_SUB,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Role {
@@ -66,11 +68,21 @@ pub struct Options {
     /// How far an inbound SendingTime may be from the receiver's clock before it is rejected:
     /// Turbojet's `max_latency`, QuickFIX/J's MaxLatency. 120 s, both engines' default.
     pub max_latency_secs: u32,
+    /// Both sides' session IDs have SubIDs, and Turbojet's a LocationID ([`TJ_SUB`],
+    /// [`TJ_LOCATION`], [`QFJ_SUB`]), so each must find its session by them.
+    pub sub_ids: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { heartbeat_secs: 30, reset_on_logon: false, reconnect_secs: 1, proxy: false, max_latency_secs: 120 }
+        Self {
+            heartbeat_secs: 30,
+            reset_on_logon: false,
+            reconnect_secs: 1,
+            proxy: false,
+            max_latency_secs: 120,
+            sub_ids: false,
+        }
     }
 }
 
@@ -144,7 +156,9 @@ impl Setup {
             reset_on_logon: options.reset_on_logon && self.role == Role::TjAcceptor,
             reconnect_secs: options.reconnect_secs,
             max_latency_secs: options.max_latency_secs,
+            sub_ids: options.sub_ids,
         };
+        let id = tj_session_id(begin_string, &options);
         let mut proxy = None;
         let (peer, handle, task) = match self.role {
             Role::TjInitiator => {
@@ -155,10 +169,7 @@ impl Setup {
                     addr = started.addr();
                     proxy = Some(started);
                 }
-                let mut config = InitiatorConfig::new(session, QFJ);
-                config.heartbeat_interval = Duration::from_secs(options.heartbeat_secs.into());
-                config.reset_on_logon = options.reset_on_logon;
-                config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_secs(options.reconnect_secs.into()));
+                let config = initiator_config(session, &id, &options);
                 let initiator = Initiator::new(addr.to_string(), config, storage, app).unwrap();
                 let handle = initiator.handle();
                 (peer, handle, tokio::spawn(initiator.run()))
@@ -173,7 +184,7 @@ impl Setup {
                     peer_config.port = Some(started.port());
                     proxy = Some(started);
                 }
-                let handle = acceptor.session(QFJ);
+                let handle = acceptor.handle(&id);
                 let task = tokio::spawn(async move {
                     if let Err(e) = acceptor.serve(listener).await {
                         eprintln!("Turbojet acceptor stopped: {e}");
@@ -184,6 +195,27 @@ impl Setup {
         };
         Pair { setup: self, peer, handle, proxy, tj: Mailbox::new(tj), task, finished: false }
     }
+}
+
+/// Turbojet's session with the peer, as `options` has it.
+fn tj_session_id(begin_string: &str, options: &Options) -> SessionId {
+    let id = SessionId::new(begin_string, TJ, QFJ);
+    if !options.sub_ids {
+        return id;
+    }
+    id.with_sender_sub_id(TJ_SUB).with_sender_location_id(TJ_LOCATION).with_target_sub_id(QFJ_SUB)
+}
+
+/// Turbojet's configuration as the initiator of session `id`.
+fn initiator_config(session: SessionConfig, id: &SessionId, options: &Options) -> InitiatorConfig {
+    let mut config = InitiatorConfig::new(session, QFJ);
+    config.sender_sub_id.clone_from(&id.sender_sub_id);
+    config.sender_location_id.clone_from(&id.sender_location_id);
+    config.target_sub_id.clone_from(&id.target_sub_id);
+    config.heartbeat_interval = Duration::from_secs(options.heartbeat_secs.into());
+    config.reset_on_logon = options.reset_on_logon;
+    config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_secs(options.reconnect_secs.into()));
+    config
 }
 
 impl Pair {

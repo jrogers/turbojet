@@ -139,6 +139,8 @@ pub struct PeerConfig {
     pub reconnect_secs: u32,
     /// How far SendingTime may be from QuickFIX/J's clock (MaxLatency, with CheckLatency=Y).
     pub max_latency_secs: u32,
+    /// Session IDs with SubIDs and a LocationID: see [`Options::sub_ids`](crate::Options::sub_ids).
+    pub sub_ids: bool,
 }
 
 /// A running QuickFIX/J peer. Killed on drop.
@@ -188,6 +190,13 @@ impl Peer {
             .arg(format!("log-dir={}", dir.path().join("qfj").display()));
         if let Some(port) = config.port {
             command.arg(format!("port={port}"));
+        }
+        if config.sub_ids {
+            command.args([
+                format!("sender-sub={}", crate::QFJ_SUB),
+                format!("target-sub={}", crate::TJ_SUB),
+                format!("target-location={}", crate::TJ_LOCATION),
+            ]);
         }
         let mut child = command
             .stdin(Stdio::piped())

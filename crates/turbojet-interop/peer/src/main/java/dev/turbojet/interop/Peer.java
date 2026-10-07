@@ -98,7 +98,10 @@ public final class Peer implements Application {
         }
         String role = opts.get("role");
         String begin = opts.get("begin");
-        SessionID id = new SessionID(begin, opts.get("sender"), opts.get("target"));
+        SessionID id = new SessionID(begin,
+                opts.get("sender"), opts.getOrDefault("sender-sub", ""), opts.getOrDefault("sender-location", ""),
+                opts.get("target"), opts.getOrDefault("target-sub", ""), opts.getOrDefault("target-location", ""),
+                "");
 
         SessionSettings settings = new SessionSettings();
         settings.setString(id, "ConnectionType", role);

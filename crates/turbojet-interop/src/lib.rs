@@ -19,6 +19,12 @@ pub use proxy::{Dir, Fault, Proxy, ProxyEvent};
 /// Turbojet's CompID in every interop session.
 pub const TJ: &str = "TJ";
 
+/// With [`Options::sub_ids`]: Turbojet's SenderSubID and SenderLocationID, and QuickFIX/J's
+/// SenderSubID.
+pub const TJ_SUB: &str = "TJDESK";
+pub const TJ_LOCATION: &str = "TJLOC";
+pub const QFJ_SUB: &str = "QFJDESK";
+
 /// A backstop for a scenario that hangs between `expect`s.
 pub const SCENARIO_TIMEOUT: Duration = Duration::from_secs(120);
 

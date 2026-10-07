@@ -548,8 +548,19 @@ fn poll_once<F: Future + ?Sized>(future: Pin<&mut F>) -> Option<F::Output> {
     }
 }
 
-fn session_id(sender: &str, target: &str) -> SessionId {
-    SessionId::new("FIX.4.4", sender, target)
+/// The initiator's session ID and the acceptor's: on about a third of the seeds with SubIDs and a
+/// LocationID, which the initiator is configured with and the acceptor learns from its Logon.
+/// Drawn apart from the world's random stream, as for [`cancels`].
+fn session_ids(seed: u64) -> [SessionId; 2] {
+    let ours = SessionId::new("FIX.4.4", "CLIENT", "GATEWAY");
+    let theirs = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
+    if !Rng::new(seed ^ 0x5ab1_d500).chance(333_333) {
+        return [ours, theirs];
+    }
+    [
+        ours.with_sender_sub_id("DESK").with_sender_location_id("NY").with_target_sub_id("OMS"),
+        theirs.with_sender_sub_id("OMS").with_target_sub_id("DESK").with_target_location_id("NY"),
+    ]
 }
 
 /// For a scheduled seed, a daily schedule whose first period ends 20 s in and whose next starts
@@ -601,7 +612,11 @@ impl World {
             config.send_queue = faults.send_queue;
             config
         };
+        let ids = session_ids(options.seed);
         let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
+        initiator.sender_sub_id.clone_from(&ids[0].sender_sub_id);
+        initiator.sender_location_id.clone_from(&ids[0].sender_location_id);
+        initiator.target_sub_id.clone_from(&ids[0].target_sub_id);
         initiator.heartbeat_interval = heartbeat;
         let mut reconnect_rng = Rng::new(options.seed ^ 0x7ec0_22ec);
         initiator.reconnect = reconnect_policy(reconnect, &mut reconnect_rng);
@@ -638,7 +653,7 @@ impl World {
             connecting: true,
             down: [false; 2],
             generation: 0,
-            ids: [session_id("CLIENT", "GATEWAY"), session_id("GATEWAY", "CLIENT")],
+            ids,
             operators: Vec::new(),
             resetting: None,
             schedule,
@@ -683,6 +698,9 @@ impl World {
         }
         if let Some(InboundLimit::Delay(limit)) = inbound {
             header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
+        }
+        if !self.ids[0].key_suffix().is_empty() {
+            header.push_str(&format!(", sessions {} and {}", self.ids[0], self.ids[1]));
         }
         for node in &self.nodes {
             if let Some(CancelOnDisconnect { trigger, grace, .. }) = node.cancel_on_disconnect() {
