@@ -579,12 +579,12 @@ impl Checker {
                 None => {}
             }
             // Rule 5: nothing the sender stored is skipped. Deliveries come in order, so one that
-            // passes a stored message means it's lost.
+            // passes a stored message means it's lost, unless it was rejected for arriving late.
             if !delivery.redelivered
-                && let Some((lost, _)) = sender
-                    .recorded
-                    .range(received.last_seq + 1..delivery.seq)
-                    .find(|(_, m)| m.as_ref().and_then(id_of).is_some_and(|id| !received.ids.contains_key(id)))
+                && let Some((lost, _)) = sender.recorded.range(received.last_seq + 1..delivery.seq).find(|(seq, m)| {
+                    !sender.rejected_late.contains(seq)
+                        && m.as_ref().and_then(id_of).is_some_and(|id| !received.ids.contains_key(id))
+                })
             {
                 return Err(violation(
                     "5 lost",
@@ -713,6 +713,20 @@ mod tests {
     #[test]
     fn a_delivery_that_skips_a_stored_message_breaks_rule_5() {
         assert_eq!(deliver(&[("b", 2, false)]), Err("5 lost"));
+    }
+
+    #[test]
+    fn a_delivery_past_a_message_rejected_for_arriving_late_is_fine() {
+        let mut h = Harness::default();
+        h.send(order("a"), 1).unwrap();
+        h.send(order("b"), 2).unwrap();
+        let late = Message::new(MsgType::Reject)
+            .with(tags::REF_SEQ_NUM, 1u64)
+            .with(tags::SESSION_REJECT_REASON, SessionRejectReason::SendingTimeAccuracyProblem.code());
+        h.checker.stored(Side::Acceptor, &[Stored::Sent { seq: 1, bytes: None }]).unwrap();
+        h.checker.written(Side::Acceptor, &framed(late, 1, &[]), SimTime(0)).unwrap();
+        let b = Delivery { id: "b".into(), seq: 2, redelivered: false };
+        assert_eq!(h.checker.delivered(Side::Acceptor, &[b]).map_err(|e| e.rule), Ok(()));
     }
 
     #[test]
