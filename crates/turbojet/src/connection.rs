@@ -1522,6 +1522,7 @@ mod tests {
         let types: Vec<_> = log.messages().into_iter().map(|(inbound, msg)| (inbound, msg.msg_type())).collect();
         // The order may arrive in the Logon's batch, before the Logon reply is staged.
         assert!(types.contains(&(true, MsgType::NewOrderSingle)), "{types:?}");
+        assert!(types.contains(&(false, MsgType::Logon)), "{types:?}");
         assert!(!types.contains(&(false, MsgType::ExecutionReport)), "{types:?}");
     }
 
