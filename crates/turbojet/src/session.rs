@@ -96,8 +96,9 @@ pub struct SessionConfig {
     /// session. Replace it in tests.
     pub clock: Clock,
     /// How far an inbound message's SendingTime(52) may be from `clock`, either way. A message
-    /// further off is rejected (SessionRejectReason 10) and the session logs out; a Logon is
-    /// refused. 120 seconds by default, as QuickFIX's MaxLatency; `None` turns the check off.
+    /// further off when the session reaches it is rejected (SessionRejectReason 10) and the session
+    /// logs out; a Logon is refused. Time spent waiting under an [`InboundLimit::Delay`] counts.
+    /// 120 seconds by default, as QuickFIX's MaxLatency; `None` turns the check off.
     pub max_latency: Option<Duration>,
     /// Require OrigSendingTime(122) on messages with PossDupFlag(43)=Y, no later than their
     /// SendingTime: a missing one is rejected (1), and a later one rejected (10) and the session
@@ -166,6 +167,11 @@ pub struct SessionConfig {
     /// - A Logout or ResendRequest from the counterparty behind held input waits up to a window,
     ///   so its own logout or resend timeout may fire first.
     /// - A counterparty that closes the connection meanwhile is noticed once the hold ends.
+    /// - Time input waits counts against [`max_latency`](Self::max_latency), since a message is
+    ///   checked when the session reaches it. A counterparty that keeps sending faster than the
+    ///   limit builds a backlog; once that's more than `max_latency` old, its messages are
+    ///   rejected as stale (SessionRejectReason 10) and the session logs out, rather than handing
+    ///   the application orders minutes late.
     ///
     /// With `Reject`, an application message that arrives while the window is full isn't handed
     /// to the application: it's answered with a BusinessMessageReject(j) whose RefSeqNum(45) is

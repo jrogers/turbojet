@@ -34,6 +34,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   Acceptor connection limits and the cost of a logon bound this.
 - An inbound `Delay` limit holds admin messages too, in order behind held input: a counterparty
   that has died, or its Logout or ResendRequest, may be noticed up to a window late.
+- Time input waits under an inbound `Delay` limit counts against `max_latency`. A counterparty
+  that keeps sending faster than the limit builds a backlog, and once that's more than
+  `max_latency` (two minutes by default) behind, its messages are rejected as stale and the
+  session logs out. The wait can't be excused: most of it is unread, in the network.
 - An inbound `Reject` limit never rejects recovery we asked for, and a counterparty controls its
   own gaps, so a hostile one can push one gap's worth of messages through. `Delay` doesn't have
   this hole.

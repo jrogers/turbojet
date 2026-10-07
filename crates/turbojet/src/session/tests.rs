@@ -4525,6 +4525,21 @@ fn inbound_delay_holds_input_after_the_message_that_fills_the_window() {
     assert_eq!(s.peer().log.next_outgoing(), 5, "the Logon and three ExecutionReports");
 }
 
+/// Time held counts against max_latency: a message more than two minutes old when the hold ends is
+/// stale, though the hold made it so.
+#[test]
+fn inbound_delay_does_not_excuse_a_stale_sending_time() {
+    let h = Harness::with_inbound_delay(1, Duration::from_secs(150));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.at(1));
+    assert_eq!(s.input_free_at(), Some(h.at(151)));
+    // B was sent as the hold began, and is reached as it ends.
+    let out = s.recv(at_offset(order(3, "B"), -121), h.at(151));
+    assert_eq!(types(&out), ["Reject", "Logout"]);
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("10"));
+    assert_eq!(delivered(&h), ["A"]);
+}
+
 #[test]
 fn inbound_delay_holds_nothing_once_logging_out() {
     let h = Harness::with_inbound_delay(1, Duration::from_secs(60));
