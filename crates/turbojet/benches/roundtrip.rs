@@ -10,12 +10,13 @@
 //! application reacting to what it receives would, so only the first order and the last
 //! acknowledgement hop. "tcp, spinning" runs it with each end on a thread of its own, polling a
 //! non-blocking socket without waiting (`run_spinning`). "tcp, message log" sets a message log that
-//! does nothing at both ends, for what the hook costs.
+//! does nothing at both ends, for what the hook costs; "tcp, file message log" a `FileMessageLog` at
+//! both ends, writing under the target directory.
 
 mod common;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
@@ -25,8 +26,8 @@ use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc;
 use turbojet::connection::SpinningStream;
 use turbojet::{
-    Acceptor, Application, ConnectionInfo, Context, DiskStorage, Initiator, InitiatorConfig, Message, MessageLog,
-    MessageReject, SessionConfig, SessionHandle, SessionId, SessionStorage,
+    Acceptor, Application, ConnectionInfo, Context, DiskStorage, FileLogOptions, FileMessageLog, Initiator,
+    InitiatorConfig, Message, MessageLog, MessageReject, SessionConfig, SessionHandle, SessionId, SessionStorage,
 };
 
 /// Orders in flight at once in the pipelined benchmark.
@@ -66,6 +67,9 @@ struct Connection {
     acks: mpsc::UnboundedReceiver<Message>,
     client: Arc<Client>,
 }
+
+/// Where the file message log benchmark writes, emptied before it runs.
+const FILE_LOG_DIR: &str = concat!(env!("CARGO_TARGET_TMPDIR"), "/roundtrip-message-log");
 
 /// A message log that does nothing, for what the hook costs the driver.
 #[derive(Debug)]
@@ -335,6 +339,13 @@ fn roundtrip(c: &mut Criterion) {
     transport(c, "tcp", false, Arc::new(common::DiscardStorage), WINDOW);
     transport_with(c, "tcp, message log", false, Arc::new(common::DiscardStorage), WINDOW, |config| {
         config.message_log = Some(Arc::new(NoLog));
+    });
+    let _ = std::fs::remove_dir_all(FILE_LOG_DIR);
+    transport_with(c, "tcp, file message log", false, Arc::new(common::DiscardStorage), WINDOW, |config| {
+        // Each end writes to a directory of its own, since two logs in one could race for a file name.
+        static ENDS: AtomicUsize = AtomicUsize::new(0);
+        let dir = format!("{FILE_LOG_DIR}/{}", ENDS.fetch_add(1, Ordering::Relaxed));
+        config.message_log = Some(Arc::new(FileMessageLog::open(dir, FileLogOptions::default()).unwrap()));
     });
     spinning(c);
     #[cfg(feature = "tls")]
