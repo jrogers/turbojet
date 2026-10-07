@@ -138,4 +138,5 @@ scripts/sim.sh 0 1234 -v            # replay seed 1234, printing every event
 ```
 
 A failure prints its seed and the command that replays it. A seed that found a bug goes in
-`regressions.txt`, with a comment, so it runs on every push from then on.
+`regressions.txt` (`fixp_regressions.txt` for FIXP), with a comment, so it runs on every push
+from then on.

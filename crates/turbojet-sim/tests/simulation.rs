@@ -114,6 +114,15 @@ fn a_spurious_cancel_on_disconnect_is_caught() {
 }
 
 #[test]
+fn fixp_regressions_pass() {
+    for seed in listed(include_str!("../fixp_regressions.txt")).keys() {
+        if let Err(failure) = turbojet_sim::fixp::run(&Options::per_push(*seed)) {
+            panic!("{failure}");
+        }
+    }
+}
+
+#[test]
 fn fixp_seeds_pass_or_fail_as_known() {
     let known = listed(include_str!("../fixp_known_failures.txt"));
     let start = Instant::now();

@@ -107,7 +107,8 @@ impl Sent {
         let mut old = std::mem::take(self);
         let mut past = std::mem::take(&mut old.past);
         // Unsequenced orders have no numbers to start again: their order runs on across sessions.
-        let unsequenced = std::mem::take(&mut old.unsequenced);
+        // The old session keeps them too, for what it still delivers over a lingering connection.
+        let unsequenced = old.unsequenced.clone();
         *self = Sent { epoch: old.epoch + 1, ledger_seen: old.ledger_seen, unsequenced, ..Sent::default() };
         past.push(old);
         if past.len() > PAST_SESSIONS {
