@@ -89,15 +89,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
     AF_XDP would need a userspace TCP stack, so stay parked;
   - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
-- **Memory-mapped disk storage** (M, research). `DiskStorage` writes each commit with a system
-  call (and, with sync, an `fsync`). Writing its segments through a memory map instead would
-  replace the write calls with stores to mapped memory, the kernel writing pages back (or
-  `msync` making a commit durable). Measure it against `DiskStorage`, with and without sync, on
-  the store and round-trip benchmarks. What it would cost: `unsafe` (a mapping crate such as
-  `memmap2`, so a crate of its own or a reviewed exception), files sized ahead of use, and a
-  process killed with `SIGBUS` if a mapped file is truncated or the disk fills; the power-loss
-  tests (`turbojet-sim`) would have to hold for it as they do for `DiskStorage`.
-
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
   share a cache line with unrelated data that another core writes (false sharing), and a
