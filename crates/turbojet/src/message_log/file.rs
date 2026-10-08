@@ -312,7 +312,7 @@ impl Files {
 
 /// The day and number in a log file's name, `messages-YYYYMMDD-NNNNNN.log`, or `None` for any
 /// other file, which the log leaves alone.
-fn parse_name(path: &Path) -> Option<(NaiveDate, u32)> {
+pub(super) fn parse_name(path: &Path) -> Option<(NaiveDate, u32)> {
     let name = path.file_name()?.to_str()?;
     let (day, number) = name.strip_prefix("messages-")?.strip_suffix(".log")?.split_once('-')?;
     if day.len() != 8 || number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
