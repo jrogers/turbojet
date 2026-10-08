@@ -20,7 +20,7 @@ use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVe
 use tokio_rustls::rustls::client::{ResolvesClientCert, Resumption};
 use tokio_rustls::rustls::crypto::{CryptoProvider, ring, verify_tls12_signature, verify_tls13_signature};
 use tokio_rustls::rustls::pki_types::pem::PemObject;
-use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, UnixTime};
+use tokio_rustls::rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, UnixTime};
 use tokio_rustls::rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use tokio_rustls::rustls::server::{ClientHello, NoServerSessionStorage, ResolvesServerCert, WebPkiClientVerifier};
 use tokio_rustls::rustls::sign::CertifiedKey;
@@ -128,10 +128,21 @@ impl fmt::Debug for Identity {
     }
 }
 
-/// The CAs trusted to have issued the other side's certificate. Built from certificates in
-/// memory or read from files; it holds at least one.
+/// The CAs trusted to have issued the other side's certificate, and optionally the certificate
+/// revocation lists (CRLs) to check it against. Built from certificates in memory or read from
+/// files; it holds at least one CA.
+///
+/// Revocation isn't checked unless CRLs are given ([`with_crls_pem`](Self::with_crls_pem) and the
+/// like). With them, every certificate in the chain up to the trusted CA is checked, and one that
+/// no CRL covers is refused, since its status is unknown: give a CRL from each CA that issues in
+/// the chain, intermediates included. A CRL past its next update is still used. Nothing is fetched:
+/// CRLs are only those given, so to take in a new one, build a `Trust` with it and give that to
+/// [`ServerTls::set_client_trust`] or [`ClientTls::set_trust`], from the next handshake on.
 #[derive(Debug, Clone)]
-pub struct Trust(Arc<RootCertStore>);
+pub struct Trust {
+    roots: Arc<RootCertStore>,
+    crls: Vec<CertificateRevocationListDer<'static>>,
+}
 
 impl Trust {
     /// From DER CA certificates.
@@ -148,7 +159,7 @@ impl Trust {
         if roots.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "no CA certificates"));
         }
-        Ok(Self(Arc::new(roots)))
+        Ok(Self { roots: Arc::new(roots), crls: Vec::new() })
     }
 
     /// From PEM text in memory holding one or more CA certificates.
@@ -168,6 +179,55 @@ impl Trust {
     /// The file's error if it can't be read, or as [`from_pem`](Self::from_pem), naming the file.
     pub fn from_pem_files(cas: &Path) -> io::Result<Self> {
         Self::from_der(certificates(cas)?).map_err(|e| in_file(cas, e))
+    }
+
+    /// Also refuses certificates these DER CRLs revoke, as well as those they don't cover (see
+    /// [`Trust`]). Adds to the CRLs already given.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if there are none, or one doesn't parse.
+    pub fn with_crls_der(
+        mut self,
+        crls: impl IntoIterator<Item = CertificateRevocationListDer<'static>>,
+    ) -> io::Result<Self> {
+        let count = self.crls.len();
+        self.crls.extend(crls);
+        if self.crls.len() == count {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "no CRLs"));
+        }
+        // Built once here so a bad CRL is refused now, not at the first handshake.
+        WebPkiServerVerifier::builder_with_provider(self.roots.clone(), provider())
+            .with_crls(self.crls.iter().cloned())
+            .build()
+            .map_err(invalid_data)?;
+        Ok(self)
+    }
+
+    /// As [`with_crls_der`](Self::with_crls_der), from PEM text in memory holding one or more
+    /// CRLs.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if the PEM doesn't parse, or as
+    /// [`with_crls_der`](Self::with_crls_der).
+    pub fn with_crls_pem(self, crls: &[u8]) -> io::Result<Self> {
+        let crls =
+            CertificateRevocationListDer::pem_slice_iter(crls).collect::<Result<Vec<_>, _>>().map_err(invalid_data)?;
+        self.with_crls_der(crls)
+    }
+
+    /// As [`with_crls_der`](Self::with_crls_der), from a PEM file holding one or more CRLs.
+    ///
+    /// # Errors
+    ///
+    /// The file's error if it can't be read, or as [`with_crls_pem`](Self::with_crls_pem), naming
+    /// the file.
+    pub fn with_crls_pem_files(self, path: &Path) -> io::Result<Self> {
+        let crls = CertificateRevocationListDer::pem_file_iter(path)
+            .and_then(|iter| iter.collect::<Result<Vec<_>, _>>())
+            .map_err(|e| pem_error(path, e))?;
+        self.with_crls_der(crls).map_err(|e| in_file(path, e))
     }
 }
 
@@ -471,13 +531,16 @@ fn client_verifier(
         ClientTrust::Optional(trust) => (trust, true),
         ClientTrust::Required(trust) => (trust, false),
     };
-    let builder = WebPkiClientVerifier::builder_with_provider(trust.0, provider.clone());
+    let builder = WebPkiClientVerifier::builder_with_provider(trust.roots, provider.clone()).with_crls(trust.crls);
     let builder = if optional { builder.allow_unauthenticated() } else { builder };
     Ok(Some(builder.build().map_err(invalid_input)?))
 }
 
 fn server_verifier(trust: &Trust, provider: &Arc<CryptoProvider>) -> io::Result<Arc<WebPkiServerVerifier>> {
-    WebPkiServerVerifier::builder_with_provider(trust.0.clone(), provider.clone()).build().map_err(invalid_input)
+    WebPkiServerVerifier::builder_with_provider(trust.roots.clone(), provider.clone())
+        .with_crls(trust.crls.iter().cloned())
+        .build()
+        .map_err(invalid_input)
 }
 
 /// Converts a completed handshake's peer certificates for [`crate::ConnectionInfo`].

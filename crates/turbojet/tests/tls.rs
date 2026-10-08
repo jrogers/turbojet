@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rcgen::{BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair};
+use rcgen::{
+    BasicConstraints, CertificateParams, CertificateRevocationListParams, DnType, ExtendedKeyUsagePurpose, IsCa,
+    Issuer, KeyIdMethod, KeyPair, RevokedCertParams, SerialNumber,
+};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -41,7 +44,41 @@ impl Pki {
         // A renewal of the server's certificate, and one from the other CA.
         pki.issue("server-renewed", &ca, vec!["localhost".into()], ExtendedKeyUsagePurpose::ServerAuth);
         pki.issue("server-other", &other, vec!["localhost".into()], ExtendedKeyUsagePurpose::ServerAuth);
+        // Revocation lists: the CA's revoking the client, revoking the server, revoking nothing,
+        // and the other CA's, which says nothing about certificates the CA issued.
+        pki.crl("ca-revokes-client", &ca, &["client"]);
+        pki.crl("ca-revokes-server", &ca, &["server"]);
+        pki.crl("ca-revokes-none", &ca, &[]);
+        pki.crl("other-ca", &other, &[]);
         pki
+    }
+
+    /// A trust in `ca` that checks certificates against the CRL `crl`.
+    fn trust_with_crl(&self, ca: &str, crl: &str) -> tls::Trust {
+        self.trust(ca).with_crls_pem_files(&self.path(&format!("{crl}.crl.pem"))).unwrap()
+    }
+
+    /// Writes `issuer`'s CRL revoking the certificates named in `revoked`.
+    fn crl(&self, name: &str, issuer: &Issuer<'_, KeyPair>, revoked: &[&str]) {
+        let revoked_certs = revoked
+            .iter()
+            .map(|cert| RevokedCertParams {
+                serial_number: serial(cert),
+                revocation_time: rcgen::date_time_ymd(2026, 1, 1),
+                reason_code: None,
+                invalidity_date: None,
+            })
+            .collect();
+        let params = CertificateRevocationListParams {
+            this_update: rcgen::date_time_ymd(2026, 1, 1),
+            next_update: rcgen::date_time_ymd(2099, 1, 1),
+            crl_number: SerialNumber::from(1u64),
+            issuing_distribution_point: None,
+            revoked_certs,
+            key_identifier_method: KeyIdMethod::Sha256,
+        };
+        let crl = params.signed_by(issuer).unwrap();
+        std::fs::write(self.path(&format!("{name}.crl.pem")), crl.pem().unwrap()).unwrap();
     }
 
     /// A file's contents, as certificates arrive from a secrets store rather than a file.
@@ -78,6 +115,7 @@ impl Pki {
         let mut params = CertificateParams::new(names).unwrap();
         params.distinguished_name.push(DnType::CommonName, name);
         params.extended_key_usages = vec![usage];
+        params.serial_number = Some(serial(name));
         let cert = params.signed_by(&key, issuer).unwrap();
         std::fs::write(self.path(&format!("{name}.pem")), cert.pem()).unwrap();
         std::fs::write(self.path(&format!("{name}.key")), key.serialize_pem()).unwrap();
@@ -99,6 +137,11 @@ impl Pki {
         let identity = paths.as_ref().map(|(cert, key)| (cert.as_path(), key.as_path()));
         tls::connector(&self.path(trust), identity).unwrap()
     }
+}
+
+/// A certificate's serial number, from its name, so a CRL can revoke it by name.
+fn serial(name: &str) -> SerialNumber {
+    SerialNumber::from_slice(name.as_bytes())
 }
 
 #[derive(Clone, Copy)]
@@ -777,4 +820,75 @@ async fn fixp_failover_endpoints_verify_their_own_server_names() {
     tokio::spawn(async move { client.connect_once().await });
     assert!(established(&mut client_established).await);
     assert!(established(&mut server).await);
+}
+
+#[tokio::test]
+async fn an_acceptor_refuses_a_revoked_client_certificate() {
+    let pki = Pki::new();
+    let trust = tls::ClientTrust::Required(pki.trust_with_crl("ca", "ca-revokes-client"));
+    let server = tls::ServerTls::new(pki.identity("server"), trust).unwrap();
+    let (addr, mut events) = serve(&server).await;
+    let (initiator, _client) = initiator(addr.as_str());
+    let revoked = tls::ClientTls::new(pki.trust("ca"), Some(pki.identity("client"))).unwrap();
+    let initiator = initiator.with_tls(revoked.connector(), "localhost").unwrap();
+    assert!(attempt(&initiator).await.is_err(), "the client's certificate is revoked");
+    assert!(events.try_recv().is_err());
+
+    // Another certificate from the same CA, which the CRL doesn't revoke, gets in.
+    revoked.set_identity(Some(pki.identity("mallory")));
+    let mut client = tokio::spawn(async move { initiator.connect_once().await });
+    assert!(timeout(Duration::from_millis(500), &mut client).await.is_err(), "connected and running");
+}
+
+#[tokio::test]
+async fn an_initiator_refuses_a_revoked_server_certificate() {
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
+    let (addr, mut events) = serve(&server).await;
+    let client_tls = tls::ClientTls::new(pki.trust_with_crl("ca", "ca-revokes-server"), None).unwrap();
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let err = attempt(&initiator).await.unwrap_err();
+    assert!(err.to_string().contains("Revoked"), "{err}");
+    assert!(events.try_recv().is_err());
+}
+
+/// With CRLs given, a certificate none of them covers has an unknown status, and is refused.
+#[tokio::test]
+async fn a_certificate_no_crl_covers_is_refused() {
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
+    let (addr, _events) = serve(&server).await;
+    let client_tls = tls::ClientTls::new(pki.trust_with_crl("ca", "other-ca"), None).unwrap();
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let err = attempt(&initiator).await.unwrap_err();
+    assert!(err.to_string().contains("UnknownRevocationStatus"), "{err}");
+}
+
+/// A CRL that revokes nothing lets the server in; a newer one given while running, revoking it,
+/// keeps it out from the next handshake.
+#[tokio::test]
+async fn a_new_crl_applies_from_the_next_handshake() {
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
+    let (addr, _events) = serve(&server).await;
+    let client_tls = tls::ClientTls::new(pki.trust_with_crl("ca", "ca-revokes-none"), None).unwrap();
+    assert_eq!(presented(&addr, &client_tls.connector()).await, der(&pki.pem("server.pem")));
+
+    client_tls.set_trust(pki.trust_with_crl("ca", "ca-revokes-server")).unwrap();
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    assert!(attempt(&initiator).await.unwrap_err().to_string().contains("Revoked"));
+}
+
+#[test]
+fn crls_that_dont_parse_are_refused() {
+    let pki = Pki::new();
+    let none = pki.trust("ca").with_crls_pem(b"");
+    assert_eq!(none.unwrap_err().kind(), io::ErrorKind::InvalidData);
+    let garbled = pki.trust("ca").with_crls_pem(b"-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n");
+    assert_eq!(garbled.unwrap_err().kind(), io::ErrorKind::InvalidData);
+    let err = pki.trust("ca").with_crls_pem_files(&pki.path("missing.crl.pem")).unwrap_err();
+    assert!(err.to_string().contains("missing.crl.pem"), "{err}");
 }
