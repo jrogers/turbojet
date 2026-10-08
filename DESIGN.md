@@ -164,6 +164,12 @@ store.
   reloaded while running (changes apply from each counterparty's next Logon and each initiator's
   next connection, counterparties no longer listed are logged out, initiators are started and
   stopped as they're added and removed, and a file that doesn't load leaves the one in use).
+  QuickFIX settings files are converted to one, not read directly, so there's one format to
+  load and reload, and what each key became is there to review. The converter is strict: a key
+  that maps is converted, one Turbojet sets in code (logging, socket options) becomes a comment,
+  and one whose behaviour would differ is refused, with every problem in the file reported at
+  once. Keys with their QuickFIX default (`ResetOnLogout=N`) pass, since that's what Turbojet
+  does.
 - **Observability**: structured logging and Prometheus-compatible metrics, with opt-in latency
   histograms (handling each inbound message, store commits, and reading input to its replies
   being ready to write), and an optional `MessageLog` that sees every message's bytes.

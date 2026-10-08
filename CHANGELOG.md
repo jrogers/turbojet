@@ -144,6 +144,9 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `quickfix::convert` turns a QuickFIX settings file (`.cfg`) into a sessions file, converting
+  the keys that map and refusing, by name, those that would behave differently. The example
+  gateway runs it as `gateway convert-cfg FILE`.
 - `client_crl` in `[acceptor.tls]` and `crl` in an initiator's `tls`: a PEM file of CRLs to check
   the other side's certificate against.
 - `local_address` in an initiator's section: the IP address to connect from, with or without a

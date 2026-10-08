@@ -620,6 +620,24 @@ counterparty's next Logon, counterparties no longer listed are logged out, and a
 doesn't load leaves the one in use in place. The gateway takes one with `--config FILE` and
 reloads it on SIGHUP.
 
+**Coming from QuickFIX.** `turbojet_config::quickfix::convert` turns a QuickFIX, QuickFIX/J or
+quickfix-go settings file into a sessions file to review, and the gateway does it from the
+command line:
+
+```sh
+gateway convert-cfg quickfix.cfg > sessions.toml
+```
+
+Acceptor sessions become the `[acceptor]` and a `[counterparty.X]` each (so they must share one
+port and SenderCompID), and initiator sessions an `[initiator.X]` each. The session's identity,
+addresses, schedule (`StartTime`, `EndTime`, `StartDay`, `EndDay`, `Weekdays`, `TimeZone`,
+`NonStopSession`), `HeartBtInt`, `ReconnectInterval`, `ResetOnLogon` (an initiator's), timeouts,
+`MaxLatency`, timestamp precision, file stores and data dictionaries are converted. Logging and
+socket options are listed in a comment, since Turbojet sets them in code. Anything that would
+behave differently, such as an acceptor's `ResetOnLogon=Y`, `ResetOnLogout=Y` or Java key stores,
+is refused, every one named. Paths are copied as written, but a sessions file reads them from its
+own directory, where QuickFIX reads them from where it runs.
+
 ## Cancel on disconnect
 
 `Application::on_logout` says how a logged-on session ended, as a `Disconnect`: a Logout from us

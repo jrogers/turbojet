@@ -108,10 +108,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 5. Operations and deployment
 
-- **QuickFIX settings files** (S). `turbojet-config` reads TOML. An importer for the QuickFIX
-  `.cfg` keys that map (BeginString, SenderCompID, TargetCompID, SocketConnectHost/Port,
-  StartTime/EndTime, HeartBtInt, ResetOnLogon and the like) would ease moving from QuickFIX,
-  QuickFIX/J or QuickFIX/n.
 - **Management API and console** (L). The operator API works on connected sessions in the
   library, but nothing exposes it remotely, and the gateway only has the offline `seqnums`
   tool. Provide an optional management endpoint (HTTP, or a local socket) that lists sessions
