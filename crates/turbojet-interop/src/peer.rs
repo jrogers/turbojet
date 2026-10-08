@@ -165,6 +165,19 @@ pub struct PeerConfig {
     pub max_latency_secs: u32,
     /// Session IDs with SubIDs and a LocationID: see [`Options::sub_ids`](crate::Options::sub_ids).
     pub sub_ids: bool,
+    /// TLS, for QuickFIX/J only.
+    pub tls: Option<PeerTls>,
+}
+
+/// The peer's TLS settings, as PEM files.
+#[derive(Debug, Clone)]
+pub struct PeerTls {
+    /// Its certificate and key, if it has one to present.
+    pub identity: Option<(PathBuf, PathBuf)>,
+    /// The CA it trusts for the other side's certificate.
+    pub ca: PathBuf,
+    /// As acceptor, it requires a client certificate.
+    pub need_client_auth: bool,
 }
 
 /// A running QuickFIX/J peer. Killed on drop.
@@ -254,6 +267,14 @@ fn command(config: &PeerConfig, log_dir: &Path) -> Command {
         .arg(format!("log-dir={}", log_dir.display()));
     if let Some(port) = config.port {
         command.arg(format!("port={port}"));
+    }
+    if let Some(tls) = &config.tls {
+        command.arg(format!("tls-ca={}", tls.ca.display()));
+        command.arg(format!("need-client-auth={}", if tls.need_client_auth { "Y" } else { "N" }));
+        if let Some((cert, key)) = &tls.identity {
+            command.arg(format!("tls-cert={}", cert.display()));
+            command.arg(format!("tls-key={}", key.display()));
+        }
     }
     if config.sub_ids {
         command.args([

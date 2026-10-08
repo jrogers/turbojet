@@ -2810,6 +2810,7 @@ dependencies = [
 name = "turbojet-interop"
 version = "0.2.0"
 dependencies = [
+ "rcgen",
  "tempfile",
  "tokio",
  "tracing-subscriber",

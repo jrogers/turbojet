@@ -1,9 +1,21 @@
 package dev.turbojet.interop;
 
 import java.io.BufferedReader;
+import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -29,7 +41,9 @@ import quickfix.field.MsgSeqNum;
  * <p>Arguments are {@code key=value}: role (acceptor|initiator), begin (FIX.4.2|FIX.4.3|FIX.4.4|FIXT.1.1),
  * port (initiator only; the acceptor picks a free one and reports it), sender, target,
  * heartbeat (seconds), reset-on-logon (Y|N), reconnect (seconds), max-latency (seconds: how far
- * SendingTime may be from the clock, with CheckLatency=Y), log-dir.
+ * SendingTime may be from the clock, with CheckLatency=Y), log-dir. For TLS: tls-ca (PEM: the
+ * CA trusted for the other side's certificate), tls-cert and tls-key (PEM: the certificate to
+ * present, and its PKCS#8 key; none, and none is presented), need-client-auth (Y|N, as acceptor).
  *
  * <p>Commands, one per line on stdin, each answered with {@code ok} or {@code error}:
  * <ul>
@@ -121,6 +135,9 @@ public final class Peer implements Application {
             // FIX.4.2 -> FIX42.xml
             settings.setString(id, "DataDictionary", begin.replace(".", "") + ".xml");
         }
+        if (opts.containsKey("tls-ca")) {
+            configureTls(settings, id, opts, role);
+        }
         int port = 0;
         if (role.equals("acceptor")) {
             // Any free port; read back once bound. On loopback, not the wildcard address: on macOS
@@ -164,6 +181,66 @@ public final class Peer implements Application {
         }
         connector.stop(true);
         System.exit(0);
+    }
+
+    private static final char[] STORE_PASSWORD = "turbojet".toCharArray();
+
+    /**
+     * QuickFIX/J reads its certificates from key stores, so this writes them from the PEM files
+     * given: a key store holding the certificate to present (empty if none, so that QuickFIX/J
+     * doesn't fall back to its bundled one) and a trust store holding the CA.
+     */
+    private static void configureTls(SessionSettings settings, SessionID id, Map<String, String> opts, String role)
+            throws Exception {
+        Path dir = Files.createDirectories(Path.of(opts.get("log-dir"), "tls"));
+        KeyStore keys = KeyStore.getInstance("PKCS12");
+        keys.load(null, null);
+        if (opts.containsKey("tls-cert")) {
+            Certificate[] chain = certificates(Path.of(opts.get("tls-cert")));
+            keys.setKeyEntry("peer", privateKey(Path.of(opts.get("tls-key"))), STORE_PASSWORD, chain);
+        }
+        KeyStore trust = KeyStore.getInstance("PKCS12");
+        trust.load(null, null);
+        Certificate[] cas = certificates(Path.of(opts.get("tls-ca")));
+        for (int i = 0; i < cas.length; i++) {
+            trust.setCertificateEntry("ca" + i, cas[i]);
+        }
+        settings.setString(id, "SocketUseSSL", "Y");
+        settings.setString(id, "SocketKeyStore", store(keys, dir.resolve("keys.p12")));
+        settings.setString(id, "KeyStoreType", "PKCS12");
+        settings.setString(id, "SocketKeyStorePassword", new String(STORE_PASSWORD));
+        settings.setString(id, "SocketTrustStore", store(trust, dir.resolve("trust.p12")));
+        settings.setString(id, "TrustStoreType", "PKCS12");
+        settings.setString(id, "SocketTrustStorePassword", new String(STORE_PASSWORD));
+        settings.setString(id, "NeedClientAuth", opts.getOrDefault("need-client-auth", "N"));
+        if (role.equals("initiator")) {
+            // Check the server's certificate names the host connected to, as Turbojet's client does.
+            settings.setString(id, "EndpointIdentificationAlgorithm", "HTTPS");
+        }
+    }
+
+    private static String store(KeyStore store, Path path) throws Exception {
+        try (OutputStream out = Files.newOutputStream(path)) {
+            store.store(out, STORE_PASSWORD);
+        }
+        return path.toString();
+    }
+
+    private static Certificate[] certificates(Path pem) throws Exception {
+        try (InputStream in = Files.newInputStream(pem)) {
+            return CertificateFactory.getInstance("X.509").generateCertificates(in).toArray(new Certificate[0]);
+        }
+    }
+
+    /** A PKCS#8 key in PEM, as rcgen writes it: ECDSA, or RSA. */
+    private static PrivateKey privateKey(Path pem) throws Exception {
+        String base64 = Files.readString(pem).replaceAll("-----[A-Z ]+-----", "").replaceAll("\\s", "");
+        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(Base64.getDecoder().decode(base64));
+        try {
+            return KeyFactory.getInstance("EC").generatePrivate(spec);
+        } catch (GeneralSecurityException e) {
+            return KeyFactory.getInstance("RSA").generatePrivate(spec);
+        }
     }
 
     private static void run(Session session, String command, String arg) throws Exception {

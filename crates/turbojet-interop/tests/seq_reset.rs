@@ -16,6 +16,7 @@ const NO_RECONNECT: Options = Options {
     proxy: false,
     max_latency_secs: 120,
     sub_ids: false,
+    tls: None,
 };
 
 /// QuickFIX/J jumps its sequence to 20 with a SequenceReset-Reset: Turbojet accepts the next

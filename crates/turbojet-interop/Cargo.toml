@@ -9,10 +9,11 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+rcgen.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
-turbojet.workspace = true
+turbojet = { workspace = true, features = ["tls"] }
 
 [lints]
 workspace = true

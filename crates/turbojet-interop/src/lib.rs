@@ -11,9 +11,10 @@ mod mailbox;
 pub mod orders;
 mod pair;
 mod peer;
+mod pki;
 mod proxy;
 
-pub use pair::{Options, Pair, Role, Setup, TjEvent, Version};
+pub use pair::{Options, Pair, Role, Setup, TjEvent, Tls, Version};
 pub use peer::{EVENT_TIMEOUT, Engine, FixMsg, Peer, PeerConfig, PeerEvent, QFJ};
 pub use proxy::{Dir, Fault, Proxy, ProxyEvent};
 
@@ -33,17 +34,31 @@ pub const SCENARIO_TIMEOUT: Duration = Duration::from_secs(120);
 pub fn enabled() -> bool {
     let on = env::var_os("TURBOJET_INTEROP").is_some_and(|v| v == "1");
     if !on {
-        eprintln!("skipped: set TURBOJET_INTEROP=1 (or run scripts/interop.sh) to test against QuickFIX/J");
+        eprintln!(
+            "skipped: set TURBOJET_INTEROP=1 (or run scripts/interop.sh) to test against QuickFIX/J and quickfix-go"
+        );
     }
     on
 }
 
 /// Turns scenario functions `async fn name(setup: Setup)` into a module of sixteen tests each:
 /// {QuickFIX/J (`qfj`), quickfix-go (`qfgo`)} × {Turbojet initiator, Turbojet acceptor} ×
-/// {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}.
+/// {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}. `matrix!(@qfj ...)` makes only the eight QuickFIX/J tests.
 #[macro_export]
 macro_rules! matrix {
+    (@qfj $($scenario:ident),* $(,)?) => {$(
+        $crate::__scenario!([qfj QuickFixJ] $scenario);
+    )*};
     ($($scenario:ident),* $(,)?) => {$(
+        $crate::__scenario!([qfj QuickFixJ qfgo QuickFixGo] $scenario);
+    )*};
+}
+
+/// One scenario's module, with a module of tests for each engine.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __scenario {
+    ([$($module:ident $engine:ident)*] $scenario:ident) => {
         mod $scenario {
             async fn run(setup: $crate::Setup) {
                 if !$crate::enabled() {
@@ -56,16 +71,13 @@ macro_rules! matrix {
                     panic!("{} timed out after {:?}", stringify!($scenario), $crate::SCENARIO_TIMEOUT);
                 }
             }
-
-            mod qfj {
-                $crate::__cells!(QuickFixJ);
-            }
-
-            mod qfgo {
-                $crate::__cells!(QuickFixGo);
-            }
+            $(
+                mod $module {
+                    $crate::__cells!($engine);
+                }
+            )*
         }
-    )*};
+    };
 }
 
 /// One test per cell for `$engine`, calling the `run` that [`matrix!`] defines.

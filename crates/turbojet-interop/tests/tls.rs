@@ -1,0 +1,84 @@
+//! Sessions over TLS against QuickFIX/J, with both sides' certificates from one CA: the server's
+//! certificate alone, and mutual TLS, carrying orders and surviving a reconnect; and handshakes
+//! that must fail, so that neither side logs on.
+
+use std::time::Duration;
+
+use turbojet_interop::{Options, Pair, PeerEvent, Role, Setup, Tls, matrix};
+
+matrix!(
+    @qfj
+    orders_over_tls,
+    mutual_tls_survives_a_reconnect,
+    initiator_refuses_an_untrusted_server,
+    acceptor_refuses_a_client_without_a_certificate,
+    acceptor_refuses_an_untrusted_client_certificate,
+);
+
+/// How long a refused initiator keeps trying, reconnecting each second, without logging on.
+const REFUSED_FOR: Duration = Duration::from_secs(3);
+
+fn over(tls: Tls) -> Options {
+    Options { tls: Some(tls), ..Options::default() }
+}
+
+async fn orders_over_tls(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls::SERVER)).await;
+    pair.logged_on().await;
+    pair.orders_each_way("ORD1", "ORD2").await;
+    pair.finish().await;
+}
+
+/// Dropped without a Logout, the connection is made again with a new handshake, each side
+/// checking the other's certificate again, and the sequence numbers carry on.
+async fn mutual_tls_survives_a_reconnect(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls::MUTUAL)).await;
+    pair.logged_on().await;
+    pair.orders_each_way("ORD1", "ORD2").await;
+    pair.peer.cmd("disconnect").await;
+    pair.tj_logged_out().await;
+    pair.peer.logout().await;
+    pair.logged_on().await;
+    // Both sent a Logon, an order and the barrier's TestRequest or Heartbeat before.
+    for logon in [pair.peer.sent_with("A", |m| m.seq() > 1).await, pair.peer.received_with("A", |m| m.seq() > 1).await]
+    {
+        assert_eq!(logon.seq(), 4, "{}", logon.raw());
+        assert_ne!(logon.get(141), Some("Y"), "{}", logon.raw());
+    }
+    pair.orders_each_way("ORD3", "ORD4").await;
+    pair.finish().await;
+}
+
+/// The initiator trusts only a CA that didn't issue the acceptor's certificate.
+async fn initiator_refuses_an_untrusted_server(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls { initiator_trusts_acceptor: false, ..Tls::SERVER })).await;
+    refused(&mut pair).await;
+    pair.finish().await;
+}
+
+/// The acceptor requires a client certificate and the initiator has none.
+async fn acceptor_refuses_a_client_without_a_certificate(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls { client_cert: false, ..Tls::MUTUAL })).await;
+    refused(&mut pair).await;
+    pair.finish().await;
+}
+
+/// The acceptor trusts only a CA that didn't issue the initiator's certificate.
+async fn acceptor_refuses_an_untrusted_client_certificate(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls { acceptor_trusts_initiator: false, ..Tls::MUTUAL })).await;
+    refused(&mut pair).await;
+    pair.finish().await;
+}
+
+/// Neither side logs on while the initiator keeps trying. QuickFIX/J, as initiator, logs each
+/// failed handshake, which shows the refusal came in TLS and not later; as acceptor it logs none.
+async fn refused(pair: &mut Pair) {
+    pair.never_logged_on(REFUSED_FOR).await;
+    if pair.setup.role == Role::TjAcceptor {
+        let handshake =
+            |e: &PeerEvent| matches!(e, PeerEvent::QfjError(t) if t.contains("javax.net.ssl.SSLHandshakeException"));
+        pair.peer.expect("QuickFIX/J's failed handshake", handshake).await;
+        // One for each attempt, and it tries each second.
+        pair.peer.tolerate_errors(|e| e.contains("javax.net.ssl.SSLHandshakeException"));
+    }
+}

@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing_subscriber::EnvFilter;
 use turbojet::message::tags;
+use turbojet::tls::{ClientTls, ClientTrust, Identity, ServerTls, Trust};
 use turbojet::{
     Acceptor, ApplVerId, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
     MessageReject, MsgType, SessionConfig, SessionHandle, SessionId,
@@ -17,6 +18,8 @@ use turbojet::{
 
 use crate::mailbox::{Mailbox, Missing};
 use crate::orders::{peer_order, tj_order};
+use crate::peer::PeerTls;
+use crate::pki::Pki;
 use crate::{
     EVENT_TIMEOUT, Engine, FixMsg, Peer, PeerConfig, PeerEvent, Proxy, ProxyEvent, QFJ, QFJ_SUB, TJ, TJ_LOCATION,
     TJ_SUB,
@@ -73,6 +76,34 @@ pub struct Options {
     /// Both sides' session IDs have SubIDs, and Turbojet's a LocationID ([`TJ_SUB`],
     /// [`TJ_LOCATION`], [`QFJ_SUB`]), so each must find its session by them.
     pub sub_ids: bool,
+    /// Connects over TLS, configured so. QuickFIX/J only, and not with [`proxy`](Self::proxy),
+    /// which can't read encrypted frames.
+    pub tls: Option<Tls>,
+}
+
+/// TLS between the two, each side with a certificate from one CA (see `src/pki.rs`).
+#[derive(Debug, Clone, Copy)]
+pub struct Tls {
+    /// The acceptor requires a client certificate (mutual TLS).
+    pub client_auth: bool,
+    /// The initiator presents its certificate.
+    pub client_cert: bool,
+    /// The initiator trusts the CA that issued the acceptor's certificate (or only another one).
+    pub initiator_trusts_acceptor: bool,
+    /// With `client_auth`, the acceptor trusts the CA that issued the initiator's certificate.
+    pub acceptor_trusts_initiator: bool,
+}
+
+impl Tls {
+    /// The server proves who it is; the client doesn't.
+    pub const SERVER: Self = Self {
+        client_auth: false,
+        client_cert: false,
+        initiator_trusts_acceptor: true,
+        acceptor_trusts_initiator: true,
+    };
+    /// Both prove who they are.
+    pub const MUTUAL: Self = Self { client_auth: true, client_cert: true, ..Self::SERVER };
 }
 
 impl Default for Options {
@@ -84,6 +115,7 @@ impl Default for Options {
             proxy: false,
             max_latency_secs: 120,
             sub_ids: false,
+            tls: None,
         }
     }
 }
@@ -127,6 +159,8 @@ pub struct Pair {
     tj: Mailbox<TjEvent>,
     task: JoinHandle<()>,
     finished: bool,
+    /// The certificates, with [`Options::tls`]; their files last as long as the pair.
+    _pki: Option<Pki>,
 }
 
 impl Setup {
@@ -135,32 +169,20 @@ impl Setup {
     }
 
     pub async fn start_with(self, options: Options) -> Pair {
-        tracing_subscriber::fmt()
-            .with_test_writer()
-            .with_ansi(false)
-            .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "turbojet=debug".into()))
-            .try_init()
-            .ok();
+        init_tracing();
         let (events, tj) = mpsc::unbounded_channel();
         let app = Arc::new(Recorder { events });
         let storage = Arc::new(MemoryStorage::new());
         let begin_string = self.version.begin_string();
-        let mut session = SessionConfig::new(begin_string, TJ);
-        if self.version == Version::Fixt {
-            session = session.with_appl_ver_id(ApplVerId::Fix50Sp2);
-        }
-        session.max_latency = Some(Duration::from_secs(options.max_latency_secs.into()));
-        let mut peer_config = PeerConfig {
-            engine: self.engine,
-            acceptor: self.role == Role::TjInitiator,
-            begin_string,
-            port: None,
-            heartbeat_secs: options.heartbeat_secs,
-            reset_on_logon: options.reset_on_logon && self.role == Role::TjAcceptor,
-            reconnect_secs: options.reconnect_secs,
-            max_latency_secs: options.max_latency_secs,
-            sub_ids: options.sub_ids,
-        };
+        let session = self.session_config(&options);
+        let mut peer_config = self.peer_config(&options);
+        let pki = options.tls.map(|tls| {
+            assert_eq!(self.engine, Engine::QuickFixJ, "TLS scenarios run against QuickFIX/J only");
+            assert!(!options.proxy, "the proxy can't read TLS");
+            let pki = Pki::new();
+            peer_config.tls = Some(peer_tls(&pki, tls, self.role));
+            pki
+        });
         let id = tj_session_id(begin_string, &options);
         let mut proxy = None;
         let (peer, handle, task) = match self.role {
@@ -173,7 +195,10 @@ impl Setup {
                     proxy = Some(started);
                 }
                 let config = initiator_config(session, &id, &options);
-                let initiator = Initiator::new(addr.to_string(), config, storage, app).unwrap();
+                let mut initiator = Initiator::new(addr.to_string(), config, storage, app).unwrap();
+                if let (Some(tls), Some(pki)) = (options.tls, &pki) {
+                    initiator = initiator.with_tls(tj_client_tls(pki, tls).connector(), "localhost").unwrap();
+                }
                 let handle = initiator.handle();
                 (peer, handle, tokio::spawn(initiator.run()))
             }
@@ -188,16 +213,94 @@ impl Setup {
                     proxy = Some(started);
                 }
                 let handle = acceptor.handle(&id);
+                let server = options.tls.zip(pki.as_ref()).map(|(tls, pki)| tj_server_tls(pki, tls));
                 let task = tokio::spawn(async move {
-                    if let Err(e) = acceptor.serve(listener).await {
+                    let served = match server {
+                        Some(server) => acceptor.serve_tls(listener, server.acceptor()).await,
+                        None => acceptor.serve(listener).await,
+                    };
+                    if let Err(e) = served {
                         eprintln!("Turbojet acceptor stopped: {e}");
                     }
                 });
                 (Peer::spawn(peer_config).await, handle, task)
             }
         };
-        Pair { setup: self, peer, handle, proxy, tj: Mailbox::new(tj), task, finished: false }
+        Pair { setup: self, peer, handle, proxy, tj: Mailbox::new(tj), task, finished: false, _pki: pki }
     }
+}
+
+impl Setup {
+    /// Turbojet's session settings.
+    fn session_config(self, options: &Options) -> SessionConfig {
+        let mut session = SessionConfig::new(self.version.begin_string(), TJ);
+        if self.version == Version::Fixt {
+            session = session.with_appl_ver_id(ApplVerId::Fix50Sp2);
+        }
+        session.max_latency = Some(Duration::from_secs(options.max_latency_secs.into()));
+        session
+    }
+
+    /// The peer's settings, but for its port and TLS, which depend on Turbojet's side.
+    fn peer_config(self, options: &Options) -> PeerConfig {
+        PeerConfig {
+            engine: self.engine,
+            acceptor: self.role == Role::TjInitiator,
+            begin_string: self.version.begin_string(),
+            port: None,
+            heartbeat_secs: options.heartbeat_secs,
+            reset_on_logon: options.reset_on_logon && self.role == Role::TjAcceptor,
+            reconnect_secs: options.reconnect_secs,
+            max_latency_secs: options.max_latency_secs,
+            sub_ids: options.sub_ids,
+            tls: None,
+        }
+    }
+}
+
+/// Turbojet's tracing in the test output, once per test binary.
+fn init_tracing() {
+    tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_ansi(false)
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "turbojet=debug".into()))
+        .try_init()
+        .ok();
+}
+
+/// The peer's side of `tls`: its certificate if it's the acceptor or presents one as initiator,
+/// and the CA it trusts.
+fn peer_tls(pki: &Pki, tls: Tls, role: Role) -> PeerTls {
+    let peer_is_acceptor = role == Role::TjInitiator;
+    let presents = peer_is_acceptor || tls.client_cert;
+    let trusted = if peer_is_acceptor { tls.acceptor_trusts_initiator } else { tls.initiator_trusts_acceptor };
+    PeerTls {
+        identity: presents.then(|| pki.identity_paths("peer")),
+        ca: pki.ca_path(trusted),
+        need_client_auth: peer_is_acceptor && tls.client_auth,
+    }
+}
+
+/// Turbojet as TLS client: the CA it trusts, and its certificate if it presents one.
+fn tj_client_tls(pki: &Pki, tls: Tls) -> ClientTls {
+    let trust = Trust::from_pem_files(&pki.ca_path(tls.initiator_trusts_acceptor)).unwrap();
+    let identity = tls.client_cert.then(|| tj_identity(pki));
+    ClientTls::new(trust, identity).unwrap()
+}
+
+/// Turbojet as TLS server: its certificate, and the CA it trusts for clients' if it asks for them.
+fn tj_server_tls(pki: &Pki, tls: Tls) -> ServerTls {
+    let client_trust = if tls.client_auth {
+        ClientTrust::Required(Trust::from_pem_files(&pki.ca_path(tls.acceptor_trusts_initiator)).unwrap())
+    } else {
+        ClientTrust::None
+    };
+    ServerTls::new(tj_identity(pki), client_trust).unwrap()
+}
+
+fn tj_identity(pki: &Pki) -> Identity {
+    let (cert, key) = pki.identity_paths("tj");
+    Identity::from_pem_files(&cert, &key).unwrap()
 }
 
 /// Turbojet's session with the peer, as `options` has it.
@@ -226,6 +329,12 @@ impl Pair {
     pub async fn logged_on(&mut self) {
         self.tj_expect("logon", |e| matches!(e, TjEvent::LoggedOn(_))).await;
         self.peer.logon().await;
+    }
+
+    /// Fails if either side logs on `within`: for a connection that must be refused.
+    pub async fn never_logged_on(&mut self, within: Duration) {
+        self.tj_expect_none("logon", |e| matches!(e, TjEvent::LoggedOn(_)), within).await;
+        self.peer.expect_none("logon", |e| matches!(e, PeerEvent::Logon), Duration::ZERO).await;
     }
 
     pub async fn tj_logged_out(&mut self) {
