@@ -172,9 +172,10 @@ store.
   does.
 - **Management**: the registry, which already binds each session to its connection, is where an
   operator's view lives. At its Logon a session gives the registry when and over what connection
-  it bound, and for FIX sessions an `Arc` of atomics (state, resend, sequence numbers, last
-  message times as offsets from the bind) that it stores to on the paths that already update the
-  sequence-number gauges: listing sessions takes the registry's lock but never a session's, and
+  it bound, and an `Arc` of atomics (state, resend, sequence numbers, last message times as
+  offsets from the bind). A FIX session stores to them on the paths that already update the
+  sequence-number gauges; a FIXP session, whose state and numbers change in more places, copies
+  them in once per batch, when the driver takes its commit: listing sessions takes the registry's lock but never a session's, and
   the hot path gains a few relaxed stores and no allocation. Events go out on a bounded
   `tokio::sync::broadcast`, published only for state changes and only with subscribers, so a slow
   live view loses events (and is told) rather than holding a session up. A pause is a set in the

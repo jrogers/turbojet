@@ -112,7 +112,7 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   session statuses, events for a live view, pause and resume, operator resends, sequence-number
   changes and reading the message log. Nothing serves it remotely yet: an HTTP and websocket
   endpoint with authentication, and a web console on top (what commercial engines sell on),
-  belong with the gateway. FIXP sessions' statuses don't have activity yet.
+  belong with the gateway.
 - **Message log compression and archiving** (S). `FileMessageLog` rotates files and deletes them
   after a retention period, but leaves compressing and archiving finished files to the operator.
   Compressing them as they're finished would need a compression crate, behind a feature; a hook

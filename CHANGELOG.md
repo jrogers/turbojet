@@ -8,9 +8,10 @@ Notable changes to the published crates.
 
 - For a management layer: `SessionRegistry::statuses`, `Acceptor::statuses` and
   `SessionHandle::status` list connected sessions with when and over what connection they logged
-  on, whether they're paused, and for FIX sessions an `Activity` (state, whether recovering a gap,
-  sequence numbers, last message each way). `subscribe` on the registry, an acceptor or an
-  initiator broadcasts `SessionEvent`s. `SessionHandle::pause` and `resume` stop and start a
+  on, whether they're paused, and an `Activity` (state, whether recovering a gap, sequence
+  numbers, last message each way), for FIX and FIXP sessions alike; `FixpAcceptor::statuses`
+  too. `subscribe` on the registry, an acceptor or an
+  initiator (FIX or FIXP) broadcasts `SessionEvent`s. `SessionHandle::pause` and `resume` stop and start a
   session from either side, and `request_resend` asks the counterparty for processed messages
   again. `FileMessageLog::files` and `read` read the message log back.
 - Breaking: `SequenceCommand` has `RequestResend` and is `#[non_exhaustive]`.

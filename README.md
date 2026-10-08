@@ -418,8 +418,8 @@ What a management console or a live view needs is in the library; serving it ove
 websocket, with authentication, is left to the application.
 
 ```rust
-// Where each connected session stands: when and from where it connected, and for FIX sessions
-// its state, sequence numbers and last messages each way. Never waits on a session.
+// Where each connected session, FIX or FIXP, stands: when and from where it connected, its
+// state, sequence numbers and last messages each way. Never waits on a session.
 for status in acceptor.statuses() {
     let activity = status.activity.as_ref();
     println!("{} since {} from {:?}: {:?}", status.id, status.since, status.connection.addr, activity.map(|a| a.state));
@@ -447,7 +447,9 @@ for file in FileMessageLog::files("/var/log/fix")? {
 
 - `statuses()` is also on the `SessionRegistry` an acceptor and initiators can share, and
   `SessionHandle::status()` gives one session's. A session's `activity` is read as it left it,
-  each value on its own; FIXP sessions don't have one yet.
+  each value on its own. A FIXP session's negotiating and establishing count as logging on,
+  established as logged on, terminating as logging out, and a RetransmitRequest as a resend;
+  `FixpAcceptor` and `FixpInitiator` have `statuses` and `subscribe` too.
 - Events are broadcast as they happen and never wait for a subscriber: one that falls more than
   `EVENT_QUEUE` (4,096) behind misses the oldest and is told how many, its cue to read
   `statuses()` again. Read `statuses()` after subscribing for where things stand.
