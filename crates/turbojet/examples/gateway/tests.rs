@@ -611,6 +611,18 @@ fn gateway_records_latency_only_with_a_metrics_listener() {
 }
 
 #[test]
+fn gateway_checks_client_certificates_against_crls_only_when_given() {
+    let tls = ["--allow-any", "--tls-cert", "c.pem", "--tls-key", "k.pem", "--tls-client-ca", "ca.pem"];
+    let parsed = crate::parse_args(args(&[&tls[..], &["--tls-client-crl", "ca.crl.pem"]].concat())).unwrap();
+    assert_eq!(parsed.tls.unwrap().client_crl, Some("ca.crl.pem".into()));
+    assert_eq!(crate::parse_args(args(&tls)).unwrap().tls.unwrap().client_crl, None, "off by default");
+
+    let without_ca = ["--allow-any", "--tls-cert", "c.pem", "--tls-key", "k.pem", "--tls-client-crl", "ca.crl.pem"];
+    let err = crate::parse_args(args(&without_ca)).err().expect("needs the client CAs");
+    assert!(err.contains("--tls-client-crl requires --tls-client-ca"), "{err}");
+}
+
+#[test]
 fn gateway_logs_messages_to_files_kept_for_the_days_given() {
     let parsed = crate::parse_args(args(&["--allow-any", "--message-log", "log", "--message-log-days", "30"])).unwrap();
     assert_eq!(parsed.message_log, Some(("log".into(), Some(Duration::from_secs(30 * 86_400)))));

@@ -53,9 +53,11 @@ Options:
   --tls-client-ca FILE Verify client certificates against these PEM CAs (mutual TLS)
   --tls-client-auth M  With --tls-client-ca: `required` (default) refuses clients without a
                        certificate; `optional` admits them, but still refuses invalid ones
+  --tls-client-crl F   With --tls-client-ca: refuse client certificates these PEM CRLs revoke,
+                       and those none of them covers (default: no revocation check)
   --tls-match-comp-id  With --tls-client-ca: a client certificate must name the SenderCompID
                        (as its subject CN or a DNS name) that logs on with it
-                       On Unix, SIGHUP reloads the TLS certificate, key and client CAs from their
+                       On Unix, SIGHUP reloads the TLS certificate, key, client CAs and CRLs from their
                        files: new connections use them, and connected sessions carry on
   --schedule S         Only allow sessions in these hours, resetting sequence numbers each
                        period, e.g. \"daily 08:00-17:00 mon-fri America/New_York\" or
@@ -121,6 +123,7 @@ struct TlsArgs {
     cert: PathBuf,
     key: PathBuf,
     client_ca: Option<PathBuf>,
+    client_crl: Option<PathBuf>,
     client_cert_required: bool,
 }
 
@@ -146,6 +149,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut store_dir = None;
     let mut fsync = false;
     let (mut tls_cert, mut tls_key, mut tls_client_ca, mut tls_client_auth) = (None, None, None, None);
+    let mut tls_client_crl = None;
     let mut tls_match_comp_id = false;
     let mut metrics_listen = None;
     let mut latency_metrics = false;
@@ -177,6 +181,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--tls-cert" => tls_cert = Some(PathBuf::from(value()?)),
             "--tls-key" => tls_key = Some(PathBuf::from(value()?)),
             "--tls-client-ca" => tls_client_ca = Some(PathBuf::from(value()?)),
+            "--tls-client-crl" => tls_client_crl = Some(PathBuf::from(value()?)),
             "--tls-match-comp-id" => tls_match_comp_id = true,
             "--schedule" => {
                 let text = value()?;
@@ -268,13 +273,20 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     if tls_client_auth.is_some() && tls_client_ca.is_none() {
         return Err("--tls-client-auth requires --tls-client-ca".into());
     }
+    if tls_client_crl.is_some() && tls_client_ca.is_none() {
+        return Err("--tls-client-crl requires --tls-client-ca".into());
+    }
     if tls_match_comp_id && tls_client_ca.is_none() && config_file.is_none() {
         return Err("--tls-match-comp-id requires --tls-client-ca".into());
     }
     let tls = match (tls_cert, tls_key) {
-        (Some(cert), Some(key)) => {
-            Some(TlsArgs { cert, key, client_ca: tls_client_ca, client_cert_required: tls_client_auth.unwrap_or(true) })
-        }
+        (Some(cert), Some(key)) => Some(TlsArgs {
+            cert,
+            key,
+            client_ca: tls_client_ca,
+            client_crl: tls_client_crl,
+            client_cert_required: tls_client_auth.unwrap_or(true),
+        }),
         (None, None) if tls_client_ca.is_some() => return Err("--tls-client-ca requires --tls-cert".into()),
         (None, None) => None,
         _ => return Err("--tls-cert and --tls-key must be given together".into()),
@@ -306,6 +318,7 @@ const SESSION_OPTIONS: &[&str] = &[
     "--tls-key",
     "--tls-client-ca",
     "--tls-client-auth",
+    "--tls-client-crl",
     "--schedule",
     "--holidays",
     "--inbound-limit",
@@ -359,10 +372,14 @@ impl TlsArgs {
     /// The certificate, key and client CAs, read from their files now.
     fn load(&self) -> std::io::Result<(tls::Identity, tls::ClientTrust)> {
         let identity = tls::Identity::from_pem_files(&self.cert, &self.key)?;
-        let client_trust = match (&self.client_ca, self.client_cert_required) {
-            (None, _) => tls::ClientTrust::None,
-            (Some(ca), true) => tls::ClientTrust::Required(tls::Trust::from_pem_files(ca)?),
-            (Some(ca), false) => tls::ClientTrust::Optional(tls::Trust::from_pem_files(ca)?),
+        let Some(ca) = &self.client_ca else { return Ok((identity, tls::ClientTrust::None)) };
+        let mut trust = tls::Trust::from_pem_files(ca)?;
+        if let Some(crl) = &self.client_crl {
+            trust = trust.with_crls_pem_files(crl)?;
+        }
+        let client_trust = match self.client_cert_required {
+            true => tls::ClientTrust::Required(trust),
+            false => tls::ClientTrust::Optional(trust),
         };
         Ok((identity, client_trust))
     }
