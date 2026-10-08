@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Instant;
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -686,8 +686,9 @@ pub struct SessionRegistry<T = Message> {
     paused: Mutex<HashSet<SessionId>>,
     /// Woken when a session is resumed, for initiators waiting to reconnect.
     resumed: Notify,
-    /// What [`subscribe`](Self::subscribe) hands out.
-    events: broadcast::Sender<SessionEvent>,
+    /// What [`subscribe`](Self::subscribe) hands out, made by the first call: its queue is
+    /// allocated whole (close to a megabyte), which a registry no one watches shouldn't carry.
+    events: OnceLock<broadcast::Sender<SessionEvent>>,
 }
 
 /// Most session events held for a subscriber that hasn't read them, past which it misses the
@@ -728,7 +729,7 @@ impl<T> SessionRegistry<T> {
             cancel_task: Arc::default(),
             paused: Mutex::default(),
             resumed: Notify::new(),
-            events: broadcast::channel(EVENT_QUEUE).0,
+            events: OnceLock::new(),
         }
     }
 
@@ -759,14 +760,16 @@ impl<T> SessionRegistry<T> {
     /// read says how many ([`broadcast::error::RecvError::Lagged`]), the cue to read `statuses`
     /// again.
     pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
-        self.events.subscribe()
+        self.events.get_or_init(|| broadcast::channel(EVENT_QUEUE).0).subscribe()
     }
 
     /// Tells subscribers, if there are any.
     pub(crate) fn publish(&self, id: &SessionId, kind: SessionEventKind) {
-        if self.events.receiver_count() > 0 {
+        if let Some(events) = self.events.get()
+            && events.receiver_count() > 0
+        {
             // Fails only with no subscribers, who'd have nothing to miss.
-            let _ = self.events.send(SessionEvent { id: id.clone(), kind });
+            let _ = events.send(SessionEvent { id: id.clone(), kind });
         }
     }
 
