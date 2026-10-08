@@ -47,7 +47,7 @@ running.
 CI runs Turbojet's sessions against QuickFIX/J and quickfix-go, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
 loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
-through QuickFIX's 235 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
+over TLS and mutual TLS against QuickFIX/J; and through QuickFIX's 235 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
 
 ```sh
 cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --comp-id GATEWAY \

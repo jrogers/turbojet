@@ -248,8 +248,11 @@ invariants, and tests that look for bugs rather than confirm what already works.
   and TestRequests, application messages (one with XmlData containing SOH), gap fills and resends in
   each direction, SequenceResets in both modes, MsgSeqNum too low and sessions identified by SubIDs
   and a LocationID, directly and through a proxy that loses, garbles, cuts and delays messages,
-  slows the link and silences or stalls either side. They found Heartbeats going out a second late,
-  since fixed. Against quickfix-go (v0.9.12), every scenario runs too; where it departs from the
+  slows the link and silences or stalls either side. Against QuickFIX/J, also over TLS: orders with
+  the server's certificate alone and with mutual TLS, a reconnect with a fresh handshake, and
+  handshakes refused for an untrusted server, a missing client certificate and an untrusted one,
+  with QuickFIX/J checking the server's name as Turbojet does. They found Heartbeats going out a
+  second late, since fixed. Against quickfix-go (v0.9.12), every scenario runs too; where it departs from the
   spec, the scenario checks what it does instead: it rejects a data field containing SOH, delivers
   a message with a wrong CheckSum, and doesn't count a message it rejects for SendingTime, so it
   asks for it again after reconnecting.
