@@ -113,9 +113,19 @@
 //! What's fixed until a restart can't change: whether there's an `[acceptor]`, its keys other
 //! than `unknown` and the TLS files, a store's definition, and which store a counterparty's or an
 //! initiator's sessions are kept in.
+//!
+//! # From QuickFIX
+//!
+//! [`quickfix::convert`] turns a QuickFIX settings file (`.cfg`, as QuickFIX, QuickFIX/J and
+//! quickfix-go read it) into a sessions file to review. Acceptor sessions become the `[acceptor]`
+//! and a counterparty each, initiator sessions an initiator each. Keys that map are converted,
+//! those Turbojet sets in code (logging, socket options) are listed in a comment, and anything
+//! that would behave differently (an acceptor's `ResetOnLogon=Y`, say, or JKS key stores) is
+//! refused, every one named, so nothing is converted half-right.
 
 mod initiators;
 mod load;
+pub mod quickfix;
 mod raw;
 mod reload;
 
