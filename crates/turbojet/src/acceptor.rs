@@ -16,7 +16,7 @@ use crate::application::Application;
 use crate::connection;
 use crate::counterparty::Counterparties;
 use crate::peer::ConnectionInfo;
-use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
+use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry, SessionStatus};
 use crate::session::{ConfigError, Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -130,6 +130,12 @@ impl Acceptor {
     /// Sessions currently connected.
     pub fn sessions(&self) -> Vec<SessionId> {
         self.registry.sessions()
+    }
+
+    /// Sessions currently connected, each with when it logged on and over what connection: see
+    /// [`SessionRegistry::statuses`].
+    pub fn statuses(&self) -> Vec<SessionStatus> {
+        self.registry.statuses()
     }
 
     /// Accepts plain TCP connections, running each on its own task, until

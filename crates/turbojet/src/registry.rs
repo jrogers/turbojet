@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
+use chrono::{DateTime, Utc};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::{info, warn};
 
@@ -14,6 +15,7 @@ use crate::application::{Application, Disconnect};
 use crate::cancel::{CancelTracker, CancelTrigger};
 use crate::fields::ApplVerId;
 use crate::message::Message;
+use crate::peer::ConnectionInfo;
 use crate::schedule::Clock;
 use crate::store::{MemoryStorage, Opened, SessionId, SessionLog, SessionStorage};
 
@@ -453,8 +455,44 @@ impl<T> CommandReceiver<T> {
 /// A connected session's registration.
 struct Entry<T> {
     commands: CommandSender<T>,
+    /// How a Logon bound the session; `None` while an operator command holds a session that
+    /// isn't connected.
+    bound: Option<Binding>,
+}
+
+/// How a session's Logon bound it to its connection, as [`SessionStatus`] reports it.
+#[derive(Debug, Clone)]
+pub(crate) struct Binding {
+    pub since: DateTime<Utc>,
+    pub connection: ConnectionInfo,
     /// FIXT sessions: the application version in use on this connection.
-    appl_ver_id: Option<ApplVerId>,
+    pub appl_ver_id: Option<ApplVerId>,
+}
+
+/// A connected session, for an operator: see [`SessionRegistry::statuses`] and
+/// [`SessionHandle::status`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SessionStatus {
+    /// The session.
+    pub id: SessionId,
+    /// When its Logon bound it to the connection: an acceptor's when the counterparty's Logon
+    /// arrived, an initiator's when its own went out. The session's clock.
+    pub since: DateTime<Utc>,
+    /// The connection: the remote address and the peer's verified certificates.
+    pub connection: ConnectionInfo,
+    /// FIXT sessions: the default application version on this connection.
+    pub appl_ver_id: Option<ApplVerId>,
+}
+
+fn status<T>(id: &SessionId, entry: &Entry<T>) -> Option<SessionStatus> {
+    let bound = entry.bound.as_ref()?;
+    Some(SessionStatus {
+        id: id.clone(),
+        since: bound.since,
+        connection: bound.connection.clone(),
+        appl_ver_id: bound.appl_ver_id,
+    })
 }
 
 /// Opens session logs from storage, ensures each session runs on at most one connection at a
@@ -529,6 +567,12 @@ impl<T> SessionRegistry<T> {
         self.lock().keys().cloned().collect()
     }
 
+    /// The sessions connected now, each with when and how it connected: for an operator's view.
+    /// Sessions an operator command holds while not connected aren't included.
+    pub fn statuses(&self) -> Vec<SessionStatus> {
+        self.lock().iter().filter_map(|(id, entry)| status(id, entry)).collect()
+    }
+
     /// Binds `id` to a connection and opens its log, at once or by a job (see
     /// [`SessionStorage::begin_open`]); if the job fails, the caller releases `id`. Fails if it is
     /// already bound elsewhere, if its counterparty (BeginString and CompIDs) already has
@@ -537,7 +581,7 @@ impl<T> SessionRegistry<T> {
         &self,
         id: &SessionId,
         commands: CommandSender<T>,
-        appl_ver_id: Option<ApplVerId>,
+        bound: Option<Binding>,
         per_counterparty: usize,
     ) -> Result<Opened, AcquireError> {
         {
@@ -554,7 +598,7 @@ impl<T> SessionRegistry<T> {
             if sessions.keys().filter(same_counterparty).count() >= per_counterparty {
                 return Err(AcquireError::TooManySessions(Box::new(id.clone()), per_counterparty));
             }
-            sessions.insert(id.clone(), Entry { commands: commands.clone(), appl_ver_id });
+            sessions.insert(id.clone(), Entry { commands: commands.clone(), bound });
         }
         self.storage.begin_open(id).map_err(|e| {
             self.release(id, &commands);
@@ -615,7 +659,11 @@ impl<T> SessionRegistry<T> {
     }
 
     fn appl_ver_id(&self, id: &SessionId) -> Option<ApplVerId> {
-        self.lock().get(id).and_then(|e| e.appl_ver_id)
+        self.lock().get(id).and_then(|e| e.bound.as_ref()?.appl_ver_id)
+    }
+
+    fn status(&self, id: &SessionId) -> Option<SessionStatus> {
+        self.lock().get(id).and_then(|entry| status(id, entry))
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Entry<T>>> {
@@ -802,6 +850,11 @@ impl<T> SessionHandle<T> {
     /// Commands fail as not connected otherwise.
     pub fn is_connected(&self) -> bool {
         self.registry.sender(&self.id).is_some()
+    }
+
+    /// The session's connection, and when it logged on, if it's connected: see [`SessionStatus`].
+    pub fn status(&self) -> Option<SessionStatus> {
+        self.registry.status(&self.id)
     }
 
     /// FIXT.1.1 sessions: the default application version (DefaultApplVerID(1137)) on the current

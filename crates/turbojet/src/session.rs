@@ -37,8 +37,8 @@ use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags
 use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{
-    Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError, SequenceNumbers,
-    SessionHandle, SessionRegistry, apply_sequence_command, command_queues,
+    Binding, Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError,
+    SequenceNumbers, SessionHandle, SessionRegistry, apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
@@ -1747,7 +1747,12 @@ impl Session {
             Role::Acceptor => self.config.max_sessions_per_counterparty,
             Role::Initiator { .. } => usize::MAX,
         };
-        match self.registry.acquire(&id, self.commands.clone(), self.appl_ver_id(), per_counterparty) {
+        let bound = Binding {
+            since: self.config.clock.now(),
+            connection: self.connection.clone(),
+            appl_ver_id: self.appl_ver_id(),
+        };
+        match self.registry.acquire(&id, self.commands.clone(), Some(bound), per_counterparty) {
             Ok(Opened::Ready(log)) => self.bound(id, heartbeat, log, then, now),
             Ok(Opened::Pending(job)) => {
                 debug!(session = %id, "waiting for the store to open the session's log");

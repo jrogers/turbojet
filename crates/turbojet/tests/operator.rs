@@ -102,3 +102,52 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
     let offline = registry.handle(operator.id().clone());
     assert_eq!(offline.sequence_numbers().await.unwrap(), numbers(7, 1));
 }
+
+/// An operator sees each connected session with when it logged on and the other side's address,
+/// from the acceptor and from the initiator's handle, and nothing once it has logged out.
+#[tokio::test]
+async fn operators_see_connected_sessions_with_their_connections() {
+    let (server_tx, mut server) = mpsc::unbounded_channel();
+    let acceptor = Acceptor::new(
+        SessionConfig::new("FIX.4.2", "SERVER"),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(server_tx)),
+    )
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let server_addr = listener.local_addr().unwrap();
+    tokio::spawn(acceptor.clone().serve(listener));
+    assert!(acceptor.statuses().is_empty());
+
+    let (client_tx, mut client) = mpsc::unbounded_channel();
+    let initiator = Initiator::new(
+        server_addr.to_string(),
+        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(client_tx)),
+    )
+    .unwrap();
+    let client_handle = initiator.handle();
+    assert!(client_handle.status().is_none(), "not connected yet");
+    let before = chrono::Utc::now();
+    let connection = tokio::spawn(async move { initiator.connect_once().await });
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+
+    let statuses = acceptor.statuses();
+    assert_eq!(statuses.len(), 1);
+    let status = &statuses[0];
+    assert_eq!(status.id.to_string(), "FIX.4.2:SERVER->CLIENT");
+    assert!(status.since >= before && status.since <= chrono::Utc::now(), "{:?}", status.since);
+    let client_addr = status.connection.addr.expect("the client's address");
+    assert!(client_addr.ip().is_loopback());
+    assert_ne!(client_addr, server_addr);
+    let status = client_handle.status().expect("connected");
+    assert_eq!(status.connection.addr, Some(server_addr));
+
+    client_handle.logout(None).unwrap();
+    assert!(matches!(next(&mut server).await, Event::LoggedOut));
+    connection.await.unwrap().unwrap();
+    assert!(acceptor.statuses().is_empty());
+    assert!(client_handle.status().is_none());
+}

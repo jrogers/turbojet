@@ -254,6 +254,7 @@ pub use peer::{ConnectionInfo, PeerCertificate};
 pub use reconnect::ReconnectPolicy;
 pub use registry::{
     CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry,
+    SessionStatus,
 };
 pub use schedule::{Clock, HolidayCalendar, SessionSchedule};
 pub use session::{ApplVersion, ConfigError, Session, SessionConfig};
