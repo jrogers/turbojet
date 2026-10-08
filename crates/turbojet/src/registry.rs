@@ -477,7 +477,7 @@ pub(crate) struct Binding {
     pub connection: ConnectionInfo,
     /// FIXT sessions: the application version in use on this connection.
     pub appl_ver_id: Option<ApplVerId>,
-    /// FIX sessions: what the session updates as it runs.
+    /// What the session updates as it runs.
     pub live: Option<Arc<LiveStatus>>,
 }
 
@@ -518,8 +518,9 @@ impl LiveStatus {
         self.next_outgoing.store(seq, Ordering::Relaxed);
     }
 
-    pub(crate) fn set_state(&self, state: SessionState) {
-        self.state.store(state as u8, Ordering::Relaxed);
+    /// Whether it changed.
+    pub(crate) fn set_state(&self, state: SessionState) -> bool {
+        self.state.swap(state as u8, Ordering::Relaxed) != state as u8
     }
 
     /// Whether it changed.
@@ -577,13 +578,14 @@ pub struct SessionEvent {
 pub enum SessionEventKind {
     /// A Logon bound it to a connection: it's in [`SessionRegistry::statuses`] from now on.
     Connected,
-    /// FIX sessions: Logons exchanged.
+    /// Logons exchanged (FIXP: established).
     LoggedOn,
-    /// FIX sessions: a Logout was sent or received.
+    /// A Logout was sent or received (FIXP: terminating).
     LoggingOut,
-    /// FIX sessions: a gap in what it received is being recovered, with a ResendRequest.
+    /// A gap in what it received is being recovered, with a ResendRequest (FIXP: a
+    /// RetransmitRequest).
     ResendStarted,
-    /// FIX sessions: the gap is filled.
+    /// The gap is filled.
     ResendFinished,
     /// Its connection ended: it's out of [`SessionRegistry::statuses`].
     Disconnected,
@@ -597,7 +599,9 @@ pub enum SessionEventKind {
     Refused(String),
 }
 
-/// Where a connected FIX session is in its life, as [`Activity`] reports it.
+/// Where a connected session is in its life, as [`Activity`] reports it. For FIXP sessions,
+/// negotiating and establishing count as logging on, established as logged on, and terminating
+/// as logging out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SessionState {
@@ -644,8 +648,7 @@ pub struct SessionStatus {
     pub appl_ver_id: Option<ApplVerId>,
     /// Whether an operator has paused it, to be logged out (see [`SessionHandle::pause`]).
     pub paused: bool,
-    /// FIX sessions: its state, sequence numbers and last messages. Not yet tracked for FIXP
-    /// sessions, which have `None`.
+    /// Its state, sequence numbers and last messages.
     pub activity: Option<Activity>,
 }
 

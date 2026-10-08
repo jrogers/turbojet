@@ -261,3 +261,50 @@ async fn a_client_with_no_endpoint_available_says_why_for_each() {
     assert!(error.contains("no endpoint available"), "{error}");
     assert!(error.contains(&primary) && error.contains(&backup), "{error}");
 }
+
+/// A FIXP session is in the operator's status list like a FIX one: logging on, then established
+/// with its sequence numbers moving, and its events.
+#[tokio::test]
+async fn fixp_sessions_have_statuses_and_events() {
+    use turbojet::fixp::{FixpAcceptor, FixpInitiator};
+    use turbojet::{SessionEventKind, SessionState};
+
+    let (server_events, mut server_received) = mpsc::unbounded_channel();
+    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let server_app = Arc::new(Events { server: true, events: server_events });
+    let acceptor = FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), server_app).unwrap();
+    let mut events = acceptor.subscribe();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(acceptor.clone().serve(listener));
+
+    let (client_events, mut client_received) = mpsc::unbounded_channel();
+    let client_config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let client_app = Arc::new(Events { server: false, events: client_events });
+    let initiator =
+        FixpInitiator::new(addr.to_string(), client_config, Arc::new(MemoryStorage::new()), client_app).unwrap();
+    tokio::spawn(initiator.clone().run());
+    assert!(matches!(next(&mut client_received).await, Event::Established(_)));
+    assert!(matches!(next(&mut server_received).await, Event::Established(_)));
+
+    let handle = initiator.handle();
+    assert_eq!(handle.send(SbeMessage::encode(&order(1)).unwrap()).unwrap().await, Ok(1));
+    assert_eq!(next(&mut server_received).await, Event::Order { cl_ord_id: 1, seq: 1 });
+    assert_eq!(next(&mut client_received).await, Event::Order { cl_ord_id: 1001, seq: 1 });
+
+    // The order and its answer have each moved a sequence number on from 1.
+    let statuses = acceptor.statuses();
+    assert_eq!(statuses.len(), 1);
+    let activity = statuses[0].activity.clone().expect("a FIXP session's activity");
+    assert_eq!(activity.state, SessionState::LoggedOn);
+    assert!(!activity.resending);
+    assert_eq!((activity.next_incoming, activity.next_outgoing), (2, 2));
+    assert!(activity.last_received >= statuses[0].since);
+    let client = handle.status().expect("connected").activity.expect("a FIXP session's activity");
+    assert_eq!((client.next_incoming, client.next_outgoing), (2, 2));
+
+    let kinds: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).map(|event| event.kind).collect();
+    assert_eq!(kinds, [SessionEventKind::Connected, SessionEventKind::LoggedOn]);
+    initiator.shutdown().await;
+    acceptor.shutdown().await;
+}

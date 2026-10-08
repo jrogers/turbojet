@@ -1611,7 +1611,7 @@ impl Session {
         assert!(self.peer.is_some(), "a session logs on bound to its log");
         self.status = Status::Active;
         if let Some(live) = &self.live {
-            live.set_state(SessionState::LoggedOn);
+            let _ = live.set_state(SessionState::LoggedOn);
         }
         self.registry.publish(&self.peer().id, SessionEventKind::LoggedOn);
         info!(heartbeat = ?self.peer().heartbeat, "logged on");
@@ -2717,7 +2717,7 @@ impl Session {
         if matches!(self.status, Status::Active | Status::AwaitingLogon) {
             self.status = Status::LoggingOut { since: now };
             if let Some(live) = &self.live {
-                live.set_state(SessionState::LoggingOut);
+                let _ = live.set_state(SessionState::LoggingOut);
             }
             if let Some(peer) = &self.peer {
                 self.registry.publish(&peer.id, SessionEventKind::LoggingOut);

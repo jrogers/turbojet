@@ -19,8 +19,8 @@ use crate::fields::{Precision, UtcTimestamp};
 use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{
-    Binding, Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError,
-    SequenceNumbers, apply_sequence_command, command_queues,
+    Binding, Command, CommandReceiver, CommandSender, Dropped, LiveStatus, ReceiptSender, SequenceCommand,
+    SequenceError, SequenceNumbers, SessionEventKind, SessionState, apply_sequence_command, command_queues,
 };
 use crate::sbe::{Encode, SbeError};
 use crate::session::DELIVERIES_PER_COMMIT;
@@ -148,6 +148,9 @@ pub struct FixpSession {
     peer_keepalive: Duration,
     last_sent: Instant,
     last_received: Instant,
+    /// What an operator sees of the session, once bound: copied in at each batch's end (see
+    /// [`sync_live`](Self::sync_live)).
+    live: Option<Arc<LiveStatus>>,
     /// The time of the call being handled: what's sent now counts as sent then.
     now: Instant,
     /// When the handshake started, or our `Terminate` was sent.
@@ -230,6 +233,7 @@ impl FixpSession {
             finalized: false,
             last_sent: now,
             last_received: now,
+            live: None,
             now,
             waiting_since: now,
             established: false,
@@ -332,11 +336,13 @@ impl FixpSession {
     /// Claims `id` and opens its log, then goes on with `then` (server) or starts (client).
     fn bind(&mut self, id: SessionId, session_id: Uuid, then: Option<Request>) {
         assert!(self.bound.is_none(), "a session binds to one log");
+        let live = Arc::new(LiveStatus::new(self.now));
+        self.live = Some(live.clone());
         let bound = Binding {
             since: self.config.clock.now(),
             connection: self.connection.clone(),
             appl_ver_id: None,
-            live: None,
+            live: Some(live),
         };
         match self.registry.acquire(&id, self.commands.clone(), Some(bound), usize::MAX) {
             Ok(Opened::Ready(log)) => self.bound(id, session_id, log, then),
@@ -1364,6 +1370,7 @@ impl FixpSession {
     /// it after every call into the session. `None` when nothing waits (the store committed at
     /// once).
     pub fn take_commit(&mut self) -> Option<Commit> {
+        self.sync_live();
         // After a failure, what the store may half hold (a change made before the call failed)
         // isn't committed: the next connection starts from the last commit.
         if self.committing || self.store_failed {
@@ -1391,6 +1398,40 @@ impl FixpSession {
         }
         self.finish_commit();
         None
+    }
+
+    /// Copies where the session stands into what an operator sees, and tells subscribers of a
+    /// change in state or in recovering a gap. Once a batch, when the driver takes its commit:
+    /// a few stores, rather than one at every change.
+    fn sync_live(&self) {
+        let (Some(live), Some(bound)) = (&self.live, &self.bound) else { return };
+        // A closed session keeps the state it had: its disconnection is its own event.
+        let state = match self.state {
+            State::Starting | State::AwaitingClient | State::Negotiating | State::Negotiated | State::Establishing => {
+                Some(SessionState::LoggingOn)
+            }
+            State::Established => Some(SessionState::LoggedOn),
+            State::Terminating => Some(SessionState::LoggingOut),
+            State::Closed => None,
+        };
+        if let Some(state) = state
+            && live.set_state(state)
+        {
+            match state {
+                SessionState::LoggedOn => self.registry.publish(&bound.id, SessionEventKind::LoggedOn),
+                SessionState::LoggingOut => self.registry.publish(&bound.id, SessionEventKind::LoggingOut),
+                _ => {}
+            }
+        }
+        let resending = self.inbound.asked.is_some();
+        if live.set_resending(resending) {
+            let kind = if resending { SessionEventKind::ResendStarted } else { SessionEventKind::ResendFinished };
+            self.registry.publish(&bound.id, kind);
+        }
+        live.set_next_incoming(bound.log.next_incoming());
+        live.set_next_outgoing(bound.log.next_outgoing());
+        live.received(self.last_received);
+        live.sent(self.last_sent);
     }
 
     /// The store's read for a retransmission, if it returned a job: run it, then

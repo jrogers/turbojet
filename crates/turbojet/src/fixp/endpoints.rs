@@ -83,6 +83,19 @@ impl FixpAcceptor {
         self.registry.sessions()
     }
 
+    /// Sessions currently connected, each with when and how it connected and where it stands:
+    /// see [`SessionRegistry::statuses`](crate::SessionRegistry::statuses).
+    #[must_use]
+    pub fn statuses(&self) -> Vec<crate::SessionStatus> {
+        self.registry.statuses()
+    }
+
+    /// Events for this acceptor's sessions from now on: see
+    /// [`SessionRegistry::subscribe`](crate::SessionRegistry::subscribe).
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<crate::SessionEvent> {
+        self.registry.subscribe()
+    }
+
     /// Accepts TCP connections, running each on its own task, until [shutdown](Self::shutdown)
     /// starts or the future is dropped; then returns `Ok`.
     ///
@@ -280,6 +293,12 @@ impl FixpInitiator {
     #[must_use]
     pub fn handle(&self) -> FixpHandle {
         self.registry.handle(self.session_id())
+    }
+
+    /// Events for this initiator's session from now on: see
+    /// [`SessionRegistry::subscribe`](crate::SessionRegistry::subscribe).
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<crate::SessionEvent> {
+        self.registry.subscribe()
     }
 
     /// Keeps the session connected: connects, runs the session until the connection ends, and
