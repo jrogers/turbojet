@@ -75,6 +75,7 @@ Options:
   --log-format F       `text` (default) or `json`
   --message-log DIR    Write every FIX message received and sent to daily files in DIR
   --message-log-days N With --message-log: delete files older than N days (default: keep)
+  --message-log-gzip   With --message-log: compress each finished file with gzip
   -h, --help           Show this help
 
 A counterparty whose session drops without a Logout has its open orders cancelled unless it logs
@@ -117,7 +118,8 @@ struct Args {
     tls_match_comp_id: bool,
     metrics_listen: Option<SocketAddr>,
     json_logs: bool,
-    message_log: Option<(PathBuf, Option<Duration>)>,
+    /// The directory, retention, and whether to compress finished files.
+    message_log: Option<(PathBuf, Option<Duration>, bool)>,
 }
 
 struct TlsArgs {
@@ -155,7 +157,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let mut metrics_listen = None;
     let mut latency_metrics = false;
     let mut json_logs = false;
-    let (mut message_log, mut message_log_days) = (None, None);
+    let (mut message_log, mut message_log_days, mut message_log_gzip) = (None, None, false);
     let mut holidays = None;
     let (mut inbound_limit, mut over_limit) = (None, None);
     let mut config_file = None;
@@ -212,6 +214,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
                 let days: u64 = text.parse().map_err(|e| format!("invalid --message-log-days '{text}': {e}"))?;
                 message_log_days = Some(Duration::from_secs(days * 86_400));
             }
+            "--message-log-gzip" => message_log_gzip = true,
             "--log-format" => {
                 json_logs = match value()?.as_str() {
                     "text" => false,
@@ -263,7 +266,10 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     if message_log_days.is_some() && message_log.is_none() {
         return Err("--message-log-days requires --message-log".into());
     }
-    let message_log = message_log.map(|dir| (dir, message_log_days));
+    if message_log_gzip && message_log.is_none() {
+        return Err("--message-log-gzip requires --message-log".into());
+    }
+    let message_log = message_log.map(|dir| (dir, message_log_days, message_log_gzip));
     if latency_metrics && metrics_listen.is_none() {
         return Err("--latency-metrics requires --metrics-listen".into());
     }
@@ -326,12 +332,13 @@ const SESSION_OPTIONS: &[&str] = &[
     "--over-limit",
 ];
 
-/// Opens `--message-log DIR`, deleting files older than `retention`.
-fn open_message_log(dir: &Path, retention: Option<Duration>) -> Result<Arc<dyn MessageLog>, String> {
-    let options = FileLogOptions { retention, ..FileLogOptions::default() };
+/// Opens `--message-log DIR`, deleting files older than `retention` and compressing finished
+/// ones if `compress`.
+fn open_message_log(dir: &Path, retention: Option<Duration>, compress: bool) -> Result<Arc<dyn MessageLog>, String> {
+    let options = FileLogOptions { retention, compress, ..FileLogOptions::default() };
     let log =
         FileMessageLog::open(dir, options).map_err(|e| format!("cannot open message log {}: {e}", dir.display()))?;
-    info!(dir = %dir.display(), retention_days = retention.map(|r| r.as_secs() / 86_400), "logging messages to files");
+    info!(dir = %dir.display(), retention_days = retention.map(|r| r.as_secs() / 86_400), compress, "logging messages to files");
     Ok(Arc::new(log))
 }
 
@@ -547,13 +554,14 @@ async fn main() -> ExitCode {
         app::describe_metrics();
         info!(%addr, "serving Prometheus metrics at /metrics");
     }
-    let message_log = match message_log.map(|(dir, retention)| open_message_log(&dir, retention)).transpose() {
-        Ok(log) => log,
-        Err(e) => {
-            error!("{e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let message_log =
+        match message_log.map(|(dir, retention, compress)| open_message_log(&dir, retention, compress)).transpose() {
+            Ok(log) => log,
+            Err(e) => {
+                error!("{e}");
+                return ExitCode::FAILURE;
+            }
+        };
     let app =
         Arc::new(GatewayApp::new(Arc::new(OrderManager::new())).with_certificate_comp_id_match(tls_match_comp_id));
     if let Some(path) = config_file {

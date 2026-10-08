@@ -250,8 +250,8 @@ pub use fields::{ApplVerId, MsgType};
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
 pub use message_log::{
-    DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, Direction, FileLogOptions, FileMessageLog, LogFile, LogRecord,
-    LogRecords, MessageLog,
+    DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, Direction, FileLogOptions, FileMessageLog, FinishedHook, LogFile,
+    LogRecord, LogRecords, MessageLog,
 };
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use reconnect::ReconnectPolicy;

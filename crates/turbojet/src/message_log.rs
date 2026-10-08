@@ -7,7 +7,7 @@ use crate::SessionId;
 mod file;
 mod read;
 
-pub use file::{DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, FileLogOptions, FileMessageLog};
+pub use file::{DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, FileLogOptions, FileMessageLog, FinishedHook};
 pub use read::{Direction, LogFile, LogRecord, LogRecords};
 
 /// Sees every message a FIX or FIXP session receives and sends, framed exactly as on the wire:

@@ -42,6 +42,8 @@ cast_lossless = "warn"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 compact_str = { version = "0.10", default-features = false, features = ["std"] }
 chrono-tz = "0.10"
+# Compressing finished message log files (turbojet's `gzip` feature), without C code.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 metrics = "0.24"
 # Only the HTTP /metrics listener: the default push-gateway client pulls in aws-lc-rs.

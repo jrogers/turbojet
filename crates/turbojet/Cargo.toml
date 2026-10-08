@@ -22,6 +22,7 @@ all-features = true
 chrono.workspace = true
 chrono-tz = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
 compact_str.workspace = true
 rust_decimal.workspace = true
 tokio.workspace = true
@@ -42,6 +43,8 @@ validation = ["dep:turbojet-dictionary"]
 # The conformance suite for SessionStorage implementations (turbojet::store::conformance), for
 # store authors' tests.
 conformance = []
+# Compressing finished FileMessageLog files with gzip (FileLogOptions::compress).
+gzip = ["dep:flate2"]
 
 [dev-dependencies]
 criterion.workspace = true
@@ -85,7 +88,7 @@ harness = false
 # run its tests (which need the features, e.g. `cargo test --all-features`).
 [[example]]
 name = "gateway"
-required-features = ["tls", "metrics", "tz"]
+required-features = ["tls", "metrics", "tz", "gzip"]
 test = true
 
 # An Initiator that places and cancels an order on the gateway.

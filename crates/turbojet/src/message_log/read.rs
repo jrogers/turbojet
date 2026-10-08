@@ -1,13 +1,14 @@
 //! Reading what a [`FileMessageLog`] wrote: [`FileMessageLog::files`] and
 //! [`FileMessageLog::read`].
 
+use std::fmt;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
 
-use super::file::{FileMessageLog, parse_name};
+use super::file::{FileMessageLog, is_compressed, parse_name};
 use crate::fields::{FromFix, UtcTimestamp};
 
 /// The longest record header read: a time, a direction, a length and a session ID, with room for
@@ -28,6 +29,8 @@ pub struct LogFile {
     pub day: NaiveDate,
     /// Its number within the day, from 0: a new file starts at each size limit and opening.
     pub number: u32,
+    /// Whether it's compressed (`.log.gz`): see [`FileLogOptions::compress`](super::FileLogOptions::compress).
+    pub compressed: bool,
 }
 
 /// Which way a logged message went.
@@ -76,33 +79,55 @@ impl FileMessageLog {
         for entry in fs::read_dir(dir)? {
             let path = entry?.path();
             if let Some((day, number)) = parse_name(&path) {
-                files.push(LogFile { path, day, number });
+                let compressed = is_compressed(&path);
+                files.push(LogFile { path, day, number, compressed });
             }
         }
         files.sort_by_key(|file| (file.day, file.number));
         Ok(files)
     }
 
-    /// The records in the log file at `path`, in the order they were written. It can be read
-    /// while being written: the records end at the last whole one written so far, and reading
-    /// the file again, from the start, includes what's been written since.
+    /// The records in the log file at `path`, in the order they were written, decompressing a
+    /// `.log.gz` file. It can be read while being written: the records end at the last whole one
+    /// written so far, and reading the file again, from the start, includes what's been written
+    /// since.
     ///
     /// # Errors
     ///
-    /// If the file can't be opened. Each record read is an error
+    /// If the file can't be opened, or is compressed and the `gzip` feature is off
+    /// ([`Unsupported`](io::ErrorKind::Unsupported)). Each record read is an error
     /// ([`InvalidData`](io::ErrorKind::InvalidData)) if it isn't one the log writes, and the
     /// records end there.
     pub fn read(path: impl AsRef<Path>) -> io::Result<LogRecords> {
-        Ok(LogRecords { reader: BufReader::new(File::open(path)?), header: Vec::new(), failed: false })
+        let path = path.as_ref();
+        let file = File::open(path)?;
+        let reader: Box<dyn Read + Send> = match is_compressed(path) {
+            #[cfg(feature = "gzip")]
+            true => Box::new(flate2::read::GzDecoder::new(file)),
+            #[cfg(not(feature = "gzip"))]
+            true => {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "reading a compressed message log file needs turbojet's gzip feature",
+                ));
+            }
+            false => Box::new(file),
+        };
+        Ok(LogRecords { reader: BufReader::new(reader), header: Vec::new(), failed: false })
     }
 }
 
 /// The records of one log file: see [`FileMessageLog::read`].
-#[derive(Debug)]
 pub struct LogRecords {
-    reader: BufReader<File>,
+    reader: BufReader<Box<dyn Read + Send>>,
     header: Vec<u8>,
     failed: bool,
+}
+
+impl fmt::Debug for LogRecords {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LogRecords").field("failed", &self.failed).finish_non_exhaustive()
+    }
 }
 
 impl Iterator for LogRecords {

@@ -625,11 +625,15 @@ fn gateway_checks_client_certificates_against_crls_only_when_given() {
 #[test]
 fn gateway_logs_messages_to_files_kept_for_the_days_given() {
     let parsed = crate::parse_args(args(&["--allow-any", "--message-log", "log", "--message-log-days", "30"])).unwrap();
-    assert_eq!(parsed.message_log, Some(("log".into(), Some(Duration::from_secs(30 * 86_400)))));
+    assert_eq!(parsed.message_log, Some(("log".into(), Some(Duration::from_secs(30 * 86_400)), false)));
     assert_eq!(crate::parse_args(args(&["--allow-any"])).unwrap().message_log, None, "off by default");
+    let parsed = crate::parse_args(args(&["--allow-any", "--message-log", "log", "--message-log-gzip"])).unwrap();
+    assert_eq!(parsed.message_log, Some(("log".into(), None, true)));
 
     let err = crate::parse_args(args(&["--allow-any", "--message-log-days", "30"])).err().expect("needs the log");
     assert!(err.contains("--message-log-days requires --message-log"), "{err}");
+    let err = crate::parse_args(args(&["--allow-any", "--message-log-gzip"])).err().expect("needs the log");
+    assert!(err.contains("--message-log-gzip requires --message-log"), "{err}");
 }
 
 #[test]
