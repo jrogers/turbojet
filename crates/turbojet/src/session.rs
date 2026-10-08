@@ -1225,6 +1225,7 @@ impl Session {
         }
         match request {
             SequenceCommand::Reset => return Err(SequenceError::Connected),
+            SequenceCommand::RequestResend(from) => return self.operator_resend(from, now),
             SequenceCommand::SetNextOutgoing(seq)
                 if self.status == Status::Active && seq > self.peer().log.next_outgoing() =>
             {
@@ -2557,6 +2558,33 @@ impl Session {
         self.frame_into(&body, seq, now_ts, Some(now_ts), false, &mut output);
         self.output = output;
         self.emit(&self.output, start);
+    }
+
+    /// An operator's ResendRequest from `from`, for messages already processed: the session
+    /// expects `from` again, and the resend is tracked as for a gap that the next new message,
+    /// the one it expected before, would reveal.
+    fn operator_resend(&mut self, from: u64, now: Instant) -> Result<SequenceNumbers, SequenceError> {
+        if self.status != Status::Active {
+            return Err(SequenceError::Invalid("a ResendRequest needs the session logged on".into()));
+        }
+        if self.resend.is_some() {
+            return Err(SequenceError::Invalid("a resend is already under way".into()));
+        }
+        let next = self.peer().log.next_incoming();
+        if from == 0 || from >= next {
+            return Err(SequenceError::Invalid(format!(
+                "nothing to resend from {from}: the next MsgSeqNum expected is {next}"
+            )));
+        }
+        // No resend is under way, so nothing is queued ahead of a gap.
+        debug_assert!(self.queued.is_empty());
+        self.peer_mut().log.set_next_incoming(from)?;
+        info!(from, through = next - 1, "operator ResendRequest");
+        let asked_through = self.ask_resend(from, next, now);
+        self.resend = Some(Resend { target: next, progress_at: now, seen: from, retried: false, asked_through });
+        self.update_sequence_gauges();
+        let next_outgoing = self.peer().log.next_outgoing();
+        Ok(SequenceNumbers { next_incoming: from, next_outgoing })
     }
 
     fn request_resend(&mut self, from: u64, received: u64, now: Instant) {

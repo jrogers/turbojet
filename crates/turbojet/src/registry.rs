@@ -108,6 +108,7 @@ impl std::error::Error for Dropped {}
 
 /// An operator request to inspect or change a session's sequence numbers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SequenceCommand {
     /// Report them unchanged; see [`SessionHandle::sequence_numbers`].
     Get,
@@ -117,6 +118,8 @@ pub enum SequenceCommand {
     SetNextOutgoing(u64),
     /// See [`SessionHandle::reset_sequence_numbers`].
     Reset,
+    /// See [`SessionHandle::request_resend`].
+    RequestResend(u64),
 }
 
 /// A session's next expected inbound and next outbound MsgSeqNum.
@@ -183,6 +186,10 @@ pub(crate) fn apply_sequence_command(
                 log.record_outgoing(seq - 1, None)?;
             }
         }
+        // Only a logged-on session sends one, so a session that isn't connected can't.
+        SequenceCommand::RequestResend(_) => {
+            return Err(SequenceError::Invalid("a ResendRequest needs the session logged on".into()));
+        }
         SequenceCommand::Reset => {
             log.reset()?;
             log.set_created_at(clock.now().into())?;
@@ -193,7 +200,7 @@ pub(crate) fn apply_sequence_command(
     assert!(numbers.next_incoming >= 1, "sequence numbers start at 1");
     assert!(numbers.next_outgoing >= 1, "sequence numbers start at 1");
     match command {
-        SequenceCommand::Get => {}
+        SequenceCommand::Get | SequenceCommand::RequestResend(_) => {}
         SequenceCommand::SetNextIncoming(seq) => assert_eq!(numbers.next_incoming, seq),
         SequenceCommand::SetNextOutgoing(seq) => assert_eq!(numbers.next_outgoing, seq),
         SequenceCommand::Reset => {
@@ -970,6 +977,21 @@ impl<T> SessionHandle<T> {
     /// [`SequenceError::Invalid`] for 0, or [`SequenceError::Storage`] if the store fails.
     pub async fn set_next_incoming(&self, seq: u64) -> Result<SequenceNumbers, SequenceError> {
         self.sequence(SequenceCommand::SetNextIncoming(seq)).await
+    }
+
+    /// Asks the counterparty to send again everything from MsgSeqNum `from` on: for an
+    /// application that lost messages it had processed. The session expects `from` next and
+    /// sends a ResendRequest, so the counterparty's resends (PossDupFlag(43)=Y, or gap fills for
+    /// what it doesn't resend) are delivered as if they were new, and any new messages after them.
+    /// The reply gives the numbers once it's sent.
+    ///
+    /// # Errors
+    ///
+    /// [`SequenceError::Invalid`] if the session isn't logged on, a resend is already under way,
+    /// or `from` isn't below the next MsgSeqNum expected; [`SequenceError::Storage`] if the store
+    /// fails. FIXP sessions don't take it.
+    pub async fn request_resend(&self, from: u64) -> Result<SequenceNumbers, SequenceError> {
+        self.sequence(SequenceCommand::RequestResend(from)).await
     }
 
     /// Moves the next outgoing MsgSeqNum forward (it can't go back; see

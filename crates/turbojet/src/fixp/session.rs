@@ -1179,6 +1179,11 @@ impl FixpSession {
             let _ = reply.send(Err(SequenceError::Connected));
             return;
         }
+        if let SequenceCommand::RequestResend(_) = command {
+            let reason = "FIXP sessions don't send ResendRequests: a gap is filled with a RetransmitRequest";
+            let _ = reply.send(Err(SequenceError::Invalid(reason.into())));
+            return;
+        }
         let clock = self.config.clock.clone();
         match apply_sequence_command(self.log(), command, &clock) {
             Ok(numbers) => {

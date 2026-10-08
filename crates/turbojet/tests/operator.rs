@@ -151,3 +151,67 @@ async fn operators_see_connected_sessions_with_their_connections() {
     assert!(acceptor.statuses().is_empty());
     assert!(client_handle.status().is_none());
 }
+
+/// An operator asks the counterparty to resend orders the application already processed: they
+/// come again, marked PossDupFlag=Y, in order, and new orders follow as usual.
+#[tokio::test]
+async fn operators_ask_for_processed_messages_again() {
+    let (server_tx, mut server) = mpsc::unbounded_channel();
+    let acceptor = Acceptor::new(
+        SessionConfig::new("FIX.4.2", "SERVER"),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(server_tx)),
+    )
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.clone().serve(listener));
+    let operator = acceptor.session("CLIENT");
+    assert!(operator.request_resend(1).await.is_err(), "not logged on");
+
+    let (client_tx, mut client) = mpsc::unbounded_channel();
+    let initiator = Initiator::new(
+        addr,
+        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(client_tx)),
+    )
+    .unwrap();
+    let client_handle = initiator.handle();
+    tokio::spawn(async move { initiator.connect_once().await });
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+
+    let order = |id: &str| Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id);
+    for id in ["ORD1", "ORD2", "ORD3"] {
+        client_handle.send(order(id)).unwrap();
+    }
+    for id in ["ORD1", "ORD2", "ORD3"] {
+        assert_eq!(received(&mut server).await, (id.to_string(), None));
+    }
+    // ORD1 to ORD3 were 2 to 4.
+    assert_eq!(operator.sequence_numbers().await.unwrap(), numbers(5, 2));
+
+    let err = operator.request_resend(5).await.unwrap_err();
+    assert!(err.to_string().contains("nothing to resend from 5"), "{err}");
+    assert_eq!(operator.request_resend(3).await.unwrap().next_incoming, 3);
+    for id in ["ORD2", "ORD3"] {
+        assert_eq!(received(&mut server).await, (id.to_string(), Some("Y".to_string())));
+    }
+    client_handle.send(order("ORD4")).unwrap();
+    assert_eq!(received(&mut server).await, ("ORD4".to_string(), None));
+    assert_eq!(operator.sequence_numbers().await.unwrap().next_incoming, 6);
+    // That resend is over, so another may be asked for.
+    assert_eq!(operator.request_resend(5).await.unwrap().next_incoming, 5);
+    assert_eq!(received(&mut server).await, ("ORD4".to_string(), Some("Y".to_string())));
+}
+
+/// The next order delivered: its ClOrdID and PossDupFlag, if any.
+async fn received(events: &mut mpsc::UnboundedReceiver<Event>) -> (String, Option<String>) {
+    match next(events).await {
+        Event::Message(msg) => {
+            (msg.get(tags::CL_ORD_ID).unwrap().to_string(), msg.get(tags::POSS_DUP_FLAG).map(str::to_string))
+        }
+        other => panic!("{other:?}"),
+    }
+}

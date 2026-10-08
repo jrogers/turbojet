@@ -82,6 +82,8 @@ enum Sequence {
     SetNextIncoming(Seq),
     SetNextOutgoing(u16),
     Reset,
+    /// An operator's ResendRequest from this number.
+    RequestResend(Seq),
 }
 
 #[derive(Arbitrary, Debug)]
@@ -318,6 +320,7 @@ fuzz_target!(|input: Input| {
                     Sequence::SetNextIncoming(seq) => SequenceCommand::SetNextIncoming(seq.resolve(next_in)),
                     Sequence::SetNextOutgoing(seq) => SequenceCommand::SetNextOutgoing(seq.into()),
                     Sequence::Reset => SequenceCommand::Reset,
+                    Sequence::RequestResend(seq) => SequenceCommand::RequestResend(seq.resolve(next_in)),
                 };
                 let (reply, mut numbers) = oneshot::channel();
                 session.on_command(Command::Sequence(request, reply), now);
