@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use rcgen::{CertificateParams, KeyPair};
+use rcgen::{CertificateParams, CertificateRevocationListParams, Issuer, KeyIdMethod, KeyPair, SerialNumber};
 use turbojet_config::SessionsFile;
 
 struct App;
@@ -23,6 +23,20 @@ fn certificate(dir: &Path, name: &str) {
     let cert = CertificateParams::new(vec!["localhost".to_string()]).unwrap().self_signed(&key).unwrap();
     std::fs::write(dir.join(format!("{name}.pem")), cert.pem()).unwrap();
     std::fs::write(dir.join(format!("{name}.key")), key.serialize_pem()).unwrap();
+}
+
+/// Writes `NAME.crl.pem`, a CRL revoking nothing, signed by a key of its own: enough to load.
+fn crl(dir: &Path, name: &str) {
+    let issuer = Issuer::new(CertificateParams::new(Vec::<String>::new()).unwrap(), KeyPair::generate().unwrap());
+    let params = CertificateRevocationListParams {
+        this_update: rcgen::date_time_ymd(2026, 1, 1),
+        next_update: rcgen::date_time_ymd(2099, 1, 1),
+        crl_number: SerialNumber::from(1u64),
+        issuing_distribution_point: None,
+        revoked_certs: Vec::new(),
+        key_identifier_method: KeyIdMethod::Sha256,
+    };
+    std::fs::write(dir.join(format!("{name}.crl.pem")), params.signed_by(&issuer).unwrap().pem().unwrap()).unwrap();
 }
 
 fn write(dir: &Path, tls: &str) -> std::path::PathBuf {
@@ -102,4 +116,47 @@ async fn an_initiators_tls_is_checked_when_the_file_loads() {
         let loaded = SessionsFile::load(&path).unwrap_err().to_string();
         assert!(loaded.contains(error), "{tls}: {loaded}");
     }
+}
+
+/// CRLs are optional, and when given are read and checked as the file loads.
+#[test]
+fn crl_files_are_checked_when_the_file_loads() {
+    let dir = tempfile::tempdir().unwrap();
+    certificate(dir.path(), "server");
+    certificate(dir.path(), "ca");
+    crl(dir.path(), "ca");
+    std::fs::write(dir.path().join("garbled.crl.pem"), "-----BEGIN X509 CRL-----\nAAAA\n-----END X509 CRL-----\n")
+        .unwrap();
+    let path = write(
+        dir.path(),
+        r#"{ cert = "server.pem", key = "server.key", client_ca = "ca.pem", client_crl = "ca.crl.pem" }"#,
+    );
+    assert!(SessionsFile::load(&path).unwrap().server_tls().unwrap().is_some());
+    for (tls, error) in [
+        (
+            r#"{ cert = "server.pem", key = "server.key", client_ca = "ca.pem", client_crl = "missing.crl.pem" }"#,
+            "missing.crl.pem",
+        ),
+        (
+            r#"{ cert = "server.pem", key = "server.key", client_ca = "ca.pem", client_crl = "garbled.crl.pem" }"#,
+            "garbled.crl.pem",
+        ),
+        (r#"{ cert = "server.pem", key = "server.key", client_crl = "ca.crl.pem" }"#, "client_crl needs a client_ca"),
+    ] {
+        let path = write(dir.path(), tls);
+        let loaded = SessionsFile::load(&path).unwrap_err().to_string();
+        assert!(loaded.contains(error), "{tls}: {loaded}");
+    }
+
+    let initiator = |crl: &str| {
+        format!(
+            "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
+             connect = [\"localhost:1\"]\ntls = {{ ca = \"ca.pem\", crl = \"{crl}\" }}\n"
+        )
+    };
+    std::fs::write(&path, initiator("ca.crl.pem")).unwrap();
+    assert!(SessionsFile::load(&path).is_ok());
+    std::fs::write(&path, initiator("missing.crl.pem")).unwrap();
+    let loaded = SessionsFile::load(&path).unwrap_err().to_string();
+    assert!(loaded.contains("initiator LSE: tls: ") && loaded.contains("missing.crl.pem"), "{loaded}");
 }

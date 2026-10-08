@@ -52,8 +52,9 @@
 //! `[acceptor]`, fixed until a restart except `unknown` and the TLS files: `begin_string`,
 //! `sender_comp_id`, `listen`, `unknown` (`refuse`, the default, or `admit`), `logon_timeout`,
 //! `send_queue`, `max_connections`, `max_connections_per_ip`, and `tls = { cert, key, client_ca,
-//! client_certificate }` (feature `tls`; `client_certificate` is `optional`, the default, or
-//! `required`).
+//! client_crl, client_certificate }` (feature `tls`; `client_certificate` is `optional`, the
+//! default, or `required`; `client_crl`, a PEM file of CRLs, checks client certificates for
+//! revocation).
 //!
 //! `[store.NAME]`: `kind = "memory"`, or `kind = "disk"` with `dir` and `fsync` (on by default).
 //! A store named `memory` is built in, and others can be registered in code
@@ -88,8 +89,9 @@
 //! `next_expected_msg_seq_num`, `username`, `password_env` (the environment variable holding the
 //! password: a password isn't kept in the file), `connect_timeout`, `local_address` (the IP address
 //! to connect from, with or without a port), `logon_timeout`, `send_queue`,
-//! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, cert, key, server_name }`
-//! (feature `tls`; `server_name` is the first address's host by default), and every session key
+//! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, crl, cert, key, server_name }`
+//! (feature `tls`; `server_name` is the first address's host by default; `crl`, a PEM file of
+//! CRLs, checks the server's certificate for revocation), and every session key
 //! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators
 //! may log on to one session, nor to one the acceptor serves for a listed counterparty.
 //!

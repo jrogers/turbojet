@@ -245,10 +245,17 @@ fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
         None if tls.client_certificate == ClientCertificate::Required => {
             return Err(Error::at("acceptor", "tls", "client_certificate = \"required\" needs a client_ca"));
         }
+        None if tls.client_crl.is_some() => {
+            return Err(Error::at("acceptor", "tls", "client_crl needs a client_ca"));
+        }
         None => ClientTrust::None,
         Some(ca) => {
             let ca = dir.join(ca);
-            let trust = Trust::from_pem_files(&ca).map_err(|e| at(&ca, e))?;
+            let mut trust = Trust::from_pem_files(&ca).map_err(|e| at(&ca, e))?;
+            if let Some(crl) = &tls.client_crl {
+                let crl = dir.join(crl);
+                trust = trust.with_crls_pem_files(&crl).map_err(|e| at(&crl, e))?;
+            }
             match tls.client_certificate {
                 ClientCertificate::Optional => ClientTrust::Optional(trust),
                 ClientCertificate::Required => ClientTrust::Required(trust),
@@ -394,7 +401,11 @@ fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Optio
     let at = |e: String| Error::at(section, "tls", e);
     let file_error = |path: &Path, e: std::io::Error| at(format!("{}: {e}", path.display()));
     let ca = dir.join(&tls.ca);
-    let trust = Trust::from_pem_files(&ca).map_err(|e| file_error(&ca, e))?;
+    let mut trust = Trust::from_pem_files(&ca).map_err(|e| file_error(&ca, e))?;
+    if let Some(crl) = &tls.crl {
+        let crl = dir.join(crl);
+        trust = trust.with_crls_pem_files(&crl).map_err(|e| file_error(&crl, e))?;
+    }
     let identity = match (&tls.cert, &tls.key) {
         (Some(cert), Some(key)) => {
             let (cert, key) = (dir.join(cert), dir.join(key));

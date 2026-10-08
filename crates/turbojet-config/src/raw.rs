@@ -97,6 +97,8 @@ impl<'de> Deserialize<'de> for RawInitiator {
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawClientTls {
     pub ca: PathBuf,
+    /// CRLs to check the counterparty's certificate against; none, and revocation isn't checked.
+    pub crl: Option<PathBuf>,
     pub cert: Option<PathBuf>,
     pub key: Option<PathBuf>,
     pub server_name: Option<String>,
@@ -146,6 +148,8 @@ pub(crate) struct RawTls {
     pub cert: PathBuf,
     pub key: PathBuf,
     pub client_ca: Option<PathBuf>,
+    /// CRLs to check client certificates against; none, and revocation isn't checked.
+    pub client_crl: Option<PathBuf>,
     #[serde(default)]
     pub client_certificate: ClientCertificate,
 }
