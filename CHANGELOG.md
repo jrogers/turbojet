@@ -6,6 +6,11 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- TLS revocation checks, off unless asked for: `Trust::with_crls_pem`, `with_crls_pem_files` and
+  `with_crls_der` add certificate revocation lists, and a certificate they revoke, or that none
+  of them covers, is refused at the handshake. A `Trust` with newer CRLs, given to
+  `ServerTls::set_client_trust` or `ClientTls::set_trust`, applies from the next handshake. The
+  example gateway takes `--tls-client-crl FILE`.
 - `FileMessageLog` is a `MessageLog` that writes every message to files in a directory, a new
   one each UTC day and at a size limit, deleting files past an optional retention period, on a
   thread of its own so sessions don't wait for the disk. `FileLogOptions` sets its limits. The
@@ -139,6 +144,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `client_crl` in `[acceptor.tls]` and `crl` in an initiator's `tls`: a PEM file of CRLs to check
+  the other side's certificate against.
 - `local_address` in an initiator's section: the IP address to connect from, with or without a
   port.
 - `resend_request_chunk`, in `[defaults]`, a counterparty's section or an initiator's.

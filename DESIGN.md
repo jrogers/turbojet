@@ -67,7 +67,9 @@ machine with an injected clock. It has:
 
 `connection::run` drives a session over any `AsyncRead + AsyncWrite`; `Acceptor` and `Initiator`
 add TCP, TLS with optional mutual authentication (certificates given from memory or files, and
-replaced while running), initiator failover from a chosen local address, and graceful shutdown
+replaced while running) and optional revocation checks against CRLs the application gives
+(rustls checks them; with CRLs, a certificate none covers is refused, and a CRL past its next
+update is still used, so a late refresh doesn't lock every counterparty out), initiator failover from a chosen local address, and graceful shutdown
 (every session logged out, bounded by the logout timeout). Initiators reconnect with a
 configurable backoff (by default 1 s to 60 s, jittered), and acceptors limit connections overall
 and per IP address, and give each counterparty its own settings, decided at Logon, and its own
@@ -250,7 +252,8 @@ invariants, and tests that look for bugs rather than confirm what already works.
   and a LocationID, directly and through a proxy that loses, garbles, cuts and delays messages,
   slows the link and silences or stalls either side. Also over TLS: orders with
   the server's certificate alone and with mutual TLS, a reconnect with a fresh handshake, and
-  handshakes refused for an untrusted server, a missing client certificate and an untrusted one,
+  handshakes refused for an untrusted server, a missing client certificate, an untrusted one and
+  a revoked one,
   with each peer checking the server's name as Turbojet does. They found Heartbeats going out a
   second late, since fixed. Against quickfix-go (v0.9.12), every scenario runs too; where it departs from the
   spec, the scenario checks what it does instead: it rejects a data field containing SOH, delivers

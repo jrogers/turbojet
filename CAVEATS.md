@@ -7,6 +7,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- TLS revocation is checked only against CRLs the application gives, and only at the handshake:
+  a session already connected carries on after its certificate is revoked. With CRLs, a
+  certificate in the chain that none of them covers is refused. A CRL past its next update is
+  still used.
 - Cancel-on-disconnect countdowns live in memory: a process that stops without shutting down
   loses those under way, so after a restart the application checks the orders it kept. One that
   shuts down fires them at once, as does replacing an initiator during a grace period.

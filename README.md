@@ -744,8 +744,25 @@ server.set_identity(Identity::from_pem(&new_cert_pem, &new_key_pem)?);
 
 `ClientTls` does the same for an initiator (`set_trust`, `set_identity`). An `Identity` is
 checked when it's built (the key must be the certificate's), so a bad renewal is refused and
-the old one kept. The gateway reloads its certificate, key and client CAs from their files on
-SIGHUP.
+the old one kept. The gateway reloads its certificate, key, client CAs and CRLs from their files
+on SIGHUP.
+
+**Revocation** is checked only if you give certificate revocation lists (CRLs); without them,
+nothing changes. Add them to a `Trust`, and certificates they revoke are refused at the
+handshake:
+
+```rust
+let trust = Trust::from_pem_files("ca.pem".as_ref())?.with_crls_pem_files("ca.crl.pem".as_ref())?;
+let server = ServerTls::new(identity, ClientTrust::Required(trust))?;
+// When the CA publishes a new CRL:
+server.set_client_trust(ClientTrust::Required(Trust::from_pem_files("ca.pem".as_ref())?.with_crls_pem_files("new.crl.pem".as_ref())?))?;
+```
+
+With CRLs given, every certificate in the chain is checked, and one that no CRL covers is
+refused: give a CRL from each CA in the chain, intermediates included. Turbojet doesn't fetch
+CRLs, check OCSP, or refuse a CRL past its next update; refreshing them is up to you. In a
+sessions file, `client_crl` in `[acceptor.tls]` and `crl` in an initiator's `tls` name a PEM
+file of CRLs; the gateway takes `--tls-client-crl FILE`.
 
 For other setups (system roots, custom verifiers, other protocol versions or cipher suites), build a
 `rustls::ServerConfig`/`ClientConfig` yourself and wrap it with `TlsAcceptor::from` /
