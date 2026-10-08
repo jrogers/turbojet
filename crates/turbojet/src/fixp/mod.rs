@@ -31,7 +31,7 @@
 //! with a codec generated from its schema (see [`crate::sbe`]), and sends any generated message
 //! through its [`FixpContext`] or [`FixpHandle`].
 //!
-//! [`FixpAcceptor::serve_tls`] and [`FixpInitiator::with_tls`] run sessions over TLS (feature
+//! `FixpAcceptor::serve_tls` and `FixpInitiator::with_tls` run sessions over TLS (feature
 //! `tls`), and [`FixpApplication::verify`] sees the client certificate a server asked for.
 //!
 //! A [`FixpInitiator`] fails over to backup endpoints ([`FixpInitiator::with_failover`]), and

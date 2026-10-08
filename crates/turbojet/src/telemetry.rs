@@ -53,7 +53,7 @@
 //! asked for or reported not applied; `turbojet_resend_requests_received_total` counts
 //! RetransmitRequests; and `turbojet_resend_requests_evicted_total` counts those refused because the
 //! store had evicted the messages. Throttling and cancel on disconnect don't apply. The latency
-//! histograms are recorded with [`FixpConfig::latency_metrics`](crate::fixp::FixpConfig::latency_metrics).
+//! histograms are recorded with `FixpConfig::latency_metrics`.
 //!
 //! `turbojet_cancel_on_disconnect_total` counts calls to
 //! [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), by the session's
@@ -63,7 +63,7 @@
 //! ## Latency histograms
 //!
 //! The histograms are recorded only for sessions with
-//! [`latency_metrics`](crate::SessionConfig::latency_metrics) set, since they cost a clock read per
+//! `SessionConfig::latency_metrics` set (feature `metrics`), since they cost a clock read per
 //! inbound message, and a few per batch. They time the connection's own work, in seconds:
 //!
 //! - `turbojet_inbound_message_seconds`: handling one inbound message: decoding it, the session's

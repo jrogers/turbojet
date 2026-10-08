@@ -141,6 +141,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --all-features --no-deps --locked
+      # Without features too: a link to feature-gated API breaks for anyone documenting without it.
+      - run: cargo doc -p turbojet --no-default-features --no-deps --locked
 
   # The fuzz targets (crates/turbojet/fuzz) still build against the current API, and pass the inputs
   # that once found bugs. They're outside the workspace, so the jobs above don't see them; fuzzing

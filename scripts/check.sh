@@ -46,6 +46,8 @@ done
 
 step docs
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --quiet
+# Without features too: a link to feature-gated API breaks for anyone documenting without it.
+RUSTDOCFLAGS="-D warnings" cargo doc -p turbojet --no-default-features --no-deps --locked --quiet
 
 step fuzz clippy
 cargo clippy --manifest-path crates/turbojet/fuzz/Cargo.toml --all-targets --locked --quiet -- -D warnings
