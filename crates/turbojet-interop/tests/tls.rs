@@ -12,6 +12,8 @@ matrix!(
     initiator_refuses_an_untrusted_server,
     acceptor_refuses_a_client_without_a_certificate,
     acceptor_refuses_an_untrusted_client_certificate,
+    a_crl_that_revokes_nothing_lets_the_peer_in,
+    tj_refuses_a_revoked_peer_certificate,
 );
 
 /// How long a refused initiator keeps trying, reconnecting each second, without logging on.
@@ -66,6 +68,27 @@ async fn acceptor_refuses_a_client_without_a_certificate(setup: Setup) {
 async fn acceptor_refuses_an_untrusted_client_certificate(setup: Setup) {
     let mut pair = setup.start_with(over(Tls { acceptor_trusts_initiator: false, ..Tls::MUTUAL })).await;
     refused(&mut pair, Refuser::Acceptor).await;
+    pair.finish().await;
+}
+
+/// Turbojet checks the peer's certificate (server or client) against its CA's CRL, which doesn't
+/// revoke it: the session runs as without one.
+async fn a_crl_that_revokes_nothing_lets_the_peer_in(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls { tj_crl_revokes_peer: Some(false), ..Tls::MUTUAL })).await;
+    pair.logged_on().await;
+    pair.orders_each_way("ORD1", "ORD2").await;
+    pair.finish().await;
+}
+
+/// The CRL revokes the peer's certificate, so Turbojet refuses it: as initiator the server's, as
+/// acceptor the client's.
+async fn tj_refuses_a_revoked_peer_certificate(setup: Setup) {
+    let mut pair = setup.start_with(over(Tls { tj_crl_revokes_peer: Some(true), ..Tls::MUTUAL })).await;
+    let refuser = match setup.role {
+        Role::TjInitiator => Refuser::Initiator,
+        Role::TjAcceptor => Refuser::Acceptor,
+    };
+    refused(&mut pair, refuser).await;
     pair.finish().await;
 }
 

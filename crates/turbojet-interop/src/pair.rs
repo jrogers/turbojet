@@ -92,6 +92,9 @@ pub struct Tls {
     pub initiator_trusts_acceptor: bool,
     /// With `client_auth`, the acceptor trusts the CA that issued the initiator's certificate.
     pub acceptor_trusts_initiator: bool,
+    /// Turbojet checks the peer's certificate against a CRL from their CA: `Some(true)` one
+    /// revoking it, `Some(false)` one revoking nothing. Only Turbojet checks revocation.
+    pub tj_crl_revokes_peer: Option<bool>,
 }
 
 impl Tls {
@@ -101,6 +104,7 @@ impl Tls {
         client_cert: false,
         initiator_trusts_acceptor: true,
         acceptor_trusts_initiator: true,
+        tj_crl_revokes_peer: None,
     };
     /// Both prove who they are.
     pub const MUTUAL: Self = Self { client_auth: true, client_cert: true, ..Self::SERVER };
@@ -282,7 +286,7 @@ fn peer_tls(pki: &Pki, tls: Tls, role: Role) -> PeerTls {
 
 /// Turbojet as TLS client: the CA it trusts, and its certificate if it presents one.
 fn tj_client_tls(pki: &Pki, tls: Tls) -> ClientTls {
-    let trust = Trust::from_pem_files(&pki.ca_path(tls.initiator_trusts_acceptor)).unwrap();
+    let trust = tj_trust(pki, tls, tls.initiator_trusts_acceptor);
     let identity = tls.client_cert.then(|| tj_identity(pki));
     ClientTls::new(trust, identity).unwrap()
 }
@@ -290,11 +294,21 @@ fn tj_client_tls(pki: &Pki, tls: Tls) -> ClientTls {
 /// Turbojet as TLS server: its certificate, and the CA it trusts for clients' if it asks for them.
 fn tj_server_tls(pki: &Pki, tls: Tls) -> ServerTls {
     let client_trust = if tls.client_auth {
-        ClientTrust::Required(Trust::from_pem_files(&pki.ca_path(tls.acceptor_trusts_initiator)).unwrap())
+        ClientTrust::Required(tj_trust(pki, tls, tls.acceptor_trusts_initiator))
     } else {
         ClientTrust::None
     };
     ServerTls::new(tj_identity(pki), client_trust).unwrap()
+}
+
+/// The CA Turbojet trusts (the one that issued the peer's certificate, if `trusted`), with the
+/// CRL `tls` says.
+fn tj_trust(pki: &Pki, tls: Tls, trusted: bool) -> Trust {
+    let trust = Trust::from_pem_files(&pki.ca_path(trusted)).unwrap();
+    match tls.tj_crl_revokes_peer {
+        Some(revokes) => trust.with_crls_pem_files(&pki.crl_path(revokes)).unwrap(),
+        None => trust,
+    }
 }
 
 fn tj_identity(pki: &Pki) -> Identity {

@@ -4,12 +4,16 @@
 
 use std::path::{Path, PathBuf};
 
-use rcgen::{BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair};
+use rcgen::{
+    BasicConstraints, CertificateParams, CertificateRevocationListParams, DnType, ExtendedKeyUsagePurpose, IsCa,
+    Issuer, KeyIdMethod, KeyPair, RevokedCertParams, SerialNumber,
+};
 use tempfile::TempDir;
 
 /// The certificates for one pair: `ca.pem` and `other-ca.pem`, and `tj` and `peer`, each a
 /// certificate (`.pem`) and key (`.key`) issued by `ca`, for `localhost` and `127.0.0.1`, usable by
-/// a server or a client.
+/// a server or a client. And `ca`'s CRLs: `revokes-peer.crl.pem`, revoking the peer's
+/// certificate, and `revokes-nothing.crl.pem`.
 pub struct Pki {
     dir: TempDir,
 }
@@ -21,6 +25,8 @@ impl Pki {
         pki.ca("other-ca");
         pki.issue("tj", &ca);
         pki.issue("peer", &ca);
+        pki.crl("revokes-peer", &ca, &["peer"]);
+        pki.crl("revokes-nothing", &ca, &[]);
         pki
     }
 
@@ -33,6 +39,11 @@ impl Pki {
     /// `side`'s certificate and key: `tj` or `peer`.
     pub fn identity_paths(&self, side: &str) -> (PathBuf, PathBuf) {
         (self.path(&format!("{side}.pem")), self.path(&format!("{side}.key")))
+    }
+
+    /// A CRL from the CA that issued both sides' certificates.
+    pub fn crl_path(&self, revokes_peer: bool) -> PathBuf {
+        self.path(if revokes_peer { "revokes-peer.crl.pem" } else { "revokes-nothing.crl.pem" })
     }
 
     fn path(&self, name: &str) -> PathBuf {
@@ -54,10 +65,40 @@ impl Pki {
         let mut params = CertificateParams::new(vec!["localhost".to_string(), "127.0.0.1".to_string()]).unwrap();
         params.distinguished_name.push(DnType::CommonName, name);
         params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth, ExtendedKeyUsagePurpose::ClientAuth];
+        params.serial_number = Some(serial(name));
         let cert = params.signed_by(&key, issuer).unwrap();
         write(&self.path(&format!("{name}.pem")), &cert.pem());
         write(&self.path(&format!("{name}.key")), &key.serialize_pem());
     }
+}
+
+impl Pki {
+    /// Writes `issuer`'s CRL revoking the certificates named in `revoked`.
+    fn crl(&self, name: &str, issuer: &Issuer<'_, KeyPair>, revoked: &[&str]) {
+        let revoked_certs = revoked
+            .iter()
+            .map(|cert| RevokedCertParams {
+                serial_number: serial(cert),
+                revocation_time: rcgen::date_time_ymd(2026, 1, 1),
+                reason_code: None,
+                invalidity_date: None,
+            })
+            .collect();
+        let params = CertificateRevocationListParams {
+            this_update: rcgen::date_time_ymd(2026, 1, 1),
+            next_update: rcgen::date_time_ymd(2099, 1, 1),
+            crl_number: SerialNumber::from(1u64),
+            issuing_distribution_point: None,
+            revoked_certs,
+            key_identifier_method: KeyIdMethod::Sha256,
+        };
+        write(&self.path(&format!("{name}.crl.pem")), &params.signed_by(issuer).unwrap().pem().unwrap());
+    }
+}
+
+/// A certificate's serial number, from its name, so a CRL can revoke it by name.
+fn serial(name: &str) -> SerialNumber {
+    SerialNumber::from_slice(name.as_bytes())
 }
 
 impl Default for Pki {
