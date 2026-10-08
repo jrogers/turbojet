@@ -243,13 +243,16 @@ invariants, and tests that look for bugs rather than confirm what already works.
   the SBE codecs and the session state machines (`crates/turbojet/fuzz`, `scripts/fuzz.sh`),
   fuzzed nightly in CI. A failing input, once fixed, is kept in `fuzz/regressions/` and replayed on
   every push (`scripts/fuzz-regressions.sh`).
-- **Interop with QuickFIX/J** (`turbojet-interop`), with Turbojet as initiator and as acceptor, on
+- **Interop with QuickFIX/J and quickfix-go** (`turbojet-interop`), with Turbojet as initiator and as acceptor, on
   FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2: logon and logout, reconnection, heartbeats
   and TestRequests, application messages (one with XmlData containing SOH), gap fills and resends in
   each direction, SequenceResets in both modes, MsgSeqNum too low and sessions identified by SubIDs
   and a LocationID, directly and through a proxy that loses, garbles, cuts and delays messages,
   slows the link and silences or stalls either side. They found Heartbeats going out a second late,
-  since fixed.
+  since fixed. Against quickfix-go (v0.9.12), every scenario runs too; where it departs from the
+  spec, the scenario checks what it does instead: it rejects a data field containing SOH, delivers
+  a message with a wrong CheckSum, and doesn't count a message it rejects for SendingTime, so it
+  asks for it again after reconnecting.
 - **QuickFIX's 235 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX
   specification's session test cases, on every build. They found four deviations from the spec's
   test cases, since fixed; 221 pass, and the 14 that fail are listed with their reasons in

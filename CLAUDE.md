@@ -10,14 +10,14 @@ and [CAVEATS.md](CAVEATS.md) the behaviour worth knowing about.
 
 `scripts/check.sh` runs the per-push CI checks (fmt, clippy and tests for each feature combination,
 rustdoc with `-D warnings`, the fuzz crate's lints and regression inputs, the codegen diff). Run it before calling work
-done or committing it; it takes about 3 minutes warm. `--interop` adds the QuickFIX/J tests and
+done or committing it; it takes about 3 minutes warm. `--interop` adds the QuickFIX/J and quickfix-go tests and
 `--msrv` the 1.89 tests. While iterating, narrower runs are fine:
 
 ```sh
 cargo test -p turbojet --all-features                       # the engine
 cargo test -p turbojet --test allocations -- --nocapture    # the allocation budget, by stage
 cargo test -p turbojet-acceptance                           # the QuickFIX scenarios, under a second
-scripts/interop.sh gap_fill_from_peer                       # one interop test (JDK 21+)
+scripts/interop.sh gap_fill_from_peer                       # one interop scenario (JDK 21+, Go)
 cargo bench -p turbojet --all-features -- --quick           # benchmark smoke run
 scripts/fuzz.sh 60 session                                  # fuzz one target (nightly, cargo-fuzz)
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure

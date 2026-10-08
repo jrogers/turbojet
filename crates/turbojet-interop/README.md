@@ -1,9 +1,11 @@
 # turbojet-interop
 
-Tests Turbojet's session layer against another FIX engine,
-[QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2. Each scenario runs in eight cells:
-Turbojet as initiator and as acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2.
-There are 33 scenarios (264 tests, plus checks on the harness itself):
+Tests Turbojet's session layer against two other FIX engines,
+[QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2 and
+[quickfix-go](https://github.com/quickfixgo/quickfix) 0.9.12. Each scenario runs in sixteen cells:
+against each engine (`qfj`, `qfgo` in the test names), with Turbojet as initiator and as acceptor,
+on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2. There are 35 scenarios (560 tests, plus
+checks on the harness itself):
 
 - logon; Logout from either side; a dropped connection that resumes its sequence numbers, and
   one that starts again at 1 because the initiator logs on with ResetSeqNumFlag
@@ -23,24 +25,29 @@ There are 33 scenarios (264 tests, plus checks on the harness itself):
   arrives once, in order. (What arrives *during* a stall is left unchecked: on Linux, TCP may hold
   the open direction back until it ends; see `tests/delays.rs`.)
 
-The QuickFIX/J side is a small Java program (`peer/`) that runs one session and is driven over
-stdin and stdout. The crate isn't published.
+Each engine's side is a small program that runs one session and is driven over stdin and stdout:
+Java for QuickFIX/J (`peer/`), Go for quickfix-go (`peer-go/`). Both speak the same protocol, so
+a scenario is written once. The crate isn't published.
 
 ## Running
 
 ```sh
 scripts/interop.sh                      # all of them
 scripts/interop.sh gap_fill_from_peer   # arguments go to cargo test
+scripts/interop.sh qfgo                 # one engine's cells
 ```
 
-This needs a JDK, 21 or later: the script builds the peer jar with the Gradle wrapper in `peer/`, then
-runs `cargo test -p turbojet-interop` with `TURBOJET_INTEROP=1`. Without that variable the tests pass
-without doing anything, so `cargo test --workspace` doesn't need Java. `INTEROP_PEER_JAR` points
-the tests at a jar built elsewhere.
+This needs a JDK, 21 or later, and Go: the script builds the peer jar with the Gradle wrapper in
+`peer/` and the Go peer in `peer-go/`, then runs `cargo test -p turbojet-interop` with
+`TURBOJET_INTEROP=1`. Without that variable the tests pass without doing anything, so
+`cargo test --workspace` doesn't need Java or Go. `INTEROP_PEER_JAR` and `INTEROP_GO_PEER` point the
+tests at peers built elsewhere, and `INTEROP_GO_SPEC` at quickfix-go's data dictionaries (by
+default, its module's `spec` directory, as `go list` reports it).
 
 ## Adding a scenario
 
-A scenario is an `async fn` taking a `Setup`; `matrix!` turns each one into its eight tests.
+A scenario is an `async fn` taking a `Setup`; `matrix!` turns each one into its sixteen tests.
+`setup.engine` says which engine it's running against, for the few places they differ.
 
 ```rust,ignore
 matrix!(order_round_trip);
@@ -56,10 +63,10 @@ async fn order_round_trip(setup: Setup) {
 ```
 
 - `pair.handle` is Turbojet's `SessionHandle`; `pair.peer.send` and `pair.peer.cmd` drive
-  QuickFIX/J. `orders::tj_order` and `orders::peer_order` build an order valid in every version.
+  the peer. `orders::tj_order` and `orders::peer_order` build an order valid in every version.
 - `pair.peer.expect` waits for a peer event and `pair.tj_received` for a message Turbojet
   delivered; events that don't match stay buffered for later expects.
-- `received`/`sent` (the `from_*`/`to_*` events) are QuickFIX/J's re-serialization of messages it
+- `received`/`sent` (the `from_*`/`to_*` events) are the engine's re-serialization of messages it
   accepted or sent: header fields reordered, and nothing it refused. To check what was actually on
   the wire, or a message QuickFIX/J ignored, use `wire_in`/`wire_out`.
 - To assert that something didn't happen, first exchange a TestRequest so both sides have
@@ -73,7 +80,11 @@ async fn order_round_trip(setup: Setup) {
   `pair.peer.tolerate_errors`; one it always logs should be consumed with `expect`.
 
 The peer's arguments, commands and events are documented on the `Peer` class in
-`peer/src/main/java/dev/turbojet/interop/Peer.java`.
+`peer/src/main/java/dev/turbojet/interop/Peer.java`. The Go peer takes the same, plus `spec-dir`.
+It emits `qfgo_event` where the Java peer emits `qfj_error`, since quickfix-go logs its errors and
+its other session events alike; `PeerEvent::logged` gives either one's text. quickfix-go has no call
+to drop a connection without a Logout, so the Go peer's `disconnect` closes it underneath: an
+initiator connects through a relay of the peer's own, and an acceptor's connections are tracked.
 
 ## When a test fails
 
@@ -92,6 +103,22 @@ printed. Each expect times out after 10 s and each scenario after 120 s.
   PossDup resend of it, where QuickFIX/J queues it and ignores the resend. Both are within the
   spec; Turbojet now queues too, and the gap recovery scenarios check that both engines deliver
   the original.
+
+Against quickfix-go, Turbojet needed no changes. quickfix-go departs from the spec in three places,
+which the scenarios check for it rather than skip:
+
+- It rejects a message whose data field (XmlData) contains SOH, with SessionRejectReason 4 on tag
+  0: it sizes a message's fields by counting SOH, so each SOH inside a data field leaves an empty
+  field that its validator then refuses (`data_field_with_soh_round_trip`). Its own data fields
+  reach Turbojet intact.
+- It doesn't check CheckSum, so it delivers a garbled message to the application rather than
+  discard it (`garbled_order_to_peer`).
+- When it rejects a message for SendingTime accuracy, it logs out without counting the message
+  (its other session-level rejects do count it). On reconnecting it asks for the message again,
+  and delivers the stale order from the resend (`stale_sending_time_to_peer`).
+
+One check is left out for quickfix-go as acceptor: it logs a session out only by stopping the
+acceptor, which closes the connection without reading the Logout reply (`logout_from_peer`).
 
 ## The fault-injecting proxy
 
@@ -112,4 +139,4 @@ Each new connection starts without faults. `pair.proxy()` sets them, and `applie
 
 ## Not covered
 
-- QuickFIX/n, and TLS.
+- TLS.

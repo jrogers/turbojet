@@ -5,8 +5,8 @@ why it matters and roughly how big it is: **S** (a day or less), **M** (a few da
 or more). What's built, and how, is in [DESIGN.md](DESIGN.md); behaviour worth knowing about is in
 [CAVEATS.md](CAVEATS.md).
 
-Turbojet has been tested against one other FIX engine (QuickFIX/J) and QuickFIX's scripted session
-scenarios, but not yet with any venue or real counterparty.
+Turbojet has been tested against two other FIX engines (QuickFIX/J and quickfix-go) and QuickFIX's
+scripted session scenarios, but not yet with any venue or real counterparty.
 
 ## 1. Protocol completeness
 
@@ -146,11 +146,9 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 - **TLS certificate revocation** (S). Client and server certificates are checked against their
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
-- **More interop tests** (M). QuickFIX/J is tested on request and through a fault-injecting
-  proxy (lost, garbled, cut and delayed messages, a silent counterparty, a slow link and a
-  stalled reader). Still to do:
-  - QuickFIX/n as a second peer;
-  - sessions over TLS.
+- **Interop over TLS** (M). QuickFIX/J and quickfix-go are tested directly and through a
+  fault-injecting proxy (lost, garbled, cut and delayed messages, a silent counterparty, a slow
+  link and a stalled reader), but only over plain TCP.
 
 ## 6. The example gateway
 
