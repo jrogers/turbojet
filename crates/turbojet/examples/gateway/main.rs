@@ -85,7 +85,8 @@ Logging is controlled by RUST_LOG (default `info`). To log every FIX message:
   RUST_LOG=info,turbojet::messages=debug
 
 To inspect or change a disconnected session's stored sequence numbers, see
-`gateway seqnums --help`.";
+`gateway seqnums --help`. To turn a QuickFIX settings file into a sessions file for --config:
+  gateway convert-cfg quickfix.cfg > sessions.toml";
 
 const SEQNUMS_USAGE: &str = "\
 Usage: gateway seqnums --store-dir DIR --session COMP_ID [OPTIONS]
@@ -408,6 +409,30 @@ impl TlsArgs {
 }
 
 /// `gateway seqnums ...`: operator control of a disconnected session's sequence numbers.
+/// `gateway convert-cfg FILE`: prints the sessions file a QuickFIX settings file converts to, or
+/// every reason it can't.
+fn convert_cfg(args: &[String]) -> ExitCode {
+    let [path] = args else {
+        eprintln!(
+            "Usage: gateway convert-cfg FILE\n\nPrints a sessions file (for --config) converted from a QuickFIX settings file."
+        );
+        return ExitCode::FAILURE;
+    };
+    let converted = std::fs::read_to_string(path)
+        .map_err(|e| format!("{path}: {e}"))
+        .and_then(|cfg| turbojet_config::quickfix::convert(&cfg).map_err(|e| e.to_string()));
+    match converted {
+        Ok(toml) => {
+            print!("{toml}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 async fn seqnums(args: &[String]) -> ExitCode {
     match run_seqnums(args).await {
         Ok(report) => {
@@ -481,6 +506,9 @@ async fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("seqnums") {
         return seqnums(&args[2..]).await;
+    }
+    if args.get(1).map(String::as_str) == Some("convert-cfg") {
+        return convert_cfg(&args[2..]);
     }
 
     let Args {
