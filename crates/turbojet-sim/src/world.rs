@@ -393,8 +393,11 @@ struct World {
 
 pub fn run(options: &Options) -> Result<Report, Failure> {
     let mut world = World::new(options.clone());
-    match world.run() {
-        Ok(()) => Ok(Report {
+    let outcome = world.run();
+    let at = world.clocks.now();
+    let trace = std::mem::take(&mut world.trace);
+    let report = match outcome {
+        Ok(()) => Report {
             digest: world.digest,
             events: world.events,
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s).count()),
@@ -406,16 +409,29 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
                 .iter()
                 .map(|n| n.app.deliveries.lock().unwrap().iter().filter(|d| d.redelivered).count())
                 .sum(),
-            trace: world.trace,
-        }),
-        Err(violation) => Err(Failure {
-            seed: options.seed,
-            at: world.clocks.now(),
-            violation,
-            trace: std::mem::take(&mut world.trace),
-            fixp: false,
-        }),
+            trace,
+        },
+        Err(violation) => return Err(Failure { seed: options.seed, at, violation, trace, fixp: false }),
+    };
+    // The seed ends as the process does: its applications let go of their handles, as in
+    // `RecordingApp::crash`. Otherwise a session dropped now, which starts its cancel on
+    // disconnect with its application, would leave application and registry holding each other
+    // for good, every seed's world with them.
+    let registries: Vec<_> = world
+        .nodes
+        .iter()
+        .map(|node| {
+            *node.app.handle.lock().unwrap() = None;
+            Arc::downgrade(&node.registry)
+        })
+        .collect();
+    drop(world);
+    if registries.iter().any(|registry| registry.strong_count() > 0) {
+        let detail = "a session registry outlived its world: something holds it in a cycle, leaking the seed".into();
+        let violation = Violation { rule: "teardown", detail };
+        return Err(Failure { seed: options.seed, at, violation, trace: report.trace, fixp: false });
     }
+    Ok(report)
 }
 
 /// On half the seeds, disk stores in segments of a few messages, keeping a few segments, so that
