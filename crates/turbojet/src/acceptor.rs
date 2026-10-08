@@ -132,6 +132,11 @@ impl Acceptor {
         self.registry.sessions()
     }
 
+    /// Sessions an operator has paused: see [`SessionHandle::pause`].
+    pub fn paused(&self) -> Vec<SessionId> {
+        self.registry.paused()
+    }
+
     /// Sessions currently connected, each with when it logged on and over what connection: see
     /// [`SessionRegistry::statuses`].
     pub fn statuses(&self) -> Vec<SessionStatus> {

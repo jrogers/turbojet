@@ -215,3 +215,54 @@ async fn received(events: &mut mpsc::UnboundedReceiver<Event>) -> (String, Optio
         other => panic!("{other:?}"),
     }
 }
+
+/// An operator pauses a session from the acceptor's side: it's logged out and its Logons are
+/// refused until resumed. Then from the initiator's: it stops reconnecting until resumed.
+#[tokio::test]
+async fn operators_pause_and_resume_sessions() {
+    let (server_tx, mut server) = mpsc::unbounded_channel();
+    let acceptor = Acceptor::new(
+        SessionConfig::new("FIX.4.2", "SERVER"),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(server_tx)),
+    )
+    .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.clone().serve(listener));
+    let at_acceptor = acceptor.session("CLIENT");
+
+    let (client_tx, mut client) = mpsc::unbounded_channel();
+    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+    config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
+    let initiator =
+        Initiator::new(addr, config, Arc::new(turbojet::MemoryStorage::new()), Arc::new(Recorder(client_tx))).unwrap();
+    let at_initiator = initiator.handle();
+    tokio::spawn(initiator.clone().run());
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+
+    // Paused at the acceptor: logged out, and the initiator's reconnections are refused.
+    at_acceptor.pause(Some("maintenance"));
+    assert!(at_acceptor.is_paused());
+    assert_eq!(acceptor.paused().len(), 1);
+    assert!(matches!(next(&mut server).await, Event::LoggedOut));
+    assert!(matches!(next(&mut client).await, Event::LoggedOut));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(server.try_recv().is_err(), "no logon while paused");
+    assert!(!at_acceptor.is_connected());
+
+    at_acceptor.resume();
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+
+    // Paused at the initiator: it logs out and doesn't try again until resumed.
+    at_initiator.pause(None);
+    assert!(matches!(next(&mut client).await, Event::LoggedOut));
+    assert!(matches!(next(&mut server).await, Event::LoggedOut));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(client.try_recv().is_err(), "no reconnection while paused");
+    at_initiator.resume();
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+}

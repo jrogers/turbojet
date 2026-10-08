@@ -369,6 +369,14 @@ impl Initiator {
             let mut waiting = false;
             let mut backoff = Backoff::new(self.plan().config.reconnect);
             while !self.shutdown.is_started() {
+                let session = self.session_id();
+                if self.registry.is_paused(&session) {
+                    info!("paused; waiting to be resumed");
+                    self.unless_shutdown(self.registry.wait_resumed(&session)).await.ok();
+                    // Resumed: connect at once, not after the backoff from before the pause.
+                    backoff = Backoff::new(self.plan().config.reconnect);
+                    continue;
+                }
                 if let Some((wait, reason)) = self.schedule_wait() {
                     if !waiting {
                         info!("{reason}; waiting");
@@ -418,6 +426,9 @@ impl Initiator {
     async fn connect(&self) -> (bool, io::Result<()>) {
         if let Some((_, reason)) = self.schedule_wait() {
             return (false, Err(io::Error::new(io::ErrorKind::NotConnected, reason)));
+        }
+        if self.registry.is_paused(&self.session_id()) {
+            return (false, Err(io::Error::new(io::ErrorKind::NotConnected, "the session is paused")));
         }
         // One plan for the whole attempt, even if reconfigured meanwhile.
         let plan = self.plan();

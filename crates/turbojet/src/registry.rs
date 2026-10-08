@@ -1,6 +1,6 @@
 //! Tracks live sessions and lets code outside the connection task send on them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -218,6 +218,8 @@ pub(crate) enum AcquireError {
     AlreadyConnected(Box<SessionId>),
     /// The counterparty already has this many sessions connected.
     TooManySessions(Box<SessionId>, usize),
+    /// An operator paused the session: see [`SessionHandle::pause`].
+    Paused(Box<SessionId>),
     Storage(Box<SessionId>, io::Error),
 }
 
@@ -241,6 +243,7 @@ impl fmt::Display for AcquireError {
             Self::TooManySessions(id, limit) => {
                 write!(f, "{} already has {limit} sessions connected, the most it may", id.target_comp_id)
             }
+            Self::Paused(id) => write!(f, "{id} is paused"),
             Self::Storage(id, e) => write!(f, "cannot open session store for {id}: {e}"),
         }
     }
@@ -519,6 +522,11 @@ pub struct SessionRegistry<T = Message> {
     /// and initiators share it, so the wake has one waiter. Shared with the task, which clears it
     /// as it goes (see `Driving`).
     cancel_task: Arc<AtomicBool>,
+    /// Sessions an operator paused: their Logons are refused until resumed. Locked only with
+    /// `sessions` held, so a Logon and a pause can't cross.
+    paused: Mutex<HashSet<SessionId>>,
+    /// Woken when a session is resumed, for initiators waiting to reconnect.
+    resumed: Notify,
 }
 
 /// Takes no lock, so it's safe to format anywhere.
@@ -552,6 +560,8 @@ impl<T> SessionRegistry<T> {
             clock: Clock::system(),
             cancels: CancelTracker::new(),
             cancel_task: Arc::default(),
+            paused: Mutex::default(),
+            resumed: Notify::new(),
         }
     }
 
@@ -572,6 +582,11 @@ impl<T> SessionRegistry<T> {
     /// Sessions currently bound to a connection.
     pub fn sessions(&self) -> Vec<SessionId> {
         self.lock().keys().cloned().collect()
+    }
+
+    /// The sessions an operator has paused (see [`SessionHandle::pause`]), connected or not.
+    pub fn paused(&self) -> Vec<SessionId> {
+        self.lock_paused().iter().cloned().collect()
     }
 
     /// The sessions connected now, each with when and how it connected: for an operator's view.
@@ -595,6 +610,10 @@ impl<T> SessionRegistry<T> {
             let mut sessions = self.lock();
             if sessions.contains_key(id) {
                 return Err(AcquireError::AlreadyConnected(Box::new(id.clone())));
+            }
+            // A Logon, not an operator command on a disconnected session.
+            if bound.is_some() && self.lock_paused().contains(id) {
+                return Err(AcquireError::Paused(Box::new(id.clone())));
             }
             // A scan, but only at logon, over sessions the acceptor's connection limit bounds.
             let same_counterparty = |other: &&SessionId| {
@@ -621,6 +640,7 @@ impl<T> SessionRegistry<T> {
         let opened = self.acquire(id, placeholder.clone(), None, usize::MAX).map_err(|e| match e {
             AcquireError::AlreadyConnected(_) => SequenceError::Connected,
             AcquireError::TooManySessions(..) => unreachable!("no limit is given"),
+            AcquireError::Paused(_) => unreachable!("an operator command isn't refused for a pause"),
             AcquireError::Storage(_, e) => SequenceError::Storage(e),
         })?;
         // Declared before the log, so dropped after it: the log is closed (its lock released)
@@ -675,6 +695,44 @@ impl<T> SessionRegistry<T> {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Entry<T>>> {
         self.sessions.lock().expect("session registry lock poisoned")
+    }
+
+    /// Taken only with `sessions` held, or alone.
+    fn lock_paused(&self) -> MutexGuard<'_, HashSet<SessionId>> {
+        self.paused.lock().expect("paused sessions lock poisoned")
+    }
+
+    /// Pauses `id`, under the `sessions` lock so a Logon binding now sees it. Whether it was
+    /// connected.
+    fn pause(&self, id: &SessionId) -> bool {
+        let sessions = self.lock();
+        self.lock_paused().insert(id.clone());
+        sessions.contains_key(id)
+    }
+
+    fn resume(&self, id: &SessionId) {
+        let _sessions = self.lock();
+        self.lock_paused().remove(id);
+        self.resumed.notify_waiters();
+    }
+
+    /// Waits until `id` isn't paused.
+    pub(crate) async fn wait_resumed(&self, id: &SessionId) {
+        loop {
+            let resumed = self.resumed.notified();
+            tokio::pin!(resumed);
+            // Registered before checking, so a resume between the check and the wait is seen.
+            resumed.as_mut().enable();
+            if !self.is_paused(id) {
+                return;
+            }
+            resumed.await;
+        }
+    }
+
+    /// Whether an operator has paused `id`: see [`SessionHandle::pause`].
+    pub fn is_paused(&self, id: &SessionId) -> bool {
+        self.lock_paused().contains(id)
     }
 }
 
@@ -936,6 +994,30 @@ impl<T> SessionHandle<T> {
     /// if its control queue is full.
     pub fn logout(&self, text: Option<&str>) -> Result<(), CommandError> {
         self.end(Ending::Logout(text.map(String::from)))
+    }
+
+    /// Pauses the session: logs it out if it's connected (with `text`, once the messages queued
+    /// have gone), and refuses its Logons until [`resume`](Self::resume): an acceptor closes a
+    /// counterparty's connection at its Logon, and an initiator waits to reconnect. Operator
+    /// changes to its stored sequence numbers still work. Pauses are kept in memory, not stored:
+    /// a restart forgets them.
+    pub fn pause(&self, text: Option<&str>) {
+        if self.registry.pause(&self.id) {
+            // If the control queue is full, a logout is already queued.
+            let _ = self.logout(text);
+        }
+        info!(session = %self.id, "paused by operator");
+    }
+
+    /// Lets a paused session log on again; an initiator reconnects at once.
+    pub fn resume(&self) {
+        self.registry.resume(&self.id);
+        info!(session = %self.id, "resumed by operator");
+    }
+
+    /// Whether the session is paused: see [`pause`](Self::pause).
+    pub fn is_paused(&self) -> bool {
+        self.registry.is_paused(&self.id)
     }
 
     /// Queues `ending` behind the sends already queued.
