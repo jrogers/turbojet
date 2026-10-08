@@ -98,6 +98,10 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   process killed with `SIGBUS` if a mapped file is truncated or the disk fills; the power-loss
   tests (`turbojet-sim`) would have to hold for it as they do for `DiskStorage`.
 
+- **Resend reads in one go** (S). `DiskStorage` reads a resend step one message at a time, a
+  seek and a read each: 159 µs for 256 messages, where redb, reading from a memory map, took
+  12.4 µs. A step's messages are next to each other in a segment, so one read of the range, split
+  by the index, should close most of that. `turbojet-sql`'s storage benchmark measures the step.
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
   share a cache line with unrelated data that another core writes (false sharing), and a
@@ -121,12 +125,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass
   the conformance suite (`turbojet::store::conformance`), and be measured against `DiskStorage`.
-  - **Embedded database** (M). A `SessionStorage` over [redb](https://docs.rs/redb) (or a
-    similar embedded store) could be a better default than the hand-rolled files: sequence
-    numbers and message bodies update in one transaction, so there's no torn-write recovery, and
-    space is reclaimed without the rotation `DiskStorage` needs. Benchmark it against
-    `DiskStorage` with and without fsync. If it matches or beats it, make it the recommended
-    durable store.
   - **SQL stores, next steps** (S each). Move to sqlx 0.9 once the minimum Rust reaches 1.94.
     Without sync, a SQLite commit costs about 25 times a `DiskStorage` one (75 µs against 3 µs);
     rusqlite with blocking jobs may close some of that gap. Leases compare gateways' clocks;
