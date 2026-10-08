@@ -89,6 +89,15 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
     AF_XDP would need a userspace TCP stack, so stay parked;
   - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
+- **Warming up the send path** (S, research). A session that sends rarely finds its send path
+  (encoding, the store, the socket write) out of the CPU's caches, so its first order after a lull
+  is slower than the benchmarks show. Some engines have applications call a warm-up every 500 µs
+  or so, running the path without sending. Measure an order sent after an idle second against one in a
+  steady stream first; only a real gap justifies an API.
+- **Pre-encoded messages** (M, research). Every send encodes the whole message. Keeping one
+  encoded and patching only the fields that change (price, quantity, ClOrdID), with the session's
+  own header fields written ahead of time, would skip most of that. Worth it only if
+  encoding shows up in the round trip; it's already done straight into the output buffer.
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
   share a cache line with unrelated data that another core writes (false sharing), and a
@@ -104,6 +113,23 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   changes and reading the message log. Nothing serves it remotely yet: an HTTP and websocket
   endpoint with authentication, and a web console on top (what commercial engines sell on),
   belong with the gateway.
+- **Initiators through a proxy** (S). An initiator connects directly; `Initiator::run_stream`
+  takes a stream opened some other way, but then gives up reconnecting and failover. A connector
+  the initiator calls for each attempt would keep both, and built-in HTTP CONNECT and SOCKS5 ones
+  would cover networks that only reach out through a proxy.
+- **Filtering connections before the handshake** (S). Acceptors limit connections per IP
+  address, but an unwanted address is only refused in `Application::verify_logon`, after a TLS
+  handshake. A check of the remote address on accepting (an allowlist, or a function) would refuse
+  it first.
+- **Sensitive data in the message log** (S). `FileMessageLog` writes messages raw, Password(554),
+  NewPassword(925) and FIXP credentials included, where the `tracing` log masks them. An option to
+  mask those fields as they're logged, and optionally to encrypt finished files, would let the log be kept where fewer people may read passwords.
+- **Message log tools** (S). The log can be read from code (`FileMessageLog::files`, `read`), but
+  an operator looking into an incident wants a command: print a file's records with field names,
+  and filter them by session, direction, MsgType, a tag's value or a time range.
+- **Replaying a message log** (M). Feed the inbound messages a log recorded to an `Application`
+  again, in order and with their recorded times (the clock is injected), to reproduce a problem
+  away from production. The sans-IO session makes it a matter of driving a `Session` from `FileMessageLog::read`.
 - **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass
@@ -135,6 +161,8 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 - **ClOrdID history** (S). After a replace, earlier ClOrdIDs still find the order; strict venues
   reject them.
 - **Example client** (S). It doesn't demonstrate replace or status requests.
+- **Load generator** (S). A client that opens many sessions and sends orders at a set rate
+  against any acceptor, reporting latency percentiles, for sizing a deployment. The benchmarks measure Turbojet against itself only.
 - **Kill switch** (S). Cancel a session's resting orders, or all of them, on an operator command.
   Almost every venue offers this alongside cancel on disconnect, which the gateway does.
 - **Pre-trade risk checks** (M). Order size limits, price bands against a reference price,
