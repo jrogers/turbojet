@@ -18,7 +18,8 @@ use turbojet::{
 use crate::mailbox::{Mailbox, Missing};
 use crate::orders::{peer_order, tj_order};
 use crate::{
-    EVENT_TIMEOUT, FixMsg, Peer, PeerConfig, PeerEvent, Proxy, ProxyEvent, QFJ, QFJ_SUB, TJ, TJ_LOCATION, TJ_SUB,
+    EVENT_TIMEOUT, Engine, FixMsg, Peer, PeerConfig, PeerEvent, Proxy, ProxyEvent, QFJ, QFJ_SUB, TJ, TJ_LOCATION,
+    TJ_SUB,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +51,7 @@ impl Version {
 /// One cell of the matrix, handed to each scenario.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Setup {
+    pub engine: Engine,
     pub role: Role,
     pub version: Version,
 }
@@ -149,6 +151,7 @@ impl Setup {
         }
         session.max_latency = Some(Duration::from_secs(options.max_latency_secs.into()));
         let mut peer_config = PeerConfig {
+            engine: self.engine,
             acceptor: self.role == Role::TjInitiator,
             begin_string,
             port: None,

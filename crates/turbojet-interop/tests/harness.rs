@@ -3,7 +3,7 @@
 use turbojet::message::tags;
 use turbojet::{Message, MsgType};
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Options, Role, Setup, Version, enabled, matrix};
+use turbojet_interop::{Engine, Options, Role, Setup, Version, enabled, matrix};
 
 matrix!(order_round_trip_through_proxy);
 
@@ -23,21 +23,23 @@ async fn order_round_trip_through_proxy(setup: Setup) {
     pair.finish().await;
 }
 
-/// In one cell: QuickFIX/J rejects the order (no Side, etc.) after Turbojet has moved on; finish must wait
-/// for that reject rather than pass.
+/// In one cell per engine: the peer rejects the order (no Side, etc.) after Turbojet has moved on;
+/// finish must wait for that reject rather than pass.
 #[tokio::test]
 async fn finish_catches_a_late_reject() {
     if !enabled() {
         return;
     }
-    let scenario = tokio::spawn(async {
-        let mut pair = Setup { role: Role::TjInitiator, version: Version::Fix44 }.start().await;
-        pair.logged_on().await;
-        pair.handle.send(Message::new(MsgType::NewOrderSingle).with(11, "X")).unwrap();
-        pair.finish().await;
-    });
-    let panic = scenario.await.expect_err("finish passed despite the reject").into_panic();
-    let message = panic.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
-    // QuickFIX/J logs the reason, then sends the Reject; finish reports whichever it finds first.
-    assert!(message.contains("35=3") || message.contains("Required tag missing"), "wrong failure: {message}");
+    for engine in [Engine::QuickFixJ, Engine::QuickFixGo] {
+        let scenario = tokio::spawn(async move {
+            let mut pair = Setup { engine, role: Role::TjInitiator, version: Version::Fix44 }.start().await;
+            pair.logged_on().await;
+            pair.handle.send(Message::new(MsgType::NewOrderSingle).with(11, "X")).unwrap();
+            pair.finish().await;
+        });
+        let panic = scenario.await.expect_err("finish passed despite the reject").into_panic();
+        let message = panic.downcast_ref::<String>().map(String::as_str).unwrap_or_default();
+        // QuickFIX/J logs the reason, then sends the Reject; finish reports whichever it finds first.
+        assert!(message.contains("35=3") || message.contains("Required tag missing"), "{engine:?}: {message}");
+    }
 }

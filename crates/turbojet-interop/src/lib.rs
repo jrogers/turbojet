@@ -1,5 +1,6 @@
-//! Runs Turbojet sessions against QuickFIX/J. The tests need Java and the peer jar, so they run only
-//! with `TURBOJET_INTEROP=1`; `scripts/interop.sh` builds the jar and sets it.
+//! Runs Turbojet sessions against QuickFIX/J and quickfix-go. The tests need Java, Go and the
+//! peers built, so they run only with `TURBOJET_INTEROP=1`; `scripts/interop.sh` builds the peers
+//! and sets it.
 #![allow(missing_debug_implementations, reason = "a test harness, not published")]
 #![allow(clippy::missing_errors_doc, reason = "a test harness, not published")]
 
@@ -13,7 +14,7 @@ mod peer;
 mod proxy;
 
 pub use pair::{Options, Pair, Role, Setup, TjEvent, Version};
-pub use peer::{EVENT_TIMEOUT, FixMsg, Peer, PeerConfig, PeerEvent, QFJ};
+pub use peer::{EVENT_TIMEOUT, Engine, FixMsg, Peer, PeerConfig, PeerEvent, QFJ};
 pub use proxy::{Dir, Fault, Proxy, ProxyEvent};
 
 /// Turbojet's CompID in every interop session.
@@ -37,48 +38,63 @@ pub fn enabled() -> bool {
     on
 }
 
-/// Turns scenario functions `async fn name(setup: Setup)` into a module of eight tests each:
-/// {Turbojet initiator, Turbojet acceptor} × {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}.
+/// Turns scenario functions `async fn name(setup: Setup)` into a module of sixteen tests each:
+/// {QuickFIX/J (`qfj`), quickfix-go (`qfgo`)} × {Turbojet initiator, Turbojet acceptor} ×
+/// {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}.
 #[macro_export]
 macro_rules! matrix {
     ($($scenario:ident),* $(,)?) => {$(
         mod $scenario {
-            use $crate::{Role, Setup, Version};
-
-            async fn run(role: Role, version: Version) {
+            async fn run(setup: $crate::Setup) {
                 if !$crate::enabled() {
                     return;
                 }
                 // Pinned so the scenario is dropped while panicking, which prints diagnostics.
-                let scenario = super::$scenario(Setup { role, version });
+                let scenario = super::$scenario(setup);
                 ::tokio::pin!(scenario);
                 if ::tokio::time::timeout($crate::SCENARIO_TIMEOUT, &mut scenario).await.is_err() {
                     panic!("{} timed out after {:?}", stringify!($scenario), $crate::SCENARIO_TIMEOUT);
                 }
             }
 
-            $crate::__cells! {
-                tj_initiator_fix42: TjInitiator, Fix42;
-                tj_initiator_fix43: TjInitiator, Fix43;
-                tj_initiator_fix44: TjInitiator, Fix44;
-                tj_initiator_fixt: TjInitiator, Fixt;
-                tj_acceptor_fix42: TjAcceptor, Fix42;
-                tj_acceptor_fix43: TjAcceptor, Fix43;
-                tj_acceptor_fix44: TjAcceptor, Fix44;
-                tj_acceptor_fixt: TjAcceptor, Fixt;
+            mod qfj {
+                $crate::__cells!(QuickFixJ);
+            }
+
+            mod qfgo {
+                $crate::__cells!(QuickFixGo);
             }
         }
     )*};
 }
 
-/// One test per cell, calling the `run` that [`matrix!`] defines next to it.
+/// One test per cell for `$engine`, calling the `run` that [`matrix!`] defines.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __cells {
-    ($($test:ident: $role:ident, $version:ident;)*) => {$(
+    ($engine:ident) => {
+        $crate::__cell! {
+            $engine;
+            tj_initiator_fix42: TjInitiator, Fix42;
+            tj_initiator_fix43: TjInitiator, Fix43;
+            tj_initiator_fix44: TjInitiator, Fix44;
+            tj_initiator_fixt: TjInitiator, Fixt;
+            tj_acceptor_fix42: TjAcceptor, Fix42;
+            tj_acceptor_fix43: TjAcceptor, Fix43;
+            tj_acceptor_fix44: TjAcceptor, Fix44;
+            tj_acceptor_fixt: TjAcceptor, Fixt;
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __cell {
+    ($engine:ident; $($test:ident: $role:ident, $version:ident;)*) => {$(
         #[tokio::test]
         async fn $test() {
-            run(Role::$role, Version::$version).await
+            use $crate::{Engine, Role, Setup, Version};
+            super::run(Setup { engine: Engine::$engine, role: Role::$role, version: Version::$version }).await
         }
     )*};
 }

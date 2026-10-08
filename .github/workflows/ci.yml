@@ -97,7 +97,7 @@ jobs:
       - run: cargo clippy -p turbojet-sql --all-targets --no-default-features --features postgres --locked -- -D warnings
       - run: cargo test -p turbojet-sql --all-features --locked
 
-  # Turbojet against QuickFIX/J (crates/turbojet-interop), in both roles.
+  # Turbojet against QuickFIX/J and quickfix-go (crates/turbojet-interop), in both roles.
   interop:
     runs-on: ubuntu-latest
     steps:
@@ -111,6 +111,10 @@ jobs:
           cache-dependency-path: |
             crates/turbojet-interop/peer/*.gradle.kts
             crates/turbojet-interop/peer/gradle/wrapper/gradle-wrapper.properties
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: crates/turbojet-interop/peer-go/go.mod
+          cache-dependency-path: crates/turbojet-interop/peer-go/go.sum
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: scripts/interop.sh

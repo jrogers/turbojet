@@ -4,4 +4,5 @@ target/
 docs/plans/
 crates/turbojet-interop/peer/.gradle/
 crates/turbojet-interop/peer/build/
+crates/turbojet-interop/peer-go/peer
 .op/
