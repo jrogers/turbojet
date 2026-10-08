@@ -146,9 +146,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 - **TLS certificate revocation** (S). Client and server certificates are checked against their
   CA but not for revocation. Check CRLs (and optionally OCSP), and accept PKCS#12 bundles as well
   as PEM files.
-- **quickfix-go over TLS** (S). TLS interop is tested against QuickFIX/J only; quickfix-go is
-  tested over plain TCP. Its peer would need the same certificate options (it takes PEM files
-  directly, with `SocketCertificateFile` and the like).
 
 ## 6. The example gateway
 

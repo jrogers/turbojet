@@ -4,8 +4,8 @@ Tests Turbojet's session layer against two other FIX engines,
 [QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2 and
 [quickfix-go](https://github.com/quickfixgo/quickfix) 0.9.12. Each scenario runs in sixteen cells:
 against each engine (`qfj`, `qfgo` in the test names), with Turbojet as initiator and as acceptor,
-on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2. There are 35 scenarios (560 tests), five
-more over TLS against QuickFIX/J alone (40 tests), plus checks on the harness itself:
+on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2. There are 40 scenarios (640 tests), plus
+checks on the harness itself:
 
 - logon; Logout from either side; a dropped connection that resumes its sequence numbers, and
   one that starts again at 1 because the initiator logs on with ResetSeqNumFlag
@@ -122,8 +122,7 @@ acceptor, which closes the connection without reading the Logout reply (`logout_
 
 ## TLS
 
-`tests/tls.rs` runs against QuickFIX/J only (`matrix!(@qfj ...)`, eight tests a scenario), and
-without the proxy, which can't read encrypted frames: orders over TLS with the server's
+`tests/tls.rs` runs without the proxy, which can't read encrypted frames: orders over TLS with the server's
 certificate alone, and with mutual TLS through a reconnect; and handshakes that must fail, for an
 untrusted server, a client without a certificate and a client with an untrusted one. With
 `Options { tls: Some(Tls { .. }), .. }`, `src/pki.rs` makes a CA that issues both sides'
@@ -131,6 +130,14 @@ certificates (for `localhost` and `127.0.0.1`) and a second CA that issues none,
 trust the wrong one. The Java peer writes QuickFIX/J's PKCS#12 key and trust stores from those PEM
 files (its key store empty when it presents no certificate, so QuickFIX/J doesn't fall back to its
 bundled one), and as initiator checks the server's name (`EndpointIdentificationAlgorithm=HTTPS`).
+quickfix-go reads the PEM files itself. Its `SocketUseSSL=Y` means TLS without requiring a client
+certificate: without it, its acceptor requires one, and its initiator, with no certificate of its
+own, doesn't use TLS at all. Its initiator checks the server's name by default.
+
+A refused handshake must leave both sides logged off while the initiator keeps trying. Each
+refusal was checked to fail for its reason on both sides. As initiator, QuickFIX/J logs each
+failed handshake, and quickfix-go each one it refused itself; when it's quickfix-go's certificate
+that's refused, TLS 1.3 tells it only after its side of the handshake, so it logs a disconnection.
 
 ## The fault-injecting proxy
 
@@ -148,7 +155,3 @@ forwards whole FIX frames and, per direction (`Dir::ToPeer` or `Dir::ToTj`), can
 
 Each new connection starts without faults. `pair.proxy()` sets them, and `applied`,
 `disconnected` and the other waits say when they've happened.
-
-## Not covered
-
-- quickfix-go over TLS.
