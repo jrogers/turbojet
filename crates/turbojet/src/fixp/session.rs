@@ -332,7 +332,12 @@ impl FixpSession {
     /// Claims `id` and opens its log, then goes on with `then` (server) or starts (client).
     fn bind(&mut self, id: SessionId, session_id: Uuid, then: Option<Request>) {
         assert!(self.bound.is_none(), "a session binds to one log");
-        let bound = Binding { since: self.config.clock.now(), connection: self.connection.clone(), appl_ver_id: None };
+        let bound = Binding {
+            since: self.config.clock.now(),
+            connection: self.connection.clone(),
+            appl_ver_id: None,
+            live: None,
+        };
         match self.registry.acquire(&id, self.commands.clone(), Some(bound), usize::MAX) {
             Ok(Opened::Ready(log)) => self.bound(id, session_id, log, then),
             Ok(Opened::Pending(job)) => self.opening = Some(Opening { id, session_id, then, job: Some(job) }),

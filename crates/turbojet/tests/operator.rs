@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::message::tags;
-use turbojet::registry::{SequenceError, SequenceNumbers};
+use turbojet::registry::{SequenceError, SequenceNumbers, SessionState};
 use turbojet::{
     Acceptor, Application, Context, Disconnect, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject,
     MsgType, SessionConfig, SessionHandle, SessionRegistry,
@@ -144,6 +144,19 @@ async fn operators_see_connected_sessions_with_their_connections() {
     assert_ne!(client_addr, server_addr);
     let status = client_handle.status().expect("connected");
     assert_eq!(status.connection.addr, Some(server_addr));
+    assert!(!status.paused);
+
+    // Activity: logged on, Logons exchanged (MsgSeqNum 1 each way), and an order moves it on.
+    let activity = acceptor.statuses()[0].activity.clone().expect("a FIX session's activity");
+    assert_eq!(activity.state, SessionState::LoggedOn);
+    assert!(!activity.resending);
+    assert_eq!((activity.next_incoming, activity.next_outgoing), (2, 2));
+    assert!(activity.last_received >= statuses[0].since && activity.last_sent >= statuses[0].since);
+    client_handle.send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "A")).unwrap();
+    assert!(matches!(next(&mut server).await, Event::Message(_)));
+    let later = acceptor.statuses()[0].activity.clone().unwrap();
+    assert_eq!(later.next_incoming, 3);
+    assert!(later.last_received >= activity.last_received);
 
     client_handle.logout(None).unwrap();
     assert!(matches!(next(&mut server).await, Event::LoggedOut));

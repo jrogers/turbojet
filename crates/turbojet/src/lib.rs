@@ -256,8 +256,8 @@ pub use message_log::{
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use reconnect::ReconnectPolicy;
 pub use registry::{
-    CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionHandle, SessionRegistry,
-    SessionStatus,
+    Activity, CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionHandle,
+    SessionRegistry, SessionState, SessionStatus,
 };
 pub use schedule::{Clock, HolidayCalendar, SessionSchedule};
 pub use session::{ApplVersion, ConfigError, Session, SessionConfig};

@@ -3,11 +3,11 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::{info, warn};
 
@@ -477,6 +477,118 @@ pub(crate) struct Binding {
     pub connection: ConnectionInfo,
     /// FIXT sessions: the application version in use on this connection.
     pub appl_ver_id: Option<ApplVerId>,
+    /// FIX sessions: what the session updates as it runs.
+    pub live: Option<Arc<LiveStatus>>,
+}
+
+/// What a FIX session updates as it runs, for [`SessionStatus::activity`]: plain atomic stores
+/// on the paths that already change these, so reading it never waits on the session.
+#[derive(Debug)]
+pub(crate) struct LiveStatus {
+    /// When the session bound, as an `Instant`, which the times below count from.
+    origin: Instant,
+    next_incoming: AtomicU64,
+    next_outgoing: AtomicU64,
+    /// A [`SessionState`] as its index.
+    state: AtomicU8,
+    resending: AtomicBool,
+    /// Nanoseconds from `origin`.
+    last_received: AtomicU64,
+    last_sent: AtomicU64,
+}
+
+impl LiveStatus {
+    pub(crate) fn new(origin: Instant) -> Self {
+        Self {
+            origin,
+            next_incoming: AtomicU64::new(0),
+            next_outgoing: AtomicU64::new(0),
+            state: AtomicU8::new(SessionState::LoggingOn as u8),
+            resending: AtomicBool::new(false),
+            last_received: AtomicU64::new(0),
+            last_sent: AtomicU64::new(0),
+        }
+    }
+
+    pub(crate) fn set_next_incoming(&self, seq: u64) {
+        self.next_incoming.store(seq, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_next_outgoing(&self, seq: u64) {
+        self.next_outgoing.store(seq, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_state(&self, state: SessionState) {
+        self.state.store(state as u8, Ordering::Relaxed);
+    }
+
+    pub(crate) fn set_resending(&self, resending: bool) {
+        self.resending.store(resending, Ordering::Relaxed);
+    }
+
+    pub(crate) fn received(&self, now: Instant) {
+        self.last_received.store(self.nanos(now), Ordering::Relaxed);
+    }
+
+    pub(crate) fn sent(&self, now: Instant) {
+        self.last_sent.store(self.nanos(now), Ordering::Relaxed);
+    }
+
+    fn nanos(&self, now: Instant) -> u64 {
+        // Saturating: a session would have to run for centuries to pass u64 nanoseconds.
+        u64::try_from(now.saturating_duration_since(self.origin).as_nanos()).unwrap_or(u64::MAX)
+    }
+
+    /// The values now, the times counted from `since`, the wall time at `origin`.
+    fn activity(&self, since: DateTime<Utc>) -> Activity {
+        let at = |nanos: &AtomicU64| {
+            since + TimeDelta::nanoseconds(i64::try_from(nanos.load(Ordering::Relaxed)).unwrap_or(i64::MAX))
+        };
+        let state = match self.state.load(Ordering::Relaxed) {
+            0 => SessionState::LoggingOn,
+            1 => SessionState::LoggedOn,
+            _ => SessionState::LoggingOut,
+        };
+        Activity {
+            state,
+            resending: self.resending.load(Ordering::Relaxed),
+            next_incoming: self.next_incoming.load(Ordering::Relaxed),
+            next_outgoing: self.next_outgoing.load(Ordering::Relaxed),
+            last_received: at(&self.last_received),
+            last_sent: at(&self.last_sent),
+        }
+    }
+}
+
+/// Where a connected FIX session is in its life, as [`Activity`] reports it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SessionState {
+    /// Bound by a Logon, the exchange of Logons not yet done.
+    LoggingOn = 0,
+    /// Logons exchanged: messages flow.
+    LoggedOn = 1,
+    /// A Logout has been sent or received, and the session is ending.
+    LoggingOut = 2,
+}
+
+/// A connected FIX session's progress: see [`SessionStatus::activity`]. Read as the session
+/// left it, each value on its own, so they may be a message apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Activity {
+    /// Where it is in its life.
+    pub state: SessionState,
+    /// Whether it's recovering a gap in what it received: a ResendRequest of its own is open.
+    pub resending: bool,
+    /// The MsgSeqNum expected next from the counterparty.
+    pub next_incoming: u64,
+    /// The MsgSeqNum of the next message it sends.
+    pub next_outgoing: u64,
+    /// When it last received a message (or bound, if it hasn't since), by the session's clock.
+    pub last_received: DateTime<Utc>,
+    /// When it last sent one (or bound, if it hasn't since).
+    pub last_sent: DateTime<Utc>,
 }
 
 /// A connected session, for an operator: see [`SessionRegistry::statuses`] and
@@ -493,15 +605,22 @@ pub struct SessionStatus {
     pub connection: ConnectionInfo,
     /// FIXT sessions: the default application version on this connection.
     pub appl_ver_id: Option<ApplVerId>,
+    /// Whether an operator has paused it, to be logged out (see [`SessionHandle::pause`]).
+    pub paused: bool,
+    /// FIX sessions: its state, sequence numbers and last messages. Not yet tracked for FIXP
+    /// sessions, which have `None`.
+    pub activity: Option<Activity>,
 }
 
-fn status<T>(id: &SessionId, entry: &Entry<T>) -> Option<SessionStatus> {
+fn status<T>(id: &SessionId, entry: &Entry<T>, paused: bool) -> Option<SessionStatus> {
     let bound = entry.bound.as_ref()?;
     Some(SessionStatus {
         id: id.clone(),
         since: bound.since,
         connection: bound.connection.clone(),
         appl_ver_id: bound.appl_ver_id,
+        paused,
+        activity: bound.live.as_ref().map(|live| live.activity(bound.since)),
     })
 }
 
@@ -592,7 +711,9 @@ impl<T> SessionRegistry<T> {
     /// The sessions connected now, each with when and how it connected: for an operator's view.
     /// Sessions an operator command holds while not connected aren't included.
     pub fn statuses(&self) -> Vec<SessionStatus> {
-        self.lock().iter().filter_map(|(id, entry)| status(id, entry)).collect()
+        let sessions = self.lock();
+        let paused = self.lock_paused();
+        sessions.iter().filter_map(|(id, entry)| status(id, entry, paused.contains(id))).collect()
     }
 
     /// Binds `id` to a connection and opens its log, at once or by a job (see
@@ -690,7 +811,9 @@ impl<T> SessionRegistry<T> {
     }
 
     fn status(&self, id: &SessionId) -> Option<SessionStatus> {
-        self.lock().get(id).and_then(|entry| status(id, entry))
+        let sessions = self.lock();
+        let paused = self.lock_paused().contains(id);
+        sessions.get(id).and_then(|entry| status(id, entry, paused))
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Entry<T>>> {

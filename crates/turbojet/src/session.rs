@@ -37,8 +37,9 @@ use crate::message::{DataFields, FieldError, Message, is_header_or_trailer, tags
 use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{
-    Binding, Command, CommandReceiver, CommandSender, Dropped, ReceiptSender, SequenceCommand, SequenceError,
-    SequenceNumbers, SessionHandle, SessionRegistry, apply_sequence_command, command_queues,
+    Binding, Command, CommandReceiver, CommandSender, Dropped, LiveStatus, ReceiptSender, SequenceCommand,
+    SequenceError, SequenceNumbers, SessionHandle, SessionRegistry, SessionState, apply_sequence_command,
+    command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
@@ -545,6 +546,8 @@ pub struct Session {
     appl_version: Option<ApplVersion>,
     /// The transport, as reported by the driver; shown to the application at logon.
     connection: ConnectionInfo,
+    /// What an operator sees of the session as it runs, once bound: see [`LiveStatus`].
+    live: Option<Arc<LiveStatus>>,
     /// Acceptor: decides each counterparty's settings at Logon; see [`Counterparties`].
     counterparties: Option<Arc<dyn Counterparties>>,
     /// Acceptor: the HeartBtInt(108) a counterparty may ask for, once its settings are known.
@@ -705,6 +708,7 @@ impl Session {
             commands,
             appl_version,
             connection: ConnectionInfo::default(),
+            live: None,
             counterparties: None,
             heartbeat_range: Counterparty::DEFAULT_HEARTBEAT,
             status: Status::AwaitingLogon,
@@ -1095,6 +1099,9 @@ impl Session {
             return;
         }
         self.last_received = now;
+        if let Some(live) = &self.live {
+            live.received(now);
+        }
         self.test_request_sent = None;
         if self.receiving() && !self.committing && !self.covers(self.peer().log.next_incoming()) {
             self.open_window_now(now);
@@ -1243,6 +1250,7 @@ impl Session {
             if let (SequenceCommand::SetNextIncoming(seq), Some(resend)) = (request, &mut self.resend) {
                 if seq > resend.target {
                     self.resend = None;
+                    self.note_resending();
                 } else {
                     // A new baseline: progress is measured from here.
                     resend.seen = seq;
@@ -1602,6 +1610,9 @@ impl Session {
         }
         assert!(self.peer.is_some(), "a session logs on bound to its log");
         self.status = Status::Active;
+        if let Some(live) = &self.live {
+            live.set_state(SessionState::LoggedOn);
+        }
         info!(heartbeat = ?self.peer().heartbeat, "logged on");
         if seq_num > expected {
             if !await_resend {
@@ -1748,10 +1759,13 @@ impl Session {
             Role::Acceptor => self.config.max_sessions_per_counterparty,
             Role::Initiator { .. } => usize::MAX,
         };
+        let live = Arc::new(LiveStatus::new(now));
+        self.live = Some(live.clone());
         let bound = Binding {
             since: self.config.clock.now(),
             connection: self.connection.clone(),
             appl_ver_id: self.appl_ver_id(),
+            live: Some(live),
         };
         match self.registry.acquire(&id, self.commands.clone(), Some(bound), per_counterparty) {
             Ok(Opened::Ready(log)) => self.bound(id, heartbeat, log, then, now),
@@ -2128,6 +2142,7 @@ impl Session {
             return self.storage_failed(e, now);
         }
         self.resend = None;
+        self.note_resending();
         self.queued.clear();
         self.set_next_incoming(2, now);
         let our_next = msg.get(tags::NEXT_EXPECTED_MSG_SEQ_NUM).is_some().then_some(2);
@@ -2199,6 +2214,7 @@ impl Session {
             if next > resend.target {
                 info!("resend complete");
                 self.resend = None;
+                self.note_resending();
             } else if next > resend.seen {
                 resend.seen = next;
                 resend.progress_at = now;
@@ -2510,6 +2526,9 @@ impl Session {
             self.finish_replay(now);
         }
         self.last_sent = now;
+        if let Some(live) = &self.live {
+            live.sent(now);
+        }
     }
 
     /// Whether the application has `msg` resent, as it does if it panics deciding.
@@ -2582,6 +2601,7 @@ impl Session {
         info!(from, through = next - 1, "operator ResendRequest");
         let asked_through = self.ask_resend(from, next, now);
         self.resend = Some(Resend { target: next, progress_at: now, seen: from, retried: false, asked_through });
+        self.note_resending();
         self.update_sequence_gauges();
         let next_outgoing = self.peer().log.next_outgoing();
         Ok(SequenceNumbers { next_incoming: from, next_outgoing })
@@ -2593,6 +2613,7 @@ impl Session {
         self.peer().metrics.sequence_gap();
         let asked_through = self.ask_resend(from, received, now);
         self.resend = Some(Resend { target: received, progress_at: now, seen: from, retried: false, asked_through });
+        self.note_resending();
     }
 
     /// Sends a ResendRequest from `from` for a gap that `target` revealed: a chunk if the session
@@ -2694,6 +2715,9 @@ impl Session {
         // log out over (stale ones, after a long stall) doesn't put it off.
         if matches!(self.status, Status::Active | Status::AwaitingLogon) {
             self.status = Status::LoggingOut { since: now };
+            if let Some(live) = &self.live {
+                live.set_state(SessionState::LoggingOut);
+            }
         }
     }
 
@@ -2837,6 +2861,10 @@ impl Session {
         debug_assert_eq!(self.peer().log.next_outgoing(), seq + 1, "recording a message uses its number");
         self.peer().metrics.next_outgoing(seq + 1);
         self.last_sent = now;
+        if let Some(live) = &self.live {
+            live.set_next_outgoing(seq + 1);
+            live.sent(now);
+        }
         self.emit(if holding { &self.held } else { &self.output }, start);
         Ok(seq)
     }
@@ -2861,7 +2889,12 @@ impl Session {
         let recorded =
             log.set_next_incoming(seq).and_then(|()| marker.map_or(Ok(()), |start| log.set_in_flight(start)));
         match recorded {
-            Ok(()) => self.peer().metrics.next_incoming(seq),
+            Ok(()) => {
+                self.peer().metrics.next_incoming(seq);
+                if let Some(live) = &self.live {
+                    live.set_next_incoming(seq);
+                }
+            }
             Err(e) => self.storage_failed(e, now),
         }
     }
@@ -2870,6 +2903,17 @@ impl Session {
         let peer = self.peer();
         peer.metrics.next_incoming(peer.log.next_incoming());
         peer.metrics.next_outgoing(peer.log.next_outgoing());
+        if let Some(live) = &self.live {
+            live.set_next_incoming(peer.log.next_incoming());
+            live.set_next_outgoing(peer.log.next_outgoing());
+        }
+    }
+
+    /// Tells the operator's view whether a ResendRequest of ours is open.
+    fn note_resending(&self) {
+        if let Some(live) = &self.live {
+            live.set_resending(self.resend.is_some());
+        }
     }
 
     /// Byte counts from the driver, once the session is bound.
