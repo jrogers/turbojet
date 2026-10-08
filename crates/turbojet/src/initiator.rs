@@ -17,7 +17,7 @@ use crate::connection;
 use crate::fields::Secret;
 use crate::peer::ConnectionInfo;
 use crate::reconnect::{Backoff, ReconnectPolicy};
-use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry};
+use crate::registry::{CommandReceiver, SessionEvent, SessionHandle, SessionRegistry};
 use crate::session::ConfigError;
 use crate::session::{Session, SessionConfig};
 use crate::shutdown::Shutdown;
@@ -357,6 +357,12 @@ impl Initiator {
     /// A handle for sending on the session; valid across reconnects and failovers.
     pub fn handle(&self) -> SessionHandle {
         self.registry.handle(self.session_id())
+    }
+
+    /// Events for this initiator's session (and any others sharing its registry) from now on: see
+    /// [`SessionRegistry::subscribe`].
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<SessionEvent> {
+        self.registry.subscribe()
     }
 
     /// Keeps the session connected: calls [`Initiator::connect_once`] repeatedly, waiting as the

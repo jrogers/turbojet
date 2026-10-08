@@ -38,8 +38,8 @@ use crate::message_log::MessageLog;
 use crate::peer::ConnectionInfo;
 use crate::registry::{
     Binding, Command, CommandReceiver, CommandSender, Dropped, LiveStatus, ReceiptSender, SequenceCommand,
-    SequenceError, SequenceNumbers, SessionHandle, SessionRegistry, SessionState, apply_sequence_command,
-    command_queues,
+    SequenceError, SequenceNumbers, SessionEventKind, SessionHandle, SessionRegistry, SessionState,
+    apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
@@ -1613,6 +1613,7 @@ impl Session {
         if let Some(live) = &self.live {
             live.set_state(SessionState::LoggedOn);
         }
+        self.registry.publish(&self.peer().id, SessionEventKind::LoggedOn);
         info!(heartbeat = ?self.peer().heartbeat, "logged on");
         if seq_num > expected {
             if !await_resend {
@@ -2718,6 +2719,9 @@ impl Session {
             if let Some(live) = &self.live {
                 live.set_state(SessionState::LoggingOut);
             }
+            if let Some(peer) = &self.peer {
+                self.registry.publish(&peer.id, SessionEventKind::LoggingOut);
+            }
         }
     }
 
@@ -2911,8 +2915,11 @@ impl Session {
 
     /// Tells the operator's view whether a ResendRequest of ours is open.
     fn note_resending(&self) {
-        if let Some(live) = &self.live {
-            live.set_resending(self.resend.is_some());
+        let (Some(live), Some(peer)) = (&self.live, &self.peer) else { return };
+        if live.set_resending(self.resend.is_some()) {
+            let kind =
+                if self.resend.is_some() { SessionEventKind::ResendStarted } else { SessionEventKind::ResendFinished };
+            self.registry.publish(&peer.id, kind);
         }
     }
 

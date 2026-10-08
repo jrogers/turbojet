@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::message::tags;
-use turbojet::registry::{SequenceError, SequenceNumbers, SessionState};
+use turbojet::registry::{SequenceError, SequenceNumbers, SessionEventKind, SessionState};
 use turbojet::{
     Acceptor, Application, Context, Disconnect, DiskStorage, Initiator, InitiatorConfig, Message, MessageReject,
     MsgType, SessionConfig, SessionHandle, SessionRegistry,
@@ -207,6 +207,7 @@ async fn operators_ask_for_processed_messages_again() {
 
     let err = operator.request_resend(5).await.unwrap_err();
     assert!(err.to_string().contains("nothing to resend from 5"), "{err}");
+    let mut events = acceptor.subscribe();
     assert_eq!(operator.request_resend(3).await.unwrap().next_incoming, 3);
     for id in ["ORD2", "ORD3"] {
         assert_eq!(received(&mut server).await, (id.to_string(), Some("Y".to_string())));
@@ -214,6 +215,8 @@ async fn operators_ask_for_processed_messages_again() {
     client_handle.send(order("ORD4")).unwrap();
     assert_eq!(received(&mut server).await, ("ORD4".to_string(), None));
     assert_eq!(operator.sequence_numbers().await.unwrap().next_incoming, 6);
+    let kinds: Vec<_> = std::iter::from_fn(|| events.try_recv().ok()).map(|event| event.kind).collect();
+    assert_eq!(kinds, [SessionEventKind::ResendStarted, SessionEventKind::ResendFinished]);
     // That resend is over, so another may be asked for.
     assert_eq!(operator.request_resend(5).await.unwrap().next_incoming, 5);
     assert_eq!(received(&mut server).await, ("ORD4".to_string(), Some("Y".to_string())));
@@ -278,4 +281,58 @@ async fn operators_pause_and_resume_sessions() {
     at_initiator.resume();
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
+}
+
+/// A live view follows the acceptor's sessions through events: connecting, logging on, being
+/// paused and logged out, a Logon refused while paused, and resuming.
+#[tokio::test]
+async fn operators_follow_sessions_through_events() {
+    let (server_tx, mut server) = mpsc::unbounded_channel();
+    let acceptor = Acceptor::new(
+        SessionConfig::new("FIX.4.2", "SERVER"),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(server_tx)),
+    )
+    .unwrap();
+    let mut events = acceptor.subscribe();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.clone().serve(listener));
+
+    let (client_tx, mut client) = mpsc::unbounded_channel();
+    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+    config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(200));
+    let initiator =
+        Initiator::new(addr, config, Arc::new(turbojet::MemoryStorage::new()), Arc::new(Recorder(client_tx))).unwrap();
+    tokio::spawn(initiator.clone().run());
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+
+    let mut kinds = Vec::new();
+    let mut expect = async |want: &[SessionEventKind]| {
+        while kinds.len() < want.len() {
+            let event = tokio::time::timeout(Duration::from_secs(5), events.recv()).await.expect("timed out").unwrap();
+            assert_eq!(event.id.to_string(), "FIX.4.2:SERVER->CLIENT");
+            kinds.push(event.kind);
+        }
+        assert_eq!(kinds, want);
+        kinds.clear();
+    };
+    expect(&[SessionEventKind::Connected, SessionEventKind::LoggedOn]).await;
+
+    acceptor.session("CLIENT").pause(None);
+    expect(&[SessionEventKind::Paused, SessionEventKind::LoggingOut, SessionEventKind::Disconnected]).await;
+    // The initiator tries again, and is turned away.
+    let refused = SessionEventKind::Refused("FIX.4.2:SERVER->CLIENT is paused".into());
+    expect(&[refused]).await;
+
+    acceptor.session("CLIENT").resume();
+    // A refusal or two may come before the resume takes.
+    let mut seen = Vec::new();
+    while seen.last() != Some(&SessionEventKind::LoggedOn) {
+        let event = tokio::time::timeout(Duration::from_secs(5), events.recv()).await.expect("timed out").unwrap();
+        seen.push(event.kind);
+    }
+    let resumed = seen.iter().position(|kind| *kind == SessionEventKind::Resumed).expect("resumed");
+    assert_eq!(seen[resumed + 1..], [SessionEventKind::Connected, SessionEventKind::LoggedOn], "{seen:?}");
 }

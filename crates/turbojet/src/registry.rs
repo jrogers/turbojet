@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use chrono::{DateTime, TimeDelta, Utc};
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tracing::{info, warn};
 
 use crate::application::{Application, Disconnect};
@@ -522,8 +522,9 @@ impl LiveStatus {
         self.state.store(state as u8, Ordering::Relaxed);
     }
 
-    pub(crate) fn set_resending(&self, resending: bool) {
-        self.resending.store(resending, Ordering::Relaxed);
+    /// Whether it changed.
+    pub(crate) fn set_resending(&self, resending: bool) -> bool {
+        self.resending.swap(resending, Ordering::Relaxed) != resending
     }
 
     pub(crate) fn received(&self, now: Instant) {
@@ -558,6 +559,42 @@ impl LiveStatus {
             last_sent: at(&self.last_sent),
         }
     }
+}
+
+/// What happened to a session, for an operator's live view: see [`SessionRegistry::subscribe`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct SessionEvent {
+    /// The session it happened to.
+    pub id: SessionId,
+    /// What happened.
+    pub kind: SessionEventKind,
+}
+
+/// What happened to a session: see [`SessionEvent`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SessionEventKind {
+    /// A Logon bound it to a connection: it's in [`SessionRegistry::statuses`] from now on.
+    Connected,
+    /// FIX sessions: Logons exchanged.
+    LoggedOn,
+    /// FIX sessions: a Logout was sent or received.
+    LoggingOut,
+    /// FIX sessions: a gap in what it received is being recovered, with a ResendRequest.
+    ResendStarted,
+    /// FIX sessions: the gap is filled.
+    ResendFinished,
+    /// Its connection ended: it's out of [`SessionRegistry::statuses`].
+    Disconnected,
+    /// An operator paused it: see [`SessionHandle::pause`].
+    Paused,
+    /// An operator resumed it.
+    Resumed,
+    /// A Logon for it was refused, for this reason: paused, already connected, too many sessions
+    /// for its counterparty, or its store failing to open. Refusals the application or the
+    /// session's checks make before then are logged, not sent here.
+    Refused(String),
 }
 
 /// Where a connected FIX session is in its life, as [`Activity`] reports it.
@@ -646,7 +683,14 @@ pub struct SessionRegistry<T = Message> {
     paused: Mutex<HashSet<SessionId>>,
     /// Woken when a session is resumed, for initiators waiting to reconnect.
     resumed: Notify,
+    /// What [`subscribe`](Self::subscribe) hands out.
+    events: broadcast::Sender<SessionEvent>,
 }
+
+/// Most session events held for a subscriber that hasn't read them, past which it misses the
+/// oldest (and is told how many): enough for every session of a large acceptor to connect at
+/// once, a few events each, without a reader that's a moment behind losing any.
+pub const EVENT_QUEUE: usize = 4096;
 
 /// Takes no lock, so it's safe to format anywhere.
 impl<T> fmt::Debug for SessionRegistry<T> {
@@ -681,6 +725,7 @@ impl<T> SessionRegistry<T> {
             cancel_task: Arc::default(),
             paused: Mutex::default(),
             resumed: Notify::new(),
+            events: broadcast::channel(EVENT_QUEUE).0,
         }
     }
 
@@ -703,6 +748,25 @@ impl<T> SessionRegistry<T> {
         self.lock().keys().cloned().collect()
     }
 
+    /// What happens to the registry's sessions from now on, for a live view: connections and
+    /// disconnections, logons and logouts, resends, pauses and refused Logons. Pair it with
+    /// [`statuses`](Self::statuses), read after subscribing, for where each session stands.
+    /// Events are published as they happen, on the session's task, and never wait for a
+    /// subscriber: one more than [`EVENT_QUEUE`] events behind misses the oldest, and its next
+    /// read says how many ([`broadcast::error::RecvError::Lagged`]), the cue to read `statuses`
+    /// again.
+    pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+        self.events.subscribe()
+    }
+
+    /// Tells subscribers, if there are any.
+    pub(crate) fn publish(&self, id: &SessionId, kind: SessionEventKind) {
+        if self.events.receiver_count() > 0 {
+            // Fails only with no subscribers, who'd have nothing to miss.
+            let _ = self.events.send(SessionEvent { id: id.clone(), kind });
+        }
+    }
+
     /// The sessions an operator has paused (see [`SessionHandle::pause`]), connected or not.
     pub fn paused(&self) -> Vec<SessionId> {
         self.lock_paused().iter().cloned().collect()
@@ -721,6 +785,26 @@ impl<T> SessionRegistry<T> {
     /// already bound elsewhere, if its counterparty (BeginString and CompIDs) already has
     /// `per_counterparty` sessions bound, or if storage cannot be opened.
     pub(crate) fn acquire(
+        &self,
+        id: &SessionId,
+        commands: CommandSender<T>,
+        bound: Option<Binding>,
+        per_counterparty: usize,
+    ) -> Result<Opened, AcquireError> {
+        // A Logon's outcome, not an operator command's on a disconnected session.
+        let logon = bound.is_some();
+        let acquired = self.claim(id, commands, bound, per_counterparty);
+        if logon {
+            match &acquired {
+                Ok(_) => self.publish(id, SessionEventKind::Connected),
+                Err(e) => self.publish(id, SessionEventKind::Refused(e.to_string())),
+            }
+        }
+        acquired
+    }
+
+    /// [`acquire`](Self::acquire), but for telling subscribers.
+    fn claim(
         &self,
         id: &SessionId,
         commands: CommandSender<T>,
@@ -790,16 +874,17 @@ impl<T> SessionRegistry<T> {
     /// connection to claim it. Not `assert!`, though it's once per connection: the session
     /// releases from its `Drop`, where a panic while unwinding would abort.
     pub(crate) fn release(&self, id: &SessionId, commands: &CommandSender<T>) {
-        let ours = {
+        let (ours, was_logon) = {
             let mut sessions = self.lock();
             let ours = sessions.get(id).is_some_and(|entry| entry.commands.is_same(commands));
-            if ours {
-                sessions.remove(id);
-            }
-            ours
+            let removed = if ours { sessions.remove(id) } else { None };
+            (ours, removed.is_some_and(|entry| entry.bound.is_some()))
         };
         // Outside the lock, which a panic would poison; and not while unwinding already.
         debug_assert!(ours || std::thread::panicking(), "{id} is released only by the connection that holds it");
+        if was_logon {
+            self.publish(id, SessionEventKind::Disconnected);
+        }
     }
 
     fn sender(&self, id: &SessionId) -> Option<CommandSender<T>> {
@@ -828,15 +913,22 @@ impl<T> SessionRegistry<T> {
     /// Pauses `id`, under the `sessions` lock so a Logon binding now sees it. Whether it was
     /// connected.
     fn pause(&self, id: &SessionId) -> bool {
-        let sessions = self.lock();
-        self.lock_paused().insert(id.clone());
-        sessions.contains_key(id)
+        let connected = {
+            let sessions = self.lock();
+            self.lock_paused().insert(id.clone());
+            sessions.contains_key(id)
+        };
+        self.publish(id, SessionEventKind::Paused);
+        connected
     }
 
     fn resume(&self, id: &SessionId) {
-        let _sessions = self.lock();
-        self.lock_paused().remove(id);
+        {
+            let _sessions = self.lock();
+            self.lock_paused().remove(id);
+        }
         self.resumed.notify_waiters();
+        self.publish(id, SessionEventKind::Resumed);
     }
 
     /// Waits until `id` isn't paused.

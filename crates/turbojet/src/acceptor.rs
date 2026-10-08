@@ -16,7 +16,7 @@ use crate::application::Application;
 use crate::connection;
 use crate::counterparty::Counterparties;
 use crate::peer::ConnectionInfo;
-use crate::registry::{CommandReceiver, SessionHandle, SessionRegistry, SessionStatus};
+use crate::registry::{CommandReceiver, SessionEvent, SessionHandle, SessionRegistry, SessionStatus};
 use crate::session::{ConfigError, Session, SessionConfig};
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -130,6 +130,11 @@ impl Acceptor {
     /// Sessions currently connected.
     pub fn sessions(&self) -> Vec<SessionId> {
         self.registry.sessions()
+    }
+
+    /// Events for this acceptor's sessions from now on: see [`SessionRegistry::subscribe`].
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<SessionEvent> {
+        self.registry.subscribe()
     }
 
     /// Sessions an operator has paused: see [`SessionHandle::pause`].
