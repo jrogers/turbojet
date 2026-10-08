@@ -1048,7 +1048,7 @@ to partition the crate.
 | Store a sent message, 100 per commit: disk / disk + fsync | 70 ns / 41 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 75 µs / 4.5 ms / 112 µs | |
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 3.0 µs / 55 µs / 7.1 µs | |
-| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 157 µs / 196 µs / 149 µs | |
+| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 15.2 µs / 196 µs / 149 µs | |
 | SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 7.5 ns / 37 ns | |
 | SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 258 ns | |
 | FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 15.6 µs | 2.97M msg/s |

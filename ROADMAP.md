@@ -98,10 +98,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   process killed with `SIGBUS` if a mapped file is truncated or the disk fills; the power-loss
   tests (`turbojet-sim`) would have to hold for it as they do for `DiskStorage`.
 
-- **Resend reads in one go** (S). `DiskStorage` reads a resend step one message at a time, a
-  seek and a read each: 159 µs for 256 messages, where redb, reading from a memory map, took
-  12.4 µs. A step's messages are next to each other in a segment, so one read of the range, split
-  by the index, should close most of that. `turbojet-sql`'s storage benchmark measures the step.
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
   share a cache line with unrelated data that another core writes (false sharing), and a

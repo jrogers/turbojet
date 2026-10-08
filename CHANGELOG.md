@@ -6,6 +6,8 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `DiskStorage` reads a resend step's messages with one read of each segment rather than one
+  read per message: 256 messages take 15 µs rather than 160 µs.
 - For a management layer: `SessionRegistry::statuses`, `Acceptor::statuses` and
   `SessionHandle::status` list connected sessions with when and over what connection they logged
   on, whether they're paused, and an `Activity` (state, whether recovering a gap, sequence

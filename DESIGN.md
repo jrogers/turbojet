@@ -142,10 +142,11 @@ store.
   committed before the first is handed over) are marked as possibly handled when they're resent
   (`Context::maybe_redelivered`).
 - **The disk store** keeps its sequence numbers in two checksummed slots, so a write torn by a
-  power loss falls back to the record before it, and writes each commit as one journal record and
-  one `fsync`. Both built-in stores keep each session's newest messages up to a byte budget
-  (gap-filling older ones on a resend): the disk store in segments, deleting the oldest, and the
-  memory store a capped number of sessions.
+  power loss falls back to the record before it, writes each commit as one journal record and one
+  `fsync`, and reads a resend step's messages with one read of each segment they're in. Both
+  built-in stores keep each session's newest messages up to a byte budget (gap-filling older ones
+  on a resend): the disk store in segments, deleting the oldest, and the memory store a capped
+  number of sessions.
 - **SQL storage** (`turbojet-sql`), in SQLite or PostgreSQL through sqlx: one transaction per
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was
@@ -374,7 +375,9 @@ was before:
   fsync. They were re-measured 2026-10-03, after a commit took one write and one `fsync` rather
   than one of each file; just before, on the same day: 3.2 µs and 8.0 ms one per commit, 84 ns and
   81 µs at 100 per commit, and round trips of 33.2 µs, 689k msg/s, 8.1 ms and 9.5k msg/s.
-- The SQL stores were measured 2026-10-03, PostgreSQL 14 on the same machine over TCP.
+- The SQL stores were measured 2026-10-03, PostgreSQL 14 on the same machine over TCP. The disk
+  store's resend step was re-measured 2026-10-08, after its messages were read in one go rather
+  than one read each: 157 µs before.
 - Round trips replying from `on_message` were measured 2026-10-04; through the benchmark's task
   they took 26.5 µs (TCP) and 28.3 µs (TLS) the same day. Spinning was measured the same day,
   16.45 µs without spinning in the same run.
