@@ -108,12 +108,11 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 5. Operations and deployment
 
-- **Management API and console** (L). The operator API works on connected sessions in the
-  library, but nothing exposes it remotely, and the gateway only has the offline `seqnums`
-  tool. Provide an optional management endpoint (HTTP, or a local socket) that lists sessions
-  and their state; starts, stops, logs out and resets them; triggers resends; and browses and
-  searches the message log live. A web console on top is what commercial engines sell on. The
-  gateway should use it.
+- **Management endpoint and console** (L). The library has what a management layer needs:
+  session statuses, events for a live view, pause and resume, operator resends, sequence-number
+  changes and reading the message log. Nothing serves it remotely yet: an HTTP and websocket
+  endpoint with authentication, and a web console on top (what commercial engines sell on),
+  belong with the gateway. FIXP sessions' statuses don't have activity yet.
 - **Message log compression and archiving** (S). `FileMessageLog` rotates files and deletes them
   after a retention period, but leaves compressing and archiving finished files to the operator.
   Compressing them as they're finished would need a compression crate, behind a feature; a hook

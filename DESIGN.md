@@ -170,6 +170,18 @@ store.
   and one whose behaviour would differ is refused, with every problem in the file reported at
   once. Keys with their QuickFIX default (`ResetOnLogout=N`) pass, since that's what Turbojet
   does.
+- **Management**: the registry, which already binds each session to its connection, is where an
+  operator's view lives. At its Logon a session gives the registry when and over what connection
+  it bound, and for FIX sessions an `Arc` of atomics (state, resend, sequence numbers, last
+  message times as offsets from the bind) that it stores to on the paths that already update the
+  sequence-number gauges: listing sessions takes the registry's lock but never a session's, and
+  the hot path gains a few relaxed stores and no allocation. Events go out on a bounded
+  `tokio::sync::broadcast`, published only for state changes and only with subscribers, so a slow
+  live view loses events (and is told) rather than holding a session up. A pause is a set in the
+  registry, checked under the same lock that binds a Logon, so a pause and a Logon can't cross;
+  an initiator's run loop waits on a `Notify` while paused. An operator's resend rewinds the
+  expected number before asking, because resends below it would be ignored as duplicates, and
+  reuses the gap machinery by treating the next new message as the one that revealed the gap.
 - **Observability**: structured logging and Prometheus-compatible metrics, with opt-in latency
   histograms (handling each inbound message, store commits, and reading input to its replies
   being ready to write), and an optional `MessageLog` that sees every message's bytes.

@@ -7,6 +7,12 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- Pausing a session is kept in memory: a restart forgets it. Session events are dropped for a
+  subscriber that falls more than `EVENT_QUEUE` behind (it's told how many), and only Logons the
+  registry refuses (paused, already connected, too many, store failing) are sent as `Refused`;
+  earlier refusals are logged. An operator's resend counts as finished at the first new message
+  after the resent ones, so `ResendFinished` can wait for the next Heartbeat. FIXP sessions'
+  statuses have no `activity`.
 - TLS revocation is checked only against CRLs the application gives, and only at the handshake:
   a session already connected carries on after its certificate is revoked. With CRLs, a
   certificate in the chain that none of them covers is refused. A CRL past its next update is

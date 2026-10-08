@@ -412,6 +412,53 @@ The gateway's `seqnums` subcommand does the same for a session in its `--store-d
 connected, even while the gateway runs; a connected session's store is locked, and the tool says
 so rather than changing it.
 
+## Managing sessions
+
+What a management console or a live view needs is in the library; serving it over HTTP or a
+websocket, with authentication, is left to the application.
+
+```rust
+// Where each connected session stands: when and from where it connected, and for FIX sessions
+// its state, sequence numbers and last messages each way. Never waits on a session.
+for status in acceptor.statuses() {
+    let activity = status.activity.as_ref();
+    println!("{} since {} from {:?}: {:?}", status.id, status.since, status.connection.addr, activity.map(|a| a.state));
+}
+
+// What happens from now on, to push to a live view.
+let mut events = acceptor.subscribe();
+while let Ok(SessionEvent { id, kind, .. }) = events.recv().await {
+    // Connected, LoggedOn, LoggingOut, ResendStarted, ResendFinished, Disconnected, Paused,
+    // Resumed, Refused(reason)
+}
+
+let session = acceptor.session("CLIENT1");
+session.pause(Some("maintenance")); // log out, and refuse its Logons until resumed
+session.resume();
+session.request_resend(1200).await?; // have it send 1200 onwards again
+
+// What was sent and received, from a FileMessageLog's directory.
+for file in FileMessageLog::files("/var/log/fix")? {
+    for record in FileMessageLog::read(&file.path)? {
+        if let LogRecord::Message { time, direction, session, frame, .. } = record? { /* ... */ }
+    }
+}
+```
+
+- `statuses()` is also on the `SessionRegistry` an acceptor and initiators can share, and
+  `SessionHandle::status()` gives one session's. A session's `activity` is read as it left it,
+  each value on its own; FIXP sessions don't have one yet.
+- Events are broadcast as they happen and never wait for a subscriber: one that falls more than
+  `EVENT_QUEUE` (4,096) behind misses the oldest and is told how many, its cue to read
+  `statuses()` again. Read `statuses()` after subscribing for where things stand.
+- A paused acceptor session's counterparty is turned away at its Logon; a paused initiator stops
+  reconnecting until resumed, then connects at once. Pauses are kept in memory, not stored.
+- `request_resend(from)` is for an application that lost messages it had processed: the session
+  expects `from` again and asks for it, so the resends arrive in sequence and are delivered, with
+  PossDupFlag=Y. It needs the session logged on with no resend of its own under way.
+- `FileMessageLog::read` can read a file while it's being written: the records end at the last
+  whole one.
+
 ## Logon credentials and NextExpectedMsgSeqNum
 
 An initiator sends Username(553) and Password(554) from `InitiatorConfig::username` and

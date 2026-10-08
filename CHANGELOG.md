@@ -6,6 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- For a management layer: `SessionRegistry::statuses`, `Acceptor::statuses` and
+  `SessionHandle::status` list connected sessions with when and over what connection they logged
+  on, whether they're paused, and for FIX sessions an `Activity` (state, whether recovering a gap,
+  sequence numbers, last message each way). `subscribe` on the registry, an acceptor or an
+  initiator broadcasts `SessionEvent`s. `SessionHandle::pause` and `resume` stop and start a
+  session from either side, and `request_resend` asks the counterparty for processed messages
+  again. `FileMessageLog::files` and `read` read the message log back.
+- Breaking: `SequenceCommand` has `RequestResend` and is `#[non_exhaustive]`.
 - TLS revocation checks, off unless asked for: `Trust::with_crls_pem`, `with_crls_pem_files` and
   `with_crls_der` add certificate revocation lists, and a certificate they revoke, or that none
   of them covers, is refused at the handshake. A `Trust` with newer CRLs, given to
