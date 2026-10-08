@@ -431,31 +431,48 @@ impl SessionLog for DiskLog {
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         let locations: Vec<(u64, Location)> = self.index.range(begin..=end).map(|(s, l)| (*s, *l)).collect();
+        let is_pending =
+            |l: &Location| matches!(self.pending_at, Some((n, start)) if n == l.segment && l.offset >= start);
         let mut messages = Vec::with_capacity(locations.len());
-        for (seq, Location { offset, len, segment: number }) in locations {
-            let len = len as usize;
-            let bytes = match self.pending_at {
-                Some((pending_number, start)) if pending_number == number && offset >= start => {
+        let mut rest = locations.as_slice();
+        while let Some(&(_, first)) = rest.first() {
+            // A run of messages in one segment, all written or all pending, read together: they lie
+            // in order, with only commit records and FIXP headers between them.
+            let pending = is_pending(&first);
+            let run = rest.iter().take_while(|(_, l)| l.segment == first.segment && is_pending(l) == pending).count();
+            let (this, next) = rest.split_at(run);
+            rest = next;
+            let last = this[run - 1].1;
+            let span_len = usize::try_from(last.offset + u64::from(last.len) - first.offset).expect("a segment fits");
+            let read;
+            let span: &[u8] = match self.pending_at {
+                Some((_, start)) if pending => {
                     // Not written yet.
-                    let at = usize::try_from(offset - start).expect("pending fits in memory");
-                    self.pending[at..at + len].to_vec()
+                    let at = usize::try_from(first.offset - start).expect("pending fits in memory");
+                    &self.pending[at..at + span_len]
                 }
                 _ => {
+                    let number = first.segment;
                     let segment =
                         self.segments.iter().find(|s| s.number == number).expect("an indexed segment is kept");
-                    (&*segment.file).seek(SeekFrom::Start(offset))?;
-                    let mut bytes = vec![0; len];
-                    (&*segment.file).read_exact(&mut bytes)?;
-                    bytes
+                    (&*segment.file).seek(SeekFrom::Start(first.offset))?;
+                    read = {
+                        let mut bytes = vec![0; span_len];
+                        (&*segment.file).read_exact(&mut bytes)?;
+                        bytes
+                    };
+                    &read
                 }
             };
-            match super::is_one_message(&bytes) {
-                true => messages.push((seq, bytes)),
-                false => {
+            for &(seq, Location { offset, len, segment: number }) in this {
+                let at = usize::try_from(offset - first.offset).expect("within the span");
+                let bytes = &span[at..at + len as usize];
+                if !super::is_one_message(bytes) {
                     return Err(invalid_data(format!(
                         "stored message {seq} in segment {number} at offset {offset} is corrupt"
                     )));
                 }
+                messages.push((seq, bytes.to_vec()));
             }
         }
         super::debug_check_sent(&messages, begin, end, self.evicted_through);
@@ -1255,6 +1272,22 @@ mod tests {
         let mut log = synced.open(&id("A")).unwrap();
         assert_eq!(log.next_outgoing(), 4);
         assert_eq!(log.sent_messages(1, 3).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_read_spans_written_and_pending_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut log = storage(&dir).open(&id("A")).unwrap();
+        // Two commits written, so a record lies between their messages, and one pending.
+        for seq in 1..=3 {
+            log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
+            if seq < 3 {
+                assert!(log.commit().unwrap().is_none());
+            }
+        }
+        let expected: Vec<_> = (1..=3).map(|seq| (seq, app_message(seq))).collect();
+        assert_eq!(log.sent_messages(1, 3).unwrap(), expected);
+        assert_eq!(log.sent_messages(2, 3).unwrap(), expected[1..]);
     }
 
     /// A store whose segments hold `per_segment` messages of [`app_message`]'s size (seq 1 to 9),
