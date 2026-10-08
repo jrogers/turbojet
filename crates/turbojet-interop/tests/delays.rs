@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::time::{Instant, sleep_until};
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, TjEvent, matrix};
+use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, TjEvent, matrix};
 
 matrix!(latency_spike_to_tj, latency_spike_to_peer, stale_sending_time_to_tj, stale_sending_time_to_peer);
 matrix!(slow_link, stalled_reader_at_tj, stalled_reader_at_peer);
@@ -142,12 +142,25 @@ async fn stale_sending_time_to_peer(setup: Setup) {
 
     let reject = pair.peer.sent("3").await;
     check_reject(&reject, stale);
-    let error = |e: &PeerEvent| matches!(e, PeerEvent::QfjError(t) if t.contains("SendingTime accuracy problem"));
-    pair.peer.expect("QuickFIX/J's SendingTime error", error).await;
+    let error = |e: &PeerEvent| e.logged().is_some_and(|t| t.contains("SendingTime accuracy problem"));
+    pair.peer.expect("the peer's SendingTime error", error).await;
     let logout = pair.peer.wire_out("5", |_| true).await;
     assert_eq!(logout.seq(), reject.seq() + 1, "the Logout follows the Reject: {}", logout.raw());
     pair.tj_logged_out().await;
     pair.peer.logout().await;
+    if setup.engine == Engine::QuickFixGo {
+        // quickfix-go doesn't count a message it rejects for SendingTime before logging out, where
+        // FIX counts a rejected message as received. So once reconnected it asks for the stale
+        // order again, and delivers Turbojet's resend of it.
+        pair.logged_on().await;
+        let request = pair.peer.wire_out("2", |_| true).await;
+        assert_eq!(request.get(7), Some(stale.to_string().as_str()), "{}", request.raw());
+        let resent = pair.peer.received_with("D", |m| m.get(11) == Some("ORD1")).await;
+        assert_eq!(resent.get(43), Some("Y"), "{}", resent.raw());
+        pair.orders_each_way("ORD2", "ORD3").await;
+        pair.finish().await;
+        return;
+    }
     reconnected_without_resend(pair, "ORD1").await;
 }
 

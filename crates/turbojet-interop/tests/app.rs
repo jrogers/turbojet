@@ -2,7 +2,7 @@
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Setup, matrix};
+use turbojet_interop::{Engine, Setup, matrix};
 
 matrix!(order_round_trip);
 matrix!(microseconds_and_lists_round_trip);
@@ -47,9 +47,18 @@ async fn data_field_with_soh_round_trip(setup: Setup) {
 
     let order = tj_order("ORD1").with_data(tags::XML_DATA_LEN, tags::XML_DATA, b"<a>\x01</a>");
     pair.handle.send(order).unwrap();
-    let theirs = pair.peer.received("D").await;
-    assert_eq!(theirs.get(213), Some("<a>\x01</a>"), "{}", theirs.raw());
-    assert_eq!(theirs.get(11), Some("ORD1"), "{}", theirs.raw());
+    if setup.engine == Engine::QuickFixGo {
+        // quickfix-go sizes a message's fields by counting SOH, so each SOH inside a data field
+        // leaves an empty field behind, which its validator rejects: SessionRejectReason 4 (tag
+        // specified without a value), on tag 0.
+        let reject = pair.peer.sent("3").await;
+        assert_eq!(reject.get(373), Some("4"), "{}", reject.raw());
+        assert_eq!(reject.get(371), Some("0"), "{}", reject.raw());
+    } else {
+        let theirs = pair.peer.received("D").await;
+        assert_eq!(theirs.get(213), Some("<a>\x01</a>"), "{}", theirs.raw());
+        assert_eq!(theirs.get(11), Some("ORD1"), "{}", theirs.raw());
+    }
 
     pair.peer.send(&format!("{}|212=8|213=<b>\\x01</b>", peer_order("ORD2"))).await;
     let ours = pair.tj_received("D").await;

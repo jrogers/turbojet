@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Options, PeerEvent, Setup, TjEvent, matrix};
+use turbojet_interop::{Engine, Options, PeerEvent, Setup, TjEvent, matrix};
 
 matrix!(sequence_reset_from_peer, sequence_reset_from_tj, seq_too_low_at_tj, seq_too_low_at_peer);
 
@@ -91,8 +91,11 @@ async fn seq_too_low_at_peer(setup: Setup) {
     assert!(logout.get(58).is_some_and(|t| t.contains("too low")), "{}", logout.raw());
     pair.tj_logged_out().await;
     pair.peer.logout().await;
-    for error in ["quickfix.SessionException MsgSeqNum too low", "Disconnecting: Verifying message failed"] {
-        pair.peer.expect(error, |e| matches!(e, PeerEvent::QfjError(t) if t.starts_with(error))).await;
+    // quickfix-go logs no error for it; the Logout's text is the reason.
+    if setup.engine == Engine::QuickFixJ {
+        for error in ["quickfix.SessionException MsgSeqNum too low", "Disconnecting: Verifying message failed"] {
+            pair.peer.expect(error, |e| matches!(e, PeerEvent::QfjError(t) if t.starts_with(error))).await;
+        }
     }
     // QuickFIX/J disconnects without waiting for Turbojet's Logout reply (FIXT.1.1: waiting is
     // optional). If it still reads the reply, it logs an error for a Logout while logged out.

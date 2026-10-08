@@ -2,7 +2,7 @@
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Options, Pair, Setup, Version, matrix};
+use turbojet_interop::{Engine, Options, Pair, Role, Setup, Version, matrix};
 
 matrix!(plain_logon, logon_with_reset, logout_from_tj, logout_from_peer, reconnect_continues_sequence);
 
@@ -75,7 +75,11 @@ async fn logout_from_peer(setup: Setup) {
     pair.logged_on().await;
     pair.peer.cmd("logout").await;
     pair.peer.sent("5").await;
-    pair.peer.received("5").await;
+    // quickfix-go logs an acceptor's session out only by stopping the acceptor, which closes the
+    // connection without waiting for the Logout reply.
+    if !(setup.engine == Engine::QuickFixGo && setup.role == Role::TjInitiator) {
+        pair.peer.received("5").await;
+    }
     pair.tj_logged_out().await;
     pair.peer.logout().await;
     pair.finish().await;

@@ -6,7 +6,7 @@ use tokio::time::Instant;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, matrix};
+use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, matrix};
 
 matrix!(lost_order_to_peer, lost_order_to_tj, garbled_order_to_peer, garbled_order_to_tj);
 matrix!(silent_peer, silent_tj, cut_order_to_peer, cut_order_to_tj);
@@ -71,6 +71,14 @@ async fn order_recovered_at_peer(setup: Setup, fault: Fault) {
     if fault == Fault::Garble {
         // QuickFIX/J reads the frame but refuses it on its CheckSum.
         pair.peer.wire_in("D", |m| m.seq() == lost).await;
+        if setup.engine == Engine::QuickFixGo {
+            // quickfix-go doesn't check CheckSum, so it delivers the garbled order where the
+            // session layer should discard it as garbled. Nothing is lost, so nothing to recover.
+            let delivered = pair.peer.received_with("D", |m| m.get(11) == Some("ORD1")).await;
+            assert_eq!(delivered.seq(), lost, "{}", delivered.raw());
+            pair.finish().await;
+            return;
+        }
         pair.peer.expect("CheckSum error", |e| matches!(e, PeerEvent::QfjError(t) if t.contains("CheckSum"))).await;
     }
     pair.handle.send(tj_order("ORD2")).unwrap();
@@ -202,10 +210,13 @@ async fn silent_tj(setup: Setup) {
     resume(pair, Dir::ToPeer).await;
 }
 
-/// QuickFIX/J disconnects on its own heartbeat timeout, not on a Logout or a TCP close.
+/// The peer disconnects on its own heartbeat timeout, not on a Logout or a TCP close.
 async fn peer_timed_out(pair: &mut Pair) {
-    let timeout = |e: &PeerEvent| matches!(e, PeerEvent::QfjError(t) if t.contains("Timed out waiting for heartbeat"));
-    pair.peer.expect("QuickFIX/J's heartbeat timeout", timeout).await;
+    let text = match pair.peer.engine() {
+        Engine::QuickFixJ => "Timed out waiting for heartbeat",
+        Engine::QuickFixGo => "Session Timeout",
+    };
+    pair.peer.expect("the peer's heartbeat timeout", |e| e.logged().is_some_and(|t| t.contains(text))).await;
     pair.peer.logout().await;
 }
 
