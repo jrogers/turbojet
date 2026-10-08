@@ -119,6 +119,14 @@ store.
   stays as it was. Retention deletes only files whose names the log would have made, by the day
   in the name, so a file's last record is past retention before the file goes. No `fsync`: the
   resend store is what must be durable, and the log's records survive a crash of the process.
+  Compressing finished files (gzip, through flate2's pure-Rust backend) and calling the
+  `on_finished` hook happen on a second thread, fed by a channel as the writer starts each new
+  file and when the log is dropped, so the writer never waits for them: a full 256 MiB file of
+  synthetic ExecutionReports took about 1.0 s to compress, to 19 MiB (13 times smaller), on a
+  loaded M-series Mac, 2026-10-08. A file is compressed to `.log.gz.partial` and renamed, then
+  the original deleted, so a crash leaves either the original or both. Opening with `compress`
+  finishes every uncompressed file there (all are finished, since opening starts a new one) and
+  deletes partial ones; a file a crash left both ways is compressed again over the old copy.
 
   Measured 2026-10-07 on an M3, under a load average of about 2.5 (not idle), criterion medians
   with a log at both ends against the no-op log: one order at a time 27.5 µs against 26.5 µs

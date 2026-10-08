@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `FileLogOptions::compress` (the new `gzip` feature) compresses each finished `FileMessageLog`
+  file to `.log.gz`, and `FileLogOptions::on_finished` is called with each finished file, to
+  archive it. `FileMessageLog::files` and `read` list and read compressed files
+  (`LogFile::compressed`). The example gateway takes `--message-log-gzip`.
 - `DiskStorage` reads a resend step's messages with one read of each segment rather than one
   read per message: 256 messages take 15 µs rather than 160 µs.
 - For a management layer: `SessionRegistry::statuses`, `Acceptor::statuses` and

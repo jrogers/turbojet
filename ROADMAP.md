@@ -104,10 +104,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   changes and reading the message log. Nothing serves it remotely yet: an HTTP and websocket
   endpoint with authentication, and a web console on top (what commercial engines sell on),
   belong with the gateway.
-- **Message log compression and archiving** (S). `FileMessageLog` rotates files and deletes them
-  after a retention period, but leaves compressing and archiving finished files to the operator.
-  Compressing them as they're finished would need a compression crate, behind a feature; a hook
-  called with each finished file would let one archive it.
 - **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass

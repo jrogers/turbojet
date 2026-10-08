@@ -75,7 +75,11 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   session when its buffer is full (16 MiB by default) or a write fails. It doesn't `fsync`, so a
   machine's crash can lose its last records. Records reach the file about a millisecond after
   they're logged. A file can pass `file_bytes_max` by up to one batch. Two logs must not share a
-  directory. Dropping the log waits for its thread to write what it holds. It neither compresses
-  nor archives files; retention deletes them.
+  directory. Dropping the log waits for its threads to write what it holds and to compress and
+  hand over the last file, a second or so for a full one. After a crash, the `on_finished` hook
+  can be called again for a file it was called for before (with `compress`, which redoes what the
+  crash cut short); without `compress`, the file a crash left isn't handed to it at all. The hook
+  runs on the thread that compresses files, so a slow hook delays the files after it, and one
+  that panics stops compression and the hook for that log.
 - A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
   aren't a stable API.

@@ -202,6 +202,8 @@
 //! - `tz`: named IANA time zones for session schedules, following daylight saving.
 //! - `validation`: checks inbound application messages against a data dictionary from
 //!   `turbojet-dictionary`, with `SessionConfig::with_dictionary`.
+//! - `gzip`: compressing finished [`FileMessageLog`] files, with
+//!   [`FileLogOptions::compress`].
 
 #![warn(missing_docs)]
 // Library code handles every error or names the invariant that rules it out, in an `expect`

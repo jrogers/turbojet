@@ -22,7 +22,7 @@
 session layer, storage, `Acceptor` and `Initiator`, with typed messages for FIX 4.2, 4.3, 4.4 and
 5.0 SP2. Its examples are an order-entry gateway (an `Application` served by an `Acceptor`, in
 [`examples/gateway`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet/examples/gateway)) and a client for it (an `Initiator`).
-The gateway needs the `tls`, `metrics` and `tz` features, the client `tls`.
+The gateway needs the `tls`, `metrics`, `tz` and `gzip` features, the client `tls`.
 
 Typed application messages are generated from FIX data dictionaries:
 [`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary) loads FIX Orchestra and QuickFIX-format XML
@@ -967,7 +967,7 @@ binary FIXP ones by their length. The calls copy each message into a buffer that
 log's own writes out, so they don't wait for the disk. A message that would pass the buffer's
 limit (`buffer_bytes_max`, 16 MiB by default) is dropped, and a line `<time> dropped <count>`
 shows the gap. The example gateway writes one with `--message-log DIR` (and
-`--message-log-days N`).
+`--message-log-days N`, `--message-log-gzip`).
 
 ```rust
 let options = FileLogOptions { retention: Some(Duration::from_secs(7 * 365 * 86_400)), ..Default::default() };
@@ -981,8 +981,18 @@ config.message_log = Some(Arc::new(FileMessageLog::open("/var/log/fix", options)
 8=FIX.4.2|9=75|35=A|49=GATEWAY|56=CLIENT1|34=1|52=20261007-22:33:54.251|98=0|108=30|141=Y|10=044|
 ```
 
-(SOH shown as `|`.) Compression and archiving are left to the operator: a file is finished once
-a later one exists.
+(SOH shown as `|`.) A file is finished when the next one starts and when the log is dropped. With
+`compress` (turbojet's `gzip` feature), each finished file is compressed to `….log.gz` and the
+original deleted; `on_finished` is called with each finished file, compressed or not, to archive
+it, say, and may move or delete it. Both run on a thread of the log's own, so logging never waits
+for them. `FileMessageLog::files` and `read` list and read compressed files too (`LogFile::compressed`).
+
+```rust
+let archive: FinishedHook = Arc::new(|path: &Path| {
+    // Copy `path` to long-term storage, then delete it.
+});
+let options = FileLogOptions { compress: true, on_finished: Some(archive), ..Default::default() };
+```
 
 **Metrics** use the [`metrics`](https://docs.rs/metrics) facade, behind turbojet's optional
 `metrics` feature. Install a recorder (e.g. `metrics-exporter-prometheus`) before starting

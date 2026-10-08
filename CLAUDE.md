@@ -23,7 +23,7 @@ scripts/fuzz.sh 60 session                                  # fuzz one target (n
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure
 ```
 
-Features: `tls`, `metrics`, `tz`, `validation`. Feature-gated code only builds when its feature is
+Features: `tls`, `metrics`, `tz`, `validation`, `gzip`. Feature-gated code only builds when its feature is
 on, so check with `--all-features` and `--no-default-features` at least.
 
 ## Things that bite
