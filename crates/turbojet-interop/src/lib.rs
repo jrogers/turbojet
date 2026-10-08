@@ -43,12 +43,9 @@ pub fn enabled() -> bool {
 
 /// Turns scenario functions `async fn name(setup: Setup)` into a module of sixteen tests each:
 /// {QuickFIX/J (`qfj`), quickfix-go (`qfgo`)} × {Turbojet initiator, Turbojet acceptor} ×
-/// {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}. `matrix!(@qfj ...)` makes only the eight QuickFIX/J tests.
+/// {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}.
 #[macro_export]
 macro_rules! matrix {
-    (@qfj $($scenario:ident),* $(,)?) => {$(
-        $crate::__scenario!([qfj QuickFixJ] $scenario);
-    )*};
     ($($scenario:ident),* $(,)?) => {$(
         $crate::__scenario!([qfj QuickFixJ qfgo QuickFixGo] $scenario);
     )*};

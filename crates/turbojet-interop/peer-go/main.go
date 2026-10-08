@@ -4,7 +4,9 @@
 //
 // Arguments are key=value: role, begin, port, sender, target, sender-sub, target-sub,
 // target-location, heartbeat, reset-on-logon, reconnect, max-latency, log-dir, as for the
-// QuickFIX/J peer, and spec-dir: the directory holding quickfix-go's data dictionaries.
+// QuickFIX/J peer, and spec-dir: the directory holding quickfix-go's data dictionaries. For TLS,
+// tls-ca, tls-cert, tls-key and need-client-auth, as for the QuickFIX/J peer: PEM files, which
+// quickfix-go reads itself.
 //
 // quickfix-go logs its errors and its other session events through the same call, so all of
 // them are emitted as qfgo_event; there is no qfj_error.
@@ -129,6 +131,15 @@ func main() {
 		set("SocketConnectHost", "127.0.0.1")
 		set("SocketConnectPort", strconv.Itoa(relay))
 	}
+	if ca, ok := opts["tls-ca"]; ok {
+		// quickfix-go reads an acceptor's TLS settings from the global settings, an initiator's
+		// from its session's.
+		tlsSettings := session
+		if role == "acceptor" {
+			tlsSettings = settings.GlobalSettings()
+		}
+		configureTLS(tlsSettings, ca, opts)
+	}
 	id, err := settings.AddSession(session)
 	check(err)
 
@@ -142,7 +153,11 @@ func main() {
 	if role == "acceptor" {
 		acceptor, err := quickfix.NewAcceptor(app{}, store, settings, emittingLogs{logs})
 		check(err)
-		acceptor.SetNewListenerCallback(func(string, *tls.Config) (net.Listener, error) {
+		acceptor.SetNewListenerCallback(func(_ string, config *tls.Config) (net.Listener, error) {
+			// Tracked beneath TLS, so disconnect closes the TCP connection.
+			if config != nil {
+				return tls.NewListener(link.track(listener), config), nil
+			}
 			return link.track(listener), nil
 		})
 		connector = acceptor
@@ -172,6 +187,20 @@ func main() {
 	}
 	stopConnector()
 	os.Exit(0)
+}
+
+// configureTLS sets quickfix-go's TLS settings. SocketUseSSL=Y means TLS without requiring a
+// client certificate: without it, an acceptor with a certificate requires and verifies one, and an
+// initiator without a certificate doesn't use TLS at all.
+func configureTLS(settings *quickfix.SessionSettings, ca string, opts map[string]string) {
+	settings.Set("SocketCAFile", ca)
+	if cert, ok := opts["tls-cert"]; ok {
+		settings.Set("SocketCertificateFile", cert)
+		settings.Set("SocketPrivateKeyFile", opts["tls-key"])
+	}
+	if opts["need-client-auth"] != "Y" {
+		settings.Set("SocketUseSSL", "Y")
+	}
 }
 
 func check(err error) {

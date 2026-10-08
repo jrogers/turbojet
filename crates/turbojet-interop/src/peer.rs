@@ -165,7 +165,6 @@ pub struct PeerConfig {
     pub max_latency_secs: u32,
     /// Session IDs with SubIDs and a LocationID: see [`Options::sub_ids`](crate::Options::sub_ids).
     pub sub_ids: bool,
-    /// TLS, for QuickFIX/J only.
     pub tls: Option<PeerTls>,
 }
 

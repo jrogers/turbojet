@@ -76,8 +76,8 @@ pub struct Options {
     /// Both sides' session IDs have SubIDs, and Turbojet's a LocationID ([`TJ_SUB`],
     /// [`TJ_LOCATION`], [`QFJ_SUB`]), so each must find its session by them.
     pub sub_ids: bool,
-    /// Connects over TLS, configured so. QuickFIX/J only, and not with [`proxy`](Self::proxy),
-    /// which can't read encrypted frames.
+    /// Connects over TLS, configured so. Not with [`proxy`](Self::proxy), which can't read
+    /// encrypted frames.
     pub tls: Option<Tls>,
 }
 
@@ -177,7 +177,6 @@ impl Setup {
         let session = self.session_config(&options);
         let mut peer_config = self.peer_config(&options);
         let pki = options.tls.map(|tls| {
-            assert_eq!(self.engine, Engine::QuickFixJ, "TLS scenarios run against QuickFIX/J only");
             assert!(!options.proxy, "the proxy can't read TLS");
             let pki = Pki::new();
             peer_config.tls = Some(peer_tls(&pki, tls, self.role));
