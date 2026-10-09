@@ -89,11 +89,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
     AF_XDP would need a userspace TCP stack, so stay parked;
   - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
-- **Warming up the send path** (S, research). A session that sends rarely finds its send path
-  (encoding, the store, the socket write) out of the CPU's caches, so its first order after a lull
-  is slower than the benchmarks show. Some engines have applications call a warm-up every 500 µs
-  or so, running the path without sending. Measure an order sent after an idle second against one in a
-  steady stream first; only a real gap justifies an API.
 - **Pre-encoded messages** (M, research). Every send encodes the whole message. Keeping one
   encoded and patching only the fields that change (price, quantity, ClOrdID), with the session's
   own header fields written ahead of time, would skip most of that. Worth it only if

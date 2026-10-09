@@ -377,6 +377,26 @@ it was no faster than the default.
 Spinning takes out the reactor: with both ends spinning, the no-hop round trip fell from 16.45 µs
 to 10.34 µs; raw sockets with both ends spinning take 6.8 µs. What's left is mostly the kernel.
 
+An order sent after a lull is much slower, but a warm-up that runs the send path without sending
+would win back little, so there isn't one. Measured 2026-10-09 on an M3, medians, order to
+acknowledgement over localhost, split into stages by a message log:
+
+| Spinning driver, µs | Total | Send and encode | Socket out | Acceptor | Socket back |
+|---|---|---|---|---|---|
+| Back to back | 14.8 | 1.2 | 8.0 | 1.1 | 4.5 |
+| A real order every 500 µs | 45 | 1.3 | 24.6 | 1.0 | 17.7 |
+| After 1 s idle | 197 | 21.5 | 114.6 | 15.5 | 44.7 |
+| After 1 s of other threads filling the caches | 100 | 14.3 | 55.8 | 11.0 | 18.1 |
+
+With the tokio driver it's 23 µs back to back and 599 µs after an idle second, about 120 µs of
+that waking the worker. Most of the slowdown is the kernel and waking threads, which a warm-up
+can't reach: even real orders every 500 µs, which warm everything a warm-up could and more, leave
+the round trip at 45 µs. They bring Turbojet's own stages back to warm speed, so a warm-up could
+save at most the sender's 20 µs or so, about a tenth, and only on the spinning driver, since tokio's
+worker sleeps between warm-ups anyway. An idle second is slower than a second of cache filling, so
+the processor's power state counts as well as cold caches. Linux with pinned cores and a locked
+frequency may differ.
+
 ### Measurement history
 
 The README's benchmark table gives current numbers. When each row was last measured, and what it
