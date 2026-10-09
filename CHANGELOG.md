@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `Acceptor::with_allowed_ips` and `FixpAcceptor::with_allowed_ips` accept connections only
+  from the addresses and CIDR ranges given (`turbojet::AllowedIps`), closing others on accept;
+  `set_allowed_ips` replaces the list while serving. Refused ones are counted in
+  `turbojet_connections_refused_total` with reason `not_allowed`.
 - `InitiatorConfig::proxy` and `FixpInitiator::with_proxy` connect through an HTTP (`CONNECT`)
   or SOCKS5 proxy, with an optional username and password (`turbojet::Proxy`), keeping failover,
   reconnecting and TLS to the counterparty.
@@ -165,6 +169,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `allow` in `[acceptor]`: the IP addresses and CIDR ranges connections are accepted from,
+  reloaded with the rest of the file.
 - `proxy` and `proxy_password_env` in an initiator's section: the proxy to connect through, and
   the environment variable holding its password. The QuickFIX converter reads QuickFIX/J's
   ProxyType, ProxyHost, ProxyPort and ProxyUser into it.

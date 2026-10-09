@@ -72,7 +72,7 @@ replaced while running) and optional revocation checks against CRLs the applicat
 update is still used, so a late refresh doesn't lock every counterparty out), initiator failover from a chosen local address and through an HTTP or SOCKS5 proxy, and graceful shutdown
 (every session logged out, bounded by the logout timeout). Initiators reconnect with a
 configurable backoff (by default 1 s to 60 s, jittered), and acceptors limit connections overall
-and per IP address, and give each counterparty its own settings, decided at Logon, and its own
+and per IP address, accept them only from allowed addresses and ranges, and give each counterparty its own settings, decided at Logon, and its own
 store.
 
 - **Full duplex.** The driver reads while its output waits to be written, so two ends writing to
@@ -84,6 +84,10 @@ store.
   commands in a small one of their own that a full send queue never holds up, and each send
   returns a `Receipt` saying whether the message was stored, with its MsgSeqNum, or dropped and
   why.
+- **Refusing on accept.** The connection limits and the allowed addresses are checked together
+  as each connection is accepted, in the accept loop the FIX and FIXP acceptors share, so one
+  refused costs an `accept` and a `close`: no TLS handshake, no task. The list sits behind a
+  read lock in the acceptor's limits, so a reload replaces it for the next connection.
 - **Proxies.** An initiator with a proxy connects to it, from its local address if set, asks for
   a tunnel to the endpoint by name (HTTP `CONNECT`, or SOCKS5 with a domain-name address, so the
   proxy resolves it), and carries on with the same `TcpStream`, so TLS, failover, reconnecting

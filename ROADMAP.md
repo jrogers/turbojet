@@ -113,10 +113,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   changes and reading the message log. Nothing serves it remotely yet: an HTTP and websocket
   endpoint with authentication, and a web console on top (what commercial engines sell on),
   belong with the gateway.
-- **Filtering connections before the handshake** (S). Acceptors limit connections per IP
-  address, but an unwanted address is only refused in `Application::verify_logon`, after a TLS
-  handshake. A check of the remote address on accepting (an allowlist, or a function) would refuse
-  it first.
 - **Encrypting the message log** (S). `FileMessageLog` masks passwords and credentials, but the
   rest of every order and execution is in the clear. Encrypting finished files, alongside
   compressing them, would let the log be kept where fewer people may read it.

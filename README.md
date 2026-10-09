@@ -748,6 +748,17 @@ until it closes, logged on or not. One past either is closed as soon as it's acc
 TLS handshake, and counted in `turbojet_connections_refused_total`. Counterparties behind one
 address (a NAT, or a hub serving several firms) share its limit.
 
+`Acceptor::with_allowed_ips` (and `FixpAcceptor`'s) accepts connections only from the addresses
+and CIDR ranges given, closing any other as soon as it's accepted, before a TLS handshake or a
+Logon. `set_allowed_ips` replaces the list while serving; connections already open stay. In a
+sessions file it's `allow` in `[acceptor]`, reloaded with the rest.
+
+```rust
+use turbojet::AllowedIps;
+
+let acceptor = acceptor.with_allowed_ips(AllowedIps::new(["10.1.0.0/16", "203.0.113.5"])?);
+```
+
 All endpoints are treated as the same FIX session (e.g. a counterparty's primary and DR
 sites), so sequence numbers carry over and the `SessionHandle` stays valid across failovers.
 
