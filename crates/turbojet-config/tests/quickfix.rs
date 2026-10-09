@@ -184,7 +184,7 @@ SocketAcceptPort=9881
     let expected = [
         "[SESSION] 1 (FIX.4.4:EXEC->A): ResetOnLogon=Y: Turbojet's acceptor resets sequence numbers only when the Logon asks it to",
         "[SESSION] 1 (FIX.4.4:EXEC->A): ResetOnDisconnect=Y: Turbojet doesn't reset sequence numbers on a disconnection",
-        "[SESSION] 1 (FIX.4.4:EXEC->A): SocketKeyStore: set up TLS by hand, a sessions file's tls takes PEM files",
+        "[SESSION] 1 (FIX.4.4:EXEC->A): SocketKeyStore: set up TLS by hand, a sessions file's tls takes PEM files or a PKCS#12 bundle",
         "[SESSION] 1 (FIX.4.4:EXEC->A): ValidOrderTypes has no Turbojet equivalent",
         "[SESSION] 2 (FIX.4.4:EXEC->B): its acceptor settings differ from [SESSION] 1 (FIX.4.4:EXEC->A)'s; a sessions file has one acceptor",
     ];

@@ -105,6 +105,10 @@ pub(crate) struct RawClientTls {
     pub crl: Option<PathBuf>,
     pub cert: Option<PathBuf>,
     pub key: Option<PathBuf>,
+    /// A PKCS#12 bundle, in place of `cert` and `key`.
+    pub pkcs12: Option<PathBuf>,
+    /// The environment variable holding the bundle's password; none, and it has none.
+    pub pkcs12_password_env: Option<String>,
     pub server_name: Option<String>,
 }
 
@@ -157,8 +161,12 @@ pub enum Unknown {
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawTls {
-    pub cert: PathBuf,
-    pub key: PathBuf,
+    pub cert: Option<PathBuf>,
+    pub key: Option<PathBuf>,
+    /// A PKCS#12 bundle, in place of `cert` and `key`.
+    pub pkcs12: Option<PathBuf>,
+    /// The environment variable holding the bundle's password; none, and it has none.
+    pub pkcs12_password_env: Option<String>,
     pub client_ca: Option<PathBuf>,
     /// CRLs to check client certificates against; none, and revocation isn't checked.
     pub client_crl: Option<PathBuf>,

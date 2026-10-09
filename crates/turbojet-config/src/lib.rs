@@ -56,7 +56,9 @@
 //! out), and `tls = { cert, key, client_ca,
 //! client_crl, client_certificate }` (feature `tls`; `client_certificate` is `optional`, the
 //! default, or `required`; `client_crl`, a PEM file of CRLs, checks client certificates for
-//! revocation).
+//! revocation). In place of `cert` and `key`, `pkcs12` names a PKCS#12 bundle (feature `pkcs12`),
+//! with `pkcs12_password_env` the environment variable holding its password (none, and it has
+//! none).
 //!
 //! `[store.NAME]`: `kind = "memory"`, or `kind = "disk"` with `dir` and `fsync` (on by default).
 //! A store named `memory` is built in, and others can be registered in code
@@ -95,7 +97,8 @@
 //! same way), `logon_timeout`, `send_queue`,
 //! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, crl, cert, key, server_name }`
 //! (feature `tls`; `server_name` is the first address's host by default; `crl`, a PEM file of
-//! CRLs, checks the server's certificate for revocation), and every session key
+//! CRLs, checks the server's certificate for revocation; `pkcs12` and `pkcs12_password_env` in
+//! place of `cert` and `key`, as in `[acceptor]`), and every session key
 //! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators
 //! may log on to one session, nor to one the acceptor serves for a listed counterparty.
 //!

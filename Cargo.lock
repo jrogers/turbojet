@@ -3217,6 +3217,7 @@ dependencies = [
 name = "turbojet-config"
 version = "0.2.0"
 dependencies = [
+ "p12-keystore",
  "rcgen",
  "serde",
  "tempfile",

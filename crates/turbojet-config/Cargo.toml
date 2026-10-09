@@ -30,8 +30,11 @@ tz = ["turbojet/tz"]
 validation = ["turbojet/validation", "dep:turbojet-dictionary"]
 # The latency_metrics key.
 metrics = ["turbojet/metrics"]
+# A pkcs12 key in a tls table: the certificate and key from a PKCS#12 bundle.
+pkcs12 = ["tls", "turbojet/pkcs12"]
 
 [dev-dependencies]
+p12-keystore.workspace = true
 rcgen.workspace = true
 tempfile.workspace = true
 

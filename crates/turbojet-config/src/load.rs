@@ -235,11 +235,14 @@ pub(crate) type Tls = Option<(turbojet::tls::Identity, turbojet::tls::ClientTrus
 /// `[acceptor.tls]`'s certificate, key and client CAs, read and checked.
 #[cfg(feature = "tls")]
 fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
-    use turbojet::tls::{ClientTrust, Identity, ServerTls, Trust};
+    use turbojet::tls::{ClientTrust, ServerTls, Trust};
     let Some(tls) = &acceptor.tls else { return Ok(None) };
     let at = |path: &Path, e: std::io::Error| Error::at("acceptor", "tls", format!("{}: {e}", path.display()));
-    let (cert, key) = (dir.join(&tls.cert), dir.join(&tls.key));
-    let identity = Identity::from_pem_files(&cert, &key).map_err(|e| at(&cert, e))?;
+    let (cert, key, pkcs12, password_env) =
+        (tls.cert.as_deref(), tls.key.as_deref(), tls.pkcs12.as_deref(), tls.pkcs12_password_env.as_deref());
+    let identity = identity(cert, key, pkcs12, password_env, dir)
+        .map_err(|e| Error::at("acceptor", "tls", e))?
+        .ok_or_else(|| Error::at("acceptor", "tls", "needs cert and key, or pkcs12"))?;
     let client_trust = match &tls.client_ca {
         None if tls.client_certificate == ClientCertificate::Required => {
             return Err(Error::at("acceptor", "tls", "client_certificate = \"required\" needs a client_ca"));
@@ -264,6 +267,51 @@ fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
     // Checks what only a server checks, such as the key matching the certificate.
     ServerTls::new(identity.clone(), client_trust.clone()).map_err(|e| Error::at("acceptor", "tls", e))?;
     Ok(Some((identity, client_trust)))
+}
+
+/// A `tls` table's own certificate: from `cert` and `key`, or from the `pkcs12` bundle under the
+/// password in `pkcs12_password_env` (none: an empty password). `None` if it has neither.
+#[cfg(feature = "tls")]
+fn identity(
+    cert: Option<&Path>,
+    key: Option<&Path>,
+    pkcs12: Option<&Path>,
+    password_env: Option<&str>,
+    dir: &Path,
+) -> Result<Option<turbojet::tls::Identity>, String> {
+    if password_env.is_some() && pkcs12.is_none() {
+        return Err("pkcs12_password_env needs a pkcs12".into());
+    }
+    match (cert, key, pkcs12) {
+        (Some(cert), Some(key), None) => {
+            let (cert, key) = (dir.join(cert), dir.join(key));
+            let identity = turbojet::tls::Identity::from_pem_files(&cert, &key);
+            identity.map(Some).map_err(|e| format!("{}: {e}", cert.display()))
+        }
+        (None, None, Some(bundle)) => pkcs12_identity(&dir.join(bundle), password_env).map(Some),
+        (None, None, None) => Ok(None),
+        (_, _, Some(_)) => Err("pkcs12 takes the place of cert and key".into()),
+        _ => Err("cert and key go together".into()),
+    }
+}
+
+/// The identity in the bundle at `path`, under the password in `password_env`.
+#[cfg(feature = "pkcs12")]
+fn pkcs12_identity(path: &Path, password_env: Option<&str>) -> Result<turbojet::tls::Identity, String> {
+    let password = match password_env {
+        Some(variable) => {
+            std::env::var(variable).map_err(|e| format!("pkcs12_password_env: environment variable {variable}: {e}"))?
+        }
+        None => String::new(),
+    };
+    // The error names the file.
+    turbojet::tls::Identity::from_pkcs12_file(path, &password).map_err(|e| e.to_string())
+}
+
+/// Without the pkcs12 feature, a bundle can't be read.
+#[cfg(all(feature = "tls", not(feature = "pkcs12")))]
+fn pkcs12_identity(_path: &Path, _password_env: Option<&str>) -> Result<turbojet::tls::Identity, String> {
+    Err("pkcs12 needs turbojet-config's pkcs12 feature".into())
 }
 
 /// Without the tls feature, a `tls` key can't be used.
@@ -420,7 +468,7 @@ fn resolve_initiator(
 /// An initiator's `tls`, read and checked.
 #[cfg(feature = "tls")]
 fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Option<ClientTlsFiles>, Error> {
-    use turbojet::tls::{ClientTls, Identity, ServerName, Trust};
+    use turbojet::tls::{ClientTls, ServerName, Trust};
     let Some(tls) = &own.tls else { return Ok(None) };
     let at = |e: String| Error::at(section, "tls", e);
     let file_error = |path: &Path, e: std::io::Error| at(format!("{}: {e}", path.display()));
@@ -430,14 +478,9 @@ fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Optio
         let crl = dir.join(crl);
         trust = trust.with_crls_pem_files(&crl).map_err(|e| file_error(&crl, e))?;
     }
-    let identity = match (&tls.cert, &tls.key) {
-        (Some(cert), Some(key)) => {
-            let (cert, key) = (dir.join(cert), dir.join(key));
-            Some(Identity::from_pem_files(&cert, &key).map_err(|e| file_error(&cert, e))?)
-        }
-        (None, None) => None,
-        _ => return Err(at("cert and key go together".into())),
-    };
+    let (cert, key, pkcs12, password_env) =
+        (tls.cert.as_deref(), tls.key.as_deref(), tls.pkcs12.as_deref(), tls.pkcs12_password_env.as_deref());
+    let identity = identity(cert, key, pkcs12, password_env, dir).map_err(at)?;
     let server_name = match &tls.server_name {
         Some(name) => name.clone(),
         None => host(&own.connect[0]).to_string(),

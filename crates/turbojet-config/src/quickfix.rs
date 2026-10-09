@@ -85,7 +85,7 @@ const ONLY_DEFAULT: &[(&str, &str, &str)] = &[
     ("ResetOnDisconnect", "N", "Turbojet doesn't reset sequence numbers on a disconnection"),
     ("RefreshOnLogon", "N", "Turbojet doesn't reload its store at a Logon"),
     ("PersistMessages", "Y", "Turbojet always stores what it sends, for resends"),
-    ("SocketUseSSL", "N", "set up TLS by hand: a sessions file's tls takes PEM files"),
+    ("SocketUseSSL", "N", "set up TLS by hand: a sessions file's tls takes PEM files or a PKCS#12 bundle"),
     ("SendRedundantResendRequests", "N", "Turbojet doesn't send redundant ResendRequests"),
     ("CheckCompID", "Y", "Turbojet always checks CompIDs"),
 ];
@@ -169,8 +169,10 @@ impl Session {
             {
                 not_converted.push(format!("{key}={value}"));
             } else if is_tls_key(key) {
-                problems
-                    .push(format!("{}: {key}: set up TLS by hand, a sessions file's tls takes PEM files", self.name));
+                problems.push(format!(
+                    "{}: {key}: set up TLS by hand, a sessions file's tls takes PEM files or a PKCS#12 bundle",
+                    self.name
+                ));
             } else {
                 problems.push(format!("{}: {key} has no Turbojet equivalent", self.name));
             }
