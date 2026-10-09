@@ -308,6 +308,7 @@ fn fixed(acceptor: &RawAcceptor, context: &Context<'_>) -> Result<SessionConfig,
             return Err(Error::at("acceptor", key, "must be at least 1"));
         }
     }
+    acceptor.allowed().map_err(|e| Error::at("acceptor", "allow", e))?;
     Ok(config)
 }
 

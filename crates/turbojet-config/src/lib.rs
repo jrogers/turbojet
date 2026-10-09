@@ -49,9 +49,11 @@
 //!
 //! # Keys
 //!
-//! `[acceptor]`, fixed until a restart except `unknown` and the TLS files: `begin_string`,
+//! `[acceptor]`, fixed until a restart except `unknown`, `allow` and the TLS files: `begin_string`,
 //! `sender_comp_id`, `listen`, `unknown` (`refuse`, the default, or `admit`), `logon_timeout`,
-//! `send_queue`, `max_connections`, `max_connections_per_ip`, and `tls = { cert, key, client_ca,
+//! `send_queue`, `max_connections`, `max_connections_per_ip`, `allow` (the IP addresses and CIDR
+//! ranges connections are accepted from, `["10.1.0.0/16", "203.0.113.5"]`; any, if it's left
+//! out), and `tls = { cert, key, client_ca,
 //! client_crl, client_certificate }` (feature `tls`; `client_certificate` is `optional`, the
 //! default, or `required`; `client_crl`, a PEM file of CRLs, checks client certificates for
 //! revocation).
@@ -338,6 +340,9 @@ impl SessionsFile {
         if let Some(connections) = raw.max_connections_per_ip {
             acceptor = acceptor.with_max_connections_per_ip(connections);
         }
+        if let Some(allowed) = raw.allowed().expect("checked when the file loaded") {
+            acceptor = acceptor.with_allowed_ips(allowed);
+        }
         Some(acceptor)
     }
 
@@ -415,7 +420,8 @@ impl SessionsFile {
         let started = reload::initiator_changes(&old, &new);
         self.current.set(new);
         let new = self.current.get();
-        if let (Some(acceptor), Some(_)) = (acceptor, &new.acceptor) {
+        if let (Some(acceptor), Some(raw)) = (acceptor, &new.raw.acceptor) {
+            acceptor.set_allowed_ips(raw.allowed().expect("checked when the file loaded"));
             changes.logged_out = reload::log_out_removed(&new, acceptor);
         }
         if let Some(initiators) = initiators {

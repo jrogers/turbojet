@@ -131,7 +131,15 @@ pub(crate) struct RawAcceptor {
     pub send_queue: Option<usize>,
     pub max_connections: Option<usize>,
     pub max_connections_per_ip: Option<usize>,
+    pub allow: Option<Vec<String>>,
     pub tls: Option<RawTls>,
+}
+
+impl RawAcceptor {
+    /// `allow`, the addresses connections are accepted from: `None` for any.
+    pub(crate) fn allowed(&self) -> Result<Option<turbojet::AllowedIps>, String> {
+        self.allow.as_ref().map(turbojet::AllowedIps::new).transpose()
+    }
 }
 
 /// What happens to a counterparty the file doesn't list.
