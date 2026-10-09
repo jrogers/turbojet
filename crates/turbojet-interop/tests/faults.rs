@@ -163,8 +163,8 @@ async fn order_recovered_at_tj(setup: Setup, fault: Fault) {
 ///
 /// Turbojet probes with a TestRequest after HeartBtInt (plus 20% for transmission time), and,
 /// with no answer within another HeartBtInt, disconnects. The proxy withholds that close, so
-/// QuickFIX/J has to find the dead link on its own: it probes too and gives up. Then they
-/// reconnect, the sequence numbers carry on, and what the silence swallowed is gap-filled.
+/// QuickFIX/J has to find the dead link on its own and gives up. Then they reconnect, the sequence
+/// numbers carry on, and what the silence swallowed is gap-filled.
 async fn silent_peer(setup: Setup) {
     let mut pair = start_silent(setup).await;
     let silent_from = Instant::now();
@@ -183,29 +183,18 @@ async fn silent_peer(setup: Setup) {
     assert!(gave_up_at - silent_from <= HEARTBEAT * 4, "gave up {:?} after the silence", gave_up_at - silent_from);
 
     assert!(!pair.proxy().ended(Dir::ToPeer).await, "Turbojet's close should be withheld");
-    // QuickFIX/J hears nothing more, probes in turn, and gives up by itself.
-    pair.proxy()
-        .expect(
-            "QuickFIX/J's TestRequest",
-            |e| matches!(e, ProxyEvent::Applied { dir: Dir::ToTj, msg_type, .. } if msg_type == "1"),
-        )
-        .await;
+    // QuickFIX/J hears nothing more and gives up by itself.
     peer_timed_out(&mut pair).await;
     assert!(pair.proxy().ended(Dir::ToTj).await);
     pair.proxy().disconnected().await;
     resume(pair, Dir::ToTj).await;
 }
 
-/// The mirror image: Turbojet goes silent. QuickFIX/J probes and disconnects; Turbojet, its close
-/// withheld, probes in turn and gives up on its own HeartBtInt.
+/// The mirror image: Turbojet goes silent. QuickFIX/J disconnects; Turbojet, its close withheld,
+/// probes and gives up on its own HeartBtInt.
 async fn silent_tj(setup: Setup) {
     let mut pair = start_silent(setup).await;
     pair.proxy().blackhole(Dir::ToPeer);
-
-    // QuickFIX/J's TestRequest reaches Turbojet, and its answer is lost.
-    let probe = pair.peer.wire_out("1", |_| true).await;
-    let id = probe.get(112).unwrap_or_else(|| panic!("no TestReqID: {}", probe.raw())).to_string();
-    lost_in_blackhole(&mut pair, Dir::ToPeer, "0", &id).await;
     peer_timed_out(&mut pair).await;
 
     assert!(!pair.proxy().ended(Dir::ToTj).await, "QuickFIX/J's close should be withheld");
@@ -227,7 +216,10 @@ async fn silent_tj(setup: Setup) {
     resume(pair, Dir::ToPeer).await;
 }
 
-/// The peer disconnects on its own heartbeat timeout, not on a Logout or a TCP close.
+/// The peer disconnects on its own heartbeat timeout, not on a Logout or a TCP close. Whether it
+/// sends a TestRequest first isn't checked: with a one-second HeartBtInt and a timer that ticks
+/// once a second, QuickFIX/J can pass the moment to probe and reach its timeout on the next tick
+/// (CI run 37957850100).
 async fn peer_timed_out(pair: &mut Pair) {
     let text = match pair.peer.engine() {
         Engine::QuickFixJ | Engine::QuickFixN => "Timed out waiting for heartbeat",
