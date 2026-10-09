@@ -3,6 +3,7 @@
 use std::fmt;
 
 use crate::SessionId;
+use crate::message::DataFields;
 
 mod file;
 mod read;
@@ -26,7 +27,8 @@ pub use read::{Direction, LogFile, LogRecord, LogRecords};
 ///
 /// The calls are made on the session's task, between its handling of messages, so they must not
 /// block: hand the bytes to a channel or a buffer that something else writes out. The bytes are
-/// raw: Password(554), NewPassword(925) and FIXP credentials are in them.
+/// raw: Password(554), NewPassword(925) and FIXP credentials are in them; [`mask_secrets`] hides
+/// them in a copy.
 ///
 /// `session` is `None` until the session is identified: an acceptor's Logon (a FIXP server's
 /// first `Negotiate` or `Establish`) and anything before it, and anything sent on a connection
@@ -67,4 +69,22 @@ pub trait MessageLog: Send + Sync + fmt::Debug {
     /// A message the session sends, resends included, once its store has committed what it
     /// covers, as it's queued to be written.
     fn outbound(&self, session: Option<&SessionId>, frame: &[u8]);
+}
+
+/// Overwrites with `*` the secrets in `frame`, a message as a [`MessageLog`] sees it, keeping its
+/// length: in a FIX Logon or UserRequest, the values of Password(554), NewPassword(925),
+/// SecureData(91), RawData(96), EncryptedPassword(1402) and EncryptedNewPassword(1404), as
+/// [`Message::redacted`](crate::Message::redacted) hides them; in a FIXP Negotiate,
+/// NegotiationResponse or Establish, the credentials. Other messages are left as they are. Data fields are read by their lengths as the
+/// standard ones are defined ([`DataFields::standard`]); a frame that stops being fields is masked
+/// up to there. [`FileMessageLog`] does this unless told not to.
+pub fn mask_secrets(frame: &mut [u8]) {
+    thread_local! {
+        static STANDARD: DataFields = DataFields::standard();
+    }
+    if crate::fixp::is_one_frame(frame) {
+        crate::fixp::mask_credentials(frame);
+    } else {
+        STANDARD.with(|data| crate::message::mask_secrets(frame, data));
+    }
 }

@@ -71,6 +71,28 @@ pub(crate) fn is_one_frame(bytes: &[u8]) -> bool {
     framing::frame(bytes) == framing::Framed::Message(bytes.len())
 }
 
+/// Overwrites with `*` the credentials in the FIXP frame `frame`, if it's a Negotiate,
+/// NegotiationResponse or Establish: the variable-length field after the message's block.
+pub(crate) fn mask_credentials(frame: &mut [u8]) {
+    let at = framing::HEADER;
+    let Some(header) = frame.get(at..at + messages::MessageHeader::SIZE) else { return };
+    let header = messages::MessageHeader::decode(header);
+    let with_credentials = [
+        messages::Negotiate::TEMPLATE_ID,
+        messages::NegotiationResponse::TEMPLATE_ID,
+        messages::Establish::TEMPLATE_ID,
+    ];
+    if header.schema_id != messages::SCHEMA_ID || !with_credentials.contains(&header.template_id) {
+        return;
+    }
+    let length_at = at + messages::MessageHeader::SIZE + usize::from(header.block_length);
+    let Some(&[low, high]) = frame.get(length_at..length_at + 2) else { return };
+    let length = usize::from(u16::from_le_bytes([low, high]));
+    if let Some(credentials) = frame.get_mut(length_at + 2..length_at + 2 + length) {
+        credentials.fill(b'*');
+    }
+}
+
 /// An encoded SBE message, header and body, as queued to send on a FIXP session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SbeMessage(Vec<u8>);
@@ -412,4 +434,36 @@ where
 {
     let _runtime = runtime.enter();
     crate::connection::run_spinning_tracked(stream, session, commands, &mut false, None)
+}
+
+#[cfg(test)]
+mod mask_tests {
+    use super::*;
+
+    #[test]
+    fn credentials_are_masked_in_negotiate_and_establish_only() {
+        let negotiate = messages::Negotiate {
+            session_id: [7; 16],
+            timestamp: 1,
+            client_flow: FlowType::Idempotent,
+            credentials: b"user:secret",
+        };
+        let mut frame = Vec::new();
+        framing::push(&mut frame, &negotiate).unwrap();
+        let original = frame.clone();
+        mask_credentials(&mut frame);
+        assert_eq!(frame.len(), original.len());
+        let at = frame.len() - b"user:secret".len();
+        assert_eq!(&frame[at..], b"***********");
+        assert_eq!(frame[..at], original[..at], "the rest is as it was");
+
+        let mut sequence = Vec::new();
+        framing::push(&mut sequence, &messages::Sequence { next_seq_no: 5 }).unwrap();
+        let before = sequence.clone();
+        mask_credentials(&mut sequence);
+        assert_eq!(sequence, before);
+        for end in 0..original.len() {
+            mask_credentials(&mut original[..end].to_vec());
+        }
+    }
 }

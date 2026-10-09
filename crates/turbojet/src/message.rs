@@ -1529,6 +1529,41 @@ fn is_secret(tag: u32) -> bool {
     matches!(tag, PASSWORD | NEW_PASSWORD | SECURE_DATA | RAW_DATA | ENCRYPTED_PASSWORD | ENCRYPTED_NEW_PASSWORD)
 }
 
+/// Overwrites with `*` the values of the secret fields in the FIX message `frame` (those
+/// [`Message::redacted`] hides), so its length and layout stay as they were, if it's a Logon or a
+/// UserRequest: the messages that carry passwords. Others are left as they are, so a News's
+/// RawData(96) isn't hidden, and scanning them stops at MsgType. A data field ends where its
+/// Length field, just before it, says, as `data` defines them, so a value with SOH in it doesn't
+/// hide what follows. Scanning stops at the first bytes that aren't a field; a value with no SOH
+/// after it runs to the end.
+pub(crate) fn mask_secrets(frame: &mut [u8], data: &DataFields) {
+    let mut at = 0;
+    // The field just read, with its value if that's a length.
+    let mut previous: Option<(u32, Option<usize>)> = None;
+    while at < frame.len() {
+        let Some(equals) = frame[at..].iter().position(|&b| b == b'=') else { return };
+        let Some(tag) = parse_tag(&frame[at..at + equals]) else { return };
+        let value = at + equals + 1;
+        let declared = match previous {
+            Some((length_tag, Some(length))) if data.length_tag(tag) == Some(length_tag) => Some(length),
+            _ => None,
+        };
+        let end = match declared {
+            Some(length) if frame.get(value + length) == Some(&SOH) => value + length,
+            // Without an SOH, to the end: a frame cut short still has its secrets masked.
+            _ => frame[value..].iter().position(|&b| b == SOH).map_or(frame.len(), |length| value + length),
+        };
+        if tag == tags::MSG_TYPE && !matches!(&frame[value..end], b"A" | b"BE") {
+            return;
+        }
+        previous = Some((tag, parse_length(&frame[value..end])));
+        if is_secret(tag) {
+            frame[value..end].fill(b'*');
+        }
+        at = end + 1;
+    }
+}
+
 /// A typed repeating-group entry. Implemented by the structs generated with `fix_group!`.
 pub trait FixGroup: Sized {
     /// The group's fields, delimiter first.
@@ -1977,6 +2012,35 @@ mod tests {
         assert_eq!(reply.get(tags::DELIVER_TO_LOCATION_ID), None, "an empty one isn't copied");
         assert_eq!(reply.get(tags::ON_BEHALF_OF_COMP_ID), Some("HUB"));
         assert_eq!(reply.get(tags::ON_BEHALF_OF_SUB_ID), None);
+    }
+
+    #[test]
+    fn secrets_are_masked_in_place_data_fields_by_their_length() {
+        // RawData(96) holds an SOH and what looks like a Password; the real one comes after.
+        let mut frame = b"8=FIX.4.4\x019=0\x0135=A\x01553=trader\x0195=9\x0196=a\x01554=b\x01c\x01554=secret\x01925=newer\x0110=000\x01".to_vec();
+        let length = frame.len();
+        mask_secrets(&mut frame, &DataFields::standard());
+        assert_eq!(frame.len(), length);
+        assert_eq!(
+            String::from_utf8(frame).unwrap().replace('\x01', "|"),
+            "8=FIX.4.4|9=0|35=A|553=trader|95=9|96=*********|554=******|925=*****|10=000|"
+        );
+    }
+
+    #[test]
+    fn masking_stops_where_fields_do_without_panicking() {
+        let frame = b"8=FIX.4.4\x0135=A\x0195=4\x0196=ab\x01d\x01554=secret\x01".to_vec();
+        for end in 0..=frame.len() {
+            let mut cut = frame[..end].to_vec();
+            mask_secrets(&mut cut, &DataFields::standard());
+            assert!(!String::from_utf8_lossy(&cut).contains("secret"), "{end}");
+        }
+        let mut news = b"8=FIX.4.4\x0135=B\x0195=3\x0196=abc\x01".to_vec();
+        mask_secrets(&mut news, &DataFields::standard());
+        assert_eq!(news, b"8=FIX.4.4\x0135=B\x0195=3\x0196=abc\x01", "only Logons and UserRequests");
+        let mut garbage = b"=\x01x=1\x01554".to_vec();
+        mask_secrets(&mut garbage, &DataFields::standard());
+        assert_eq!(garbage, b"=\x01x=1\x01554");
     }
 
     #[test]

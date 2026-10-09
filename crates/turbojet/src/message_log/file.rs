@@ -52,6 +52,9 @@ pub struct FileLogOptions {
     /// Called with the path of each finished file (compressed, with `compress`), to archive it,
     /// say: the hook may move or delete it. `None`, the default, calls nothing.
     pub on_finished: Option<FinishedHook>,
+    /// Write passwords and credentials as `*`s, as [`mask_secrets`](super::mask_secrets) does.
+    /// On by default; off, the log holds every message exactly as on the wire.
+    pub mask_secrets: bool,
 }
 
 impl fmt::Debug for FileLogOptions {
@@ -63,6 +66,7 @@ impl fmt::Debug for FileLogOptions {
             .field("clock", &self.clock)
             .field("compress", &self.compress)
             .field("on_finished", &self.on_finished.as_ref().map(|_| "Fn(&Path)"))
+            .field("mask_secrets", &self.mask_secrets)
             .finish()
     }
 }
@@ -76,6 +80,7 @@ impl Default for FileLogOptions {
             clock: Clock::system(),
             compress: false,
             on_finished: None,
+            mask_secrets: true,
         }
     }
 }
@@ -100,8 +105,9 @@ impl Default for FileLogOptions {
 /// earlier one left (a crash leaves its last file so), and starts again a compression a crash cut
 /// short; the hook may then be called again for a file it was called for before the crash.
 ///
-/// Records are written with no `fsync`: they survive the process crashing, not the machine. The
-/// bytes are raw, passwords included. Dropping the log writes what it holds, then waits for its
+/// Records are written with no `fsync`: they survive the process crashing, not the machine.
+/// Passwords and credentials are written as `*`s unless [`mask_secrets`](FileLogOptions::mask_secrets)
+/// is off; everything else is as on the wire. Dropping the log writes what it holds, then waits for its
 /// threads to finish, compressing and handing over the last file included.
 ///
 /// ```no_run
@@ -166,9 +172,10 @@ impl FileMessageLog {
         let writer = {
             let shared = Arc::clone(&shared);
             let clock = options.clock.clone();
+            let mask = options.mask_secrets;
             thread::Builder::new()
                 .name("turbojet-message-log".into())
-                .spawn(move || write_until_closed(&shared, &mut files, &clock))?
+                .spawn(move || write_until_closed(&shared, &mut files, &clock, mask))?
         };
         Ok(Self {
             shared,
@@ -272,7 +279,7 @@ struct State {
 
 /// The writer thread: takes what's pending and writes it, until the log is dropped and nothing
 /// is left.
-fn write_until_closed(shared: &Shared, files: &mut Files, clock: &Clock) {
+fn write_until_closed(shared: &Shared, files: &mut Files, clock: &Clock, mask: bool) {
     // Swapped with the shared buffer, so both keep their capacity and a warm log doesn't allocate.
     let mut batch = Vec::new();
     loop {
@@ -297,6 +304,10 @@ fn write_until_closed(shared: &Shared, files: &mut Files, clock: &Clock) {
             mem::swap(&mut state.pending, &mut batch);
             (mem::take(&mut state.records), mem::take(&mut state.dropped))
         };
+        if mask {
+            // Here rather than as each message is logged, so the sessions don't pay for it.
+            mask_records(&mut batch);
+        }
         let now = clock.now();
         if let Err(e) = files.write(now, &batch) {
             error!(error = %e, records, "the message log couldn't write; its records are lost");
@@ -309,6 +320,26 @@ fn write_until_closed(shared: &Shared, files: &mut Files, clock: &Clock) {
             }
         }
         batch.clear();
+    }
+}
+
+/// Masks the secrets in the message of each record in `batch`, records as `append` writes them:
+/// a line `<time> <in|out> <length> <session>`, the message, a newline.
+fn mask_records(batch: &mut [u8]) {
+    let mut at = 0;
+    while let Some(newline) = batch[at..].iter().position(|&b| b == b'\n') {
+        let length = batch[at..at + newline]
+            .split(|&b| b == b' ')
+            .nth(2)
+            .and_then(|length| std::str::from_utf8(length).ok()?.parse::<usize>().ok());
+        let frame = at + newline + 1;
+        let Some(message) = length.and_then(|length| batch.get_mut(frame..frame + length)) else {
+            debug_assert!(false, "a record `append` didn't write at {at}");
+            return;
+        };
+        let length = message.len();
+        super::mask_secrets(message);
+        at = frame + length + 1;
     }
 }
 
@@ -515,6 +546,22 @@ mod tests {
         let expected = b"20261007-12:00:00.000000 in 15 -\n8=FIX.4.2\x0135=A\x01\n\
             20261007-12:00:00.000000 out 9 FIX.4.2:US->PEER\n\x00\n\x01binary\n";
         assert_eq!(files[0].1, expected);
+    }
+
+    #[test]
+    fn passwords_are_masked_unless_asked_not_to() {
+        let logon = b"8=FIX.4.4\x019=30\x0135=A\x01553=me\x01554=hunter2\x0110=000\x01";
+        for (mask_secrets, password) in [(true, &b"554=*******"[..]), (false, &b"554=hunter2"[..])] {
+            let dir = tempfile::tempdir().unwrap();
+            let options = FileLogOptions { clock: fixed_clock(at(7, 12)), mask_secrets, ..Default::default() };
+            let log = FileMessageLog::open(dir.path(), options).unwrap();
+            log.inbound(None, logon);
+            log.outbound(None, b"8=FIX.4.4\x019=5\x0135=0\x0110=000\x01");
+            drop(log);
+            let written = &read_files(dir.path())[0].1;
+            assert!(written.windows(password.len()).any(|w| w == password), "{mask_secrets}");
+            assert!(written.ends_with(b"35=0\x0110=000\x01\n"), "later records are intact");
+        }
     }
 
     #[test]
