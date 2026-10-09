@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `FileMessageLog` writes passwords and credentials as `*`s (FIX Logons and UserRequests, FIXP
+  Negotiates, NegotiationResponses and Establishes) unless `FileLogOptions::mask_secrets` is
+  off. `turbojet::mask_secrets` does the same to a frame, for a `MessageLog` of one's own.
 - `FileLogOptions::compress` (the new `gzip` feature) compresses each finished `FileMessageLog`
   file to `.log.gz`, and `FileLogOptions::on_finished` is called with each finished file, to
   archive it. `FileMessageLog::files` and `read` list and read compressed files

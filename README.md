@@ -467,7 +467,8 @@ An initiator sends Username(553) and Password(554) from `InitiatorConfig::userna
 `password`; an acceptor checks them in `Application::verify_logon`, where
 `logon.parse::<turbojet::admin::LogonRef>()` gives them typed. Passwords are `fields::Secret`
 (`SecretRef` when borrowed), which `Debug` and `Display` show as `***` (`.expose()` gives the
-text); the `tracing` message log masks them too (a `MessageLog` sees them raw), and generated
+text); the `tracing` message log and `FileMessageLog` mask them too (a `MessageLog` sees them
+raw; `turbojet::mask_secrets` masks a copy), and generated
 messages type Password(554) and NewPassword(925) fields as `Secret` as well.
 
 With `InitiatorConfig::next_expected_msg_seq_num`, the initiator's Logon carries
@@ -933,7 +934,8 @@ the wire, for an audit trail or a store of what was received. Implement `turboje
 them, outbound ones once the store has committed, as they're queued to be written. The calls are
 made on the session's task, so they must not block: hand the bytes to a channel or a buffer that
 something else writes out, as the trait's example does. Entries carry no timestamp, so stamp them
-yourself. The bytes are raw: Password(554), NewPassword(925) and FIXP credentials are in them. An
+yourself. The bytes are raw: Password(554), NewPassword(925) and FIXP credentials are in them, and
+`turbojet::mask_secrets(&mut bytes)` overwrites them with `*`s in a copy before it's kept. An
 acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`) comes with no `SessionId`, to
 the acceptor's own log; a `Counterparty` config may set another log for the rest. CAVEATS.md lists
 the finer points.
@@ -981,7 +983,10 @@ config.message_log = Some(Arc::new(FileMessageLog::open("/var/log/fix", options)
 8=FIX.4.2|9=75|35=A|49=GATEWAY|56=CLIENT1|34=1|52=20261007-22:33:54.251|98=0|108=30|141=Y|10=044|
 ```
 
-(SOH shown as `|`.) A file is finished when the next one starts and when the log is dropped. With
+(SOH shown as `|`.) Passwords and credentials are written as `*`s of the same length: in FIX
+Logons and UserRequests, Password(554), NewPassword(925) and the other fields `Message::redacted`
+hides, and in FIXP Negotiates and Establishes, the credentials. Set `mask_secrets: false` to
+keep every message exactly as on the wire. A file is finished when the next one starts and when the log is dropped. With
 `compress` (turbojet's `gzip` feature), each finished file is compressed to `….log.gz` and the
 original deleted; `on_finished` is called with each finished file, compressed or not, to archive
 it, say, and may move or delete it. Both run on a thread of the log's own, so logging never waits

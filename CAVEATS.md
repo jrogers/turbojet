@@ -67,7 +67,12 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   handshake is refused before the session's log is open, is logged with no `SessionId` too. An outbound message is logged as it's queued to be written, so one may be
   logged that a failing connection never writes, and the replies to a batch of input are logged
   after the whole batch. Garbled input the codec skips isn't logged. The bytes are raw,
-  Password(554), NewPassword(925) and FIXP credentials included.
+  Password(554), NewPassword(925) and FIXP credentials included (`FileMessageLog` masks them).
+- Masking (`mask_secrets`, and `FileMessageLog` by default) touches only FIX Logons and
+  UserRequests and FIXP Negotiates, NegotiationResponses and Establishes. A password a venue
+  puts in a field or message of its own, or SecureData(91) in another message's header, is
+  written as it is. Data fields are read as the standard ones are defined, so a venue's own data
+  field in a Logon with an SOH in it could leave a password after it unmasked.
 - A driver of one's own for a sans-IO `Session` makes both `MessageLog` calls itself; for a
   `FixpSession`, only the outbound one, since `feed` makes the inbound call.
 - The simulator (`turbojet-sim`) doesn't exercise a `MessageLog`; connection tests do.

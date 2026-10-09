@@ -121,9 +121,9 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   address, but an unwanted address is only refused in `Application::verify_logon`, after a TLS
   handshake. A check of the remote address on accepting (an allowlist, or a function) would refuse
   it first.
-- **Sensitive data in the message log** (S). `FileMessageLog` writes messages raw, Password(554),
-  NewPassword(925) and FIXP credentials included, where the `tracing` log masks them. An option to
-  mask those fields as they're logged, and optionally to encrypt finished files, would let the log be kept where fewer people may read passwords.
+- **Encrypting the message log** (S). `FileMessageLog` masks passwords and credentials, but the
+  rest of every order and execution is in the clear. Encrypting finished files, alongside
+  compressing them, would let the log be kept where fewer people may read it.
 - **Message log tools** (S). The log can be read from code (`FileMessageLog::files`, `read`), but
   an operator looking into an incident wants a command: print a file's records with field names,
   and filter them by session, direction, MsgType, a tag's value or a time range.

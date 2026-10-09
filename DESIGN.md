@@ -117,7 +117,11 @@ store.
   size between batches, so a file can pass `file_bytes_max` by one batch. A file is never
   appended to after reopening: the log starts the next number, so a file that a crash cut short
   stays as it was. Retention deletes only files whose names the log would have made, by the day
-  in the name, so a file's last record is past retention before the file goes. No `fsync`: the
+  in the name, so a file's last record is past retention before the file goes. Passwords and
+  credentials are masked on the writer thread, over each batch before it's written, so sessions
+  don't pay for it: the scan stops at MsgType unless it's a Logon or UserRequest (21 ns for a
+  192-byte ExecutionReport, 111 ns for a Logon, 2026-10-09), and overwrites values in place with
+  `*`s, so lengths and the file's records are unchanged. No `fsync`: the
   resend store is what must be durable, and the log's records survive a crash of the process.
   Compressing finished files (gzip, through flate2's pure-Rust backend) and calling the
   `on_finished` hook happen on a second thread, fed by a channel as the writer starts each new
