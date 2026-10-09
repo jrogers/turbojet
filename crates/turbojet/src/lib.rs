@@ -258,7 +258,7 @@ pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
 pub use message_log::{
     DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, Direction, FileLogOptions, FileMessageLog, FinishedHook, LogFile,
-    LogRecord, LogRecords, MessageLog, mask_secrets,
+    LogRecord, LogRecords, MessageLog, Replayed, mask_secrets, replay,
 };
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use proxy::{Proxy, ProxyKind};

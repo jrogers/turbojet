@@ -7,9 +7,11 @@ use crate::message::DataFields;
 
 mod file;
 mod read;
+mod replay;
 
 pub use file::{DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, FileLogOptions, FileMessageLog, FinishedHook};
 pub use read::{Direction, LogFile, LogRecord, LogRecords};
+pub use replay::{Replayed, replay};
 
 /// Sees every message a FIX or FIXP session receives and sends, framed exactly as on the wire:
 /// for an audit trail, or a store of what was received. Set it in
