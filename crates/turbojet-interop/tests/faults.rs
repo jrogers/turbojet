@@ -1,4 +1,4 @@
-//! Faults on the link between Turbojet and QuickFIX/J, injected by the proxy.
+//! Faults on the link between Turbojet and the other engine, injected by the proxy.
 
 use std::time::Duration;
 
@@ -6,7 +6,7 @@ use tokio::time::Instant;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, matrix};
+use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, ProxyEvent, Role, Setup, matrix};
 
 matrix!(lost_order_to_peer, lost_order_to_tj, garbled_order_to_peer, garbled_order_to_tj);
 matrix!(silent_peer, silent_tj, cut_order_to_peer, cut_order_to_tj);
@@ -69,7 +69,7 @@ async fn order_recovered_at_peer(setup: Setup, fault: Fault) {
     assert!(frame.contains("|11=ORD1|"), "{frame}");
     let lost = seq_of(&frame);
     if fault == Fault::Garble {
-        // QuickFIX/J reads the frame but refuses it on its CheckSum.
+        // QuickFIX/J and QuickFIX/n read the frame but refuse it on its CheckSum.
         pair.peer.wire_in("D", |m| m.seq() == lost).await;
         if setup.engine == Engine::QuickFixGo {
             // quickfix-go doesn't check CheckSum, so it delivers the garbled order where the
@@ -79,7 +79,24 @@ async fn order_recovered_at_peer(setup: Setup, fault: Fault) {
             pair.finish().await;
             return;
         }
-        pair.peer.expect("CheckSum error", |e| matches!(e, PeerEvent::QfjError(t) if t.contains("CheckSum"))).await;
+        pair.peer.expect("CheckSum error", |e| e.logged().is_some_and(|t| t.contains("CheckSum"))).await;
+        if setup.engine == Engine::QuickFixN && setup.role == Role::TjAcceptor {
+            // As initiator, QuickFIX/n disconnects on a garbled message where the session layer
+            // should ignore it: its initiator's read loop doesn't catch the error its session
+            // throws, which its acceptor's does. On logging on again it asks for ORD1.
+            pair.peer.logout().await;
+            pair.tj_logged_out().await;
+            pair.logged_on().await;
+            let request = pair.peer.wire_out("2", |_| true).await;
+            check_resend_request(&request, lost);
+            let resent = pair.peer.received_with("D", |m| m.get(11) == Some("ORD1")).await;
+            assert_eq!(resent.seq(), lost, "{}", resent.raw());
+            assert_eq!(resent.get(43), Some("Y"), "{}", resent.raw());
+            pair.barrier().await;
+            pair.peer_delivers_no_more("ORD1").await;
+            pair.finish().await;
+            return;
+        }
     }
     pair.handle.send(tj_order("ORD2")).unwrap();
 

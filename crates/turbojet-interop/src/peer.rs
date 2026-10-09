@@ -406,8 +406,21 @@ impl Peer {
 
     /// Sends a command and waits for it to be applied. Panics if the peer reports an error.
     pub async fn cmd(&mut self, line: &str) {
+        self.start_cmd(line).await;
+        self.cmd_done(line).await;
+    }
+
+    /// Sends a command without waiting for it: for one that may block in the engine, such as
+    /// QuickFIX/n's sends, which write to the socket before returning. The peer takes no other
+    /// command until it's done; wait for that with [`cmd_done`](Self::cmd_done).
+    pub async fn start_cmd(&mut self, line: &str) {
         self.stdin.write_all(format!("{line}\n").as_bytes()).await.unwrap();
         self.stdin.flush().await.unwrap();
+    }
+
+    /// Waits for the command `line`, sent with [`start_cmd`](Self::start_cmd), to be applied.
+    /// Panics if the peer reports an error.
+    pub async fn cmd_done(&mut self, line: &str) {
         let name = line.split(' ').next().unwrap();
         let deadline = Instant::now() + EVENT_TIMEOUT;
         loop {

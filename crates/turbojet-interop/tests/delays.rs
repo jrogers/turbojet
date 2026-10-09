@@ -142,7 +142,9 @@ async fn stale_sending_time_to_peer(setup: Setup) {
 
     let reject = pair.peer.sent("3").await;
     check_reject(&reject, stale);
-    let error = |e: &PeerEvent| e.logged().is_some_and(|t| t.contains("SendingTime accuracy problem"));
+    // QuickFIX/n writes it "Sending time accuracy problem".
+    let accuracy = |t: &str| t.contains("SendingTime accuracy problem") || t.contains("Sending time accuracy problem");
+    let error = |e: &PeerEvent| e.logged().is_some_and(accuracy);
     pair.peer.expect("the peer's SendingTime error", error).await;
     let logout = pair.peer.wire_out("5", |_| true).await;
     assert_eq!(logout.seq(), reject.seq() + 1, "the Logout follows the Reject: {}", logout.raw());
@@ -291,7 +293,10 @@ const STALL_QUIET: Duration = Duration::from_millis(200);
 async fn stalled_reader_at_peer(setup: Setup) {
     let mut pair = start(setup, Options::default()).await;
     pair.proxy().stall(Dir::ToTj);
-    pair.peer.cmd(&format!("send-many {PEER_ORDERS_INTO_STALL} {}", peer_order("P{i}"))).await;
+    // QuickFIX/n's sends write to the socket before returning, so this one finishes only once
+    // the proxy reads again; QuickFIX/J's and quickfix-go's queue their writes and return at once.
+    let send_many = format!("send-many {PEER_ORDERS_INTO_STALL} {}", peer_order("P{i}"));
+    pair.peer.start_cmd(&send_many).await;
 
     for i in 0..ORDERS_TO_STALLED {
         pair.handle.send_when_ready(tj_order(&format!("T{i}"))).await.unwrap();
@@ -301,6 +306,7 @@ async fn stalled_reader_at_peer(setup: Setup) {
     pair.proxy().unstall(Dir::ToTj);
     peer_receives_in_order(&mut pair, "T", ORDERS_TO_STALLED).await;
     tj_receives_in_order(&mut pair, "P", PEER_ORDERS_INTO_STALL).await;
+    pair.peer.cmd_done(&send_many).await;
     pair.barrier().await;
     no_more_orders(&mut pair).await;
     pair.stayed_up().await;
