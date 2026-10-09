@@ -447,6 +447,18 @@ performance and 4 efficiency cores, 2026-10-09, `--quick`): 0.53M orders a secon
 cores run out (each session is two connections), so whether shared data (the registry, the
 store, cache lines two cores write) limits scaling needs a machine with more cores.
 
+The `load` example measures over real connections instead, against any acceptor, open loop:
+order k is due at `start + k / rate`, its ClOrdID carries k, and its latency runs from its due
+time to its ExecutionReport, so a stall counts against every order queued behind it (a
+closed-loop tester, waiting for each answer, hides it: "coordinated omission"). One thread sends
+for all sessions, sleeping until 2 ms before each order and then spinning, since a sleep
+overshoots by up to a few milliseconds; the first sleep's overshoot falls in the warm-up, and the
+report gives the worst lag after it. Latencies are kept and sorted for exact percentiles, bounded
+at 20 M samples. Against the gateway on the same M3 over loopback (`RUST_LOG=warn`, 2026-10-09,
+on a busy machine, so tails not recorded): a median of about 33 to 40 µs from 10,000 to 50,000
+orders a second, with the sender within 20 to 50 µs of schedule on the quieter runs; 100,000 a
+second over 16 sessions saturates the machine running both ends.
+
 ### Measurement history
 
 The README's benchmark table gives current numbers. When each row was last measured, and what it

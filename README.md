@@ -66,11 +66,20 @@ cargo run --example gateway --all-features -- --help   # every option, including
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
 cargo run --example client --features tls -- primary:9876 --failover backup:9876
+cargo run --release --example load -- [ADDR] --sessions 4 --rate 50000 --duration 10   # latency under load
 RUST_LOG=info,turbojet::messages=debug cargo run --example gateway --all-features -- --allow CLIENT1  # log messages
 cargo run --example gateway --all-features -- seqnums --store-dir ./store --session CLIENT1 [--reset] \
     [--set-next-incoming N] [--set-next-outgoing N]   # operator: a disconnected session's seqnums
 cargo test --all-features     # includes the gateway's tests
 ```
+
+The `load` example sizes a deployment against any acceptor: it opens `--sessions` sessions
+(`LOAD1` to `LOADN`), sends NewOrderSingles at `--rate` orders a second across them, and reports
+the latency of their ExecutionReports at p50 to p99.99 and the max. Latency runs from when each
+order was due, not when it was sent, so a stall counts against everything queued behind it. The
+report also says how far the sender fell behind its schedule: when that's large, the generator's
+machine is the bottleneck, not the acceptor. Against the gateway, run it with `--allow-any` and
+`RUST_LOG=warn`, since it logs every order at `info`.
 
 ## Motivation
 

@@ -10,6 +10,8 @@ Notable changes to the published crates.
   to an `Application` again, through a session at the recorded times, to reproduce a problem away
   from production. `Replayed` says how many connections and messages it replayed, skipped, and
   the log dropped.
+- A `load` example opens many sessions to any acceptor, sends orders at a set rate, and reports
+  latency percentiles measured from when each order was due.
 - `tls::Identity::from_pkcs12` and `from_pkcs12_file` (feature `pkcs12`) read a certificate
   chain and private key from a PKCS#12 bundle (`.p12`, `.pfx`), in the AES form or the legacy
   3DES and RC2 one.

@@ -135,8 +135,6 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 - **ClOrdID history** (S). After a replace, earlier ClOrdIDs still find the order; strict venues
   reject them.
 - **Example client** (S). It doesn't demonstrate replace or status requests.
-- **Load generator** (S). A client that opens many sessions and sends orders at a set rate
-  against any acceptor, reporting latency percentiles, for sizing a deployment. The benchmarks measure Turbojet against itself only.
 - **Kill switch** (S). Cancel a session's resting orders, or all of them, on an operator command.
   Almost every venue offers this alongside cancel on disconnect, which the gateway does.
 - **Pre-trade risk checks** (M). Order size limits, price bands against a reference price,
