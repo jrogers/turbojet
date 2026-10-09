@@ -103,5 +103,10 @@ test = true
 name = "client"
 required-features = ["tls"]
 
+# Sends orders at a set rate over many sessions and reports their latency percentiles.
+[[example]]
+name = "load"
+test = true
+
 [lints]
 workspace = true
