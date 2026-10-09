@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- One QuickFIX/n session driven by turbojet-interop's tests; see Program.cs. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Peer</RootNamespace>
+    <!-- Restores exactly what packages.lock.json records, as go.sum pins the Go peer. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="QuickFIXn.Core" Version="[1.14.1]" />
+  </ItemGroup>
+
+  <!-- QuickFIX/n's data dictionaries (spec/README.md), next to the program, where it looks by default. -->
+  <ItemGroup>
+    <None Include="spec/*.xml" CopyToOutputDirectory="PreserveNewest" LinkBase="spec" />
+  </ItemGroup>
+
+</Project>

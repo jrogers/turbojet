@@ -213,7 +213,7 @@ async fn silent_tj(setup: Setup) {
 /// The peer disconnects on its own heartbeat timeout, not on a Logout or a TCP close.
 async fn peer_timed_out(pair: &mut Pair) {
     let text = match pair.peer.engine() {
-        Engine::QuickFixJ => "Timed out waiting for heartbeat",
+        Engine::QuickFixJ | Engine::QuickFixN => "Timed out waiting for heartbeat",
         Engine::QuickFixGo => "Session Timeout",
     };
     pair.peer.expect("the peer's heartbeat timeout", |e| e.logged().is_some_and(|t| t.contains(text))).await;

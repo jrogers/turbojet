@@ -5,4 +5,6 @@ docs/plans/
 crates/turbojet-interop/peer/.gradle/
 crates/turbojet-interop/peer/build/
 crates/turbojet-interop/peer-go/peer
+crates/turbojet-interop/peer-net/bin/
+crates/turbojet-interop/peer-net/obj/
 .op/

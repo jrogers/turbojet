@@ -1,4 +1,4 @@
-//! Logon and logout against QuickFIX/J.
+//! Logon and logout against each engine.
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
@@ -28,10 +28,7 @@ async fn plain_logon(setup: Setup) {
 async fn logon_with_reset(setup: Setup) {
     let mut pair = setup.start_with(Options { reset_on_logon: true, ..Options::default() }).await;
     pair.logged_on().await;
-    for logon in [pair.peer.wire_in("A", |_| true).await, pair.peer.wire_out("A", |_| true).await] {
-        assert_eq!(logon.seq(), 1, "{}", logon.raw());
-        assert_eq!(logon.get(141), Some("Y"), "{}", logon.raw());
-    }
+    reset_logons(&mut pair).await;
     exchange_orders(&mut pair, "ORD1", "ORD2").await;
 
     // Drop the connection without a Logout; whichever side is the initiator reconnects in ~1s.
@@ -39,12 +36,22 @@ async fn logon_with_reset(setup: Setup) {
     pair.tj_logged_out().await;
     pair.peer.logout().await;
     pair.logged_on().await;
-    for logon in [pair.peer.wire_in("A", |_| true).await, pair.peer.wire_out("A", |_| true).await] {
-        assert_eq!(logon.seq(), 1, "{}", logon.raw());
-        assert_eq!(logon.get(141), Some("Y"), "{}", logon.raw());
-    }
+    reset_logons(&mut pair).await;
     exchange_orders(&mut pair, "ORD3", "ORD4").await;
     pair.finish().await;
+}
+
+/// Both Logons on the wire are at 1 and carry ResetSeqNumFlag=Y, except QuickFIX/n's as acceptor:
+/// it resets, but leaves the flag out of its reply, where the FIX spec, and QuickFIX's own
+/// SessionReset acceptance scenario, have the acceptor echo it.
+async fn reset_logons(pair: &mut Pair) {
+    let received = pair.peer.wire_in("A", |_| true).await;
+    let sent = pair.peer.wire_out("A", |_| true).await;
+    let echoes = !(pair.setup.engine == Engine::QuickFixN && pair.setup.role == Role::TjInitiator);
+    for (logon, flag) in [(&received, Some("Y")), (&sent, echoes.then_some("Y"))] {
+        assert_eq!(logon.seq(), 1, "{}", logon.raw());
+        assert_eq!(logon.get(141), flag, "{}", logon.raw());
+    }
 }
 
 /// Sends order `ours` from Turbojet and `theirs` from QuickFIX/J, checking both come

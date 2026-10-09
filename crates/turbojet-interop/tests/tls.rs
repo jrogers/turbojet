@@ -121,5 +121,7 @@ async fn refused(pair: &mut Pair, refuser: Refuser) {
             pair.peer.expect("quickfix-go's failed handshake", handshake).await;
         }
         Engine::QuickFixGo => {}
+        // Stage 3 (TLS) decides what QuickFIX/n logs.
+        Engine::QuickFixN => {}
     }
 }

@@ -30,7 +30,7 @@ async fn finish_catches_a_late_reject() {
     if !enabled() {
         return;
     }
-    for engine in [Engine::QuickFixJ, Engine::QuickFixGo] {
+    for engine in [Engine::QuickFixJ, Engine::QuickFixGo, Engine::QuickFixN] {
         let scenario = tokio::spawn(async move {
             let mut pair = Setup { engine, role: Role::TjInitiator, version: Version::Fix44 }.start().await;
             pair.logged_on().await;

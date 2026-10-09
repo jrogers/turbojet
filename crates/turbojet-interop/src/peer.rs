@@ -28,6 +28,8 @@ pub enum Engine {
     QuickFixJ,
     /// quickfix-go, a Go program in `peer-go/`.
     QuickFixGo,
+    /// QuickFIX/n, a .NET program in `peer-net/`.
+    QuickFixN,
 }
 
 /// How long to wait for any one event. Generous: CI runners are slow and JVMs start cold.
@@ -99,6 +101,8 @@ pub enum PeerEvent {
     /// A session event quickfix-go logged. It logs errors (why it rejected or ignored a message)
     /// and other events (a logon, a reset) the same way, so these aren't all errors.
     QfgoEvent(String),
+    /// A session event QuickFIX/n logged: like quickfix-go, errors and other events alike.
+    QfnEvent(String),
     Ok(String),
     Error(String),
 }
@@ -118,6 +122,7 @@ impl PeerEvent {
             "out" => Self::Out(payload.to_string()),
             "qfj_error" => Self::QfjError(payload.to_string()),
             "qfgo_event" => Self::QfgoEvent(payload.to_string()),
+            "qfn_event" => Self::QfnEvent(payload.to_string()),
             "ok" => Self::Ok(payload.to_string()),
             "error" => Self::Error(payload.to_string()),
             _ => panic!("unknown peer event {line:?}"),
@@ -133,10 +138,10 @@ impl PeerEvent {
     }
 
     /// What the engine logged, if this is a log line: an error from QuickFIX/J, or any session
-    /// event from quickfix-go, which logs errors and other events alike.
+    /// event from quickfix-go or QuickFIX/n, which log errors and other events alike.
     pub fn logged(&self) -> Option<&str> {
         match self {
-            Self::QfjError(text) | Self::QfgoEvent(text) => Some(text),
+            Self::QfjError(text) | Self::QfgoEvent(text) | Self::QfnEvent(text) => Some(text),
             _ => None,
         }
     }
@@ -222,6 +227,21 @@ fn go_peer() -> PathBuf {
     path
 }
 
+/// The QuickFIX/n peer: `INTEROP_NET_PEER`, or the one `scripts/interop.sh` builds. Its data
+/// dictionaries sit next to it, in `spec/`.
+fn net_peer() -> PathBuf {
+    if let Some(path) = env::var_os("INTEROP_NET_PEER") {
+        return path.into();
+    }
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("peer-net/bin/Release/net10.0/peer-net.dll");
+    assert!(
+        path.exists(),
+        "QuickFIX/n peer not built ({} is missing): run scripts/interop.sh, or dotnet build -c Release crates/turbojet-interop/peer-net",
+        path.display()
+    );
+    path
+}
+
 /// quickfix-go's data dictionaries: `INTEROP_GO_SPEC`, or the `spec` directory of the module the
 /// peer builds against, as Go reports it.
 fn go_spec() -> &'static Path {
@@ -251,6 +271,11 @@ fn command(config: &PeerConfig, log_dir: &Path) -> Command {
         Engine::QuickFixGo => {
             let mut command = Command::new(go_peer());
             command.arg(format!("spec-dir={}", go_spec().display()));
+            command
+        }
+        Engine::QuickFixN => {
+            let mut command = Command::new("dotnet");
+            command.arg(net_peer());
             command
         }
     };
@@ -554,5 +579,6 @@ mod tests {
         assert!(matches!(PeerEvent::parse("in\t8=FIX.4.4|35=0|"), PeerEvent::In(raw) if raw == "8=FIX.4.4|35=0|"));
         assert!(matches!(PeerEvent::parse("qfj_error\tbad"), PeerEvent::QfjError(e) if e == "bad"));
         assert_eq!(PeerEvent::parse("qfgo_event\tSession Timeout").logged(), Some("Session Timeout"));
+        assert_eq!(PeerEvent::parse("qfn_event\tReceived logon").logged(), Some("Received logon"));
     }
 }

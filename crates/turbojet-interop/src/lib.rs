@@ -1,6 +1,6 @@
-//! Runs Turbojet sessions against QuickFIX/J and quickfix-go. The tests need Java, Go and the
-//! peers built, so they run only with `TURBOJET_INTEROP=1`; `scripts/interop.sh` builds the peers
-//! and sets it.
+//! Runs Turbojet sessions against QuickFIX/J, quickfix-go and QuickFIX/n. The tests need Java, Go,
+//! .NET and the peers built, so they run only with `TURBOJET_INTEROP=1`; `scripts/interop.sh`
+//! builds the peers and sets it.
 #![allow(missing_debug_implementations, reason = "a test harness, not published")]
 #![allow(clippy::missing_errors_doc, reason = "a test harness, not published")]
 
@@ -35,19 +35,19 @@ pub fn enabled() -> bool {
     let on = env::var_os("TURBOJET_INTEROP").is_some_and(|v| v == "1");
     if !on {
         eprintln!(
-            "skipped: set TURBOJET_INTEROP=1 (or run scripts/interop.sh) to test against QuickFIX/J and quickfix-go"
+            "skipped: set TURBOJET_INTEROP=1 (or run scripts/interop.sh) to test against QuickFIX/J, quickfix-go and QuickFIX/n"
         );
     }
     on
 }
 
-/// Turns scenario functions `async fn name(setup: Setup)` into a module of sixteen tests each:
-/// {QuickFIX/J (`qfj`), quickfix-go (`qfgo`)} × {Turbojet initiator, Turbojet acceptor} ×
+/// Turns scenario functions `async fn name(setup: Setup)` into a module of 24 tests each:
+/// {QuickFIX/J (`qfj`), quickfix-go (`qfgo`), QuickFIX/n (`qfn`)} × {Turbojet initiator, Turbojet acceptor} ×
 /// {FIX 4.2, FIX 4.3, FIX 4.4, FIXT.1.1}.
 #[macro_export]
 macro_rules! matrix {
     ($($scenario:ident),* $(,)?) => {$(
-        $crate::__scenario!([qfj QuickFixJ qfgo QuickFixGo] $scenario);
+        $crate::__scenario!([qfj QuickFixJ qfgo QuickFixGo qfn QuickFixN] $scenario);
     )*};
 }
 
