@@ -28,12 +28,15 @@ rust_decimal.workspace = true
 tokio.workspace = true
 tokio-rustls = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
+p12-keystore = { workspace = true, optional = true }
 tracing.workspace = true
 turbojet-dictionary = { workspace = true, optional = true }
 
 [features]
 # TLS transport for Acceptor and Initiator (rustls with the ring crypto provider).
 tls = ["dep:tokio-rustls", "dep:x509-parser"]
+# Certificates and keys from PKCS#12 bundles (.p12, .pfx) as well as PEM (tls::Identity::from_pkcs12).
+pkcs12 = ["tls", "dep:p12-keystore"]
 # Per-session counters and gauges through the `metrics` facade; install a recorder to export them.
 metrics = ["dep:metrics"]
 # Named IANA time zones (e.g. America/New_York) for session schedules, with daylight saving.

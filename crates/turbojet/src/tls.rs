@@ -4,7 +4,8 @@
 //! [`TlsConnector`] for [`Initiator::with_tls`](crate::Initiator::with_tls):
 //!
 //! - with [`ServerTls`] and [`ClientTls`], from certificates given in memory or read from files
-//!   ([`Identity`], [`Trust`]), which can be replaced while running: a renewed certificate, or a
+//!   ([`Identity`], [`Trust`]), as PEM or (feature `pkcs12`) a PKCS#12 bundle, which can be
+//!   replaced while running: a renewed certificate, or a
 //!   new CA, is used from the next handshake, and sessions already connected carry on;
 //! - with [`acceptor`] and [`connector`], from PEM files, once;
 //! - or from your own [`rustls`] configuration via `TlsAcceptor::from(Arc<rustls::ServerConfig>)`
@@ -19,6 +20,8 @@ use tokio_rustls::rustls::client::WebPkiServerVerifier;
 use tokio_rustls::rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use tokio_rustls::rustls::client::{ResolvesClientCert, Resumption};
 use tokio_rustls::rustls::crypto::{CryptoProvider, ring, verify_tls12_signature, verify_tls13_signature};
+#[cfg(feature = "pkcs12")]
+use tokio_rustls::rustls::pki_types::PrivatePkcs8KeyDer;
 use tokio_rustls::rustls::pki_types::pem::PemObject;
 use tokio_rustls::rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer, UnixTime};
 use tokio_rustls::rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
@@ -119,6 +122,53 @@ impl Identity {
     /// file.
     pub fn from_pem_files(chain: &Path, key: &Path) -> io::Result<Self> {
         Self::from_der(certificates(chain)?, private_key(key)?).map_err(|e| in_file(chain, e))
+    }
+}
+
+#[cfg(feature = "pkcs12")]
+impl Identity {
+    /// From a PKCS#12 bundle (`.p12`, `.pfx`) in memory (feature `pkcs12`): its private key and
+    /// that key's certificate chain, leaf first, decrypted with `password` (empty if it has none).
+    /// Bundles encrypted with AES (OpenSSL 3's default) and the older 3DES and RC2 (older OpenSSL,
+    /// Windows and Java exports) are read.
+    ///
+    /// # Errors
+    ///
+    /// [`InvalidData`](io::ErrorKind::InvalidData) if `password` is wrong, the bundle doesn't
+    /// parse, it holds no private key or more than one, the key has no certificate, or as
+    /// [`from_der`](Self::from_der).
+    pub fn from_pkcs12(bundle: &[u8], password: &str) -> io::Result<Self> {
+        use p12_keystore::{KeyStore, KeyStoreEntry, Pkcs12ImportPolicy, error::Error};
+        // Relaxed keeps a key that has no certificate, so it's refused as that rather than missed.
+        let store = KeyStore::from_pkcs12(bundle, password, Pkcs12ImportPolicy::Relaxed).map_err(|e| match e {
+            Error::MacError(_) => invalid_data("wrong password, or the bundle is damaged"),
+            e => invalid_data(format!("not a PKCS#12 bundle that can be read: {e}")),
+        })?;
+        let mut keys = store.entries().filter_map(|(_, entry)| match entry {
+            KeyStoreEntry::PrivateKeyChain(chain) => Some(chain),
+            _ => None,
+        });
+        let chain = match (keys.next(), keys.next()) {
+            (Some(chain), None) => chain,
+            (None, _) => return Err(invalid_data("the bundle holds no private key")),
+            (Some(_), Some(_)) => return Err(invalid_data("the bundle holds more than one private key")),
+        };
+        if chain.certs().is_empty() {
+            return Err(invalid_data("the bundle's private key has no certificate"));
+        }
+        let certs = chain.certs().iter().map(|cert| CertificateDer::from(cert.as_der().to_vec())).collect();
+        Self::from_der(certs, PrivatePkcs8KeyDer::from(chain.key().as_der().to_vec()).into())
+    }
+
+    /// [`from_pkcs12`](Self::from_pkcs12) from a file.
+    ///
+    /// # Errors
+    ///
+    /// The file's error if it can't be read, or as [`from_pkcs12`](Self::from_pkcs12), naming the
+    /// file.
+    pub fn from_pkcs12_file(path: &Path, password: &str) -> io::Result<Self> {
+        let bundle = std::fs::read(path).map_err(|e| in_file(path, e))?;
+        Self::from_pkcs12(&bundle, password).map_err(|e| in_file(path, e))
     }
 }
 

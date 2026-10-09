@@ -892,3 +892,99 @@ fn crls_that_dont_parse_are_refused() {
     let err = pki.trust("ca").with_crls_pem_files(&pki.path("missing.crl.pem")).unwrap_err();
     assert!(err.to_string().contains("missing.crl.pem"), "{err}");
 }
+
+/// PKCS#12 bundles (feature `pkcs12`), made from the test PKI's certificates.
+#[cfg(feature = "pkcs12")]
+mod pkcs12 {
+    use super::*;
+    use p12_keystore::{Certificate, KeyStore, KeyStoreEntry, PrivateKey, PrivateKeyChain};
+    use rustls::pki_types::PrivatePkcs8KeyDer;
+    use rustls::pki_types::pem::PemObject;
+
+    fn certificate(pki: &Pki, name: &str) -> Certificate {
+        Certificate::from_der(&der(&pki.pem(&format!("{name}.pem")))).unwrap()
+    }
+
+    fn key(pki: &Pki, name: &str) -> PrivateKey {
+        let pem = pki.pem(&format!("{name}.key"));
+        PrivateKey::from_der(PrivatePkcs8KeyDer::from_pem_slice(&pem).unwrap().secret_pkcs8_der()).unwrap()
+    }
+
+    /// A bundle under `password` holding `entries`.
+    fn write(entries: Vec<(&str, KeyStoreEntry)>, password: &str) -> Vec<u8> {
+        let mut store = KeyStore::new();
+        for (alias, entry) in entries {
+            store.add_entry(alias, entry);
+        }
+        store.writer(password).write().unwrap()
+    }
+
+    /// A bundle of each named certificate's key and chain (the certificate, then the CA's).
+    fn bundle(pki: &Pki, names: &[&str], password: &str) -> Vec<u8> {
+        let chain =
+            |name: &str| PrivateKeyChain::new(name, key(pki, name), [certificate(pki, name), certificate(pki, "ca")]);
+        write(names.iter().map(|&name| (name, KeyStoreEntry::PrivateKeyChain(chain(name)))).collect(), password)
+    }
+
+    fn identity(bundle: &[u8], password: &str) -> io::Result<tls::Identity> {
+        tls::Identity::from_pkcs12(bundle, password)
+    }
+
+    #[tokio::test]
+    async fn an_acceptor_presents_the_certificate_in_a_bundle() {
+        let pki = Pki::new();
+        let server = identity(&bundle(&pki, &["server"], "secret"), "secret").unwrap();
+        let server = tls::ServerTls::new(server, tls::ClientTrust::None).unwrap();
+        let (addr, _events) = serve(&server).await;
+        let connector = tls::ClientTls::new(pki.trust("ca"), None).unwrap().connector();
+        assert_eq!(presented(&addr, &connector).await, der(&pki.pem("server.pem")));
+
+        // A renewal from a bundle, with no password, is presented from the next handshake.
+        server.set_identity(identity(&bundle(&pki, &["server-renewed"], ""), "").unwrap());
+        assert_eq!(presented(&addr, &connector).await, der(&pki.pem("server-renewed.pem")));
+    }
+
+    #[tokio::test]
+    async fn a_client_presents_the_certificate_in_a_bundle_for_mutual_tls() {
+        let pki = Pki::new();
+        let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::Required(pki.trust("ca"))).unwrap();
+        let (addr, mut events) = serve(&server).await;
+        let client = identity(&bundle(&pki, &["client"], "secret"), "secret").unwrap();
+        let client_tls = tls::ClientTls::new(pki.trust("ca"), Some(client)).unwrap();
+        let (initiator, mut client_events) = initiator(addr.as_str());
+        let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+        tokio::spawn(initiator.run());
+        assert!(matches!(next(&mut client_events).await, Event::LoggedOn));
+        assert!(matches!(next(&mut events).await, Event::LoggedOn));
+    }
+
+    #[test]
+    fn unreadable_bundles_are_refused_saying_why() {
+        let pki = Pki::new();
+        let refused = |bundle: &[u8], password: &str, why: &str| {
+            let e = identity(bundle, password).unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{why}: {e}");
+            assert!(e.to_string().contains(why), "{why}: {e}");
+        };
+        refused(&bundle(&pki, &["server"], "secret"), "guess", "wrong password");
+        refused(&bundle(&pki, &["server", "client"], "secret"), "secret", "more than one private key");
+        let ca_only = write(vec![("ca", KeyStoreEntry::Certificate(certificate(&pki, "ca")))], "secret");
+        refused(&ca_only, "secret", "no private key");
+        let bare_key = PrivateKeyChain::new("server", key(&pki, "server"), []);
+        refused(
+            &write(vec![("server", KeyStoreEntry::PrivateKeyChain(bare_key))], "secret"),
+            "secret",
+            "no certificate",
+        );
+        refused(b"not a bundle", "secret", "PKCS#12");
+        // A key that isn't its certificate's, as from_der refuses it.
+        let mismatched = PrivateKeyChain::new("server", key(&pki, "client"), [certificate(&pki, "server")]);
+        let mismatched = write(vec![("server", KeyStoreEntry::PrivateKeyChain(mismatched))], "secret");
+        assert_eq!(identity(&mismatched, "secret").unwrap_err().kind(), io::ErrorKind::InvalidData);
+
+        let missing = pki.path("missing.p12");
+        let e = tls::Identity::from_pkcs12_file(&missing, "secret").unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::NotFound);
+        assert!(e.to_string().contains("missing.p12"), "{e}");
+    }
+}
