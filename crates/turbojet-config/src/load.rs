@@ -20,7 +20,6 @@ use turbojet::{
 use crate::Error;
 #[cfg(feature = "tls")]
 use crate::raw::ClientCertificate;
-#[cfg(feature = "tls")]
 use crate::raw::RawInitiatorKeys;
 use crate::raw::{
     OverLimit, RawAcceptor, RawApplVersion, RawCancelTrigger, RawFile, RawInitiator, RawPrecision, RawSettings,
