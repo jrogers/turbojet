@@ -10,8 +10,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - Pausing a session is kept in memory: a restart forgets it. Session events are dropped for a
   subscriber that falls more than `EVENT_QUEUE` behind (it's told how many), and only Logons the
   registry refuses (paused, already connected, too many, store failing) are sent as `Refused`;
-  earlier refusals are logged. An operator's resend counts as finished at the first new message
-  after the resent ones, so `ResendFinished` can wait for the next Heartbeat. A FIXP session's
+  earlier refusals are logged. A FIXP session's
   `activity` is brought up to date once per batch of work, not at each message.
 - TLS revocation is checked only against CRLs the application gives, and only at the handshake:
   a session already connected carries on after its certificate is revoked. With CRLs, a
