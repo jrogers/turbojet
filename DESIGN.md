@@ -331,7 +331,10 @@ application itself asks for. Where it stands:
 - A `Message` keeps all its fields in one buffer with an offset index (two allocations, not one per
   field), and each inbound frame is decoded into one `Message` reused for the connection, so
   decoding doesn't allocate once it has grown. It still copies each frame, once, out of the read
-  buffer (see the roadmap).
+  buffer, which costs too little to remove: without the copy, a 169-byte NewOrderSingle decoded
+  in 160.9 ns against 165.9 ns (M3, 2026-10-09), 0.5% of the 939 ns a message takes through the
+  session. A message type borrowing the read buffer would have to run through `Fields`, the
+  typed-message macros and the generated crates.
 - Raw group access is zero-copy, and typed messages parse into borrowed forms
   (`NewOrderSingleRef`) whose strings, lists and groups point into the message, so typed parsing
   allocates nothing.

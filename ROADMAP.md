@@ -58,10 +58,6 @@ What's left is more FIX versions and the rest of Orchestra.
 
 Each item needs a benchmark that shows the cost before the change is worth its complexity.
 
-- **Inbound without the copy** (M). Decoding still copies each frame, once, out of the read
-  buffer into the reused message. A view borrowing the read buffer would avoid that, at the cost
-  of a second message type through `Fields`, the typed-message macros and the generated crates;
-  worth it only if a benchmark shows the copy matters.
 - **Large generated messages** (M). Generated messages carry every field in the dictionary, so
   a FIX 4.2 NewOrderSingle is 1,008 bytes against 200 for the old hand-written one (when it was
   1,144 bytes, parsing it took about 237 ns against 202 ns). Lookup and conversion cost the same;
