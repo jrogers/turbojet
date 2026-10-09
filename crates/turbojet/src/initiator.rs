@@ -16,6 +16,7 @@ use crate::application::Application;
 use crate::connection;
 use crate::fields::Secret;
 use crate::peer::ConnectionInfo;
+use crate::proxy::Proxy;
 use crate::reconnect::{Backoff, ReconnectPolicy};
 use crate::registry::{CommandReceiver, SessionEvent, SessionHandle, SessionRegistry};
 use crate::session::ConfigError;
@@ -63,6 +64,12 @@ pub struct InitiatorConfig {
     /// the endpoints' addresses of the same family (IPv4 or IPv6) are tried. `None` (the default)
     /// leaves both to the system.
     pub local_addr: Option<SocketAddr>,
+    /// A proxy to reach every endpoint through, for a network that only connects out that way.
+    /// The connect timeout covers reaching the proxy and its tunnel, and
+    /// [`local_addr`](Self::local_addr) applies to the connection to the proxy. The session's
+    /// [`ConnectionInfo`] then has the proxy's address, not the counterparty's. `None` (the
+    /// default) connects directly.
+    pub proxy: Option<Proxy>,
     /// How long [`Initiator::run`] waits after a session ends, or after every endpoint has
     /// failed, before connecting again.
     pub reconnect: ReconnectPolicy,
@@ -89,6 +96,7 @@ impl InitiatorConfig {
             password: None,
             connect_timeout: Duration::from_secs(10),
             local_addr: None,
+            proxy: None,
             reconnect: ReconnectPolicy::default(),
         }
     }
@@ -539,7 +547,7 @@ impl Initiator {
         // Counted from here, so shutdown also waits for a TLS handshake; the connect and the
         // handshake are abandoned as soon as it starts.
         let _open = self.shutdown.track();
-        let connect = tokio::time::timeout(config.connect_timeout, self.tcp_connect(&endpoint.addr, config.local_addr));
+        let connect = tokio::time::timeout(config.connect_timeout, self.open(&endpoint.addr, config));
         let connect = match self.unless_shutdown(connect).await {
             Ok(connect) => connect,
             Err(e) => return Attempt::Failed(e),
@@ -582,6 +590,14 @@ impl Initiator {
             return self.run_session(stream, ConnectionInfo::new(addr, certificates), config).await;
         }
         self.run_session(stream, ConnectionInfo::new(addr, Vec::new()), config).await
+    }
+
+    /// Connects to `addr`, through the configured proxy if there is one.
+    async fn open(&self, addr: &str, config: &InitiatorConfig) -> io::Result<TcpStream> {
+        let Some(proxy) = &config.proxy else { return self.tcp_connect(addr, config.local_addr).await };
+        let mut stream = self.tcp_connect(&proxy.addr, config.local_addr).await?;
+        crate::proxy::tunnel(&mut stream, proxy, addr).await?;
+        Ok(stream)
     }
 
     async fn tcp_connect(&self, addr: &str, local: Option<SocketAddr>) -> io::Result<TcpStream> {
@@ -694,6 +710,22 @@ mod tests {
         let connecting = tokio::spawn(async move { initiator.connect_once().await });
         let (stream, peer) = listener.accept().await.unwrap();
         assert_eq!(peer, local);
+        drop(stream);
+        let _ = connecting.await;
+    }
+
+    #[tokio::test]
+    async fn connects_through_a_proxy_failing_over_as_directly() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let backup = listener.local_addr().unwrap().to_string();
+        let proxy = Proxy::http(crate::proxy::forwarding_proxy().await);
+        // Nothing listens on the primary, so the proxy refuses it and the backup is tried.
+        let initiator = initiator_with("127.0.0.1:1", |config| config.proxy = Some(proxy)).with_failover(&backup);
+        let connecting = tokio::spawn(async move { initiator.connect_once().await });
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut logon = [0; 9];
+        tokio::io::AsyncReadExt::read_exact(&mut stream, &mut logon).await.unwrap();
+        assert_eq!(&logon, b"8=FIX.4.2", "the Logon came through the tunnel");
         drop(stream);
         let _ = connecting.await;
     }

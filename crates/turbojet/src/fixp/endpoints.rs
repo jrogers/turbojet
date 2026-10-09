@@ -189,6 +189,8 @@ pub struct FixpInitiator {
     config: FixpConfig,
     reconnect: ReconnectPolicy,
     connect_timeout: Duration,
+    /// Reaches every endpoint through this proxy, if set.
+    proxy: Option<crate::Proxy>,
     registry: Arc<FixpRegistry>,
     app: Arc<dyn FixpApplication>,
     shutdown: Arc<Shutdown>,
@@ -231,6 +233,7 @@ impl FixpInitiator {
             config,
             reconnect: ReconnectPolicy::default(),
             connect_timeout: Duration::from_secs(10),
+            proxy: None,
             registry,
             app,
             shutdown: Arc::new(Shutdown::new()),
@@ -269,6 +272,14 @@ impl FixpInitiator {
         }
         self.tls = Some((connector, server_name.to_string()));
         Ok(self)
+    }
+
+    /// Reaches every endpoint through `proxy`, as the FIX
+    /// [`InitiatorConfig::proxy`](crate::InitiatorConfig::proxy) does.
+    #[must_use]
+    pub fn with_proxy(mut self, proxy: crate::Proxy) -> Self {
+        self.proxy = Some(proxy);
+        self
     }
 
     /// Reconnects as `policy` says.
@@ -370,11 +381,19 @@ impl FixpInitiator {
         (false, Err(error))
     }
 
+    /// Connects to `addr`, through the proxy if there is one.
+    async fn open(&self, addr: &str) -> io::Result<TcpStream> {
+        let Some(proxy) = &self.proxy else { return TcpStream::connect(addr).await };
+        let mut stream = TcpStream::connect(&proxy.addr).await?;
+        crate::proxy::tunnel(&mut stream, proxy, addr).await?;
+        Ok(stream)
+    }
+
     /// Connects to `endpoint` and runs the session there: whether it was established, and how
     /// the connection ended.
     async fn attempt(&self, endpoint: &Endpoint) -> (bool, io::Result<()>) {
         let _open = self.shutdown.track();
-        let stream = match tokio::time::timeout(self.connect_timeout, TcpStream::connect(&endpoint.addr)).await {
+        let stream = match tokio::time::timeout(self.connect_timeout, self.open(&endpoint.addr)).await {
             Ok(Ok(stream)) => stream,
             Ok(Err(e)) => return (false, Err(e)),
             Err(_) => {

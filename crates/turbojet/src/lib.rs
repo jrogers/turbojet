@@ -230,6 +230,7 @@ pub mod initiator;
 pub mod message;
 mod message_log;
 pub mod peer;
+mod proxy;
 mod reconnect;
 pub mod registry;
 pub mod sbe;
@@ -256,6 +257,7 @@ pub use message_log::{
     LogRecord, LogRecords, MessageLog, mask_secrets,
 };
 pub use peer::{ConnectionInfo, PeerCertificate};
+pub use proxy::{Proxy, ProxyKind};
 pub use reconnect::ReconnectPolicy;
 pub use registry::{
     Activity, CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionEvent,

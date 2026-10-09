@@ -308,3 +308,43 @@ async fn fixp_sessions_have_statuses_and_events() {
     initiator.shutdown().await;
     acceptor.shutdown().await;
 }
+
+/// An HTTP proxy that tunnels each CONNECT to the address it names, answering 502 if it can't
+/// connect there. Its address.
+async fn forwarding_proxy() -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(async move {
+        loop {
+            let (mut client, _) = listener.accept().await.unwrap();
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                while !request.ends_with(b"\r\n\r\n") {
+                    request.push(client.read_u8().await.unwrap());
+                }
+                let request = String::from_utf8(request).unwrap();
+                let target = request.split(' ').nth(1).unwrap();
+                let Ok(mut upstream) = tokio::net::TcpStream::connect(target).await else {
+                    return client.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n").await.unwrap();
+                };
+                client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.unwrap();
+                let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+            });
+        }
+    });
+    addr
+}
+
+#[tokio::test]
+async fn a_client_reaches_its_server_through_a_proxy_failing_over_as_directly() {
+    let primary = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().to_string();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backup = listener.local_addr().unwrap().to_string();
+    let (_server, mut server_events) = fixp_server(listener, false);
+    let (client, mut client_events) = fixp_client_with_backup(&primary, &backup);
+    let client = client.with_proxy(turbojet::Proxy::http(forwarding_proxy().await));
+    tokio::spawn(async move { client.connect_once().await });
+    assert!(matches!(next(&mut client_events).await, Event::Established(_)));
+    assert!(matches!(next(&mut server_events).await, Event::Established(_)));
+}
