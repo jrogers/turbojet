@@ -4,7 +4,7 @@
 # errors, the fuzz crate's lints and regression inputs, and generated crates matching the
 # generator. Flags add the slower jobs:
 #   scripts/check.sh            # what most changes need
-#   scripts/check.sh --interop  # also the QuickFIX/J and quickfix-go interop tests (needs a JDK 21+ and Go)
+#   scripts/check.sh --interop  # also the interop tests (needs a JDK 21+, Go and .NET 10)
 #   scripts/check.sh --msrv     # also the tests on the minimum supported Rust (rustup toolchain 1.89)
 #   scripts/check.sh --postgres # also the SQL stores on PostgreSQL, at TURBOJET_POSTGRES_URL (a
 #                               # database the tests may clear)

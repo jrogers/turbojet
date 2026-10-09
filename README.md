@@ -10,8 +10,8 @@
 </p>
 
 > [!WARNING]
-> **Pre-1.0, and not yet proven in production.** Turbojet is tested against two other FIX engines,
-> QuickFIX/J and quickfix-go, in CI; passes 221 of QuickFIX's 235 scripted session acceptance scenarios (the rest
+> **Pre-1.0, and not yet proven in production.** Turbojet is tested against three other FIX engines,
+> QuickFIX/J, quickfix-go and QuickFIX/n, in CI; passes 221 of QuickFIX's 235 scripted session acceptance scenarios (the rest
 > are listed with their reasons); and has its parsers and session state machine fuzzed. It hasn't
 > been certified with any venue or run against a real counterparty, its APIs will change before
 > 1.0, and it has known gaps (see [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md) and [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md)). Don't use it to trade real money or to
@@ -44,7 +44,7 @@ sessions.
 acceptor, its counterparties, initiators and their stores from a TOML file, and reloads it while
 running.
 
-CI runs Turbojet's sessions against QuickFIX/J and quickfix-go, in both roles, on FIX 4.2, 4.3 and 4.4 and on
+CI runs Turbojet's sessions against QuickFIX/J, quickfix-go and QuickFIX/n, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
 loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
 over TLS and mutual TLS; and through QuickFIX's 235 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
@@ -85,7 +85,7 @@ practice, and where Turbojet differs.
   run against each other in a deterministic simulator (`crates/turbojet-sim`), over a network
   that delays, stalls, resets and black-holes connections, through crashes, store failures and
   power loss, with every run replayable from its seed. The session is tested against QuickFIX/J,
-  quickfix-go and QuickFIX's scripted acceptance scenarios (see the warning above for what that does and doesn't
+  quickfix-go, QuickFIX/n and QuickFIX's scripted acceptance scenarios (see the warning above for what that does and doesn't
   cover).
 - **Pure Rust.** No bindings to a C++ or Java engine, and no `unsafe` code in the engine; lints
   deny it. The one exception is optional: the `tls` feature uses rustls with the `ring` crypto

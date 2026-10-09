@@ -1,6 +1,6 @@
 [package]
 name = "turbojet-interop"
-description = "Interoperability tests: Turbojet sessions against QuickFIX/J and quickfix-go"
+description = "Interoperability tests: Turbojet sessions against QuickFIX/J, quickfix-go and QuickFIX/n"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
