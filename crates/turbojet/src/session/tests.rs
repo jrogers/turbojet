@@ -3345,6 +3345,21 @@ mod operator_tests {
     }
 
     #[test]
+    fn an_operator_resend_is_done_once_everything_asked_for_has_arrived() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        s.recv(order(2, "B"), h.t0);
+        s.recv(order(3, "C"), h.t0);
+        operate(&mut s, SequenceCommand::RequestResend(2), &h).0.unwrap();
+        s.recv(resend_of(order(2, "B")), h.t0);
+        s.recv(resend_of(order(3, "C")), h.t0);
+        // Nothing new follows: there's nothing to ask for again, and no reason to log out.
+        let out: Vec<_> = [s.timer(h.at(60)), s.timer(h.at(120))].into_iter().flatten().collect();
+        assert!(resend_requests(&out).is_empty());
+        assert!(!types(&out).contains(&"Logout".to_string()));
+    }
+
+    #[test]
     fn reset_is_refused_while_connected() {
         let h = Harness::new();
         let mut s = h.logged_on();

@@ -521,7 +521,8 @@ struct Queued {
 
 /// An outstanding ResendRequest.
 struct Resend {
-    /// The MsgSeqNum that revealed the gap: the resend is complete once it's been received.
+    /// The MsgSeqNum that revealed the gap (or, for an operator's resend, the next new one): the
+    /// resend is complete once everything before it has been received.
     target: u64,
     /// When `next_incoming` last advanced (or the request was sent).
     progress_at: Instant,
@@ -1248,7 +1249,7 @@ impl Session {
         let result = apply_sequence_command(self.peer_mut().log.as_mut(), request, &clock);
         if let Ok(numbers) = &result {
             if let (SequenceCommand::SetNextIncoming(seq), Some(resend)) = (request, &mut self.resend) {
-                if seq > resend.target {
+                if seq >= resend.target {
                     self.resend = None;
                     self.note_resending();
                 } else {
@@ -2212,7 +2213,7 @@ impl Session {
             debug_assert!(self.queued.first_key_value().is_none_or(|(&seq_num, _)| seq_num > next));
         }
         if let Some(resend) = &mut self.resend {
-            if next > resend.target {
+            if next >= resend.target {
                 info!("resend complete");
                 self.resend = None;
                 self.note_resending();
