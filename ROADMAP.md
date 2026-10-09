@@ -94,8 +94,10 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   share a cache line with unrelated data that another core writes (false sharing), and a
   session's per-message fields are spread across a large struct. Pad what's contended to a
   cache line (`#[repr(align(64))]`, or 128 bytes on Apple silicon) and group the fields the hot
-  path touches. It needs a benchmark with many sessions on several cores, which doesn't exist
-  yet: the round-trip benchmarks run one session.
+  path touches. Measure first with `benches/sessions.rs` (N sessions pipelining at once) on a
+  machine with more cores than an M3's 4+4, where it levels off with the cores at 4 to 8
+  sessions, and compare against a padded build; expect the allocator and the registry's lock to
+  show up before false sharing.
 
 ## 5. Operations and deployment
 

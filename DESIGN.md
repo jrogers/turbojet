@@ -406,6 +406,15 @@ worker sleeps between warm-ups anyway. An idle second is slower than a second of
 the processor's power state counts as well as cold caches. Linux with pinned cores and a locked
 frequency may differ.
 
+### Many sessions
+
+`benches/sessions.rs` runs N sessions against one acceptor on one multi-threaded runtime, each
+keeping 1,000 orders in flight, both ends storing in a shared `MemoryStorage`. On an M3 (4
+performance and 4 efficiency cores, 2026-10-09, `--quick`): 0.53M orders a second with 1 session,
+1.14M with 2, 1.93M with 4, then 2.12M to 2.24M from 8 to 32 sessions. It levels off where the
+cores run out (each session is two connections), so whether shared data (the registry, the
+store, cache lines two cores write) limits scaling needs a machine with more cores.
+
 ### Measurement history
 
 The README's benchmark table gives current numbers. When each row was last measured, and what it
