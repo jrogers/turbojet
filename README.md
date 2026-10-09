@@ -756,6 +756,22 @@ several networks or a counterparty that only accepts known source addresses: an 
 a port or 0 to let the system choose one. Only endpoint addresses of the same family (IPv4 or
 IPv6) are tried. In configuration files it's an initiator's `local_address`.
 
+`InitiatorConfig::proxy` reaches every endpoint through an HTTP proxy (with `CONNECT`) or a SOCKS5
+one, for a network that only connects out that way; `FixpInitiator::with_proxy` does the same
+for FIXP. The proxy is asked for a tunnel to each endpoint by name, within the connect timeout,
+and TLS runs through the tunnel to the counterparty. A username and password are optional. In
+configuration files it's an initiator's `proxy`, with the password in the environment variable
+`proxy_password_env` names.
+
+```rust
+use turbojet::Proxy;
+
+config.proxy = Some(Proxy::socks5("proxy.internal:1080").with_username("firm").with_password(password));
+// or "http://proxy.internal:3128".parse()?, or in a sessions file:
+//   proxy = "socks5://firm@proxy.internal:1080"
+//   proxy_password_env = "PROXY_PASSWORD"
+```
+
 `Initiator::reconfigure` replaces an initiator's configuration and endpoints from its next
 connection attempt, leaving a session that's connected alone, and `with_registry` lets
 initiators share a `SessionRegistry`, so handles from it outlive an initiator replaced by

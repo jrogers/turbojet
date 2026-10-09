@@ -113,10 +113,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   changes and reading the message log. Nothing serves it remotely yet: an HTTP and websocket
   endpoint with authentication, and a web console on top (what commercial engines sell on),
   belong with the gateway.
-- **Initiators through a proxy** (S). An initiator connects directly; `Initiator::run_stream`
-  takes a stream opened some other way, but then gives up reconnecting and failover. A connector
-  the initiator calls for each attempt would keep both, and built-in HTTP CONNECT and SOCKS5 ones
-  would cover networks that only reach out through a proxy.
 - **Filtering connections before the handshake** (S). Acceptors limit connections per IP
   address, but an unwanted address is only refused in `Application::verify_logon`, after a TLS
   handshake. A check of the remote address on accepting (an allowlist, or a function) would refuse

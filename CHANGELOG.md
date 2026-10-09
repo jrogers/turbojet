@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `InitiatorConfig::proxy` and `FixpInitiator::with_proxy` connect through an HTTP (`CONNECT`)
+  or SOCKS5 proxy, with an optional username and password (`turbojet::Proxy`), keeping failover,
+  reconnecting and TLS to the counterparty.
 - `FileMessageLog` writes passwords and credentials as `*`s (FIX Logons and UserRequests, FIXP
   Negotiates, NegotiationResponses and Establishes) unless `FileLogOptions::mask_secrets` is
   off. `turbojet::mask_secrets` does the same to a frame, for a `MessageLog` of one's own.
@@ -162,6 +165,9 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `proxy` and `proxy_password_env` in an initiator's section: the proxy to connect through, and
+  the environment variable holding its password. The QuickFIX converter reads QuickFIX/J's
+  ProxyType, ProxyHost, ProxyPort and ProxyUser into it.
 - `quickfix::convert` turns a QuickFIX settings file (`.cfg`) into a sessions file, converting
   the keys that map and refusing, by name, those that would behave differently. The example
   gateway runs it as `gateway convert-cfg FILE`.

@@ -17,6 +17,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   a session already connected carries on after its certificate is revoked. With CRLs, a
   certificate in the chain that none of them covers is refused. A CRL past its next update is
   still used.
+- Proxies: HTTP with `CONNECT` and Basic authentication, and SOCKS5 with no authentication or a
+  username and password. Not SOCKS4, NTLM or Kerberos proxy authentication, or TLS to the proxy
+  itself (an `https://` proxy). Through a proxy, a session's `ConnectionInfo` has the proxy's
+  address, not the counterparty's.
 - Cancel-on-disconnect countdowns live in memory: a process that stops without shutting down
   loses those under way, so after a restart the application checks the orders it kept. One that
   shuts down fires them at once, as does replacing an initiator during a grace period.
