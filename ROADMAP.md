@@ -105,9 +105,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 - **Encrypting the message log** (S). `FileMessageLog` masks passwords and credentials, but the
   rest of every order and execution is in the clear. Encrypting finished files, alongside
   compressing them, would let the log be kept where fewer people may read it.
-- **Replaying a message log** (M). Feed the inbound messages a log recorded to an `Application`
-  again, in order and with their recorded times (the clock is injected), to reproduce a problem
-  away from production. The sans-IO session makes it a matter of driving a `Session` from `FileMessageLog::read`.
 - **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass

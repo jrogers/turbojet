@@ -1060,6 +1060,28 @@ $ turbojet-log /var/log/fix --session 'FIX.4.4:US->THEM' --type D,8 --tag 11=ORD
 shown by length (in hex with `--raw`), and `--type` and `--tag` leave them out. A `dropped` record
 is always shown, so a gap in the log is visible.
 
+**Replaying the log.** `turbojet::replay` feeds the messages a session received, as the log
+recorded them, to an `Application` again, to reproduce a problem away from production. They go
+through a session configured as in production, at their recorded times, so the application sees
+what the engine delivered: duplicates ignored, messages behind a gap held, invalid ones rejected.
+
+```rust
+let id = SessionId::new("FIX.4.4", "US", "THEM");
+let records = FileMessageLog::files("/var/log/fix")?
+    .into_iter()
+    .map(|file| FileMessageLog::read(&file.path))
+    .collect::<io::Result<Vec<_>>>()?
+    .into_iter()
+    .flatten();
+let replayed = turbojet::replay(records, &id, config, app)?;
+println!("{} connections, {} messages", replayed.connections, replayed.messages);
+```
+
+Each inbound Logon starts a connection, expecting the Logon's MsgSeqNum (and sending from its
+NextExpectedMsgSeqNum), so a log that starts mid-day replays in sequence. What the session sends is
+discarded, the store is in memory, and cancel on disconnect is off. `Replayed::dropped` counts
+messages the log itself dropped, which the replay can't include.
+
 **Metrics** use the [`metrics`](https://docs.rs/metrics) facade, behind turbojet's optional
 `metrics` feature. Install a recorder (e.g. `metrics-exporter-prometheus`) before starting
 acceptors or initiators, then optionally call `turbojet::describe_metrics()` for help text. Every

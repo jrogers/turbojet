@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `turbojet::replay` feeds the messages a session received, as a `FileMessageLog` recorded them,
+  to an `Application` again, through a session at the recorded times, to reproduce a problem away
+  from production. `Replayed` says how many connections and messages it replayed, skipped, and
+  the log dropped.
 - `tls::Identity::from_pkcs12` and `from_pkcs12_file` (feature `pkcs12`) read a certificate
   chain and private key from a PKCS#12 bundle (`.p12`, `.pfx`), in the AES form or the legacy
   3DES and RC2 one.

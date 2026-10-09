@@ -146,6 +146,19 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   message of its BeginString first needs it: printing a log that uses two versions takes about
   20 ms in all (Apple M3, release build, 2026-10-09). A FIXT session is named from FIX 5.0 SP2
   whatever its ApplVerID, as the field names rarely differ; `--dictionary` replaces them all.
+- **Replaying the log.** `turbojet::replay` drives a `Session::acceptor` from a log's inbound
+  records as `turbojet-acceptance` drives one from a script: `commit_blocking` after each call, any
+  resend stepped through with `on_resume`, and the output discarded. Time is virtual: the
+  `Instant`s and the config's `Clock` move together from the first record's time (never backwards,
+  if the logging host's clock was stepped back), and between records `on_timer` runs at each
+  deadline and at least once a second, as a driver calls it, so a silent counterparty times out as
+  it did. The log has no connection records, so an inbound Logon ends the open connection and
+  starts another. Before each, the in-memory store is reset and set to expect the Logon's
+  MsgSeqNum and send from its NextExpectedMsgSeqNum(789), if any: without that, a log starting
+  mid-day would open with a gap and hold every message behind it. The Logon is logged before its
+  session is known, so it's matched by BeginString and CompIDs; a Logon that then identifies a
+  different session (SubIDs in it that the given `SessionId` lacks, say) ends the replay with an
+  error rather than replay into the wrong store.
   Compressing finished files (gzip, through flate2's pure-Rust backend) and calling the
   `on_finished` hook happen on a second thread, fed by a channel as the writer starts each new
   file and when the log is dropped, so the writer never waits for them: a full 256 MiB file of
