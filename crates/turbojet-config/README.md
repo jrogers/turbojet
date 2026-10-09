@@ -66,5 +66,6 @@ let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
 - Stores of other kinds, such as `turbojet-sql`'s, are registered in code by name and named in
   the file.
 
-The crate documentation lists every key. Features: `tls` (`[acceptor.tls]`), `tz` (time zones
-in schedules), `validation` (dictionaries), `metrics` (`latency_metrics`).
+The crate documentation lists every key. Features: `tls` (`[acceptor.tls]`), `pkcs12` (a
+certificate from a PKCS#12 bundle), `tz` (time zones in schedules), `validation` (dictionaries),
+`metrics` (`latency_metrics`).

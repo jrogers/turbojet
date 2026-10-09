@@ -842,6 +842,17 @@ checked when it's built (the key must be the certificate's), so a bad renewal is
 the old one kept. The gateway reloads its certificate, key, client CAs and CRLs from their files
 on SIGHUP.
 
+With the `pkcs12` feature, an `Identity` can also come from a PKCS#12 bundle (`.p12`, `.pfx`),
+as Java and Windows tools export them, in the AES form or the older 3DES and RC2 one:
+
+```rust
+let identity = Identity::from_pkcs12_file("gateway.p12".as_ref(), &password)?;
+```
+
+The bundle must hold one private key and its certificate chain; trusted CAs still come as PEM.
+In a sessions file, `pkcs12 = "gateway.p12"` takes the place of `cert` and `key`, and
+`pkcs12_password_env` names the environment variable holding its password.
+
 **Revocation** is checked only if you give certificate revocation lists (CRLs); without them,
 nothing changes. Add them to a `Trust`, and certificates they revoke are refused at the
 handshake:

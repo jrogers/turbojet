@@ -126,10 +126,9 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   gap and no resend storm. Replicate the session journal to the standby, with the exclusive-session
   lease deciding which instance is active. Cluster coordination and replication would be a separate
   project; Turbojet's part is what it needs from the engine.
-- **More TLS certificate formats and revocation sources** (S each). Certificates and keys come as
-  PEM only; accept PKCS#12 bundles too. Revocation is checked against CRLs the application gives;
-  OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points aren't
-  supported.
+- **More TLS revocation sources** (S each). Revocation is checked against CRLs the application
+  gives; OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points
+  aren't supported.
 
 ## 6. The example gateway
 

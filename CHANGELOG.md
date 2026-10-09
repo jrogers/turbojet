@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `tls::Identity::from_pkcs12` and `from_pkcs12_file` (feature `pkcs12`) read a certificate
+  chain and private key from a PKCS#12 bundle (`.p12`, `.pfx`), in the AES form or the legacy
+  3DES and RC2 one.
 - `Acceptor::with_allowed_ips` and `FixpAcceptor::with_allowed_ips` accept connections only
   from the addresses and CIDR ranges given (`turbojet::AllowedIps`), closing others on accept;
   `set_allowed_ips` replaces the list while serving. Refused ones are counted in
@@ -169,6 +172,10 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `pkcs12` and `pkcs12_password_env` in `[acceptor.tls]` and an initiator's `tls` (feature
+  `pkcs12`): the certificate and key from a PKCS#12 bundle, and the environment variable holding
+  its password. The QuickFIX converter's hint for key stores mentions them.
+- Builds without its `tls` feature again (broken since initiator proxies, unreleased).
 - `allow` in `[acceptor]`: the IP addresses and CIDR ranges connections are accepted from,
   reloaded with the rest of the file.
 - `proxy` and `proxy_password_env` in an initiator's section: the proxy to connect through, and

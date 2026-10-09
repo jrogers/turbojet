@@ -197,6 +197,8 @@
 //!
 //! - `tls`: TLS transport through rustls, with `Acceptor::serve_tls` and `Initiator::with_tls`.
 //!   Certificates presented by counterparties reach [`Application::verify_logon`].
+//! - `pkcs12`: TLS certificates and keys from PKCS#12 bundles as well as PEM
+//!   (`tls::Identity::from_pkcs12`). Turns on `tls`.
 //! - `metrics`: per-session counters and gauges through the [`metrics`](https://docs.rs/metrics)
 //!   facade. Install a recorder to export them.
 //! - `tz`: named IANA time zones for session schedules, following daylight saving.

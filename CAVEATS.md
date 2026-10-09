@@ -17,6 +17,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   a session already connected carries on after its certificate is revoked. With CRLs, a
   certificate in the chain that none of them covers is refused. A CRL past its next update is
   still used.
+- A PKCS#12 bundle gives an identity only: trusted CAs come as PEM, and a bundle holding more
+  than one private key is refused.
 - Allowed addresses and connection limits see the address a connection comes from: behind a load
   balancer or a TCP proxy, that's the device's, not the counterparty's (the PROXY protocol isn't
   read), so list the device. Changing the list doesn't close connections already open.

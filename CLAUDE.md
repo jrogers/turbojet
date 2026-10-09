@@ -23,7 +23,7 @@ scripts/fuzz.sh 60 session                                  # fuzz one target (n
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure
 ```
 
-Features: `tls`, `metrics`, `tz`, `validation`, `gzip`. Feature-gated code only builds when its feature is
+Features: `tls`, `pkcs12`, `metrics`, `tz`, `validation`, `gzip`. Feature-gated code only builds when its feature is
 on, so check with `--all-features` and `--no-default-features` at least.
 
 ## Things that bite
@@ -34,6 +34,10 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - **The fuzz crate** (`crates/turbojet/fuzz`) is outside the workspace with its own `Cargo.lock`.
   Workspace commands don't see it. A version bump or API change must also update it, or the
   `fuzz-build` job fails.
+- **Workspace builds unify features.** `turbojet`'s dev-dependency on `turbojet-config` (for the
+  gateway) turns `tls` on everywhere, so `--no-default-features` across the workspace doesn't
+  build `turbojet-config` without it. Check that crate alone: `cargo test -p turbojet-config
+  --no-default-features`.
 - **The allocation budget** (`crates/turbojet/tests/allocations.rs`) is exact. It fails if any
   stage's count changes, up or down. When a change moves it on purpose, update the budget and the
   README table, say why in the commit, and add the old numbers to DESIGN.md's measurement history.

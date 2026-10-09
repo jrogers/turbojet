@@ -66,14 +66,21 @@ machine with an injected clock. It has:
 ## Transports and the connection driver
 
 `connection::run` drives a session over any `AsyncRead + AsyncWrite`; `Acceptor` and `Initiator`
-add TCP, TLS with optional mutual authentication (certificates given from memory or files, and
-replaced while running) and optional revocation checks against CRLs the application gives
+add TCP, TLS with optional mutual authentication (certificates given from memory or files, as
+PEM or PKCS#12 bundles, and replaced while running) and optional revocation checks against CRLs the application gives
 (rustls checks them; with CRLs, a certificate none covers is refused, and a CRL past its next
 update is still used, so a late refresh doesn't lock every counterparty out), initiator failover from a chosen local address and through an HTTP or SOCKS5 proxy, and graceful shutdown
 (every session logged out, bounded by the logout timeout). Initiators reconnect with a
 configurable backoff (by default 1 s to 60 s, jittered), and acceptors limit connections overall
 and per IP address, accept them only from allowed addresses and ranges, and give each counterparty its own settings, decided at Logon, and its own
 store.
+
+PKCS#12 bundles are decoded by `p12-keystore`: ring, which rustls uses here, has no AES-CBC, 3DES
+or RC2 to decrypt them. It reads the AES form (OpenSSL 3's default) and the legacy RC2 and 3DES
+one that older OpenSSL, Windows and Java tools write, and its one key and chain go through the
+same check as PEM (`Identity::from_der`). A bundle with several keys is refused rather than one
+chosen by alias, since nothing in a sessions file would name it. It's a feature of its own,
+`pkcs12`, so PEM users don't build its 42 crates.
 
 - **Full duplex.** The driver reads while its output waits to be written, so two ends writing to
   each other at once never each wait for the other to read, and it disconnects a counterparty that
