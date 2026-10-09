@@ -3276,6 +3276,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbojet-log"
+version = "0.2.0"
+dependencies = [
+ "chrono",
+ "tempfile",
+ "turbojet",
+ "turbojet-dictionary",
+]
+
+[[package]]
 name = "turbojet-sim"
 version = "0.2.0"
 dependencies = [

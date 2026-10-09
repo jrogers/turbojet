@@ -1,0 +1,22 @@
+[package]
+name = "turbojet-log"
+description = "Prints and filters Turbojet's message log files, with FIX field names"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "log"]
+categories = ["command-line-utilities", "finance"]
+
+[dependencies]
+chrono = { workspace = true, features = ["std"] }
+turbojet = { workspace = true, features = ["gzip"] }
+turbojet-dictionary.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
