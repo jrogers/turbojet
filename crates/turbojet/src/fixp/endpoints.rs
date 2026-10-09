@@ -66,8 +66,22 @@ impl FixpAcceptor {
     /// address; see [`Acceptor::with_max_connections`](crate::Acceptor::with_max_connections).
     #[must_use]
     pub fn with_max_connections(mut self, connections: usize, per_ip: usize) -> Self {
-        self.limits = Arc::new(Limits::new(connections, per_ip));
+        self.limits = Arc::new(self.limits.resized(connections, per_ip));
         self
+    }
+
+    /// Accepts connections only from `allowed`; see
+    /// [`Acceptor::with_allowed_ips`](crate::Acceptor::with_allowed_ips).
+    #[must_use]
+    pub fn with_allowed_ips(self, allowed: crate::AllowedIps) -> Self {
+        self.limits.set_allowed(Some(allowed));
+        self
+    }
+
+    /// Replaces the addresses connections are accepted from, while serving: `None` accepts any.
+    /// Connections already open stay open.
+    pub fn set_allowed_ips(&self, allowed: Option<crate::AllowedIps>) {
+        self.limits.set_allowed(allowed);
     }
 
     /// A handle to session `id` (as [`sessions`](Self::sessions) lists them), usable whenever it's

@@ -219,6 +219,7 @@ mod macros;
 
 pub mod acceptor;
 pub mod admin;
+mod allowed;
 pub mod application;
 pub mod cancel;
 pub mod codec;
@@ -246,6 +247,7 @@ pub mod tls;
 pub mod validation;
 
 pub use acceptor::Acceptor;
+pub use allowed::AllowedIps;
 pub use application::{Application, Context, Disconnect, MessageReject};
 pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};

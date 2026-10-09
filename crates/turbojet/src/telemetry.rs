@@ -33,7 +33,7 @@
 //! | `turbojet_resend_requests_evicted_total` | counter | `session` |
 //! | `turbojet_throttled_total` | counter | `session`, `direction` (`inbound` or `outbound`) |
 //! | `turbojet_garbled_messages_total` | counter | |
-//! | `turbojet_connections_refused_total` | counter | `reason` (`total` or `per_ip`) |
+//! | `turbojet_connections_refused_total` | counter | `reason` (`total`, `per_ip` or `not_allowed`) |
 //! | `turbojet_cancel_on_disconnect_total` | counter | `trigger` (`disconnect` or `disconnect_or_logout`) |
 //! | `turbojet_cancels_pending` | gauge | |
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |

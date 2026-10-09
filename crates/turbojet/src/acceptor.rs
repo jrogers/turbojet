@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -12,6 +12,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Handle;
 use tracing::{Instrument, info, warn};
 
+use crate::allowed::AllowedIps;
 use crate::application::Application;
 use crate::connection;
 use crate::counterparty::Counterparties;
@@ -84,7 +85,7 @@ impl Acceptor {
     /// closes, logged on or not. Set it before serving or cloning: clones share the limits.
     #[must_use]
     pub fn with_max_connections(mut self, connections: usize) -> Self {
-        self.limits = Arc::new(Limits::new(connections, self.limits.max_per_ip));
+        self.limits = Arc::new(self.limits.resized(connections, self.limits.max_per_ip));
         self
     }
 
@@ -93,8 +94,24 @@ impl Acceptor {
     /// behind one address (a NAT, or a hub serving several firms) share it.
     #[must_use]
     pub fn with_max_connections_per_ip(mut self, connections: usize) -> Self {
-        self.limits = Arc::new(Limits::new(self.limits.max_total, connections));
+        self.limits = Arc::new(self.limits.resized(self.limits.max_total, connections));
         self
+    }
+
+    /// Accepts connections only from `allowed`, closing any other as soon as it's accepted,
+    /// before a TLS handshake or a task, as [`with_max_connections`](Self::with_max_connections)
+    /// does past its limit (counted in `turbojet_connections_refused_total` with reason
+    /// `not_allowed`). Every address is accepted until this is set. Clones share it.
+    #[must_use]
+    pub fn with_allowed_ips(self, allowed: AllowedIps) -> Self {
+        self.limits.set_allowed(Some(allowed));
+        self
+    }
+
+    /// Replaces the addresses connections are accepted from, while serving: `None` accepts any.
+    /// Connections already open stay open. Clones share it.
+    pub fn set_allowed_ips(&self, allowed: Option<AllowedIps>) {
+        self.limits.set_allowed(allowed);
     }
 
     /// Gives each counterparty the settings `counterparties` resolves at its Logon, in place of
@@ -354,10 +371,13 @@ where
     }
 }
 
-/// How many connections an acceptor has open, overall and by IP address, against its limits.
+/// How many connections an acceptor has open, overall and by IP address, against its limits, and
+/// the addresses it accepts them from.
 pub(crate) struct Limits {
     max_total: usize,
     max_per_ip: usize,
+    /// `None` accepts any address.
+    allowed: RwLock<Option<AllowedIps>>,
     open: Mutex<Open>,
 }
 
@@ -374,7 +394,26 @@ struct Open {
 
 impl Limits {
     pub(crate) fn new(max_total: usize, max_per_ip: usize) -> Self {
-        Self { max_total, max_per_ip, open: Mutex::default() }
+        Self { max_total, max_per_ip, allowed: RwLock::default(), open: Mutex::default() }
+    }
+
+    /// New limits of `max_total` and `max_per_ip`, accepting the addresses these do.
+    pub(crate) fn resized(&self, max_total: usize, max_per_ip: usize) -> Self {
+        let allowed = self.allowed.read().expect("allowed addresses lock poisoned").clone();
+        Self { allowed: RwLock::new(allowed), ..Self::new(max_total, max_per_ip) }
+    }
+
+    /// Accepts connections only from `allowed` from now on, or from anywhere if `None`.
+    pub(crate) fn set_allowed(&self, allowed: Option<AllowedIps>) {
+        *self.allowed.write().expect("allowed addresses lock poisoned") = allowed;
+    }
+
+    fn is_allowed(&self, ip: IpAddr) -> bool {
+        self.allowed
+            .read()
+            .expect("allowed addresses lock poisoned")
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(ip))
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Open> {
@@ -382,11 +421,14 @@ impl Limits {
     }
 
     /// A place for a connection from `ip`, given back when it's dropped; or `None`, counted and
-    /// (now and then) logged, if either limit is reached.
+    /// (now and then) logged, if `ip` isn't allowed or either limit is reached.
     fn admit(self: &Arc<Self>, ip: IpAddr) -> Option<Place> {
+        let allowed = self.is_allowed(ip);
         let mut open = self.lock();
         let from_ip = open.per_ip.get(&ip).copied().unwrap_or(0);
-        let reason = if open.total >= self.max_total {
+        let reason = if !allowed {
+            "not_allowed"
+        } else if open.total >= self.max_total {
             "total"
         } else if from_ip >= self.max_per_ip {
             "per_ip"
@@ -407,7 +449,7 @@ impl Limits {
                 max_per_ip = self.max_per_ip,
                 busiest = busiest.as_deref().unwrap_or("none"),
                 last = %ip,
-                "refusing connections past the acceptor's limit ({reason})"
+                "refusing connections ({reason})"
             );
             open.refused = 0;
             open.reported = Some(Instant::now());
@@ -558,6 +600,21 @@ mod tests {
             Ok(Ok(_)) => panic!("the acceptor sent something before a Logon"),
             Err(_) => false,
         }
+    }
+
+    #[tokio::test]
+    async fn addresses_not_allowed_are_closed_at_once_and_the_list_can_change() {
+        let elsewhere = AllowedIps::new(["10.0.0.0/8"]).unwrap();
+        // Set before the limits are changed, and kept by them.
+        let acceptor = quiet_acceptor().with_allowed_ips(elsewhere).with_max_connections(5);
+        let handle = acceptor.clone();
+        let addr = serving(acceptor).await;
+        assert!(refused(&mut TcpStream::connect(addr).await.unwrap()).await, "127.0.0.1 isn't allowed");
+
+        handle.set_allowed_ips(Some(AllowedIps::new(["127.0.0.1", "10.0.0.0/8"]).unwrap()));
+        assert!(!refused(&mut TcpStream::connect(addr).await.unwrap()).await, "allowed once listed");
+        handle.set_allowed_ips(None);
+        assert!(!refused(&mut TcpStream::connect(addr).await.unwrap()).await, "any address without a list");
     }
 
     #[tokio::test]
