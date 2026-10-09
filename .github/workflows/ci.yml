@@ -55,6 +55,9 @@ jobs:
         with:
           key: ${{ matrix.features }}
       - run: cargo clippy --workspace --all-targets ${{ matrix.features }} --locked -- -D warnings
+      # turbojet-interop turns pkcs12 on in workspace builds; build turbojet with TLS but without it.
+      - if: matrix.features == '--features tls'
+        run: cargo clippy -p turbojet --all-targets --features tls --locked -- -D warnings
       - run: cargo test --workspace ${{ matrix.skip }} ${{ matrix.features }} --locked
 
   # The minimum supported Rust version (workspace rust-version).

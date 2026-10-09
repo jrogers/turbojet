@@ -99,11 +99,11 @@ enum Refuser {
     Acceptor,
 }
 
-/// Neither side logs on while the initiator keeps trying. As initiator, QuickFIX/J logs each
-/// failed handshake, and quickfix-go each one it refused itself: which shows the refusal came in
-/// TLS and not later. With TLS 1.3 a client learns that its certificate was refused only after its
-/// side of the handshake, so quickfix-go then logs just the disconnection. As acceptors, neither
-/// logs a failed handshake.
+/// Neither side logs on while the initiator keeps trying. As initiator, QuickFIX/J and QuickFIX/n
+/// log each failed handshake, and quickfix-go each one it refused itself: which shows the refusal
+/// came in TLS and not later. With TLS 1.3 a client learns that its certificate was refused only
+/// after its side of the handshake, so quickfix-go then logs just the disconnection. QuickFIX/n,
+/// with TLS 1.2 on macOS, learns it in the handshake. As acceptors, none logs a failed handshake.
 async fn refused(pair: &mut Pair, refuser: Refuser) {
     pair.never_logged_on(REFUSED_FOR).await;
     if pair.setup.role == Role::TjInitiator {
@@ -121,7 +121,16 @@ async fn refused(pair: &mut Pair, refuser: Refuser) {
             pair.peer.expect("quickfix-go's failed handshake", handshake).await;
         }
         Engine::QuickFixGo => {}
-        // Stage 3 (TLS) decides what QuickFIX/n logs.
-        Engine::QuickFixN => {}
+        Engine::QuickFixN => {
+            // Its own refusal fails its certificate check; Turbojet's comes back as an alert.
+            let reason = match refuser {
+                Refuser::Initiator => "rejected by the provided RemoteCertificateValidationCallback",
+                Refuser::Acceptor => "Authentication failed",
+            };
+            let handshake = |e: &PeerEvent| {
+                e.logged().is_some_and(|t| t.starts_with("Unable to perform authentication") && t.contains(reason))
+            };
+            pair.peer.expect("QuickFIX/n's failed handshake", handshake).await;
+        }
     }
 }

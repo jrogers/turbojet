@@ -5,7 +5,9 @@
 // Arguments are key=value: role, begin, port, sender, target, sender-sub, target-sub,
 // sender-location, target-location, heartbeat, reset-on-logon, reconnect, max-latency and log-dir,
 // as for the QuickFIX/J peer, and spec-dir: the directory holding QuickFIX/n's data dictionaries
-// (by default, spec/ next to this program).
+// (by default, spec/ next to this program). For TLS, tls-ca and need-client-auth as for the
+// QuickFIX/J peer, and, for a certificate to present, tls-bundle and tls-bundle-password: a PKCS#12
+// bundle, which is how QuickFIX/n takes one.
 //
 // QuickFIX/n logs its errors and its other session events through the same call, so all of them
 // are emitted as qfn_event; there is no qfj_error.
@@ -69,6 +71,34 @@ else
 {
     // FIX.4.2 -> FIX42.xml
     session.SetString("DataDictionary", Path.Combine(spec, begin.Replace(".", "") + ".xml"));
+}
+
+if (opts.TryGetValue("tls-ca", out var ca))
+{
+    session.SetString("SSLEnable", "Y");
+    session.SetString("SSLCACertificate", ca);
+    // By default it checks revocation online, which certificates without a CRL distribution
+    // point fail. As with the other peers, only Turbojet checks revocation, against CRLs given.
+    session.SetString("SSLCheckCertificateRevocation", "N");
+    if (opts.TryGetValue("tls-bundle", out var bundle))
+    {
+        session.SetString("SSLCertificate", bundle);
+        session.SetString("SSLCertificatePassword", Get("tls-bundle-password", ""));
+    }
+    if (role == "acceptor")
+    {
+        // An acceptor that validates certificates refuses a client without one, whatever
+        // SSLRequireClientCertificate says, so it validates only when it requires one.
+        var clientAuth = Get("need-client-auth", "N");
+        session.SetString("SSLRequireClientCertificate", clientAuth);
+        session.SetString("SSLValidateCertificates", clientAuth);
+    }
+    else
+    {
+        // The name the server's certificate must carry, as Turbojet's client checks it.
+        session.SetString("SSLValidateCertificates", "Y");
+        session.SetString("SSLServerName", "localhost");
+    }
 }
 
 int port;

@@ -200,7 +200,8 @@ impl Setup {
                 let config = initiator_config(session, &id, &options);
                 let mut initiator = Initiator::new(addr.to_string(), config, storage, app).unwrap();
                 if let (Some(tls), Some(pki)) = (options.tls, &pki) {
-                    initiator = initiator.with_tls(tj_client_tls(pki, tls).connector(), "localhost").unwrap();
+                    initiator =
+                        initiator.with_tls(tj_client_tls(pki, tls, self.engine).connector(), "localhost").unwrap();
                 }
                 let handle = initiator.handle();
                 (peer, handle, tokio::spawn(initiator.run()))
@@ -216,7 +217,7 @@ impl Setup {
                     proxy = Some(started);
                 }
                 let handle = acceptor.handle(&id);
-                let server = options.tls.zip(pki.as_ref()).map(|(tls, pki)| tj_server_tls(pki, tls));
+                let server = options.tls.zip(pki.as_ref()).map(|(tls, pki)| tj_server_tls(pki, tls, self.engine));
                 let task = tokio::spawn(async move {
                     let served = match server {
                         Some(server) => acceptor.serve_tls(listener, server.acceptor()).await,
@@ -277,28 +278,32 @@ fn peer_tls(pki: &Pki, tls: Tls, role: Role) -> PeerTls {
     let peer_is_acceptor = role == Role::TjInitiator;
     let presents = peer_is_acceptor || tls.client_cert;
     let trusted = if peer_is_acceptor { tls.acceptor_trusts_initiator } else { tls.initiator_trusts_acceptor };
+    let identity = || {
+        let (cert, key) = pki.identity_paths("peer");
+        (cert, key, pki.bundle_path("peer"))
+    };
     PeerTls {
-        identity: presents.then(|| pki.identity_paths("peer")),
+        identity: presents.then(identity),
         ca: pki.ca_path(trusted),
         need_client_auth: peer_is_acceptor && tls.client_auth,
     }
 }
 
 /// Turbojet as TLS client: the CA it trusts, and its certificate if it presents one.
-fn tj_client_tls(pki: &Pki, tls: Tls) -> ClientTls {
+fn tj_client_tls(pki: &Pki, tls: Tls, engine: Engine) -> ClientTls {
     let trust = tj_trust(pki, tls, tls.initiator_trusts_acceptor);
-    let identity = tls.client_cert.then(|| tj_identity(pki));
+    let identity = tls.client_cert.then(|| tj_identity(pki, engine));
     ClientTls::new(trust, identity).unwrap()
 }
 
 /// Turbojet as TLS server: its certificate, and the CA it trusts for clients' if it asks for them.
-fn tj_server_tls(pki: &Pki, tls: Tls) -> ServerTls {
+fn tj_server_tls(pki: &Pki, tls: Tls, engine: Engine) -> ServerTls {
     let client_trust = if tls.client_auth {
         ClientTrust::Required(tj_trust(pki, tls, tls.acceptor_trusts_initiator))
     } else {
         ClientTrust::None
     };
-    ServerTls::new(tj_identity(pki), client_trust).unwrap()
+    ServerTls::new(tj_identity(pki, engine), client_trust).unwrap()
 }
 
 /// The CA Turbojet trusts (the one that issued the peer's certificate, if `trusted`), with the
@@ -311,7 +316,12 @@ fn tj_trust(pki: &Pki, tls: Tls, trusted: bool) -> Trust {
     }
 }
 
-fn tj_identity(pki: &Pki) -> Identity {
+/// Turbojet's certificate and key: against QuickFIX/n, which takes its own as a PKCS#12 bundle,
+/// from a bundle too; otherwise from PEM files.
+fn tj_identity(pki: &Pki, engine: Engine) -> Identity {
+    if engine == Engine::QuickFixN {
+        return Identity::from_pkcs12_file(&pki.bundle_path("tj"), crate::pki::BUNDLE_PASSWORD).unwrap();
+    }
     let (cert, key) = pki.identity_paths("tj");
     Identity::from_pem_files(&cert, &key).unwrap()
 }

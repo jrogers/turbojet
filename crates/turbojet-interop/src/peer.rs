@@ -173,11 +173,12 @@ pub struct PeerConfig {
     pub tls: Option<PeerTls>,
 }
 
-/// The peer's TLS settings, as PEM files.
+/// The peer's TLS settings, as files.
 #[derive(Debug, Clone)]
 pub struct PeerTls {
-    /// Its certificate and key, if it has one to present.
-    pub identity: Option<(PathBuf, PathBuf)>,
+    /// Its certificate and key, if it has one to present: PEM files, and the same in a PKCS#12
+    /// bundle under [`BUNDLE_PASSWORD`](crate::pki::BUNDLE_PASSWORD), which QuickFIX/n takes.
+    pub identity: Option<(PathBuf, PathBuf, PathBuf)>,
     /// The CA it trusts for the other side's certificate.
     pub ca: PathBuf,
     /// As acceptor, it requires a client certificate.
@@ -295,9 +296,16 @@ fn command(config: &PeerConfig, log_dir: &Path) -> Command {
     if let Some(tls) = &config.tls {
         command.arg(format!("tls-ca={}", tls.ca.display()));
         command.arg(format!("need-client-auth={}", if tls.need_client_auth { "Y" } else { "N" }));
-        if let Some((cert, key)) = &tls.identity {
-            command.arg(format!("tls-cert={}", cert.display()));
-            command.arg(format!("tls-key={}", key.display()));
+        match (&tls.identity, config.engine) {
+            (Some((_, _, bundle)), Engine::QuickFixN) => {
+                command.arg(format!("tls-bundle={}", bundle.display()));
+                command.arg(format!("tls-bundle-password={}", crate::pki::BUNDLE_PASSWORD));
+            }
+            (Some((cert, key, _)), _) => {
+                command.arg(format!("tls-cert={}", cert.display()));
+                command.arg(format!("tls-key={}", key.display()));
+            }
+            (None, _) => {}
         }
     }
     if config.sub_ids {

@@ -38,6 +38,10 @@ for features in --no-default-features "--features tls" "--features metrics" "--f
     step "clippy and test ($features)"
     # shellcheck disable=SC2086 # $features is one or two words on purpose.
     cargo clippy --workspace --all-targets $features --locked --quiet -- -D warnings
+    # turbojet-interop turns pkcs12 on in workspace builds; build turbojet with TLS but without it.
+    if [ "$features" = "--features tls" ]; then
+        cargo clippy -p turbojet --all-targets --features tls --locked --quiet -- -D warnings
+    fi
     skip=--exclude=turbojet-sim
     [ "$features" = --all-features ] && skip=
     # shellcheck disable=SC2086
