@@ -221,3 +221,28 @@ fn syntax_errors_are_reported_by_line() {
         ]
     );
 }
+
+/// QuickFIX/J's proxy settings become `proxy`, the password left to `proxy_password_env`.
+#[test]
+fn proxies_convert_without_their_passwords() {
+    let cfg = |settings: &str| {
+        format!(
+            "[SESSION]\nConnectionType=initiator\nBeginString=FIX.4.4\nSenderCompID=A\nTargetCompID=B\nSocketConnectHost=venue\nSocketConnectPort=9876\nNonStopSession=Y\n{settings}"
+        )
+    };
+    let toml =
+        convert(&cfg("ProxyType=socks\nProxyHost=proxy\nProxyPort=1080\nProxyUser=firm\nProxyPassword=pw\n")).unwrap();
+    assert!(toml.contains("proxy = \"socks5://firm@proxy:1080\""), "{toml}");
+    assert!(toml.contains("# ProxyPassword: not converted; set proxy_password_env"), "{toml}");
+    assert!(!toml.contains("pw\""), "the password isn't written: {toml}");
+    let toml = convert(&cfg("ProxyType=http\nProxyHost=proxy\nProxyPort=3128\n")).unwrap();
+    assert!(toml.contains("proxy = \"http://proxy:3128\""), "{toml}");
+
+    let problems = convert(&cfg("ProxyType=socks\nProxyVersion=4\nProxyHost=proxy\nProxyPort=1080\n")).unwrap_err();
+    assert!(
+        problems.to_string().contains("ProxyType socks version 4: Turbojet's proxies are HTTP and SOCKS5"),
+        "{problems}"
+    );
+    let problems = convert(&cfg("ProxyType=http\nProxyHost=proxy\n")).unwrap_err();
+    assert!(problems.to_string().contains("ProxyType needs ProxyHost and ProxyPort"), "{problems}");
+}

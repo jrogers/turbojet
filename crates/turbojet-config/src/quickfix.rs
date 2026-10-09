@@ -90,6 +90,30 @@ const ONLY_DEFAULT: &[(&str, &str, &str)] = &[
     ("CheckCompID", "Y", "Turbojet always checks CompIDs"),
 ];
 
+/// QuickFIX/J's ProxyType (`http`, or `socks` with ProxyVersion 5, its default), ProxyHost,
+/// ProxyPort and ProxyUser, as a sessions file's `proxy` URL.
+fn proxy(session: &mut Session, problems: &mut Vec<String>) -> Option<String> {
+    let kind = session.take("ProxyType")?;
+    let version = session.take("ProxyVersion");
+    let (host, port, user) = (session.take("ProxyHost"), session.take("ProxyPort"), session.take("ProxyUser"));
+    let scheme = match (kind.as_str(), version.as_deref()) {
+        ("http", _) => "http",
+        ("socks", None | Some("5")) => "socks5",
+        _ => {
+            let version = version.map(|v| format!(" version {v}")).unwrap_or_default();
+            problems
+                .push(format!("{}: ProxyType {kind}{version}: Turbojet's proxies are HTTP and SOCKS5", session.name));
+            return None;
+        }
+    };
+    let (Some(host), Some(port)) = (host, port) else {
+        problems.push(format!("{}: ProxyType needs ProxyHost and ProxyPort", session.name));
+        return None;
+    };
+    let user = user.map(|user| format!("{user}@")).unwrap_or_default();
+    Some(format!("{scheme}://{user}{host}:{port}"))
+}
+
 /// A `[SESSION]`, with `[DEFAULT]` merged in, and what's been taken from it.
 struct Session {
     /// For messages: `[SESSION] 2 (FIX.4.4:EXEC->BANZAI)`.
@@ -353,8 +377,16 @@ impl Output {
         if let Some(timeout) = session.seconds("LogonTimeout", problems) {
             lines.push(format!("logon_timeout = {}", quote(&timeout)));
         }
+        let mut notes = Vec::new();
+        if let Some(url) = proxy(&mut session, problems) {
+            lines.push(format!("proxy = {}", quote(&url)));
+            if session.take("ProxyPassword").is_some() {
+                notes.push("ProxyPassword: not converted; set proxy_password_env to a variable holding it".into());
+            }
+        }
         lines.extend(self.session_keys(&mut session, problems));
         let mut comments = vec![format!("From {}", session.name)];
+        comments.extend(notes);
         comments.extend(session.leftovers(problems).into_iter().map(|key| format!("{key}: not converted")));
         let target = session.keys.get("TargetCompID").cloned().unwrap_or_default();
         let name = (1..)

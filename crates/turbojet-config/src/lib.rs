@@ -88,7 +88,9 @@
 //! needed without one), `heartbeat_interval`, `reset_on_logon`,
 //! `next_expected_msg_seq_num`, `username`, `password_env` (the environment variable holding the
 //! password: a password isn't kept in the file), `connect_timeout`, `local_address` (the IP address
-//! to connect from, with or without a port), `logon_timeout`, `send_queue`,
+//! to connect from, with or without a port), `proxy` (`"http://host:port"` or
+//! `"socks5://user@host:port"`, to connect through) and `proxy_password_env` (its password, the
+//! same way), `logon_timeout`, `send_queue`,
 //! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, crl, cert, key, server_name }`
 //! (feature `tls`; `server_name` is the first address's host by default; `crl`, a PEM file of
 //! CRLs, checks the server's certificate for revocation), and every session key

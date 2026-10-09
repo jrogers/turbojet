@@ -311,6 +311,37 @@ fn fixed(acceptor: &RawAcceptor, context: &Context<'_>) -> Result<SessionConfig,
     Ok(config)
 }
 
+/// How an initiator connects: its `connect_timeout`, `local_address`, and `proxy` with its
+/// password from `proxy_password_env`.
+fn connection_keys(
+    own: &RawInitiatorKeys,
+    config: &mut InitiatorConfig,
+    at: &impl Fn(&str, String) -> Error,
+) -> Result<(), Error> {
+    if let Some(timeout) = &own.connect_timeout {
+        config.connect_timeout = parse_duration(timeout).map_err(|e| at("connect_timeout", e))?;
+    }
+    if let Some(local) = &own.local_address {
+        // An address alone leaves the port to the system.
+        let parsed = local.parse().or_else(|_| local.parse::<IpAddr>().map(|ip| SocketAddr::new(ip, 0)));
+        config.local_addr = Some(parsed.map_err(|_| at("local_address", format!("'{local}' isn't an IP address")))?);
+    }
+    let Some(url) = &own.proxy else {
+        return match own.proxy_password_env {
+            Some(_) => Err(at("proxy_password_env", "needs a proxy".into())),
+            None => Ok(()),
+        };
+    };
+    let mut proxy: turbojet::Proxy = url.parse().map_err(|e| at("proxy", e))?;
+    if let Some(variable) = &own.proxy_password_env {
+        let password = std::env::var(variable)
+            .map_err(|e| at("proxy_password_env", format!("environment variable {variable}: {e}")))?;
+        proxy = proxy.with_password(password);
+    }
+    config.proxy = Some(proxy);
+    Ok(())
+}
+
 /// Initiator `name`'s settings: its own keys, and its session keys over `[defaults]`.
 fn resolve_initiator(
     name: &str,
@@ -358,14 +389,7 @@ fn resolve_initiator(
             std::env::var(variable).map_err(|e| at("password_env", format!("environment variable {variable}: {e}")))?;
         config.password = Some(password.into());
     }
-    if let Some(timeout) = &own.connect_timeout {
-        config.connect_timeout = parse_duration(timeout).map_err(|e| at("connect_timeout", e))?;
-    }
-    if let Some(local) = &own.local_address {
-        // An address alone leaves the port to the system.
-        let parsed = local.parse().or_else(|_| local.parse::<IpAddr>().map(|ip| SocketAddr::new(ip, 0)));
-        config.local_addr = Some(parsed.map_err(|_| at("local_address", format!("'{local}' isn't an IP address")))?);
-    }
+    connection_keys(own, &mut config, &at)?;
     if let Some(reconnect) = &own.reconnect {
         let duration = |text: &str| parse_duration(text).map_err(|e| at("reconnect", e));
         let mut policy = ReconnectPolicy::exponential(duration(&reconnect.initial)?, duration(&reconnect.max)?);
@@ -1130,6 +1154,19 @@ mod tests {
     }
 
     #[test]
+    fn an_initiator_connects_through_a_proxy_with_its_password_from_the_environment() {
+        let loaded =
+            load_text(&format!("{INITIATOR}proxy = \"socks5://firm@proxy:1080\"\nproxy_password_env = \"PATH\""))
+                .unwrap();
+        let proxy = loaded.initiators["LSE"].config.proxy.clone().unwrap();
+        assert_eq!(
+            proxy,
+            turbojet::Proxy::socks5("proxy:1080").with_username("firm").with_password(std::env::var("PATH").unwrap())
+        );
+        assert_eq!(load_text(INITIATOR).unwrap().initiators["LSE"].config.proxy, None, "direct by default");
+    }
+
+    #[test]
     fn initiator_errors_name_the_section_and_key() {
         let cases = [
             (
@@ -1146,6 +1183,11 @@ mod tests {
                 "initiator LSE: password_env: environment variable",
             ),
             (format!("{INITIATOR}store = \"tape\""), "initiator LSE: store: no store named 'tape'"),
+            (
+                format!("{INITIATOR}proxy = \"http://firm:pw@proxy:3128\""),
+                "initiator LSE: proxy: 'http://firm:pw@proxy:3128' has a password",
+            ),
+            (format!("{INITIATOR}proxy_password_env = \"PATH\""), "initiator LSE: proxy_password_env: needs a proxy"),
             (
                 format!("{INITIATOR}local_address = \"eth0\""),
                 "initiator LSE: local_address: 'eth0' isn't an IP address",
