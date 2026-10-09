@@ -958,6 +958,19 @@ mod pkcs12 {
         assert!(matches!(next(&mut events).await, Event::LoggedOn));
     }
 
+    /// Bundles the OpenSSL CLI wrote (tests/fixtures/pkcs12/README.md): its legacy form (RC2 and
+    /// 3DES, a SHA-1 MAC) and its default (AES-256, a SHA-256 MAC).
+    #[test]
+    fn bundles_written_by_openssl_are_read() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/pkcs12");
+        for name in ["legacy.p12", "aes.p12"] {
+            let identity = tls::Identity::from_pkcs12_file(&dir.join(name), "turbojet").unwrap();
+            assert!(format!("{identity:?}").contains("certificates: 1"), "{name}: {identity:?}");
+            let e = tls::Identity::from_pkcs12_file(&dir.join(name), "guess").unwrap_err();
+            assert!(e.to_string().contains("wrong password"), "{name}: {e}");
+        }
+    }
+
     #[test]
     fn unreadable_bundles_are_refused_saying_why() {
         let pki = Pki::new();
