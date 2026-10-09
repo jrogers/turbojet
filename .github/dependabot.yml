@@ -1,0 +1,31 @@
+# Version updates. Security updates are on in the repository's settings and cover every
+# ecosystem, the interop peers' included; these are routine upgrades, grouped into one pull
+# request per ecosystem a month. The interop peers (Gradle, Go, NuGet) get none: their versions
+# are the baseline the interop tests check against, so they change on purpose, not on a timer.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The workspace, and the fuzz crate, which has its own Cargo.lock outside it.
+  - package-ecosystem: cargo
+    directories: ["/", "/crates/turbojet/fuzz"]
+    schedule:
+      interval: monthly
+    # Releases at least two weeks old, so a broken one is usually yanked or fixed first.
+    cooldown:
+      default-days: 14
+    groups:
+      cargo:
+        patterns: ["*"]
+    ignore:
+      # 0.9 needs Rust 1.94; the minimum supported is 1.89.
+      - dependency-name: sqlx
+        versions: [">=0.9"]
+      # Pinned exactly in Cargo.toml (the pkcs12 feature); upgraded on purpose.
+      - dependency-name: p12-keystore
