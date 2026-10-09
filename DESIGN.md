@@ -363,6 +363,15 @@ ExecutionReport encodes in 54 ns against 122 ns. Building a typed message spent 
 its time appending digits a character at a time; integers and decimals are now appended up to
 three digits at a time from a table, 164 ns to 156 ns for an ExecutionReport.
 
+Sends don't keep a message encoded and patch only the fields that change: it would save too little.
+Measured 2026-10-09 on an M3, criterion medians for a FIX 4.2 NewOrderSingle of about 150 bytes:
+the application builds the typed order in 84 ns, turning it into a `Message` for
+`SessionHandle::send` takes 160 ns, and the session sends it in 196 ns (header, encoding (47 ns),
+store and commit). Patching a pre-encoded order (copying the fixed bytes, writing MsgSeqNum, both
+timestamps, ClOrdID, quantity and price, then BodyLength and CheckSum) takes at least 73 ns. So a
+template could save about 220 ns an order, 1.5 to 2% of a round trip over localhost (10.3 µs
+spinning, 16.3 µs replying from `on_message`). The session's numbering and storing stay either way.
+
 ### Latency
 
 Researched 2026-10-04 on an Apple M3. A one-at-a-time round trip over localhost takes 26.5 µs when

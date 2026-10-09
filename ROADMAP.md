@@ -89,10 +89,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
     AF_XDP would need a userspace TCP stack, so stay parked;
   - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
-- **Pre-encoded messages** (M, research). Every send encodes the whole message. Keeping one
-  encoded and patching only the fields that change (price, quantity, ClOrdID), with the session's
-  own header fields written ahead of time, would skip most of that. Worth it only if
-  encoding shows up in the round trip; it's already done straight into the output buffer.
 - **Cache-aligned data** (S each, research). Data shared between threads, such as the session
   registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
   share a cache line with unrelated data that another core writes (false sharing), and a
