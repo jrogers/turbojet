@@ -206,6 +206,11 @@ Notable changes to the published crates.
   `SqlStorage::migrate` adds it to a database made by 0.2 (PostgreSQL alters the table, SQLite
   rebuilds it), keeping existing sessions as they were.
 
+### `turbojet-log`
+
+- A new crate: the `turbojet-log` command prints `FileMessageLog` files with FIX field and value
+  names, filtered by session, direction, MsgType, a field's value or a time range.
+
 ## 0.2.0 (2026-10-04)
 
 Two new crates: `turbojet-config`, session configuration files, and `turbojet-sql`, session

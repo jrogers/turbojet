@@ -105,9 +105,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 - **Encrypting the message log** (S). `FileMessageLog` masks passwords and credentials, but the
   rest of every order and execution is in the clear. Encrypting finished files, alongside
   compressing them, would let the log be kept where fewer people may read it.
-- **Message log tools** (S). The log can be read from code (`FileMessageLog::files`, `read`), but
-  an operator looking into an incident wants a command: print a file's records with field names,
-  and filter them by session, direction, MsgType, a tag's value or a time range.
 - **Replaying a message log** (M). Feed the inbound messages a log recorded to an `Application`
   again, in order and with their recorded times (the clock is injected), to reproduce a problem
   away from production. The sans-IO session makes it a matter of driving a `Session` from `FileMessageLog::read`.

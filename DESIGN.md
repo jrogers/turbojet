@@ -140,6 +140,12 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   192-byte ExecutionReport, 111 ns for a Logon, 2026-10-09), and overwrites values in place with
   `*`s, so lengths and the file's records are unchanged. No `fsync`: the
   resend store is what must be durable, and the log's records survive a crash of the process.
+- **`turbojet-log`.** A command over `FileMessageLog::files` and `read`, not a library: a log
+  written by any application is read the same way. Field names come from the four vendored
+  Orchestra files, embedded (symlinked into the crate so it publishes) and each parsed only when a
+  message of its BeginString first needs it: printing a log that uses two versions takes about
+  20 ms in all (Apple M3, release build, 2026-10-09). A FIXT session is named from FIX 5.0 SP2
+  whatever its ApplVerID, as the field names rarely differ; `--dictionary` replaces them all.
   Compressing finished files (gzip, through flate2's pure-Rust backend) and calling the
   `on_finished` hook happen on a second thread, fed by a channel as the writer starts each new
   file and when the log is dropped, so the writer never waits for them: a full 256 MiB file of

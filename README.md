@@ -44,6 +44,10 @@ sessions.
 acceptor, its counterparties, initiators and their stores from a TOML file, and reloads it while
 running.
 
+[`turbojet-log`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-log) is a command
+that prints a message log's files with FIX field names, filtered by session, direction, MsgType, a
+field's value or a time range.
+
 CI runs Turbojet's sessions against QuickFIX/J, quickfix-go and QuickFIX/n, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
 loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
@@ -1036,6 +1040,25 @@ let archive: FinishedHook = Arc::new(|path: &Path| {
 });
 let options = FileLogOptions { compress: true, on_finished: Some(archive), ..Default::default() };
 ```
+
+**Reading the log.** `turbojet-log` (`cargo install turbojet-log`) prints a log's records, oldest
+first, with field and value names from the standard FIX 4.2, 4.3, 4.4 and 5.0 SP2 dictionaries
+(chosen by BeginString; FIXT.1.1 uses 5.0 SP2), or from a dictionary of one's own with
+`--dictionary FILE` (Orchestra or QuickFIX XML):
+
+```sh
+$ turbojet-log /var/log/fix --session 'FIX.4.4:US->THEM' --type D,8 --tag 11=ORD1 --since 12:00
+2026-10-08 12:00:00.000000 in  FIX.4.4:US->THEM D NewOrderSingle
+  8 BeginString=FIX.4.4
+  ...
+  11 ClOrdID=ORD1
+  54 Side=1 (Buy)
+```
+
+`--in` and `--out` pick a direction; `--since` and `--until` take RFC 3339 or a UTC time of day;
+`--raw` prints each message on one line as on the wire. FIXP messages aren't decoded: they're
+shown by length (in hex with `--raw`), and `--type` and `--tag` leave them out. A `dropped` record
+is always shown, so a gap in the log is visible.
 
 **Metrics** use the [`metrics`](https://docs.rs/metrics) facade, behind turbojet's optional
 `metrics` feature. Install a recorder (e.g. `metrics-exporter-prometheus`) before starting
