@@ -19,7 +19,7 @@ use turbojet::{
 };
 
 use crate::Side;
-use crate::app::{RecordingApp, Sent, order, report};
+use crate::app::{Holding, RecordingApp, Sent, order, report};
 use crate::check::{Checker, Violation};
 use crate::files::{DiskFiles, Tear};
 use crate::hostile::Proxy;
@@ -67,6 +67,8 @@ pub enum Plant {
     /// The acceptor's application is told to cancel as its first session ends, whatever the
     /// trigger and grace.
     SpuriousCancel,
+    /// The acceptor's application's holds do nothing, as if the session forgot them.
+    IgnoreHolds,
 }
 
 impl Options {
@@ -293,6 +295,9 @@ enum Event {
     Burst,
     /// One side's application asks to log out.
     Logout,
+    /// The acceptor's application releases the holds that have run their time: when the oldest
+    /// is due.
+    ReleaseHolds(SimTime),
     /// An operator moves one side's next outgoing number ahead.
     Skip,
     /// An operator resets both sides: logs them out, then resets both stores once neither is
@@ -531,6 +536,7 @@ fn nodes(
     clocks: &Clocks,
     faults: &Faults,
     plant: Option<Plant>,
+    holding: Holding,
 ) -> [Node; 2] {
     let [initiator, acceptor] = roles;
     let node = |side: Side, role, app| {
@@ -542,7 +548,7 @@ fn nodes(
     };
     [
         node(Side::Initiator, initiator, RecordingApp::initiator(clocks.clone())),
-        node(Side::Acceptor, acceptor, RecordingApp::acceptor(plant, clocks.clone())),
+        node(Side::Acceptor, acceptor, RecordingApp::acceptor(plant, holding, clocks.clone())),
     ]
 }
 
@@ -599,6 +605,17 @@ fn schedule(faults: &Faults, options: &Options) -> (Option<SessionSchedule>, Sim
     (Some(schedule), busy_end)
 }
 
+/// On half the seeds, the acceptor's application holds orders in flight after handling them, for
+/// up to a second: every first to fifth. Drawn apart from the world's random stream so that seeds
+/// keep the faults they had before.
+fn holding(seed: u64) -> Holding {
+    let mut rng = Rng::new(seed ^ 0x401d_5eed);
+    if !rng.chance(500_000) {
+        return Holding::default();
+    }
+    Holding { every: rng.between(1, 5), hold_for: Duration::from_millis(rng.between(0, 1_000)) }
+}
+
 /// The initiator's reconnects, fixed or backing off from `reconnect`, chosen and jittered from
 /// `rng`, apart from the world's random stream so that seeds keep the faults they had before
 /// reconnects backed off.
@@ -644,7 +661,7 @@ impl World {
             storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
         }
         let roles = roles(initiator, config("GATEWAY"), options.seed);
-        let nodes = nodes(roles, &storage, &clocks, &faults, options.plant);
+        let nodes = nodes(roles, &storage, &clocks, &faults, options.plant, holding(options.seed));
         let net = Net::new(faults.net.clone(), rng.fork());
         let proxy = faults.hostile.map(|rate| Proxy::new(rate, rng.fork()));
         let mut world = Self {
@@ -811,6 +828,7 @@ impl World {
             self.poll_operators()?;
             self.operator_traps(at)?;
             self.schedule_cancels(at);
+            self.schedule_releases();
             // A trap's crash kills the process when its call is made, not at some later step.
             assert!(
                 self.storage.iter().all(|s| !s.crash_pending()),
@@ -988,6 +1006,11 @@ impl World {
                 if self.cancels_at[side.index()] == Some(at) {
                     self.cancels_at[side.index()] = None;
                     self.nodes[side.index()].registry.run_due_cancels(self.clocks.instant(now));
+                }
+            }
+            Event::ReleaseHolds(at) => {
+                if self.nodes[Side::Acceptor.index()].app.release_due(at) {
+                    self.after_all(Side::Acceptor, now)?;
                 }
             }
             Event::SendOrder => {
@@ -1279,6 +1302,13 @@ impl World {
             }
         }
         Ok(())
+    }
+
+    /// Wakes the acceptor's application when its oldest hold is due for release.
+    fn schedule_releases(&mut self) {
+        if let Some(at) = self.nodes[Side::Acceptor.index()].app.next_release() {
+            self.queue.push(at, Event::ReleaseHolds(at));
+        }
     }
 
     /// Schedules each running side's cancel-on-disconnect countdowns for when the next ends, as
@@ -1576,6 +1606,12 @@ impl World {
                 if !self.checker.rejected_late(side, seq) {
                     return fail(format!("{side:?} sent {missing} as {seq}, never delivered"));
                 }
+            }
+            // An order held when its process crashed came back, unless the sender's store has
+            // evicted it since.
+            let app = &self.nodes[side.other().index()].app;
+            if let Some(id) = app.unfinished(self.checker.committed(side)) {
+                return fail(format!("{:?} held {id} when it crashed, and never got it again", side.other()));
             }
             // As each store last recorded them (a disk store can't be opened while its session is).
             let (ours, theirs) = (self.checker.numbers(side).0, self.checker.numbers(side.other()).1);

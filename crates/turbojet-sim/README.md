@@ -48,6 +48,12 @@ half the seeds the stores are slow, as a networked one is: they hand each commit
 opening of a session's log to the driver as a job, which finishes up to 5 ms later (now and then
 50 ms), and the session waits for it.
 
+On half the seeds the acceptor's application holds orders in flight after handling them
+(`Context::hold`), as a gateway forwarding them would until a venue had stored them: every first
+to fifth order, for up to a second, so bursts reach the 256 a session hands over past a hold and
+wait for its release. A crash loses the holds, and at the end every order held then has come
+back (unless the sender's store has since evicted it) and been finished.
+
 Applications ask to log out now and then; operators move a side's next outgoing number ahead
 (connected or not) and reset both sides (logging them out first); and a quarter of the seeds run
 to a daily schedule, whose next period starts the next morning with a sequence reset. A store
@@ -115,7 +121,7 @@ what arrives garbled.
 A checker that passes everything proves nothing. `Options::plant` plants a bug in the simulator
 standing for one in the engine: the application missing a delivery or seeing one twice, a store
 that keeps a message's number but not the message, a resend that arrives altered, a cancel on
-disconnect missed, run late or made up. A test per
+disconnect missed, run late or made up, or holds the session forgets. A test per
 plant runs seeds until the checker catches it, by the rule expected.
 
 ## Known failures

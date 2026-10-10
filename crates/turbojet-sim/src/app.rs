@@ -1,10 +1,14 @@
 //! The applications on each side: they record what they receive, and the acceptor's acknowledges
 //! orders. Their records outlive any one session, standing in for an application's own state.
 
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use turbojet::message::tags;
-use turbojet::{Application, Context, Disconnect, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle};
+use turbojet::{
+    Application, Context, Disconnect, Hold, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle,
+};
 
 use crate::time::{Clocks, SimTime};
 use crate::world::{PLANTED_AT, Plant};
@@ -29,6 +33,16 @@ pub enum Lifecycle {
     Crashed,
 }
 
+/// How the acceptor's application holds orders in flight after handling them
+/// (`Context::hold`), as a gateway forwarding them to a venue would until the venue's session has
+/// stored them: every `every`th order (none if 0), for `hold_for`. A crash loses the holds, as it
+/// would the forwarding, so those orders must come back.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Holding {
+    pub every: u64,
+    pub hold_for: Duration,
+}
+
 #[derive(Default)]
 pub struct RecordingApp {
     /// Acknowledge each order with an ExecutionReport (the acceptor's application).
@@ -51,11 +65,18 @@ pub struct RecordingApp {
     delivered: Mutex<u64>,
     cancels: Mutex<u64>,
     logouts: Mutex<u64>,
+    holding: Holding,
+    /// Orders held, oldest first, with when (and the hold, unless a planted bug dropped it).
+    held: Mutex<VecDeque<(String, SimTime, Option<Hold>)>>,
+    /// Orders finished: handled without a hold, or released.
+    finished: Mutex<BTreeSet<String>>,
+    /// When the world will next have this application release holds.
+    release_at: Mutex<Option<SimTime>>,
 }
 
 impl RecordingApp {
-    pub fn acceptor(plant: Option<Plant>, clocks: Clocks) -> Arc<Self> {
-        Arc::new(Self { acks: true, plant, clocks, ..Self::default() })
+    pub fn acceptor(plant: Option<Plant>, holding: Holding, clocks: Clocks) -> Arc<Self> {
+        Arc::new(Self { acks: true, plant, holding, clocks, ..Self::default() })
     }
 
     pub fn initiator(clocks: Clocks) -> Arc<Self> {
@@ -70,6 +91,65 @@ impl RecordingApp {
         *self.crashing.lock().unwrap() = true;
         drop_sessions();
         *self.crashing.lock().unwrap() = false;
+        // The work under way goes with the process: what was held isn't finished.
+        self.held.lock().unwrap().clear();
+    }
+
+    /// Whether this application holds orders.
+    pub fn holds(&self) -> bool {
+        self.holding.every > 0
+    }
+
+    /// When the oldest hold is due for release, if that's not already when the world will next
+    /// have this application release them.
+    pub fn next_release(&self) -> Option<SimTime> {
+        let due = self.held.lock().unwrap().front().map(|(_, at, _)| at.after(self.holding.hold_for))?;
+        let mut release_at = self.release_at.lock().unwrap();
+        (*release_at != Some(due)).then(|| *release_at.insert(due))
+    }
+
+    /// Releases the holds that have run their time, each order finished first, if it's `at`, the
+    /// latest release time scheduled. Whether it was.
+    pub fn release_due(&self, at: SimTime) -> bool {
+        if *self.release_at.lock().unwrap() != Some(at) {
+            return false;
+        }
+        let now = self.clocks.now();
+        let mut held = self.held.lock().unwrap();
+        while held.front().is_some_and(|(_, at, _)| at.after(self.holding.hold_for) <= now) {
+            let (id, _, hold) = held.pop_front().expect("checked");
+            self.finished.lock().unwrap().insert(id);
+            drop(hold);
+        }
+        true
+    }
+
+    /// One of `ids` that this application handled but neither finished nor holds now: its hold was
+    /// lost in a crash, and it never came back.
+    pub fn unfinished<'a>(&self, ids: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+        if !self.holds() {
+            return None;
+        }
+        let deliveries = self.deliveries.lock().unwrap();
+        let delivered: BTreeSet<&str> = deliveries.iter().map(|d| d.id.as_str()).collect();
+        let finished = self.finished.lock().unwrap();
+        let held = self.held.lock().unwrap();
+        ids.into_iter()
+            .find(|id| delivered.contains(id) && !finished.contains(*id) && !held.iter().any(|(held, _, _)| held == id))
+    }
+
+    /// Holds every `every`th order delivered, if holding, and counts the rest finished.
+    fn hold_or_finish(&self, ctx: &mut Context<'_>, id: &str, delivered: u64) {
+        if !self.holds() {
+            return;
+        }
+        if delivered.is_multiple_of(self.holding.every) {
+            let hold = ctx.hold();
+            let hold = (self.plant != Some(Plant::IgnoreHolds)).then_some(hold);
+            self.held.lock().unwrap().push_back((id.to_string(), self.clocks.now(), hold));
+        } else {
+            self.finished.lock().unwrap().insert(id.to_string());
+        }
     }
 
     fn record(&self, event: Lifecycle) {
@@ -174,6 +254,9 @@ impl Application for RecordingApp {
         let delivery = Delivery { id, seq, redelivered: ctx.maybe_redelivered() };
         let mut delivered = self.delivered.lock().unwrap();
         *delivered += 1;
+        if msg.msg_type() == MsgType::NewOrderSingle {
+            self.hold_or_finish(ctx, &delivery.id, *delivered);
+        }
         let mut deliveries = self.deliveries.lock().unwrap();
         match self.plant {
             Some(Plant::DropDelivery) if *delivered == PLANTED_AT => {}

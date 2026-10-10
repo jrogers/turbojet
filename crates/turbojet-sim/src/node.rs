@@ -368,6 +368,7 @@ impl Node {
                 && !running.session.is_closed()
                 && !running.session.is_waiting_on_store()
                 && running.input_held_until(instant).is_none()
+                && !running.session.is_held_back()
             {
                 running.deferred = feed(running, data_fields, instant);
             }
@@ -394,7 +395,8 @@ impl Node {
             if !(stopped
                 && !running.session.is_resending()
                 && !running.session.is_closed()
-                && running.input_held_until(instant).is_none())
+                && running.input_held_until(instant).is_none()
+                && !running.session.is_held_back())
             {
                 break;
             }
@@ -444,10 +446,13 @@ impl Node {
 }
 
 impl Running {
-    /// The read branch is enabled: something has arrived, and the inbound window doesn't hold
-    /// input, so a peer that closes meanwhile is noticed once the hold ends.
+    /// The read branch is enabled: something has arrived, and neither the inbound window nor a
+    /// message the application holds holds input, so a peer that closes meanwhile is noticed once
+    /// that ends.
     fn reads(&self, instant: Instant) -> bool {
-        (!self.unread.is_empty() || self.fin) && self.input_held_until(instant).is_none()
+        (!self.unread.is_empty() || self.fin)
+            && self.input_held_until(instant).is_none()
+            && !self.session.is_held_back()
     }
 
     /// As `input_held_until` in the connection driver: when input held by the inbound window may

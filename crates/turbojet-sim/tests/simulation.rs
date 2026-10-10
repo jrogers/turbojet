@@ -114,6 +114,11 @@ fn a_spurious_cancel_on_disconnect_is_caught() {
 }
 
 #[test]
+fn a_hold_the_session_forgets_is_caught() {
+    caught(Plant::IgnoreHolds, &["liveness"]);
+}
+
+#[test]
 fn fixp_regressions_pass() {
     for seed in listed(include_str!("../fixp_regressions.txt")).keys() {
         if let Err(failure) = turbojet_sim::fixp::run(&Options::per_push(*seed)) {
