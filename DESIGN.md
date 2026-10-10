@@ -204,10 +204,16 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   queue, at most one waiting at a time (a flag the session clears as it looks), so releases never
   crowd out logouts or operator commands, and a release after the connection has ended goes
   nowhere. Nothing is allocated until the first hold, so the allocation budget is unchanged.
-  Measured 2026-10-10 on an M3 under a load average of about 2.5 (criterion `--quick`): order to
-  ack with the memory store 785 ns, with each order held until the next 836 ns, so about 50 ns per
-  held message; sessions that never hold were unchanged within noise (785 ns before, 789 ns after;
-  2.86 and 2.90 µs with the disk store). The simulator's acceptor holds orders on half its seeds.
+  The session clears the flag with a swap, not a store, so the relaxed loads of the holds' counts
+  that follow can't run before it (on ARM64 a store can wait in a buffer) and lose a wake-up.
+  A session waiting for a release warns once per connection and sets `turbojet_held_back`; replays
+  give holds that do nothing, since nothing in them would release one. Measured 2026-10-10 on an
+  M3, not idle (load average about 2.5), with criterion `--quick`: order to ack with the memory
+  store 785 ns, with each order held until the next 836 ns, so about 50 ns per held message (an
+  `Arc` taken and released, and one control message). Sessions that never hold measured 785 ns
+  before and 789 ns after (memory store), 2.86 and 2.90 µs (disk store); neither difference was
+  significant (p 0.10 and 0.08), so take them as unchanged within the noise of a loaded machine.
+  The simulator's acceptor holds orders on half its seeds.
 - **The disk store** keeps its sequence numbers in two checksummed slots, so a write torn by a
   power loss falls back to the record before it, writes each commit as one journal record and one
   `fsync`, and reads a resend step's messages with one read of each segment they're in. Both

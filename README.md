@@ -941,9 +941,10 @@ message and everything after it again, each marked `maybe_redelivered`. A sessio
 most 256 messages past the oldest one held; then it reads nothing more from the counterparty until
 that one is released (TCP slows the counterparty, and the wait doesn't count as its silence).
 Holds end with their connection: one released after it does nothing, and the next connection
-starts from the marker, as after a crash. Each release costs one message to the session's task,
-about 50 ns. `Context::new`, for unit tests, gives holds that do nothing. Holds aren't available
-on FIXP sessions.
+starts from the marker, as after a crash. Each release costs one message to the session's task.
+A session waiting for a release logs a warning, once per connection, and sets the
+`turbojet_held_back` gauge (feature `metrics`). `Context::new`, for unit tests, and replays
+(`turbojet::replay`) give holds that do nothing. Holds aren't available on FIXP sessions.
 
 - `MemoryStorage`: survives reconnects, not restarts. Each session keeps its newest sent messages
   up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts

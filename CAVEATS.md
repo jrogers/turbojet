@@ -13,6 +13,16 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   store that makes each change durable as it's made should implement
   `SessionLog::set_next_incoming_in_flight` as one change, or a crash between its two calls can
   lose a hold's marker. Holds aren't available on FIXP sessions.
+- While a session waits for a release (256 past a hold), it reads nothing: a Logout, a shutdown or
+  a schedule's end waits out `logout_timeout` for a reply it can't read, a counterparty that
+  closes the connection or disappears isn't noticed until a write fails or TCP gives up, and our
+  TestRequests pause meanwhile.
+- Holds don't survive a sequence reset (a Logon with ResetSeqNumFlag, or a schedule's reset): the
+  numbers they were for are gone. A counterparty that gap-fills application messages rather than
+  resending them won't redeliver a held one. An operator's `set_next_incoming` past a hold is
+  undone by a crash before its release (the session asks again from the hold, and marks only the
+  first 256). After recovery from a hold, the next incoming number goes backwards (in the gauges and
+  `SequenceNumbers`) to the held message.
 - Pausing a session is kept in memory: a restart forgets it. Session events are dropped for a
   subscriber that falls more than `EVENT_QUEUE` behind (it's told how many), and only Logons the
   registry refuses (paused, already connected, too many, store failing) are sent as `Refused`;
