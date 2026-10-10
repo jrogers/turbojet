@@ -178,6 +178,10 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `SessionsFile::counterparty_config` gives the `SessionConfig` the acceptor would give a
+  counterparty, by CompID: a listed one's settings over `[defaults]`, the defaults for an
+  unlisted one under `unknown = "admit"`, or `None` if it would be refused. It reads the file as
+  last loaded or reloaded.
 - `pkcs12` and `pkcs12_password_env` in `[acceptor.tls]` and an initiator's `tls` (feature
   `pkcs12`): the certificate and key from a PKCS#12 bundle, and the environment variable holding
   its password. The QuickFIX converter's hint for key stores mentions them.

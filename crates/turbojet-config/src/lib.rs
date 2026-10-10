@@ -120,6 +120,8 @@
 //! What's fixed until a restart can't change: whether there's an `[acceptor]`, its keys other
 //! than `unknown` and the TLS files, a store's definition, and which store a counterparty's or an
 //! initiator's sessions are kept in.
+//! [`counterparty_config`](SessionsFile::counterparty_config) gives a counterparty's settings as
+//! the file in use says, for an application that needs them.
 //!
 //! # From QuickFIX
 //!
@@ -327,6 +329,15 @@ impl SessionsFile {
         self.current.get().acceptor.as_ref().map(|acceptor| acceptor.base.clone())
     }
 
+    /// The configuration the acceptor would give a session with counterparty `comp_id` (its
+    /// TargetCompID), as of the last successful load or reload: a listed counterparty's settings
+    /// over `[defaults]`, or the defaults alone for one the file doesn't list under
+    /// `unknown = "admit"`. `None` if the counterparty would be refused, or the file has no
+    /// `[acceptor]`. For an application that needs a counterparty's settings, its schedule say.
+    pub fn counterparty_config(&self, comp_id: &str) -> Option<SessionConfig> {
+        admitted(&self.current.get(), comp_id).map(|counterparty| counterparty.config.clone())
+    }
+
     /// An acceptor serving `app` as the file says, if it has `[acceptor]`: its counterparties'
     /// settings and stores, and its connection limits. Serve it on [`listen`](Self::listen), with
     /// [`server_tls`](Self::server_tls) if the file has `[acceptor.tls]`.
@@ -463,13 +474,19 @@ impl Counterparties for Resolver {
         _: &Message,
         _: &ConnectionInfo,
     ) -> Result<Counterparty, String> {
-        let loaded = self.0.get();
-        let (acceptor, comp_id) = (loaded.acceptor(), &id.target_comp_id);
-        match acceptor.listed.get(comp_id) {
-            Some(resolved) => Ok(resolved.counterparty.clone()),
-            None if loaded.unknown() == Unknown::Admit => Ok(acceptor.unlisted.counterparty.clone()),
-            None => Err(format!("unknown counterparty '{comp_id}'")),
-        }
+        let comp_id = &id.target_comp_id;
+        admitted(&self.0.get(), comp_id).cloned().ok_or_else(|| format!("unknown counterparty '{comp_id}'"))
+    }
+}
+
+/// The settings counterparty `comp_id` logs on to the acceptor with, if the file has one and
+/// admits it.
+fn admitted<'a>(loaded: &'a Loaded, comp_id: &str) -> Option<&'a Counterparty> {
+    let acceptor = loaded.acceptor.as_ref()?;
+    match acceptor.listed.get(comp_id) {
+        Some(resolved) => Some(&resolved.counterparty),
+        None if loaded.unknown() == Unknown::Admit => Some(&acceptor.unlisted.counterparty),
+        None => None,
     }
 }
 

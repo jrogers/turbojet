@@ -189,6 +189,37 @@ async fn a_bad_reload_keeps_the_file_in_use() {
     venue.log_on("FUND").await;
 }
 
+/// `FILE` with a `max_latency` default that BROKER overrides.
+fn with_max_latency(text: &str) -> String {
+    text.replace("[defaults]", "[defaults]\nmax_latency = \"30s\"")
+        .replace("store = \"broker\"", "store = \"broker\"\nmax_latency = \"5s\"")
+}
+
+#[tokio::test]
+async fn counterparty_config_is_a_listed_counterpartys_over_the_defaults() {
+    let venue = Venue::start(&with_max_latency(FILE)).await;
+    let config = |comp_id| venue.sessions.counterparty_config(comp_id).map(|config| config.max_latency);
+    assert_eq!(config("BROKER"), Some(Some(Duration::from_secs(5))), "its own value");
+    assert_eq!(config("FUND"), Some(Some(Duration::from_secs(30))), "the default");
+    assert_eq!(config("STRANGER"), None, "refused, unlisted");
+}
+
+#[tokio::test]
+async fn counterparty_config_under_admit_is_the_defaults_for_the_unlisted() {
+    let venue = Venue::start(&with_max_latency(&FILE.replace("listen", "unknown = \"admit\"\nlisten"))).await;
+    let config = venue.sessions.counterparty_config("STRANGER").expect("admitted");
+    assert_eq!(config.max_latency, Some(Duration::from_secs(30)));
+}
+
+#[tokio::test]
+async fn counterparty_config_follows_a_reload() {
+    let venue = Venue::start(&with_max_latency(FILE)).await;
+    venue.rewrite(&with_max_latency(FILE).replace("\"5s\"", "\"7s\""));
+    venue.reload().unwrap();
+    let config = venue.sessions.counterparty_config("BROKER").unwrap();
+    assert_eq!(config.max_latency, Some(Duration::from_secs(7)));
+}
+
 #[tokio::test]
 async fn under_admit_unlisted_counterparties_get_the_defaults() {
     let mut venue = Venue::start(&FILE.replace("listen", "unknown = \"admit\"\nlisten")).await;
