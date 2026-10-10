@@ -310,6 +310,21 @@ pub trait SessionLog: Send {
         None
     }
 
+    /// Records the next incoming sequence number with the in-flight marker at `in_flight`, as
+    /// [`set_next_incoming`](SessionLog::set_next_incoming) then
+    /// [`set_in_flight`](SessionLog::set_in_flight) would. A store that makes each change durable
+    /// as it's made should make this one change, so that a crash never leaves the number without
+    /// the marker; the default makes the two calls, enough for a store that commits them together.
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
+    /// than send it.
+    fn set_next_incoming_in_flight(&mut self, seq: u64, in_flight: u64) -> io::Result<()> {
+        self.set_next_incoming(seq)?;
+        self.set_in_flight(in_flight)
+    }
+
     /// Records that incoming messages from `seq` on are about to be handed to the application.
     /// The default does nothing.
     ///

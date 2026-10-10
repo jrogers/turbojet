@@ -207,6 +207,14 @@ impl SessionLog for MemoryLog {
         Ok(())
     }
 
+    fn set_next_incoming_in_flight(&mut self, seq: u64, in_flight: u64) -> io::Result<()> {
+        debug_assert!(seq >= 1, "sequence numbers start at 1");
+        let mut state = self.state();
+        state.next_incoming = seq;
+        state.in_flight = Some(in_flight);
+        Ok(())
+    }
+
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
         self.state().created_at = Some(at);
         Ok(())

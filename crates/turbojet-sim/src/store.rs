@@ -343,6 +343,14 @@ impl SessionLog for LedgerLog {
         })
     }
 
+    fn set_next_incoming_in_flight(&mut self, seq: u64, in_flight: u64) -> io::Result<()> {
+        self.call(Call::SetNextIncoming, |log| {
+            log.inner.set_next_incoming_in_flight(seq, in_flight)?;
+            log.pending.push(Stored::Incoming { seq });
+            Ok(())
+        })
+    }
+
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
         self.call(Call::RecordOutgoing, |log| {
             // The planted bug: the number is used, the message isn't kept, the ledger is told it was.

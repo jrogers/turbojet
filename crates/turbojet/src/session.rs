@@ -1862,8 +1862,7 @@ impl Session {
         let next = log.next_incoming();
         if start < next {
             info!(start, next, "expecting messages again from the first that may not have been finished");
-            log.set_next_incoming(start)?;
-            log.set_in_flight(start)?;
+            log.set_next_incoming_in_flight(start, start)?;
         }
         info!(start, "messages from this one on may have been handled before a restart");
         self.recovered = Some(start);
@@ -2950,13 +2949,15 @@ impl Session {
     }
 
     /// Records the next incoming number. That clears the store's in-flight marker, so while one is
-    /// needed it's recorded again: a store that makes each change as it's made (rather than at the
-    /// commit) must still have it if the process stops before the batch ends.
+    /// needed it's recorded with it, in one change: a store that makes each change as it's made
+    /// (rather than at the commit) must still have it if the process stops before the batch ends.
     fn set_next_incoming(&mut self, seq: u64, now: Instant) {
         let marker = self.marker(seq);
         let log = &mut self.peer_mut().log;
-        let recorded =
-            log.set_next_incoming(seq).and_then(|()| marker.map_or(Ok(()), |start| log.set_in_flight(start)));
+        let recorded = match marker {
+            Some(start) => log.set_next_incoming_in_flight(seq, start),
+            None => log.set_next_incoming(seq),
+        };
         match recorded {
             Ok(()) => {
                 self.peer().metrics.next_incoming(seq);

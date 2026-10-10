@@ -174,6 +174,12 @@ async fn check_in_flight(storage: &dyn SessionStorage) {
     drop(log);
     let mut log = open(storage, &id("C")).await.unwrap();
     assert_eq!(log.in_flight(), None, "clearing persists");
+    log.set_next_incoming_in_flight(7, 6).unwrap();
+    assert_eq!((log.next_incoming(), log.in_flight()), (7, Some(6)));
+    commit(log.as_mut()).await.unwrap();
+    drop(log);
+    let mut log = open(storage, &id("C")).await.unwrap();
+    assert_eq!((log.next_incoming(), log.in_flight()), (7, Some(6)), "both survive reopen");
     log.set_in_flight(5).unwrap();
     log.reset().unwrap();
     assert_eq!(log.in_flight(), None);
