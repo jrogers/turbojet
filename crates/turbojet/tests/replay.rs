@@ -148,3 +148,30 @@ fn a_config_that_names_another_session_is_an_error() {
     let err = replay(log.records(), &id, config(), Arc::new(Recorder::default())).unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
 }
+
+/// Holds every order and never releases one.
+#[derive(Default)]
+struct Holder(Mutex<Vec<turbojet::Hold>>);
+
+impl Application for Holder {
+    fn on_message(&self, ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
+        self.0.lock().unwrap().push(ctx.hold());
+        Ok(())
+    }
+}
+
+/// A replay's holds do nothing: its messages were handled in production, and nothing would release
+/// them, so an application that holds every message is replayed past the window all the same.
+#[test]
+fn an_application_that_holds_is_replayed() {
+    let log = Log::new();
+    log.inbound(0, false, 1, "35=A|98=0|108=30|");
+    for seq in 2..302 {
+        log.inbound(1, true, seq, &format!("35=D|11=O{seq}|"));
+    }
+    let app = Arc::new(Holder::default());
+    let id = SessionId::new("FIX.4.4", "US", "THEM");
+    let replayed = replay(log.records(), &id, config(), app.clone()).unwrap();
+    assert_eq!(replayed.messages, 301);
+    assert_eq!(app.0.lock().unwrap().len(), 300, "every order handed over");
+}

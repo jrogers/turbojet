@@ -150,6 +150,7 @@ impl Replayer {
         prime(&*self.storage, &self.id, logon)?;
         let (mut session, commands) =
             Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), now);
+        session.without_holds();
         session.on_connect(now);
         self.open = Some(Connection { session, _commands: commands });
         self.replayed.connections += 1;

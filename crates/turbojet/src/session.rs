@@ -641,6 +641,8 @@ pub struct Session {
     /// The window can't reach the next incoming message until the application releases the
     /// oldest it holds: input waits for that, as of the last commit.
     held_back: bool,
+    /// `Context::hold` holds messages; off for a replay, where nothing would release them.
+    hands_out_holds: bool,
     /// When input last went on after waiting for a release: silence counts from then at the
     /// earliest, since what the counterparty sent meanwhile waited unread.
     resumed_at: Option<Instant>,
@@ -759,6 +761,7 @@ impl Session {
             outbox: Outbox::default(),
             holds: Holds::default(),
             held_back: false,
+            hands_out_holds: true,
             resumed_at: None,
         };
         (session, receiver)
@@ -959,6 +962,12 @@ impl Session {
         }
         // Otherwise the next commit records a window that covers it.
         !self.receiving() || self.covers(self.peer().log.next_incoming())
+    }
+
+    /// Gives the application holds that do nothing: for a replay, whose messages are already
+    /// handled, and where nothing would release them.
+    pub(crate) fn without_holds(&mut self) {
+        self.hands_out_holds = false;
     }
 
     /// Whether input waits for the application to release a message it holds (see
@@ -2327,11 +2336,10 @@ impl Session {
         // Borrows the peer field alone (not `self.peer()`), so the application can be called
         // without cloning the handle for every message.
         let handle = &self.peer.as_ref().expect("session is not bound before logon").handle;
-        let mut ctx = Context::with_outbox(handle, std::mem::take(&mut self.outbox)).holding(
-            &mut self.holds,
-            &self.commands,
-            seq_num,
-        );
+        let mut ctx = Context::with_outbox(handle, std::mem::take(&mut self.outbox));
+        if self.hands_out_holds {
+            ctx = ctx.holding(&mut self.holds, &self.commands, seq_num);
+        }
         if redelivered {
             ctx = ctx.redelivery();
         }
