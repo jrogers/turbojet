@@ -11,6 +11,10 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      # Its refs name toolchains, not releases: @1.89 is the minimum supported Rust, raised on
+      # purpose, and @stable and @nightly move by themselves.
+      - dependency-name: dtolnay/rust-toolchain
 
   # The workspace, and the fuzz crate, which has its own Cargo.lock outside it.
   - package-ecosystem: cargo
