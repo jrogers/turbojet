@@ -1105,7 +1105,8 @@ impl SessionLog for RecordingLog {
 
 /// The incoming number is saved once the application has handled the message and its replies
 /// are stored, so a crash before then gets the message resent. The window it's handed over in was
-/// recorded by the commit before.
+/// recorded by the commit before; the marker moves with the number, so the batch's own commit finds
+/// it in place.
 #[test]
 fn the_incoming_number_is_saved_after_the_application() {
     let writes = Arc::new(Mutex::new(Vec::new()));
@@ -1113,11 +1114,11 @@ fn the_incoming_number_is_saved_after_the_application() {
     let mut s = h.logged_on();
     writes.lock().unwrap().clear();
     s.recv(order(2, "A"), h.t0);
-    // The window is recorded again after the number moves on, and the next one as the batch ends.
-    assert_eq!(*writes.lock().unwrap(), ["outgoing 2", "incoming 3", "in flight 2", "in flight 3"]);
+    // Recording the number clears the marker, so it's recorded again, at the new number.
+    assert_eq!(*writes.lock().unwrap(), ["outgoing 2", "incoming 3", "in flight 3"]);
     writes.lock().unwrap().clear();
     s.recv(client(3, MsgType::Heartbeat), h.t0);
-    assert_eq!(*writes.lock().unwrap(), ["incoming 4", "in flight 3", "in flight 4"]);
+    assert_eq!(*writes.lock().unwrap(), ["incoming 4", "in flight 4"]);
 }
 
 /// After a crash while messages from 2 on may have been with the application, those that come
@@ -1147,6 +1148,30 @@ fn the_message_in_flight_at_a_crash_is_marked_when_resent() {
     s.recv(resend_of(order(past, "E")), h.t0);
     let marked = h.app.redelivered.lock().unwrap().clone();
     assert_eq!(marked, [true, true, false, false], "2 and 3 might have been handled; 5 is new, {past} past the window");
+}
+
+/// A marker below the next incoming number names messages recorded as received that may not have
+/// been finished: they're asked for again, and marked.
+#[test]
+fn a_marker_below_the_next_number_is_expected_again() {
+    let storage = Arc::new(MemoryStorage::new());
+    {
+        let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
+        let mut log = storage.open(&id).unwrap();
+        log.record_outgoing(1, None).unwrap();
+        log.set_next_incoming(5).unwrap();
+        log.set_in_flight(3).unwrap();
+    }
+    let h = Harness::with_storage(storage);
+    let mut s = h.session();
+    let out = s.recv(logon(5), h.t0);
+    assert_eq!(types(&out), ["Logon", "ResendRequest"]);
+    assert_eq!(sent(&out)[1].get(tags::BEGIN_SEQ_NO), Some("3"));
+    s.recv(resend_of(order(3, "C")), h.t0);
+    s.recv(resend_of(order(4, "D")), h.t0);
+    s.recv(gap_fill(5, 6), h.t0);
+    s.recv(order(6, "E"), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, false]);
 }
 
 // ---- Group commit ----
@@ -1403,9 +1428,10 @@ fn a_batch_cut_short_leaves_its_window_in_a_store_without_commits() {
     assert!(s.ready_for_input());
     s.on_message(&order(2, "A"), h.t0);
     s.on_message(&order(3, "B"), h.t0);
-    // The process stops before the batch's commit.
+    // The process stops before the batch's commit: 2 and 3 were handled, so 4 is the first that
+    // may not have been.
     let log = &s.peer().log;
-    assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(2)));
+    assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(4)));
     s.commit_blocking(h.t0);
     assert_eq!(s.peer().log.in_flight(), Some(4), "the batch's end records the next window");
 }
@@ -1423,21 +1449,18 @@ fn a_failed_commit_sends_nothing_it_covered_and_disconnects() {
 
 #[test]
 fn messages_queued_behind_a_gap_are_handled_a_window_at_a_time() {
-    let writes = Arc::new(Mutex::new(Vec::new()));
-    let h = Harness::with_storage(Arc::new(RecordingStorage { inner: MemoryStorage::new(), writes: writes.clone() }));
+    let storage = Arc::new(DeferringStorage::default());
+    let h = Harness::with_storage(storage.clone());
     let mut s = h.logged_on();
     let last = 2 + DELIVERIES_PER_COMMIT + 10;
     for seq in 3..=last {
         s.recv(order(seq, &format!("O{seq}")), h.t0);
     }
-    writes.lock().unwrap().clear();
+    storage.calls.lock().unwrap().clear();
     s.recv(order(2, "first"), h.t0);
     assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "all of them, in sequence");
-    let mut windows: Vec<String> =
-        writes.lock().unwrap().iter().filter(|w| w.starts_with("in flight")).cloned().collect();
-    windows.dedup();
-    let expected = [2, 2 + DELIVERIES_PER_COMMIT, last + 1].map(|start| format!("in flight {start}"));
-    assert_eq!(windows, expected, "one exhausted mid-batch, then the next batch's");
+    let commits = storage.calls.lock().unwrap().iter().filter(|c| *c == "commit").count();
+    assert_eq!(commits, 2, "one for the window exhausted mid-batch, then the batch's");
 }
 
 #[test]
@@ -1494,9 +1517,9 @@ fn an_operator_hears_of_a_change_once_it_is_committed() {
     assert_eq!(answer.try_recv().unwrap().unwrap().next_incoming, 7);
 }
 
-/// Regression (simulator): a window recovered after a restart stays recorded until messages in it
-/// can no longer come back, so if the process stops again first, the next restart still marks
-/// them. Closing each batch's window used to clear it.
+/// Regression (simulator): messages recovered after a restart stay in flight until they can no
+/// longer come back, so if the process stops again first, the next restart still marks them.
+/// Closing each batch's window used to clear the marker.
 #[test]
 fn a_recovered_window_outlives_the_batches_before_its_messages_return() {
     let storage = Arc::new(MemoryStorage::new());
@@ -1511,7 +1534,12 @@ fn a_recovered_window_outlives_the_batches_before_its_messages_return() {
     let mut s = h.session();
     assert_eq!(types(&s.recv(logon(4), h.t0)), ["Logon", "ResendRequest"]);
     s.recv(resend_of(client(2, MsgType::Heartbeat)), h.t0);
-    assert_eq!(s.peer().log.in_flight(), Some(2), "3 may still come back, and may have been handled");
+    assert_eq!(s.peer().log.in_flight(), Some(3), "3 may still come back, and may have been handled");
+    drop(s); // the process stops again
+    let mut s = h.session();
+    assert_eq!(types(&s.recv(logon(5), h.t0)), ["Logon", "ResendRequest"]);
+    s.recv(resend_of(order(3, "C")), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [true]);
 }
 
 // ---- Messages ahead of a gap ----

@@ -1798,9 +1798,8 @@ impl Session {
         if let Err(e) = self.start_period() {
             return self.storage_failed(e, now);
         }
-        self.recovered = self.peer().log.in_flight();
-        if let Some(start) = self.recovered {
-            info!(start, "messages from this one on may have been handled before a restart");
+        if let Err(e) = self.recover_in_flight() {
+            return self.storage_failed(e, now);
         }
         self.update_sequence_gauges();
         match then {
@@ -1809,6 +1808,24 @@ impl Session {
                 self.answer_logon(reset, seq_num, their_next, heartbeat, now);
             }
         }
+    }
+
+    /// Takes up the messages the store had in flight when the session last stopped: they're
+    /// expected again from the first, and marked as possibly handled when they come. The first is
+    /// usually the next incoming number, but may be an earlier message that was recorded as
+    /// received while the application still held it.
+    fn recover_in_flight(&mut self) -> io::Result<()> {
+        let log = &mut self.peer_mut().log;
+        let Some(start) = log.in_flight() else { return Ok(()) };
+        let next = log.next_incoming();
+        if start < next {
+            info!(start, next, "expecting messages again from the first that may not have been finished");
+            log.set_next_incoming(start)?;
+            log.set_in_flight(start)?;
+        }
+        info!(start, "messages from this one on may have been handled before a restart");
+        self.recovered = Some(start);
+        Ok(())
     }
 
     /// Why the schedule forbids logging on now, if it does.
@@ -3127,11 +3144,17 @@ impl Session {
         matches!(self.status, Status::Active | Status::LoggingOut { .. })
     }
 
-    /// Where the store's in-flight marker must start once the next incoming number is `next`: the
-    /// window recovered from before a restart while messages in it may still come back, so a
-    /// second crash finds it too; otherwise the open window's start, if one is open.
+    /// Where the store's in-flight marker must be once the next incoming number is `next`, if
+    /// messages can be in flight: while a window is open, or messages recovered from before a
+    /// restart may still come back (so a second crash finds them too). It's the first message that
+    /// may not be finished, which recovery expects again; everything handed over before it was.
     fn marker(&self, next: u64) -> Option<u64> {
-        self.live_recovered(next).or_else(|| self.window_end.map(|end| end - DELIVERIES_PER_COMMIT))
+        (self.window_end.is_some() || self.live_recovered(next).is_some()).then(|| self.unfinished_from(next))
+    }
+
+    /// The first incoming message that may not be finished once the next incoming number is `next`.
+    fn unfinished_from(&self, next: u64) -> u64 {
+        next
     }
 
     /// The window recovered from before a restart, while messages in it may still come back.
@@ -3149,22 +3172,28 @@ impl Session {
     fn begin_commit(&mut self) -> io::Result<Option<Commit>> {
         debug_assert!(!self.committing && self.opening.is_none());
         let receiving = self.receiving();
-        let Some(peer) = self.peer.as_mut().filter(|_| !self.store_failed) else {
+        let Some(peer) = self.peer.as_ref().filter(|_| !self.store_failed) else {
             // Nothing is stored: the reply to a Logon that was refused, or a store that failed.
             return Ok(None);
         };
         let next = peer.log.next_incoming();
-        // A recovered window still in use is kept: a new one starts where it does.
-        let recovered = self.recovered.filter(|start| next < start + DELIVERIES_PER_COMMIT);
+        let start = self.unfinished_from(next);
+        // Recovered messages may still come back, or the application holds one.
+        let in_flight = self.live_recovered(next).is_some() || start < next;
+        let peer = self.peer.as_mut().expect("checked above");
         if receiving {
             // Every commit records the window the next batch is handed over in, so that batch
             // needs no commit of its own first. Unchanged, it costs nothing.
-            let start = recovered.unwrap_or(next);
             if peer.log.in_flight() != Some(start) {
                 peer.log.set_in_flight(start)?;
             }
             self.opening = Some(start);
-        } else if self.status == Status::Closed && recovered.is_none() && peer.log.in_flight().is_some() {
+        } else if self.status == Status::Closed && in_flight {
+            // Kept for the next connection.
+            if peer.log.in_flight() != Some(start) {
+                peer.log.set_in_flight(start)?;
+            }
+        } else if self.status == Status::Closed && peer.log.in_flight().is_some() {
             // The session has ended cleanly, so nothing is in flight.
             peer.log.set_next_incoming(next)?;
         }
