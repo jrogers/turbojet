@@ -373,8 +373,12 @@ impl Holds {
     /// Forgets the released holds at the front. Releases from now on wake the connection again.
     pub(crate) fn tidy(&mut self) {
         if let Some(shared) = &self.shared {
-            // Before looking, so a release after this is either seen or wakes the connection.
-            shared.woken.store(false, Ordering::SeqCst);
+            // Before looking, so a release after this is either seen or wakes the connection. A
+            // swap, not a store: the counts below are read with a relaxed load, which a store
+            // doesn't keep after it (on ARM64 the store can wait in a buffer while the load runs),
+            // so a release could see the flag still set while we see its hold still live, and the
+            // wake-up would be lost until the next timer. A swap's acquire keeps the loads after.
+            let _ = shared.woken.swap(false, Ordering::SeqCst);
         }
         while self.entries.front().is_some_and(|(_, entry)| entry.strong_count() == 0) {
             self.entries.pop_front();
