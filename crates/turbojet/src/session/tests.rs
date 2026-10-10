@@ -1283,6 +1283,72 @@ fn messages_queued_behind_a_gap_wait_for_a_release() {
     assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "the rest");
 }
 
+/// A clean logout with a message held keeps the marker at it: holds end with their connection,
+/// so the next one asks for it again.
+#[test]
+fn a_clean_logout_with_a_message_held_keeps_the_marker() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    s.recv(order(3, "B"), h.t0);
+    assert_eq!(types(&s.recv(client(4, MsgType::Logout), h.t0)), ["Logout", "DISCONNECT"]);
+    let log = &s.peer().log;
+    assert_eq!((log.next_incoming(), log.in_flight()), (5, Some(2)));
+}
+
+/// A logout while input waits for a release can't read the counterparty's reply, so it ends by
+/// the logout timeout.
+#[test]
+fn a_logout_while_held_back_ends_by_its_timeout() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    for seq in 3..=1 + DELIVERIES_PER_COMMIT {
+        s.recv(order(seq, "B"), h.t0);
+    }
+    assert!(s.is_held_back());
+    assert_eq!(types(&s.command(Command::Logout(None), h.t0)), ["Logout"]);
+    assert!(s.is_held_back(), "the reply waits unread");
+    let timeout = h.config.logout_timeout;
+    assert_eq!(types(&s.timer(h.t0 + timeout)), ["DISCONNECT"]);
+    assert_eq!(s.peer().log.in_flight(), Some(2), "kept for the next connection");
+}
+
+/// An operator moving the next incoming number past a held message leaves the marker at it, so a
+/// crash before its release asks for it again from there.
+#[test]
+fn an_operator_skip_past_a_held_message_keeps_the_marker() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    let (reply, _answer) = tokio::sync::oneshot::channel();
+    s.command(Command::Sequence(SequenceCommand::SetNextIncoming(10), reply), h.t0);
+    let log = &s.peer().log;
+    assert_eq!((log.next_incoming(), log.in_flight()), (10, Some(2)));
+    drop(s);
+    let mut s = h.session();
+    let out = s.recv(logon(10), h.t0);
+    assert_eq!(sent(&out)[1].get(tags::BEGIN_SEQ_NO), Some("2"), "the skip is undone");
+}
+
+/// A sequence reset forgets holds: their numbers are gone, so the marker moves on without them.
+#[test]
+fn a_store_reset_forgets_holds() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    for seq in 2..=4 {
+        s.recv(client(seq, MsgType::Heartbeat), h.t0);
+    }
+    s.recv(order(5, "A"), h.t0);
+    assert_eq!(s.peer().log.in_flight(), Some(5));
+    s.recv(reset_logon(), h.t0);
+    for seq in 2..=7 {
+        s.recv(order(seq, "B"), h.t0);
+    }
+    assert_eq!(h.app.holds.lock().unwrap().len(), 1, "still held by the application");
+    assert_eq!(s.peer().log.in_flight(), Some(8));
+}
+
 /// A second hold on a message is the same hold, released with the last handle; a context made
 /// for tests gives one that does nothing.
 #[test]
