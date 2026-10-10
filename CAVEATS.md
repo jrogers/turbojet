@@ -64,6 +64,13 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
+- The generated `turbojet-fix*` crates' enumerated fields are strict: parsing a typed message
+  fails on a code its dictionary doesn't list, in any enumerated field, even one the application
+  never reads (a venue's own OrdRejReason, a LastLiquidityInd or TargetStrategy of its own). An
+  application that rejects such a message, as `?` on `parse` does, loses it for good: a
+  counterparty doesn't resend a message we rejected, so an ExecutionReport carrying a fill is
+  gone. For messages that must not be lost, read the fields needed from the `Message` itself
+  (`field`, `opt_field`), or generate a crate with `--lenient-enums` (`turbojet-codegen`).
 - Counterparty settings (`CounterpartyMap`, the sessions file) and stores
   (`StorageByCounterparty`) are chosen by CompID, so a counterparty's sessions with different
   SubIDs share them. A `Counterparties` resolver of one's own sees the full `SessionId`.
