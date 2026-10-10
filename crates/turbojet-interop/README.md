@@ -1,11 +1,10 @@
 # turbojet-interop
 
-Tests Turbojet's session layer against three other FIX engines,
-[QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2,
-[quickfix-go](https://github.com/quickfixgo/quickfix) 0.9.12 and
-[QuickFIX/n](https://github.com/connamara/quickfixn) 1.14.1. Each scenario runs in 24 cells:
-against each engine (`qfj`, `qfgo`, `qfn` in the test names), with Turbojet as initiator and as
-acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2. There are 42 scenarios (1,008
+Tests Turbojet's session layer against two other FIX engines,
+[QuickFIX/J](https://github.com/quickfix-j/quickfixj) 3.0.2 and
+[QuickFIX/n](https://github.com/connamara/quickfixn) 1.14.1. Each scenario runs in 16 cells:
+against each engine (`qfj`, `qfn` in the test names), with Turbojet as initiator and as
+acceptor, on FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2. There are 42 scenarios (672
 tests), plus checks on the harness itself:
 
 - logon; Logout from either side; a dropped connection that resumes its sequence numbers, and
@@ -27,8 +26,8 @@ tests), plus checks on the harness itself:
   the open direction back until it ends; see `tests/delays.rs`.)
 
 Each engine's side is a small program that runs one session and is driven over stdin and stdout:
-Java for QuickFIX/J (`peer/`), Go for quickfix-go (`peer-go/`), C# for QuickFIX/n (`peer-net/`).
-All three speak the same protocol, so a scenario is written once. The crate isn't published.
+Java for QuickFIX/J (`peer/`), C# for QuickFIX/n (`peer-net/`).
+Both speak the same protocol, so a scenario is written once. The crate isn't published.
 
 ## Running
 
@@ -38,14 +37,12 @@ scripts/interop.sh gap_fill_from_peer   # arguments go to cargo test
 scripts/interop.sh qfn                  # one engine's cells
 ```
 
-This needs a JDK, 21 or later, Go, and the .NET 10 SDK: the script builds the peer jar with the
-Gradle wrapper in `peer/`, the Go peer in `peer-go/` and the .NET peer in `peer-net/`, then runs
+This needs a JDK, 21 or later, and the .NET 10 SDK: the script builds the peer jar with the
+Gradle wrapper in `peer/` and the .NET peer in `peer-net/`, then runs
 `cargo test -p turbojet-interop` with `TURBOJET_INTEROP=1`. Without that variable the tests pass
-without doing anything, so `cargo test --workspace` doesn't need Java, Go or .NET.
-`INTEROP_PEER_JAR`, `INTEROP_GO_PEER` and `INTEROP_NET_PEER` (the `peer-net.dll` to run with
-`dotnet`) point the tests at peers built elsewhere, and `INTEROP_GO_SPEC` at quickfix-go's data
-dictionaries (by default, its module's `spec` directory, as `go list` reports it). QuickFIX/n's
-aren't in its NuGet package, so they're in `peer-net/spec/`, from its v1.14.1 tag.
+without doing anything, so `cargo test --workspace` doesn't need Java or .NET.
+`INTEROP_PEER_JAR` and `INTEROP_NET_PEER` (the `peer-net.dll` to run with `dotnet`) point the
+tests at peers built elsewhere. QuickFIX/n's data dictionaries aren't in its NuGet package, so they're in `peer-net/spec/`, from its v1.14.1 tag.
 
 ## Adding a scenario
 
@@ -83,13 +80,9 @@ async fn order_round_trip(setup: Setup) {
   `pair.peer.tolerate_errors`; one it always logs should be consumed with `expect`.
 
 The peer's arguments, commands and events are documented on the `Peer` class in
-`peer/src/main/java/dev/turbojet/interop/Peer.java`. The Go peer takes the same, plus `spec-dir`.
-It emits `qfgo_event` where the Java peer emits `qfj_error`, since quickfix-go logs its errors and
-its other session events alike; `PeerEvent::logged` gives any engine's text. quickfix-go has no call
-to drop a connection without a Logout, so the Go peer's `disconnect` closes it underneath: an
-initiator connects through a relay of the peer's own, and an acceptor's connections are tracked.
-The .NET peer takes the same arguments as the Java one, and emits `qfn_event` for QuickFIX/n's log,
-which also mixes errors and other events. QuickFIX/n reads `FileLogPath` and `ReconnectInterval`
+`peer/src/main/java/dev/turbojet/interop/Peer.java`. The .NET peer takes the same arguments, and
+emits `qfn_event` where the Java peer emits `qfj_error`, since QuickFIX/n's log mixes errors and
+other events; `PeerEvent::logged` gives either engine's text. QuickFIX/n reads `FileLogPath` and `ReconnectInterval`
 only from the default settings, and can't report the port an acceptor bound, so the peer takes a
 free port first. Its sends write to the socket before returning, so a send into a stalled reader
 blocks the peer until the reader reads again: start such a command with `pair.peer.start_cmd` and
@@ -113,23 +106,7 @@ printed. Each expect times out after 10 s and each scenario after 120 s.
   spec; Turbojet now queues too, and the gap recovery scenarios check that both engines deliver
   the original.
 
-Against quickfix-go, Turbojet needed no changes. quickfix-go departs from the spec in three places,
-which the scenarios check for it rather than skip:
-
-- It rejects a message whose data field (XmlData) contains SOH, with SessionRejectReason 4 on tag
-  0: it sizes a message's fields by counting SOH, so each SOH inside a data field leaves an empty
-  field that its validator then refuses (`data_field_with_soh_round_trip`). Its own data fields
-  reach Turbojet intact.
-- It doesn't check CheckSum, so it delivers a garbled message to the application rather than
-  discard it (`garbled_order_to_peer`).
-- When it rejects a message for SendingTime accuracy, it logs out without counting the message
-  (its other session-level rejects do count it). On reconnecting it asks for the message again,
-  and delivers the stale order from the resend (`stale_sending_time_to_peer`).
-
-One check is left out for quickfix-go as acceptor: it logs a session out only by stopping the
-acceptor, which closes the connection without reading the Logout reply (`logout_from_peer`).
-
-Against QuickFIX/n, Turbojet needed no changes either. It departs from the spec in two places,
+Against QuickFIX/n, Turbojet needed no changes. It departs from the spec in two places,
 both checked for:
 
 - As acceptor, it answers a Logon with ResetSeqNumFlag=Y with a Logon that leaves the flag out,
@@ -150,9 +127,6 @@ certificates (for `localhost` and `127.0.0.1`) and a second CA that issues none,
 trust the wrong one. The Java peer writes QuickFIX/J's PKCS#12 key and trust stores from those PEM
 files (its key store empty when it presents no certificate, so QuickFIX/J doesn't fall back to its
 bundled one), and as initiator checks the server's name (`EndpointIdentificationAlgorithm=HTTPS`).
-quickfix-go reads the PEM files itself. Its `SocketUseSSL=Y` means TLS without requiring a client
-certificate: without it, its acceptor requires one, and its initiator, with no certificate of its
-own, doesn't use TLS at all. Its initiator checks the server's name by default.
 
 QuickFIX/n takes its certificate as a PKCS#12 bundle, so `src/pki.rs` also writes each side's
 certificate, key and CA as a `.pfx`, and in `qfn` cells Turbojet loads its own from its bundle
@@ -164,10 +138,9 @@ validates only when it requires one.
 
 A refused handshake must leave both sides logged off while the initiator keeps trying. Each
 refusal was checked to fail for its reason on both sides. As initiator, QuickFIX/J and QuickFIX/n
-log each failed handshake, and quickfix-go each one it refused itself; when it's quickfix-go's
-certificate that's refused, TLS 1.3 tells it only after its side of the handshake, so it logs a
-disconnection. QuickFIX/n does the same on Linux, where .NET uses TLS 1.3, and logs the alert that
-ends its first read; on macOS, .NET negotiates TLS 1.2 and learns of the refusal in the handshake.
+log each failed handshake. When it's QuickFIX/n's certificate that's refused, TLS 1.3 tells it only
+after its side of the handshake: on Linux, where .NET uses TLS 1.3, it logs the alert that ends its
+first read; on macOS, .NET negotiates TLS 1.2 and learns of the refusal in the handshake.
 
 ## The fault-injecting proxy
 

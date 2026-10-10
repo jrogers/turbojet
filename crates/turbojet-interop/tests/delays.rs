@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::time::{Instant, sleep_until};
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, TjEvent, matrix};
+use turbojet_interop::{Dir, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Setup, TjEvent, matrix};
 
 matrix!(latency_spike_to_tj, latency_spike_to_peer, stale_sending_time_to_tj, stale_sending_time_to_peer);
 matrix!(slow_link, stalled_reader_at_tj, stalled_reader_at_peer);
@@ -150,19 +150,6 @@ async fn stale_sending_time_to_peer(setup: Setup) {
     assert_eq!(logout.seq(), reject.seq() + 1, "the Logout follows the Reject: {}", logout.raw());
     pair.tj_logged_out().await;
     pair.peer.logout().await;
-    if setup.engine == Engine::QuickFixGo {
-        // quickfix-go doesn't count a message it rejects for SendingTime before logging out, where
-        // FIX counts a rejected message as received. So once reconnected it asks for the stale
-        // order again, and delivers Turbojet's resend of it.
-        pair.logged_on().await;
-        let request = pair.peer.wire_out("2", |_| true).await;
-        assert_eq!(request.get(7), Some(stale.to_string().as_str()), "{}", request.raw());
-        let resent = pair.peer.received_with("D", |m| m.get(11) == Some("ORD1")).await;
-        assert_eq!(resent.get(43), Some("Y"), "{}", resent.raw());
-        pair.orders_each_way("ORD2", "ORD3").await;
-        pair.finish().await;
-        return;
-    }
     reconnected_without_resend(pair, "ORD1").await;
 }
 
@@ -294,7 +281,7 @@ async fn stalled_reader_at_peer(setup: Setup) {
     let mut pair = start(setup, Options::default()).await;
     pair.proxy().stall(Dir::ToTj);
     // QuickFIX/n's sends write to the socket before returning, so this one finishes only once
-    // the proxy reads again; QuickFIX/J's and quickfix-go's queue their writes and return at once.
+    // the proxy reads again; QuickFIX/J's queue their writes and return at once.
     let send_many = format!("send-many {PEER_ORDERS_INTO_STALL} {}", peer_order("P{i}"));
     pair.peer.start_cmd(&send_many).await;
 

@@ -1,6 +1,6 @@
 // One QuickFIX/n session, driven by turbojet-interop's tests over stdin and stdout. It speaks the
 // same protocol as the QuickFIX/J peer (../peer, documented on its Peer class), so the same
-// scenarios run against all three engines.
+// scenarios run against both engines.
 //
 // Arguments are key=value: role, begin, port, sender, target, sender-sub, target-sub,
 // sender-location, target-location, heartbeat, reset-on-logon, reconnect, max-latency and log-dir,

@@ -5,7 +5,7 @@ why it matters and roughly how big it is: **S** (a day or less), **M** (a few da
 or more). What's built, and how, is in [DESIGN.md](DESIGN.md); behaviour worth knowing about is in
 [CAVEATS.md](CAVEATS.md).
 
-Turbojet has been tested against three other FIX engines (QuickFIX/J, quickfix-go and QuickFIX/n)
+Turbojet has been tested against two other FIX engines (QuickFIX/J and QuickFIX/n)
 and QuickFIX's scripted session scenarios, but not yet with any venue or real counterparty.
 
 ## 1. Protocol completeness

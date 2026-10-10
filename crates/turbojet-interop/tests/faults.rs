@@ -6,7 +6,7 @@ use tokio::time::Instant;
 
 use turbojet::message::tags;
 use turbojet_interop::orders::{peer_order, tj_order};
-use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, ProxyEvent, Role, Setup, matrix};
+use turbojet_interop::{Dir, Engine, Fault, FixMsg, Options, Pair, PeerEvent, ProxyEvent, Role, Setup, matrix};
 
 matrix!(lost_order_to_peer, lost_order_to_tj, garbled_order_to_peer, garbled_order_to_tj);
 matrix!(silent_peer, silent_tj, cut_order_to_peer, cut_order_to_tj);
@@ -71,14 +71,6 @@ async fn order_recovered_at_peer(setup: Setup, fault: Fault) {
     if fault == Fault::Garble {
         // QuickFIX/J and QuickFIX/n read the frame but refuse it on its CheckSum.
         pair.peer.wire_in("D", |m| m.seq() == lost).await;
-        if setup.engine == Engine::QuickFixGo {
-            // quickfix-go doesn't check CheckSum, so it delivers the garbled order where the
-            // session layer should discard it as garbled. Nothing is lost, so nothing to recover.
-            let delivered = pair.peer.received_with("D", |m| m.get(11) == Some("ORD1")).await;
-            assert_eq!(delivered.seq(), lost, "{}", delivered.raw());
-            pair.finish().await;
-            return;
-        }
         pair.peer.expect("CheckSum error", |e| e.logged().is_some_and(|t| t.contains("CheckSum"))).await;
         if setup.engine == Engine::QuickFixN && setup.role == Role::TjAcceptor {
             // As initiator, QuickFIX/n disconnects on a garbled message where the session layer
@@ -221,11 +213,8 @@ async fn silent_tj(setup: Setup) {
 /// once a second, QuickFIX/J can pass the moment to probe and reach its timeout on the next tick
 /// (CI run 37957850100).
 async fn peer_timed_out(pair: &mut Pair) {
-    let text = match pair.peer.engine() {
-        Engine::QuickFixJ | Engine::QuickFixN => "Timed out waiting for heartbeat",
-        Engine::QuickFixGo => "Session Timeout",
-    };
-    pair.peer.expect("the peer's heartbeat timeout", |e| e.logged().is_some_and(|t| t.contains(text))).await;
+    let timed_out = |e: &PeerEvent| e.logged().is_some_and(|t| t.contains("Timed out waiting for heartbeat"));
+    pair.peer.expect("the peer's heartbeat timeout", timed_out).await;
     pair.peer.logout().await;
 }
 

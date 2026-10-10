@@ -92,7 +92,7 @@ async fn seq_too_low_at_peer(setup: Setup) {
     assert!(logout.get(58).is_some_and(|t| t.contains("too low")), "{}", logout.raw());
     pair.tj_logged_out().await;
     pair.peer.logout().await;
-    // quickfix-go logs no error for it; the Logout's text is the reason.
+    // Only QuickFIX/J's errors are checked; the Logout's text is the reason.
     if setup.engine == Engine::QuickFixJ {
         for error in ["quickfix.SessionException MsgSeqNum too low", "Disconnecting: Verifying message failed"] {
             pair.peer.expect(error, |e| matches!(e, PeerEvent::QfjError(t) if t.starts_with(error))).await;

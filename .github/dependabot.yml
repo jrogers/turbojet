@@ -1,6 +1,6 @@
 # Version updates. Security updates are on in the repository's settings and cover every
 # ecosystem, the interop peers' included; these are routine upgrades, grouped into one pull
-# request per ecosystem a month. The interop peers (Gradle, Go, NuGet) get none: their versions
+# request per ecosystem a month. The interop peers (Gradle, NuGet) get none: their versions
 # are the baseline the interop tests check against, so they change on purpose, not on a timer.
 version: 2
 updates:

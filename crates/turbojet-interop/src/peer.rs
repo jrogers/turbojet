@@ -1,4 +1,4 @@
-//! Spawns a peer, QuickFIX/J (peer/) or quickfix-go (peer-go/), and talks to it: commands on
+//! Spawns a peer, QuickFIX/J (peer/) or QuickFIX/n (peer-net/), and talks to it: commands on
 //! stdin, events on stdout. Both peers speak the same protocol.
 
 use std::collections::VecDeque;
@@ -6,7 +6,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{env, fs};
 
@@ -26,8 +26,6 @@ pub const QFJ: &str = "QFJ";
 pub enum Engine {
     /// QuickFIX/J, a Java program in `peer/`.
     QuickFixJ,
-    /// quickfix-go, a Go program in `peer-go/`.
-    QuickFixGo,
     /// QuickFIX/n, a .NET program in `peer-net/`.
     QuickFixN,
 }
@@ -98,10 +96,8 @@ pub enum PeerEvent {
     Out(String),
     /// An error QuickFIX/J logged, e.g. why it rejected or ignored a message.
     QfjError(String),
-    /// A session event quickfix-go logged. It logs errors (why it rejected or ignored a message)
+    /// A session event QuickFIX/n logged. It logs errors (why it rejected or ignored a message)
     /// and other events (a logon, a reset) the same way, so these aren't all errors.
-    QfgoEvent(String),
-    /// A session event QuickFIX/n logged: like quickfix-go, errors and other events alike.
     QfnEvent(String),
     Ok(String),
     Error(String),
@@ -121,7 +117,6 @@ impl PeerEvent {
             "in" => Self::In(payload.to_string()),
             "out" => Self::Out(payload.to_string()),
             "qfj_error" => Self::QfjError(payload.to_string()),
-            "qfgo_event" => Self::QfgoEvent(payload.to_string()),
             "qfn_event" => Self::QfnEvent(payload.to_string()),
             "ok" => Self::Ok(payload.to_string()),
             "error" => Self::Error(payload.to_string()),
@@ -138,10 +133,10 @@ impl PeerEvent {
     }
 
     /// What the engine logged, if this is a log line: an error from QuickFIX/J, or any session
-    /// event from quickfix-go or QuickFIX/n, which log errors and other events alike.
+    /// event from QuickFIX/n, which logs errors and other events alike.
     pub fn logged(&self) -> Option<&str> {
         match self {
-            Self::QfjError(text) | Self::QfgoEvent(text) | Self::QfnEvent(text) => Some(text),
+            Self::QfjError(text) | Self::QfnEvent(text) => Some(text),
             _ => None,
         }
     }
@@ -214,20 +209,6 @@ fn jar() -> PathBuf {
     path
 }
 
-/// The quickfix-go peer binary: `INTEROP_GO_PEER`, or the one `scripts/interop.sh` builds.
-fn go_peer() -> PathBuf {
-    if let Some(path) = env::var_os("INTEROP_GO_PEER") {
-        return path.into();
-    }
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("peer-go/peer");
-    assert!(
-        path.exists(),
-        "quickfix-go peer not built ({} is missing): run scripts/interop.sh, or go build -C crates/turbojet-interop/peer-go -o peer .",
-        path.display()
-    );
-    path
-}
-
 /// The QuickFIX/n peer: `INTEROP_NET_PEER`, or the one `scripts/interop.sh` builds. Its data
 /// dictionaries sit next to it, in `spec/`.
 fn net_peer() -> PathBuf {
@@ -243,35 +224,12 @@ fn net_peer() -> PathBuf {
     path
 }
 
-/// quickfix-go's data dictionaries: `INTEROP_GO_SPEC`, or the `spec` directory of the module the
-/// peer builds against, as Go reports it.
-fn go_spec() -> &'static Path {
-    static SPEC: OnceLock<PathBuf> = OnceLock::new();
-    SPEC.get_or_init(|| {
-        if let Some(path) = env::var_os("INTEROP_GO_SPEC") {
-            return path.into();
-        }
-        let output = std::process::Command::new("go")
-            .args(["list", "-m", "-f", "{{.Dir}}", "github.com/quickfixgo/quickfix"])
-            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("peer-go"))
-            .output()
-            .expect("could not run go; is Go installed?");
-        assert!(output.status.success(), "go list failed: {}", String::from_utf8_lossy(&output.stderr));
-        Path::new(String::from_utf8(output.stdout).unwrap().trim()).join("spec")
-    })
-}
-
 /// The command that starts the peer `config` describes, logging to `log_dir`.
 fn command(config: &PeerConfig, log_dir: &Path) -> Command {
     let mut command = match config.engine {
         Engine::QuickFixJ => {
             let mut command = Command::new("java");
             command.arg("-jar").arg(jar());
-            command
-        }
-        Engine::QuickFixGo => {
-            let mut command = Command::new(go_peer());
-            command.arg(format!("spec-dir={}", go_spec().display()));
             command
         }
         Engine::QuickFixN => {
@@ -372,7 +330,6 @@ impl Peer {
         };
         // The JVM can take a while to start on a cold runner.
         let deadline = Instant::now() + Duration::from_secs(30);
-        // quickfix-go logs events (its session's creation) before it's ready; they stay buffered.
         peer.port = match peer.events.expect(deadline, |e| matches!(e, PeerEvent::Ready(_))).await {
             Ok(PeerEvent::Ready(port)) => port,
             Ok(other) => unreachable!("expected ready, got {other:?}"),
@@ -570,7 +527,7 @@ impl Drop for Peer {
             eprintln!("---- peer stderr ----");
             eprintln!("{}", fs::read_to_string(path.join("stderr.log")).unwrap_or_default());
             for entry in fs::read_dir(path.join("qfj")).into_iter().flatten().flatten() {
-                // QuickFIX/J's is <session>.event.log, quickfix-go's <session>.event.current.log.
+                // QuickFIX/J's is <session>.event.log.
                 if entry.file_name().to_string_lossy().contains(".event.") {
                     eprintln!("---- {} ----", entry.file_name().to_string_lossy());
                     eprintln!("{}", fs::read_to_string(entry.path()).unwrap_or_default());
@@ -599,7 +556,6 @@ mod tests {
         assert!(matches!(PeerEvent::parse("error\tsend: boom"), PeerEvent::Error(e) if e == "send: boom"));
         assert!(matches!(PeerEvent::parse("in\t8=FIX.4.4|35=0|"), PeerEvent::In(raw) if raw == "8=FIX.4.4|35=0|"));
         assert!(matches!(PeerEvent::parse("qfj_error\tbad"), PeerEvent::QfjError(e) if e == "bad"));
-        assert_eq!(PeerEvent::parse("qfgo_event\tSession Timeout").logged(), Some("Session Timeout"));
         assert_eq!(PeerEvent::parse("qfn_event\tReceived logon").logged(), Some("Received logon"));
     }
 }

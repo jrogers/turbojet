@@ -338,7 +338,7 @@ invariants, and tests that look for bugs rather than confirm what already works.
   the SBE codecs and the session state machines (`crates/turbojet/fuzz`, `scripts/fuzz.sh`),
   fuzzed nightly in CI. A failing input, once fixed, is kept in `fuzz/regressions/` and replayed on
   every push (`scripts/fuzz-regressions.sh`).
-- **Interop with QuickFIX/J, quickfix-go and QuickFIX/n** (`turbojet-interop`), with Turbojet as initiator and as acceptor, on
+- **Interop with QuickFIX/J and QuickFIX/n** (`turbojet-interop`), with Turbojet as initiator and as acceptor, on
   FIX 4.2, 4.3 and 4.4 and on FIXT.1.1 with FIX 5.0 SP2: logon and logout, reconnection, heartbeats
   and TestRequests, application messages (one with XmlData containing SOH), gap fills and resends in
   each direction, SequenceResets in both modes, MsgSeqNum too low and sessions identified by SubIDs
@@ -348,11 +348,7 @@ invariants, and tests that look for bugs rather than confirm what already works.
   handshakes refused for an untrusted server, a missing client certificate, an untrusted one and
   a revoked one,
   with each peer checking the server's name as Turbojet does. They found Heartbeats going out a
-  second late, since fixed. Against quickfix-go (v0.9.12), every scenario runs too; where it departs from the
-  spec, the scenario checks what it does instead: it rejects a data field containing SOH, delivers
-  a message with a wrong CheckSum, and doesn't count a message it rejects for SendingTime, so it
-  asks for it again after reconnecting. Against QuickFIX/n (v1.14.1, on .NET 10), every scenario
-  runs as well, the TLS ones with PKCS#12 bundles on both sides: as acceptor it leaves
+  second late, since fixed. Against QuickFIX/n (v1.14.1, on .NET 10), every scenario runs too, the TLS ones with PKCS#12 bundles on both sides: as acceptor it leaves
   ResetSeqNumFlag out of its Logon reply, and as initiator it disconnects on a garbled message,
   recovering it by resend.
 - **QuickFIX's 235 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX

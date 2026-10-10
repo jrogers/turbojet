@@ -100,11 +100,10 @@ enum Refuser {
 }
 
 /// Neither side logs on while the initiator keeps trying. As initiator, QuickFIX/J and QuickFIX/n
-/// log each failed handshake, and quickfix-go each one it refused itself: which shows the refusal
-/// came in TLS and not later. With TLS 1.3 a client learns that its certificate was refused only
-/// after its side of the handshake, so quickfix-go then logs just the disconnection, and
-/// QuickFIX/n the alert that ends its first read (on macOS, .NET's TLS 1.2 learns it in the
-/// handshake). As acceptors, none logs a failed handshake.
+/// log each failed handshake, which shows the refusal came in TLS and not later. With TLS 1.3 a
+/// client learns that its certificate was refused only after its side of the handshake, so
+/// QuickFIX/n then logs the alert that ends its first read (on macOS, .NET's TLS 1.2 learns it in
+/// the handshake). As acceptors, neither logs a failed handshake.
 async fn refused(pair: &mut Pair, refuser: Refuser) {
     pair.never_logged_on(REFUSED_FOR).await;
     if pair.setup.role == Role::TjInitiator {
@@ -117,11 +116,6 @@ async fn refused(pair: &mut Pair, refuser: Refuser) {
             // One for each attempt, and it tries each second.
             pair.peer.tolerate_errors(|e| e.contains("javax.net.ssl.SSLHandshakeException"));
         }
-        Engine::QuickFixGo if refuser == Refuser::Initiator => {
-            let handshake = |e: &PeerEvent| e.logged().is_some_and(|t| t.starts_with("Failed handshake"));
-            pair.peer.expect("quickfix-go's failed handshake", handshake).await;
-        }
-        Engine::QuickFixGo => {}
         Engine::QuickFixN => {
             let handshake = |e: &PeerEvent| {
                 e.logged().is_some_and(|t| match refuser {
