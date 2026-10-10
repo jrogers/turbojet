@@ -324,6 +324,16 @@ impl SessionsFile {
         self.current.get().raw.initiator.keys().cloned().collect()
     }
 
+    /// Each initiator's session and the store it keeps it in, by section name, in order: to read
+    /// what a session stored (the messages it sent, say) before [`initiators`](Self::initiators)
+    /// starts it. Drop any log opened from a store before then: a `disk` store locks a session's
+    /// files while its log is open.
+    pub fn initiator_stores(&self) -> Vec<(String, SessionId, Arc<dyn SessionStorage>)> {
+        let loaded = self.current.get();
+        let stores = loaded.initiators.iter();
+        stores.map(|(name, initiator)| (name.clone(), initiator.id(), loaded.store(&initiator.store).clone())).collect()
+    }
+
     /// The acceptor's own configuration, `[acceptor]` and `[defaults]`, if the file has one.
     pub fn base(&self) -> Option<SessionConfig> {
         self.current.get().acceptor.as_ref().map(|acceptor| acceptor.base.clone())

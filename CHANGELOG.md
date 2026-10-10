@@ -225,6 +225,9 @@ Notable changes to the published crates.
 - A reload logs out every session of a counterparty no longer listed, whatever its SubIDs; it
   reached only the one without them.
 - `SessionsFileBuilder::with_message_log` gives every session in the file a `MessageLog`.
+- `SessionsFile::initiator_stores` gives each initiator's session and its store, to read what a
+  session stored before its initiator starts (a gateway looking for requests it sent before a
+  crash, say).
 
 ### `turbojet-sql`
 

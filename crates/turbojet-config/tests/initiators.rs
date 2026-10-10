@@ -144,3 +144,49 @@ async fn reloading_initiators_needs_reload_all() {
     assert!(error.ends_with("initiator: section: reload a file with initiators with reload_all"), "{error}");
     assert!(firm.sessions.reload_all(Some(&acceptor), &firm.initiators).unwrap().is_empty());
 }
+
+/// What an initiator's session stored can be read before the initiator starts, from the store the
+/// file gives it; once that log is dropped, the initiator opens its (locked) disk files and logs on.
+#[tokio::test]
+async fn an_initiators_store_is_read_before_it_starts() {
+    let mut venue = Venue::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sessions.toml");
+    let text = format!(
+        "[store.main]\nkind = \"disk\"\ndir = \"store\"\n\n{}store = \"main\"\n",
+        file(&[("ALPHA", &venue.addr)])
+    );
+    std::fs::write(&path, text).unwrap();
+    let sessions = SessionsFile::load(&path).unwrap();
+    let mut stores = sessions.initiator_stores();
+    assert_eq!(stores.len(), 1);
+    let (name, id, storage) = stores.pop().unwrap();
+    assert_eq!((name.as_str(), id.sender_comp_id.as_str(), id.target_comp_id.as_str()), ("ALPHA", "ALPHA", "VENUE"));
+    let stored = turbojet::codec::encode(
+        &turbojet::Message::new(turbojet::MsgType::Heartbeat)
+            .with(turbojet::message::tags::BEGIN_STRING, "FIX.4.4")
+            .with(turbojet::message::tags::MSG_SEQ_NUM, 1_u64),
+    )
+    .unwrap();
+    let mut log = storage.open(&id).unwrap();
+    log.record_outgoing(1, Some(&stored)).unwrap();
+    commit(log.as_mut());
+    drop(log);
+    let mut log = storage.open(&id).unwrap();
+    assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, stored)]);
+    // So the venue sees the initiator start at 1.
+    log.reset().unwrap();
+    commit(log.as_mut());
+    drop(log);
+
+    let (tx, _) = mpsc::unbounded_channel();
+    let initiators = sessions.initiators(Arc::new(Recorder(tx))).unwrap();
+    assert_eq!(venue.next().await, "logon ALPHA");
+    initiators.shutdown(None).await;
+}
+
+fn commit(log: &mut dyn turbojet::store::SessionLog) {
+    if let Some(commit) = log.commit().unwrap() {
+        commit.run().unwrap();
+    }
+}
