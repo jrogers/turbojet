@@ -1363,6 +1363,8 @@ impl FixpSession {
             Command::Sequence(command, reply) => self.on_sequence_command(command, reply),
             Command::Finish if self.state == State::Established => self.finish(),
             Command::Finish => debug!("ignoring a request to finish sending: not established"),
+            // FIXP sessions hand out no holds.
+            Command::HoldReleased => {}
         }
     }
 
@@ -1642,6 +1644,9 @@ impl Driven for FixpSession {
     }
     fn input_free_at(&self) -> Option<Instant> {
         None
+    }
+    fn is_held_back(&self) -> bool {
+        false
     }
     fn metrics(&self) -> Option<&SessionMetrics> {
         FixpSession::metrics(self)

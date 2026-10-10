@@ -87,6 +87,9 @@ pub(crate) trait Driven {
     fn can_send(&self, now: std::time::Instant) -> bool;
     fn send_free_at(&self) -> Option<std::time::Instant>;
     fn input_free_at(&self) -> Option<std::time::Instant>;
+    /// Whether input waits for the application to release a message it holds; until then the
+    /// socket isn't read.
+    fn is_held_back(&self) -> bool;
     fn metrics(&self) -> Option<&SessionMetrics>;
     fn latency_metrics(&self) -> Option<&LatencyMetrics>;
     fn times_latency(&self) -> bool;
@@ -335,7 +338,7 @@ impl<P: Driven> Driver<P> {
         W: AsyncWrite + Unpin,
     {
         debug_assert!(branch < SPIN_BRANCHES);
-        let &Step { closed, committing, resending, nothing_pending, sends, input_held, .. } = step;
+        let &Step { closed, committing, resending, nothing_pending, sends, input_held, held_back, .. } = step;
         let taken = match branch {
             0 if !nothing_pending || self.unflushed => {
                 let write = if nothing_pending {
@@ -356,7 +359,7 @@ impl<P: Driven> Driver<P> {
                     }
                 }
             }
-            1 if input_held.is_none() => match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
+            1 if input_held.is_none() && !held_back => match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
                 None => false,
                 Some(0) => return Ok(ControlFlow::Break(Ended::Lost)),
                 Some(read) => {
@@ -412,7 +415,7 @@ where
         if timer.deadline() != d.timer_at {
             timer.as_mut().reset(d.timer_at);
         }
-        let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held } = step;
+        let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held, held_back } = step;
         let pending = &d.outbox[d.written..];
         // Borrowed apart from `d`, for a future that only runs `if committing`: select! makes
         // every branch's future, and an async block would borrow all of `d`.
@@ -431,7 +434,7 @@ where
                 }
             }
             // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
-            read = reader.read_buf(&mut d.buf), if input_held.is_none() => {
+            read = reader.read_buf(&mut d.buf), if input_held.is_none() && !held_back => {
                 match read? {
                     0 => return Ok(Ended::Lost),
                     read => d.on_read(read, closed, resending || committing),
@@ -483,6 +486,9 @@ struct Step {
     sends_free_at: Option<std::time::Instant>,
     /// When the inbound window frees up for input it holds; until then the socket isn't read.
     input_held: Option<std::time::Instant>,
+    /// Input waits for the application to release a message it holds: the socket isn't read
+    /// until a release (a control command) lets it go on.
+    held_back: bool,
 }
 
 /// A connection's state between wake-ups: the session, what's been read and not yet handled,
@@ -605,6 +611,7 @@ impl<P: Driven> Driver<P> {
             // While the inbound window holds input, the socket isn't read: input waits there, in
             // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
             input_held: input_held_until(&self.session),
+            held_back: self.session.is_held_back(),
         }))
     }
 
@@ -659,6 +666,7 @@ impl<P: Driven> Driver<P> {
             && !self.session.is_closed()
             && !self.session.is_waiting_on_store()
             && input_held_until(&self.session).is_none()
+            && !self.session.is_held_back()
     }
 
     /// Everything the session can do before the driver waits: input that waited, control
@@ -700,6 +708,7 @@ impl<P: Driven> Driver<P> {
             && !self.session.is_resending()
             && self.buf.len() < MAX_UNPROCESSED
             && input_held_until(&self.session).is_none()
+            && !self.session.is_held_back()
             && let Some(read) = poll_once(reader.read_buf(&mut self.buf))
         {
             reads += 1;
@@ -1129,6 +1138,9 @@ impl Driven for Session {
     }
     fn input_free_at(&self) -> Option<std::time::Instant> {
         self.input_free_at()
+    }
+    fn is_held_back(&self) -> bool {
+        self.is_held_back()
     }
     fn metrics(&self) -> Option<&SessionMetrics> {
         self.metrics()
@@ -2798,5 +2810,88 @@ mod tests {
         };
         let acked = tokio::time::timeout(Duration::from_secs(10), all_acked).await;
         assert!(acked.is_ok(), "deadlocked after {} of {ORDERS} acknowledgements", app.reports.load(Ordering::SeqCst));
+    }
+
+    /// Holds every application message, for another task to release.
+    #[derive(Default)]
+    struct Holder {
+        holds: std::sync::Mutex<Vec<crate::Hold>>,
+    }
+
+    impl Application for Holder {
+        fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+            self.holds.lock().unwrap().push(ctx.hold());
+            ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)));
+            Ok(())
+        }
+    }
+
+    /// A message held on the connection's task and released by another keeps the store's
+    /// in-flight marker at it until then; the release wakes the connection, which moves it on.
+    #[tokio::test]
+    async fn a_hold_released_from_another_task_moves_the_marker() {
+        let storage = Arc::new(crate::MemoryStorage::new());
+        let registry = Arc::new(SessionRegistry::new(storage.clone()));
+        let app = Arc::new(Holder::default());
+        let (ours, mut peer) = duplex(1 << 20);
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        receive(&mut peer, &mut buf, 1).await;
+
+        let order = |id: &str| Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id);
+        peer.write_all(&from_peer(2, order("A"))).await.unwrap();
+        peer.write_all(&from_peer(3, order("B"))).await.unwrap();
+        receive(&mut peer, &mut buf, 2).await;
+        let log = crate::SessionStorage::open(storage.as_ref(), &peer_session()).unwrap();
+        assert_eq!((log.next_incoming(), log.in_flight()), (4, Some(2)), "recorded, but still in flight");
+
+        let released = tokio::spawn({
+            let app = app.clone();
+            async move {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                app.holds.lock().unwrap().clear();
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(log.in_flight(), Some(2), "not before the release");
+        released.await.unwrap();
+        let moved = async {
+            while log.in_flight() != Some(4) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), moved).await.expect("the marker moved on");
+    }
+
+    /// A window past the oldest message held, the connection stops handing messages over (and
+    /// reading) until it's released, then goes on with the rest.
+    #[tokio::test]
+    async fn input_waits_for_a_release_a_window_past_a_held_message() {
+        let registry = Arc::new(SessionRegistry::default());
+        let app = Arc::new(Holder::default());
+        let (ours, mut peer) = duplex(1 << 20);
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        receive(&mut peer, &mut buf, 1).await;
+
+        let window = usize::try_from(crate::session::DELIVERIES_PER_COMMIT).unwrap();
+        let orders = window + 40;
+        for seq in 2..2 + u64::try_from(orders).unwrap() {
+            let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, format!("O{seq}"));
+            peer.write_all(&from_peer(seq, order)).await.unwrap();
+        }
+        receive(&mut peer, &mut buf, window).await;
+        let more = tokio::time::timeout(Duration::from_millis(100), peer.read_buf(&mut buf)).await;
+        assert!(more.is_err(), "nothing past the window before the release");
+        app.holds.lock().unwrap().clear();
+        receive(&mut peer, &mut buf, orders - window).await;
     }
 }

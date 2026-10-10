@@ -34,6 +34,9 @@ pub enum Command<T = Message> {
     /// FIXP: finish sending, ending the logical session; see
     /// [`FixpHandle::finish`](crate::fixp::FixpHandle). FIX sessions ignore it.
     Finish,
+    /// A [`Hold`](crate::Hold) was released: the session's next commit moves its in-flight marker
+    /// on. Queued by the hold itself; there's nothing to do with it but pass it to the session.
+    HoldReleased,
 }
 
 impl<T> Command<T> {
@@ -264,6 +267,8 @@ enum Control {
         after: u64,
     },
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
+    /// See [`Command::HoldReleased`].
+    HoldReleased,
 }
 
 /// A command that ends the session once the sends queued before it have gone.
@@ -303,6 +308,13 @@ impl<T> CommandSender<T> {
     /// Whether `other` sends to the same connection.
     fn is_same(&self, other: &Self) -> bool {
         self.sends.same_channel(&other.sends)
+    }
+
+    /// Tells the connection a hold was released, if there's room in its control queue. If not,
+    /// the commands there lead to a commit that finds the release anyway; if the connection has
+    /// ended, there's nothing to tell.
+    pub(crate) fn hold_released(&self) {
+        let _ = self.control.try_send(Control::HoldReleased);
     }
 }
 
@@ -432,6 +444,7 @@ impl<T> CommandReceiver<T> {
     fn take(&mut self, control: Control) -> Option<Command<T>> {
         match control {
             Control::Sequence(command, reply) => Some(Command::Sequence(command, reply)),
+            Control::HoldReleased => Some(Command::HoldReleased),
             Control::Ending { ending, after } if self.taken >= after && self.held.is_none() => Some(ending.command()),
             Control::Ending { ending, after } => {
                 self.held.get_or_insert((ending, after));

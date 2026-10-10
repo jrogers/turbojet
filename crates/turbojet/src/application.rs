@@ -1,11 +1,15 @@
 //! The interface between the engine and the code using it.
 
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
+
 use tracing::error;
 
 use crate::fields::{BusinessRejectReason, SessionRejectReason};
 use crate::message::{FieldError, FixMessage, Message};
 use crate::peer::ConnectionInfo;
-use crate::registry::SessionHandle;
+use crate::registry::{CommandSender, SessionHandle};
 use crate::store::SessionId;
 
 /// Callbacks from the engine into the application. The engine handles the session layer
@@ -110,7 +114,8 @@ pub trait Application: Send + Sync + 'static {
     /// replies are stored, so if the process stops first, the counterparty resends it. Such a
     /// redelivery has [`Context::maybe_redelivered`] set; check whether you handled it already
     /// (by ClOrdID, say) before acting on it again. Work handed off to another task counts as
-    /// handled once this returns.
+    /// handled once this returns, unless the message is held with [`Context::hold`] until that
+    /// work is done.
     ///
     /// Parse typed messages with [`Message::parse`]; a [`FieldError`] converts into the matching
     /// session-level reject. The borrowed form, `NameRef`, reads the message without copying its
@@ -174,6 +179,15 @@ pub struct Context<'a> {
     session: &'a SessionHandle,
     outbox: Outbox,
     redelivered: bool,
+    /// Where [`hold`](Self::hold) records a hold: `None` but in `on_message`, and in tests.
+    holding: Option<Holding<'a>>,
+}
+
+/// The session's side of [`Context::hold`] for one message.
+pub(crate) struct Holding<'a> {
+    holds: &'a mut Holds,
+    commands: &'a CommandSender,
+    seq_num: u64,
 }
 
 impl std::fmt::Debug for Context<'_> {
@@ -197,7 +211,14 @@ impl<'a> Context<'a> {
     /// its allocations.
     pub(crate) fn with_outbox(session: &'a SessionHandle, outbox: Outbox) -> Self {
         debug_assert!(outbox.sent.is_empty(), "the session sends every reply before the next call");
-        Self { session, outbox, redelivered: false }
+        Self { session, outbox, redelivered: false, holding: None }
+    }
+
+    /// The same context, for message `seq_num`, which [`hold`](Self::hold) records in `holds`;
+    /// a release is told to the connection through `commands`.
+    pub(crate) fn holding(mut self, holds: &'a mut Holds, commands: &'a CommandSender, seq_num: u64) -> Self {
+        self.holding = Some(Holding { holds, commands, seq_num });
+        self
     }
 
     /// The outbox, holding what the application sent, for the session to send and keep.
@@ -221,6 +242,34 @@ impl<'a> Context<'a> {
     /// messages aren't. Stores that don't record messages in flight never mark one.
     pub fn maybe_redelivered(&self) -> bool {
         self.redelivered
+    }
+
+    /// Keeps this message in flight after `on_message` returns, until the [`Hold`] is released or
+    /// dropped: for an application that finishes it elsewhere, such as a gateway forwarding a
+    /// client's order to a venue's session, whose task stores it later.
+    ///
+    /// Without a hold, the message counts as received once `on_message` returns and its replies
+    /// are stored. With one, it's still recorded as received, and later messages are handed over
+    /// as usual, but the store's in-flight marker stays at it. If the process stops before the hold
+    /// is released, the next connection asks for this message and everything after it again, each
+    /// marked [`maybe_redelivered`](Self::maybe_redelivered): check whether you finished it before
+    /// acting on it again. Holds don't outlast the connection: one released after it ended does
+    /// nothing, and the next connection starts from the store's marker, as after a crash.
+    ///
+    /// A session hands over at most 256 messages past the oldest one held: then it reads nothing
+    /// more from the counterparty until that hold is released, so TCP slows the counterparty, and
+    /// the wait doesn't count as the counterparty's silence. A release costs one message to the
+    /// session's task, which then records the new marker with its next commit.
+    ///
+    /// Calling it again for the same message returns another handle to the same hold, released
+    /// once every handle is. On a context made with [`Context::new`] it returns a hold that does
+    /// nothing. Not available on FIXP sessions.
+    #[must_use = "dropping a hold releases it"]
+    pub fn hold(&mut self) -> Hold {
+        match &mut self.holding {
+            Some(holding) => holding.holds.take(holding.seq_num, holding.commands),
+            None => Hold { _entry: None },
+        }
     }
 
     /// Messages sent so far through this context, in order.
@@ -248,6 +297,93 @@ impl<'a> Context<'a> {
     /// one allocates nothing beyond what the typed message itself holds.
     pub fn send(&mut self, msg: impl Reply) {
         msg.send_to(self);
+    }
+}
+
+/// A message kept in flight after `on_message` returned: see [`Context::hold`]. Released by
+/// [`release`](Self::release), or by dropping it.
+#[derive(Debug)]
+#[must_use = "dropping a hold releases it"]
+pub struct Hold {
+    /// Kept for its drop, which releases the message; `None` for a hold that does nothing.
+    _entry: Option<Arc<HoldEntry>>,
+}
+
+impl Hold {
+    /// Releases the message: the application has finished it.
+    pub fn release(self) {}
+}
+
+/// One message held, shared by its [`Hold`]s; the session keeps a weak reference, so the message
+/// is released once the last hold is dropped.
+#[derive(Debug)]
+pub(crate) struct HoldEntry {
+    shared: Arc<HoldShared>,
+}
+
+impl Drop for HoldEntry {
+    /// Wakes the session's connection, unless it's been woken since it last looked.
+    fn drop(&mut self) {
+        if !self.shared.woken.swap(true, Ordering::SeqCst) {
+            self.shared.commands.hold_released();
+        }
+    }
+}
+
+/// What a session's holds share.
+#[derive(Debug)]
+struct HoldShared {
+    /// The session's own command queues, which a release wakes its connection through.
+    commands: CommandSender,
+    /// A release has woken the connection since the session last looked at its holds, so later
+    /// ones needn't: at most one wake-up waits in the control queue.
+    woken: AtomicBool,
+}
+
+/// The messages the application holds in a session.
+#[derive(Debug, Default)]
+pub(crate) struct Holds {
+    /// By MsgSeqNum, one per message held. A released one is forgotten when it reaches the front,
+    /// so they're all within the window: at most `DELIVERIES_PER_COMMIT`.
+    entries: VecDeque<(u64, Weak<HoldEntry>)>,
+    /// Made with the first hold, so a session that never holds allocates nothing for them.
+    shared: Option<Arc<HoldShared>>,
+}
+
+impl Holds {
+    /// A hold on message `seq_num`: the one it already has, if any.
+    fn take(&mut self, seq_num: u64, commands: &CommandSender) -> Hold {
+        let at = self.entries.partition_point(|&(seq, _)| seq < seq_num);
+        if let Some(entry) = self.entries.get(at).filter(|(seq, _)| *seq == seq_num).and_then(|(_, e)| e.upgrade()) {
+            return Hold { _entry: Some(entry) };
+        }
+        let shared = self
+            .shared
+            .get_or_insert_with(|| Arc::new(HoldShared { commands: commands.clone(), woken: AtomicBool::new(false) }));
+        let entry = Arc::new(HoldEntry { shared: shared.clone() });
+        self.entries.insert(at, (seq_num, Arc::downgrade(&entry)));
+        Hold { _entry: Some(entry) }
+    }
+
+    /// The first message still held, if any.
+    pub(crate) fn oldest(&self) -> Option<u64> {
+        self.entries.iter().find(|(_, entry)| entry.strong_count() > 0).map(|&(seq, _)| seq)
+    }
+
+    /// Forgets the released holds at the front. Releases from now on wake the connection again.
+    pub(crate) fn tidy(&mut self) {
+        if let Some(shared) = &self.shared {
+            // Before looking, so a release after this is either seen or wakes the connection.
+            shared.woken.store(false, Ordering::SeqCst);
+        }
+        while self.entries.front().is_some_and(|(_, entry)| entry.strong_count() == 0) {
+            self.entries.pop_front();
+        }
+    }
+
+    /// Forgets every hold: the numbers they're for have been reset. Their releases do nothing.
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
     }
 }
 

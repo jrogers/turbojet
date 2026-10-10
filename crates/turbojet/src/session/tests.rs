@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use super::*;
+use crate::application::Hold;
 use crate::cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 use crate::codec::{decode, decode_stored, encode};
 use crate::fields::{ApplVerId, FromFix};
@@ -32,6 +33,10 @@ struct TestApp {
     skip_resend: Vec<&'static str>,
     /// The ClOrdIDs of the messages `should_resend` was asked about.
     resend_asked: Mutex<Vec<String>>,
+    /// ClOrdIDs whose orders `on_message` holds (see `Context::hold`).
+    hold: Vec<&'static str>,
+    /// The holds taken, oldest first.
+    holds: Mutex<Vec<Hold>>,
 }
 
 impl TestApp {
@@ -111,6 +116,9 @@ impl Application for TestApp {
         if self.panic_in == Some("on_message") && msg.get(tags::CL_ORD_ID) == Some("PANIC") {
             ctx.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "half-done"));
             panic!("on_message panicked");
+        }
+        if msg.get(tags::CL_ORD_ID).is_some_and(|id| self.hold.contains(&id)) {
+            self.holds.lock().unwrap().push(ctx.hold());
         }
         let mut received = self.received.lock().unwrap();
         received.push(msg.clone());
@@ -1172,6 +1180,126 @@ fn a_marker_below_the_next_number_is_expected_again() {
     s.recv(gap_fill(5, 6), h.t0);
     s.recv(order(6, "E"), h.t0);
     assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, false]);
+}
+
+// ---- Holds ----
+
+/// A harness whose application holds the orders with these ClOrdIDs.
+fn holding(ids: &[&'static str], storage: Arc<dyn SessionStorage>) -> Harness {
+    let mut h = Harness::with_storage(storage);
+    Arc::get_mut(&mut h.app).unwrap().hold = ids.to_vec();
+    h
+}
+
+/// The in-flight marker stays at a held message while later ones are handed over and recorded,
+/// and moves on with the commit after its release, which wakes the connection once however many
+/// are released before it looks.
+#[test]
+fn a_held_message_keeps_the_marker_until_released() {
+    let h = holding(&["A", "B"], Arc::new(MemoryStorage::new()));
+    let (mut s, mut commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0);
+    s.recv(logon(1), h.t0);
+    s.recv(order(2, "A"), h.t0);
+    s.recv(order(3, "B"), h.t0);
+    assert_eq!(types(&s.recv(order(4, "C"), h.t0)), ["ExecutionReport"], "later messages go on");
+    let log = &s.peer().log;
+    assert_eq!((log.next_incoming(), log.in_flight()), (5, Some(2)));
+
+    h.app.holds.lock().unwrap().remove(1).release();
+    assert!(matches!(commands.try_control(), Some(Command::HoldReleased)));
+    s.command(Command::HoldReleased, h.t0);
+    assert_eq!(s.peer().log.in_flight(), Some(2), "A is still held");
+
+    h.app.holds.lock().unwrap().clear(); // dropped
+    s.recv(order(5, "D"), h.t0);
+    assert!(commands.try_control().is_some(), "the commit since looked, so a release wakes it again");
+    assert_eq!(s.peer().log.in_flight(), Some(6));
+}
+
+/// A crash with a message held: the next connection asks for it and everything after it again,
+/// each marked. A hold released after its connection ended changes nothing.
+#[test]
+fn a_crash_with_a_message_held_redelivers_from_it() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    s.recv(order(3, "B"), h.t0);
+    drop(s); // the process stops; A is still held
+    let mut s = h.session();
+    let out = s.recv(logon(4), h.t0);
+    assert_eq!(types(&out), ["Logon", "ResendRequest"]);
+    assert_eq!(sent(&out)[1].get(tags::BEGIN_SEQ_NO), Some("2"));
+    s.recv(resend_of(order(2, "A")), h.t0);
+    h.app.holds.lock().unwrap().remove(0).release(); // the first connection's
+    s.recv(resend_of(order(3, "B")), h.t0);
+    s.recv(gap_fill(4, 5), h.t0);
+    s.recv(order(5, "C"), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [false, false, true, true, false]);
+    assert_eq!(s.peer().log.in_flight(), Some(2), "A is held again");
+    h.app.holds.lock().unwrap().clear();
+    s.recv(client(6, MsgType::Heartbeat), h.t0);
+    assert_eq!(s.peer().log.in_flight(), Some(7));
+}
+
+/// A session hands over at most a window past the oldest message held, then waits for its
+/// release, reading nothing, and not counting the wait as the counterparty's silence.
+#[test]
+fn a_window_past_a_held_message_input_waits_for_its_release() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    let last = 1 + DELIVERIES_PER_COMMIT;
+    for seq in 3..=last {
+        assert!(s.ready_for_input());
+        s.recv(order(seq, "B"), h.t0);
+    }
+    assert!(!s.ready_for_input() && s.is_held_back(), "{} is a window past 2", last + 1);
+    let late = h.at(600);
+    assert_eq!(types(&s.timer(late)), ["Heartbeat"], "no TestRequest");
+
+    h.app.holds.lock().unwrap().clear();
+    s.command(Command::HoldReleased, late);
+    assert!(s.ready_for_input() && !s.is_held_back());
+    assert_eq!(types(&s.timer(late + Duration::from_secs(30))), ["Heartbeat"], "silence counts from the release");
+    assert_eq!(types(&s.recv(order(last + 1, "C"), late)), ["ExecutionReport"]);
+}
+
+/// Messages waiting behind a gap wait for a held message's release too, rather than go round the
+/// commit loop for ever.
+#[test]
+fn messages_queued_behind_a_gap_wait_for_a_release() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    let last = 3 + DELIVERIES_PER_COMMIT;
+    for seq in 4..=last {
+        s.recv(order(seq, "B"), h.t0);
+    }
+    s.recv(order(3, "first"), h.t0);
+    assert_eq!(h.app.received(), usize::try_from(DELIVERIES_PER_COMMIT).unwrap(), "2 to 257");
+    assert!(s.is_held_back());
+    h.app.holds.lock().unwrap().clear();
+    s.command(Command::HoldReleased, h.t0);
+    assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "the rest");
+}
+
+/// A second hold on a message is the same hold, released with the last handle; a context made
+/// for tests gives one that does nothing.
+#[test]
+fn holds_on_one_message_are_one_hold() {
+    let (commands, _receiver) = crate::registry::command_queues(1);
+    let mut holds = Holds::default();
+    let handle = SessionHandle::disconnected(client_id());
+    let mut ctx = Context::new(&handle).holding(&mut holds, &commands, 7);
+    let (first, second) = (ctx.hold(), ctx.hold());
+    drop(ctx);
+    drop(first);
+    assert_eq!(holds.oldest(), Some(7));
+    second.release();
+    assert_eq!(holds.oldest(), None);
+
+    let mut ctx = Context::new(&handle);
+    ctx.hold().release();
 }
 
 // ---- Group commit ----

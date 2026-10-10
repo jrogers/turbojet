@@ -24,7 +24,7 @@ use tracing::{debug, error, info, warn};
 use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
-use crate::application::{Application, Context, Disconnect, MessageReject, Outbox, guarded};
+use crate::application::{Application, Context, Disconnect, Holds, MessageReject, Outbox, guarded};
 use crate::cancel::{CancelOnDisconnect, MAX_CANCEL_GRACE};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::counterparty::{Counterparties, Counterparty};
@@ -635,6 +635,15 @@ pub struct Session {
     /// What the application sends from `on_message`, and spare messages to build its replies in,
     /// kept to reuse their allocations.
     outbox: Outbox,
+    /// Incoming messages the application holds in flight after handling them (see
+    /// [`Context::hold`]): the in-flight marker stays at the oldest.
+    holds: Holds,
+    /// The window can't reach the next incoming message until the application releases the
+    /// oldest it holds: input waits for that, as of the last commit.
+    held_back: bool,
+    /// When input last went on after waiting for a release: silence counts from then at the
+    /// earliest, since what the counterparty sent meanwhile waited unread.
+    resumed_at: Option<Instant>,
     /// `config.clock`'s time, read at most once per call into the session (see
     /// [`wall_clock`](Self::wall_clock)).
     wall_clock: Cell<Option<DateTime<Utc>>>,
@@ -748,6 +757,9 @@ impl Session {
             wall_clock: Cell::new(None),
             stored: Vec::new(),
             outbox: Outbox::default(),
+            holds: Holds::default(),
+            held_back: false,
+            resumed_at: None,
         };
         (session, receiver)
     }
@@ -949,6 +961,15 @@ impl Session {
         !self.receiving() || self.covers(self.peer().log.next_incoming())
     }
 
+    /// Whether input waits for the application to release a message it holds (see
+    /// [`Context::hold`]): the session has handed over all it may past the oldest one held. While
+    /// it does, [`ready_for_input`](Self::ready_for_input) is false, and a driver reads nothing
+    /// more from the counterparty, so TCP slows it. A release comes as a
+    /// [`Command::HoldReleased`]; the commit after it lets input go on.
+    pub fn is_held_back(&self) -> bool {
+        self.held_back
+    }
+
     /// Whether an application message may be sent at `now` under
     /// [`outbound_limit`](SessionConfig::outbound_limit): true unless the window is full. Check it
     /// before taking each application send from the queue, and leave the send there if not. Once
@@ -1015,8 +1036,15 @@ impl Session {
     /// waits unread. While the hold lasts that's in the future, so no TestRequest goes out and
     /// none goes unanswered; after it, silence counts from its end. The window keeps that end
     /// until a message is next recorded, which also moves `last_received` past it.
-    fn silent_from(&self, since: Instant) -> Instant {
-        self.hold_end().map_or(since, |hold_end| since.max(hold_end))
+    ///
+    /// Waiting for the application to release a message it holds isn't silence either: there's no
+    /// time while it waits (`None`), and silence counts from when it ends.
+    fn silent_from(&self, since: Instant) -> Option<Instant> {
+        if self.held_back {
+            return None;
+        }
+        let since = self.resumed_at.map_or(since, |resumed| since.max(resumed));
+        Some(self.hold_end().map_or(since, |hold_end| since.max(hold_end)))
     }
 
     /// Runs the store's work on this thread until none is left, the commits, resend reads and
@@ -1106,6 +1134,13 @@ impl Session {
         self.test_request_sent = None;
         if self.receiving() && !self.committing && !self.covers(self.peer().log.next_incoming()) {
             self.open_window_now(now);
+            if self.held_back {
+                // `ready_for_input` holds input meanwhile, so this is a driver's mistake. The gap
+                // left is asked for once input goes on.
+                debug_assert!(false, "a message was fed while input waits for a held message's release");
+                warn!(msg_type = %msg.msg_type(), "dropping a message received while input waits for a held message");
+                return;
+            }
         }
         match self.status {
             Status::AwaitingLogon => self.on_logon(msg, now),
@@ -1146,6 +1181,8 @@ impl Session {
                 }
                 return;
             }
+            // The commit after this call finds the release.
+            Command::HoldReleased => return,
             other => other,
         };
         if self.status == Status::AwaitingLogon {
@@ -1218,7 +1255,7 @@ impl Session {
             }
             Command::Logout(_) => debug!("ignoring logout request: session is already logging out"),
             Command::Finish => debug!("ignoring a request to finish sending: FIX sessions don't"),
-            Command::Sequence(..) => unreachable!("handled in on_command"),
+            Command::Sequence(..) | Command::HoldReleased => unreachable!("handled in on_command"),
         }
     }
 
@@ -1351,13 +1388,15 @@ impl Session {
                 let interval = self.peer().heartbeat;
                 let heartbeat = self.last_sent.checked_add(interval);
                 let test_request = match self.test_request_sent {
-                    Some(sent) => self.silent_from(sent).checked_add(interval),
-                    None => self.silent_from(self.last_received).checked_add(probe_after(interval)),
+                    Some(sent) => self.silent_from(sent).and_then(|from| from.checked_add(interval)),
+                    None => {
+                        self.silent_from(self.last_received).and_then(|from| from.checked_add(probe_after(interval)))
+                    }
                 };
                 let resend = self
                     .resend
                     .as_ref()
-                    .and_then(|r| self.silent_from(r.progress_at).checked_add(resend_timeout(interval)));
+                    .and_then(|r| self.silent_from(r.progress_at)?.checked_add(resend_timeout(interval)));
                 [heartbeat, test_request, resend].into_iter().flatten().min()
             }
             Status::Closed => None,
@@ -1369,13 +1408,16 @@ impl Session {
         let interval = self.peer().heartbeat;
         // Input held by a Delay limit isn't silence: see `silent_from`.
         match self.test_request_sent {
-            Some(sent) if now.duration_since(self.silent_from(sent)) >= interval => {
+            Some(sent) if self.silent_from(sent).is_some_and(|from| now.duration_since(from) >= interval) => {
                 warn!("counterparty did not answer TestRequest; disconnecting");
                 self.close(Disconnect::HeartbeatTimeout, now);
                 return;
             }
             Some(_) => {}
-            None if now.duration_since(self.silent_from(self.last_received)) >= probe_after(interval) => {
+            None if self
+                .silent_from(self.last_received)
+                .is_some_and(|from| now.duration_since(from) >= probe_after(interval)) =>
+            {
                 self.test_req_counter += 1;
                 let id = crate::fields::format_compact!("TEST{}", self.test_req_counter);
                 self.send(TestRequest { test_req_id: id }.into(), now);
@@ -1396,7 +1438,7 @@ impl Session {
         let next = self.peer().log.next_incoming();
         let Some(progress_at) = self.resend.as_ref().map(|resend| resend.progress_at) else { return };
         // The resend we asked for may be waiting behind input a Delay limit holds.
-        if now.duration_since(self.silent_from(progress_at)) < timeout {
+        if self.silent_from(progress_at).is_none_or(|from| now.duration_since(from) < timeout) {
             return;
         }
         let resend = self.resend.as_mut().expect("guarded by the let-else above");
@@ -1876,9 +1918,10 @@ impl Session {
         assert_eq!(log.next_outgoing(), 1, "a reset store sends from 1");
         assert_eq!(log.next_incoming(), 1, "a reset store expects 1");
         log.set_created_at(now.into())?;
-        // Windows count in the old numbers.
+        // Windows and holds count in the old numbers.
         self.recovered = None;
         self.window_end = None;
+        self.holds.clear();
         self.update_sequence_gauges();
         Ok(())
     }
@@ -2285,7 +2328,11 @@ impl Session {
         // Borrows the peer field alone (not `self.peer()`), so the application can be called
         // without cloning the handle for every message.
         let handle = &self.peer.as_ref().expect("session is not bound before logon").handle;
-        let mut ctx = Context::with_outbox(handle, std::mem::take(&mut self.outbox));
+        let mut ctx = Context::with_outbox(handle, std::mem::take(&mut self.outbox)).holding(
+            &mut self.holds,
+            &self.commands,
+            seq_num,
+        );
         if redelivered {
             ctx = ctx.redelivery();
         }
@@ -3152,9 +3199,10 @@ impl Session {
         (self.window_end.is_some() || self.live_recovered(next).is_some()).then(|| self.unfinished_from(next))
     }
 
-    /// The first incoming message that may not be finished once the next incoming number is `next`.
+    /// The first incoming message that may not be finished once the next incoming number is `next`:
+    /// `next`, or an earlier one the application holds.
     fn unfinished_from(&self, next: u64) -> u64 {
-        next
+        self.holds.oldest().map_or(next, |held| held.min(next))
     }
 
     /// The window recovered from before a restart, while messages in it may still come back.
@@ -3177,6 +3225,7 @@ impl Session {
             return Ok(None);
         };
         let next = peer.log.next_incoming();
+        self.holds.tidy();
         let start = self.unfinished_from(next);
         // Recovered messages may still come back, or the application holds one.
         let in_flight = self.live_recovered(next).is_some() || start < next;
@@ -3215,7 +3264,14 @@ impl Session {
         for (receipt, seq) in self.receipts.drain(..) {
             let _ = receipt.send(Ok(seq));
         }
-        if self.window_end.is_some() && std::mem::take(&mut self.drain_waiting) {
+        // Held messages may keep the window from reaching the next one.
+        let covered = self.peer.as_ref().is_some_and(|peer| self.covers(peer.log.next_incoming()));
+        let held_back = self.window_end.is_some() && !covered;
+        if self.held_back && !held_back {
+            self.resumed_at = Some(now);
+        }
+        self.held_back = held_back;
+        if covered && std::mem::take(&mut self.drain_waiting) {
             self.after_incoming(now);
             return true;
         }
