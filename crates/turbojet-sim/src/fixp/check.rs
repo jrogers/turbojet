@@ -2,6 +2,7 @@
 //! and what each application receives. See the crate README for the rules.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::iter;
 
 use turbojet::Dropped;
 use turbojet::fixp::{Ended, FlowType};
@@ -693,12 +694,22 @@ impl Checker {
                 Err(violation("8 receipt", format!("{side:?}'s order {id} got {seq} on a {flow:?} flow")))
             };
         }
-        if !sent.recorded.contains_key(&seq) {
+        // The session that recorded it, newest first: a finalization can end it in the step that
+        // commits the order, before the receipt is checked. One agreeing on the order, if any.
+        let recorded: Vec<&Sent> =
+            iter::once(&*sent).chain(sent.past.iter().rev()).filter(|s| s.recorded.contains_key(&seq)).collect();
+        let Some(epoch) = recorded
+            .iter()
+            .find(|s| s.ids.get(&seq).is_none_or(|&other| other == id))
+            .or(recorded.first())
+            .map(|s| s.epoch)
+        else {
             return Err(violation(
                 "8 receipt",
                 format!("{side:?}'s order {id} got {seq}, which its store never recorded"),
             ));
-        }
+        };
+        let sent = sent.session_mut(epoch).expect("found above");
         if let Some(&other) = sent.ids.get(&seq).filter(|&&other| other != id) {
             return Err(violation("8 receipt", format!("{side:?}'s order {id} got {seq}, order {other}'s")));
         }
