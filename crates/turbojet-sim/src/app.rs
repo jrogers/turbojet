@@ -115,9 +115,14 @@ impl RecordingApp {
     /// Releases the holds that have run their time, each order finished first, if it's `at`, the
     /// latest release time scheduled. Whether it was.
     pub fn release_due(&self, at: SimTime) -> bool {
-        if *self.release_at.lock().unwrap() != Some(at) {
+        let mut release_at = self.release_at.lock().unwrap();
+        if *release_at != Some(at) {
             return false;
         }
+        // Done: a hold made later at this same time (held for no time) is due then, and needs
+        // another release.
+        *release_at = None;
+        drop(release_at);
         let now = self.clocks.now();
         let mut held = self.held.lock().unwrap();
         while held.front().is_some_and(|(_, at, _)| at.after(self.holding.hold_for) <= now) {
