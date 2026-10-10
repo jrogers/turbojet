@@ -73,7 +73,8 @@
 //!
 //! Delivery is at least once. A message counts as received once `on_message` returns and its
 //! replies are stored, so if the process stops before then, the counterparty resends the message
-//! and [`Context::maybe_redelivered`] marks it.
+//! and [`Context::maybe_redelivered`] marks it. An application that finishes a message elsewhere,
+//! forwarding it to another session say, holds it in flight until then with [`Context::hold`].
 //!
 //! ## Running a session
 //!

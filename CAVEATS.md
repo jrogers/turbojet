@@ -7,6 +7,12 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- A held message (`Context::hold`) is redelivered after any connection ends while it's held, a
+  clean logout included, even if it's released meanwhile: holds end with their connection. A
+  session 256 messages past an unreleased hold reads nothing more until it's released. A custom
+  store that makes each change durable as it's made should implement
+  `SessionLog::set_next_incoming_in_flight` as one change, or a crash between its two calls can
+  lose a hold's marker. Holds aren't available on FIXP sessions.
 - Pausing a session is kept in memory: a restart forgets it. Session events are dropped for a
   subscriber that falls more than `EVENT_QUEUE` behind (it's told how many), and only Logons the
   registry refuses (paused, already connected, too many, store failing) are sent as `Refused`;

@@ -189,6 +189,25 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   handled it, and the messages that may have been in flight at a crash (a window of up to 256,
   committed before the first is handed over) are marked as possibly handled when they're resent
   (`Context::maybe_redelivered`).
+- **Holding messages in flight.** The store's in-flight marker is the first incoming message that
+  may not be finished: the next incoming number, or an earlier message the application holds
+  (`Context::hold`), whose number has been recorded though it isn't finished. A session bound with
+  a marker below its next incoming number moves the number back to it, so the counterparty is asked
+  again from there, and the window marks everything from it. Without holds the marker equals the
+  number at every point a crash can see, so nothing changes; recording the number and marker
+  together (`SessionLog::set_next_incoming_in_flight`) keeps a store that writes each change as
+  it's made from stopping between them, which the simulator found. Each window starts at the
+  marker, so a session hands over at most 256 past the oldest hold; past that, input waits (the
+  driver stops reading, and silence isn't counted) until a release. The session keeps a weak
+  reference per held message, sorted by MsgSeqNum, and the oldest live one is the marker at each
+  commit. A release wakes the connection with `Command::HoldReleased` on the session's own control
+  queue, at most one waiting at a time (a flag the session clears as it looks), so releases never
+  crowd out logouts or operator commands, and a release after the connection has ended goes
+  nowhere. Nothing is allocated until the first hold, so the allocation budget is unchanged.
+  Measured 2026-10-10 on an M3 under a load average of about 2.5 (criterion `--quick`): order to
+  ack with the memory store 785 ns, with each order held until the next 836 ns, so about 50 ns per
+  held message; sessions that never hold were unchanged within noise (785 ns before, 789 ns after;
+  2.86 and 2.90 µs with the disk store). The simulator's acceptor holds orders on half its seeds.
 - **The disk store** keeps its sequence numbers in two checksummed slots, so a write torn by a
   power loss falls back to the record before it, writes each commit as one journal record and one
   `fsync`, and reads a resend step's messages with one read of each segment they're in. Both

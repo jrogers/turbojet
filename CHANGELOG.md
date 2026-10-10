@@ -6,6 +6,20 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `Context::hold` keeps a message in flight after `on_message` returns, until the `Hold` is
+  released or dropped, for an application that finishes it elsewhere (a gateway forwarding an
+  order, say): if the process stops first, the next connection asks for it and everything after it
+  again, marked `maybe_redelivered`. A session hands over at most 256 messages past the oldest
+  held, then waits for its release. A release reaches the session as `Command::HoldReleased`, and
+  `Session::is_held_back` says when input waits for one. Not available on FIXP sessions.
+- The in-flight marker is now the first incoming message that may not be finished (the next
+  incoming number, unless one is held), and a session bound with a marker below its next incoming
+  number expects messages again from it. A marker an earlier version left below the number (after
+  a restart, or mid-batch in a store that writes each change as it's made) has up to 255 messages
+  redelivered once, all marked.
+- `SessionLog::set_next_incoming_in_flight` records the next incoming number and the marker
+  together. The default makes the two calls; a store that makes each change durable as it's made
+  should make it one change, as `MemoryStorage` does.
 - `turbojet::replay` feeds the messages a session received, as a `FileMessageLog` recorded them,
   to an `Application` again, through a session at the recorded times, to reproduce a problem away
   from production. `Replayed` says how many connections and messages it replayed, skipped, and

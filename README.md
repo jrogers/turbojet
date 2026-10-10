@@ -917,6 +917,34 @@ that comes again (flagged PossDupFlag=Y, or answering our ResendRequest) has
 before acting on it again. Resends the application never saw may be marked too; new messages
 aren't.
 
+An application that finishes a message somewhere else, such as a gateway forwarding a client's
+order to a venue's session, can keep it in flight after `on_message` returns, until that's done:
+
+```rust,ignore
+fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+    let hold = ctx.hold();
+    let venue = self.venue.clone();
+    let order = to_venue(msg); // the venue's order, built from the client's
+    tokio::spawn(async move {
+        if let Ok(receipt) = venue.send_when_ready(order).await {
+            let _ = receipt.await; // stored on the venue's session
+        }
+        hold.release(); // or drop it
+    });
+    Ok(())
+}
+```
+
+While a `Hold` is unreleased, the store's marker stays at that message. Later messages are still
+handed over and recorded. If the process stops first, the next connection asks for the held
+message and everything after it again, each marked `maybe_redelivered`. A session hands over at
+most 256 messages past the oldest one held; then it reads nothing more from the counterparty until
+that one is released (TCP slows the counterparty, and the wait doesn't count as its silence).
+Holds end with their connection: one released after it does nothing, and the next connection
+starts from the marker, as after a crash. Each release costs one message to the session's task,
+about 50 ns. `Context::new`, for unit tests, gives holds that do nothing. Holds aren't available
+on FIXP sessions.
+
 - `MemoryStorage`: survives reconnects, not restarts. Each session keeps its newest sent messages
   up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts
   it in `turbojet_resend_requests_evicted_total`. It keeps at most 1,024 sessions
