@@ -10,8 +10,9 @@ use turbojet::fields::EncryptMethod;
 use turbojet::fields::UtcTimestamp;
 use turbojet::fields::{Decimal, format_compact};
 use turbojet::message::{Message, tags, utc_timestamp};
+use turbojet::registry::CommandReceiver;
 use turbojet::store::{SessionLog, SessionStorage};
-use turbojet::{Application, Context, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
+use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
 use turbojet_fix42::{
     ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, NewOrderSingleRef, OrdStatus, OrdType, Side,
     TimeInForce,
@@ -94,8 +95,17 @@ pub fn logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) ->
 
 /// As [`logged_on`], with `config` (a FIX 4.2 acceptor's, sent as GATEWAY).
 pub fn logged_on_with(config: SessionConfig, storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Session {
+    logged_on_with_commands(config, storage, app).0
+}
+
+/// As [`logged_on_with`], with the session's command queues.
+pub fn logged_on_with_commands(
+    config: SessionConfig,
+    storage: Arc<dyn SessionStorage>,
+    app: Arc<dyn Application>,
+) -> (Session, CommandReceiver) {
     let registry = Arc::new(SessionRegistry::new(storage));
-    let (mut session, _commands) = Session::acceptor(config, registry, app, Instant::now());
+    let (mut session, commands) = Session::acceptor(config, registry, app, Instant::now());
     let logon = admin::Logon {
         encrypt_method: EncryptMethod::None,
         heart_bt_int: 30,
@@ -109,7 +119,7 @@ pub fn logged_on_with(config: SessionConfig, storage: Arc<dyn SessionStorage>, a
     session.commit_blocking(Instant::now());
     assert!(session.is_logged_on());
     session.clear_output();
-    session
+    (session, commands)
 }
 
 /// `count` orders from CLIENT, MsgSeqNum 2 onwards.
@@ -129,6 +139,22 @@ impl Application for Acker {
         let order: NewOrderSingleRef = msg.parse()?;
         ctx.send(ack(order, self.next_id.fetch_add(1, Ordering::Relaxed)));
         Ok(())
+    }
+}
+
+/// An [`Acker`] that holds each order until the next arrives, as a gateway forwarding orders
+/// would until each was stored: a hold taken and one released per order.
+#[derive(Default)]
+pub struct HoldingAcker {
+    acker: Acker,
+    held: Mutex<Option<Hold>>,
+}
+
+impl Application for HoldingAcker {
+    fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        let hold = ctx.hold();
+        *self.held.lock().unwrap() = Some(hold);
+        self.acker.on_message(ctx, msg)
     }
 }
 

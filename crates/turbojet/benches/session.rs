@@ -68,6 +68,34 @@ fn session(c: &mut Criterion) {
         })
     });
 
+    // The same with each order held until the next arrives: a hold taken and one released per
+    // order, the release waking the session through its control queue as it would a driver.
+    group.bench_function("order to ack (memory store, each held until the next)", |b| {
+        b.iter_custom(|iters| {
+            chunked(
+                iters,
+                |n| {
+                    let config = SessionConfig::new("FIX.4.2", "GATEWAY");
+                    let storage = Arc::new(MemoryStorage::new());
+                    let app = Arc::new(common::HoldingAcker::default());
+                    (common::logged_on_with_commands(config, storage, app), common::orders(n))
+                },
+                |((mut session, mut commands), orders)| {
+                    let now = Instant::now();
+                    for order in orders {
+                        session.on_message(&order, now);
+                        while let Some(command) = commands.try_control() {
+                            session.on_command(command, now);
+                        }
+                        session.commit_blocking(now);
+                        black_box(session.output());
+                        session.clear_output();
+                    }
+                },
+            )
+        })
+    });
+
     // The same with an outbound limit and an inbound one, Delay or Reject, that are never
     // reached: what keeping the windows costs. Time moves on a microsecond an order, so about
     // 1,000 messages are in each window and one expires per order, as in a steady stream.
