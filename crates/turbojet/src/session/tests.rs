@@ -3123,6 +3123,23 @@ mod metrics_tests {
     }
 
     #[test]
+    fn a_session_held_back_shows_it() {
+        let recorder = DebuggingRecorder::new();
+        let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+        ::metrics::with_local_recorder(&recorder, || {
+            let mut s = h.logged_on();
+            s.recv(order(2, "A"), h.t0);
+            for seq in 3..=1 + DELIVERIES_PER_COMMIT {
+                s.recv(order(seq, "B"), h.t0);
+            }
+            assert_eq!(Snapshot::take(&recorder).value("turbojet_held_back", &[]), 1.0);
+            h.app.holds.lock().unwrap().clear();
+            s.command(Command::HoldReleased, h.t0);
+            assert_eq!(Snapshot::take(&recorder).value("turbojet_held_back", &[]), 0.0);
+        });
+    }
+
+    #[test]
     fn retrying_a_resend_request_is_not_a_new_gap() {
         let recorder = DebuggingRecorder::new();
         let h = Harness::new();

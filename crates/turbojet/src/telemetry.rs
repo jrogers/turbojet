@@ -39,6 +39,7 @@
 //! | `turbojet_session_logged_on` | gauge (0 or 1) | `session` |
 //! | `turbojet_next_incoming_seq` | gauge | `session` |
 //! | `turbojet_next_outgoing_seq` | gauge | `session` |
+//! | `turbojet_held_back` | gauge (0 or 1) | `session` |
 //! | `turbojet_inbound_message_seconds` | histogram, opt-in | `session` |
 //! | `turbojet_commit_seconds` | histogram, opt-in | `session` |
 //! | `turbojet_read_to_write_seconds` | histogram, opt-in | `session` |
@@ -59,6 +60,10 @@
 //! [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), by the session's
 //! [trigger](crate::CancelTrigger); `turbojet_cancels_pending` is the countdowns under way, across
 //! the process.
+//!
+//! `turbojet_held_back` is 1 while a FIX session's input waits for the application to release a
+//! message it holds ([`Context::hold`](crate::Context::hold)): the session has handed over 256
+//! messages past it, and reads nothing more until it's released.
 //!
 //! ## Latency histograms
 //!
@@ -149,6 +154,7 @@ mod imp {
         describe_gauge!("turbojet_session_logged_on", "1 while the session is logged on, else 0");
         describe_gauge!("turbojet_next_incoming_seq", "Next expected inbound MsgSeqNum");
         describe_gauge!("turbojet_next_outgoing_seq", "Next outbound MsgSeqNum");
+        describe_gauge!("turbojet_held_back", "1 while input waits for the application to release a held message");
         describe_histogram!(
             "turbojet_inbound_message_seconds",
             Unit::Seconds,
@@ -208,6 +214,7 @@ mod imp {
         logged_on: Gauge,
         next_incoming: Gauge,
         next_outgoing: Gauge,
+        held_back: Gauge,
         latency: Option<LatencyMetrics>,
     }
 
@@ -263,6 +270,7 @@ mod imp {
                 logged_on: gauge("turbojet_session_logged_on"),
                 next_incoming: gauge("turbojet_next_incoming_seq"),
                 next_outgoing: gauge("turbojet_next_outgoing_seq"),
+                held_back: gauge("turbojet_held_back"),
                 latency,
             }
         }
@@ -299,6 +307,8 @@ mod imp {
 
         pub(crate) fn disconnected(&self) {
             self.logged_on.set(0.0);
+            // Nothing waits once the connection has gone.
+            self.held_back.set(0.0);
             self.disconnects.increment(1);
         }
 
@@ -336,6 +346,10 @@ mod imp {
 
         pub(crate) fn next_outgoing(&self, seq: u64) {
             self.next_outgoing.set(seq as f64);
+        }
+
+        pub(crate) fn held_back(&self, held_back: bool) {
+            self.held_back.set(if held_back { 1.0 } else { 0.0 });
         }
     }
 }
@@ -423,6 +437,8 @@ mod imp {
         pub(crate) fn throttled_outbound(&self, _messages: u64) {}
         #[inline(always)]
         pub(crate) fn next_incoming(&self, _seq: u64) {}
+
+        pub(crate) fn held_back(&self, _held_back: bool) {}
         #[inline(always)]
         pub(crate) fn next_outgoing(&self, _seq: u64) {}
     }

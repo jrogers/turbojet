@@ -643,6 +643,8 @@ pub struct Session {
     held_back: bool,
     /// `Context::hold` holds messages; off for a replay, where nothing would release them.
     hands_out_holds: bool,
+    /// The first time input waited for a release on this connection has been logged.
+    held_back_warned: bool,
     /// When input last went on after waiting for a release: silence counts from then at the
     /// earliest, since what the counterparty sent meanwhile waited unread.
     resumed_at: Option<Instant>,
@@ -762,6 +764,7 @@ impl Session {
             holds: Holds::default(),
             held_back: false,
             hands_out_holds: true,
+            held_back_warned: false,
             resumed_at: None,
         };
         (session, receiver)
@@ -3276,16 +3279,31 @@ impl Session {
         // Held messages may keep the window from reaching the next one.
         let covered = self.peer.as_ref().is_some_and(|peer| self.covers(peer.log.next_incoming()));
         let held_back = self.window_end.is_some() && !covered;
-        if self.held_back && !held_back {
-            self.resumed_at = Some(now);
+        if held_back != self.held_back {
+            self.held_back_changed(held_back, now);
         }
-        self.held_back = held_back;
         if covered && std::mem::take(&mut self.drain_waiting) {
             self.after_incoming(now);
             return true;
         }
         self.send_replies();
         false
+    }
+
+    /// Input has begun or stopped waiting for the application to release a message it holds.
+    fn held_back_changed(&mut self, held_back: bool, now: Instant) {
+        self.held_back = held_back;
+        if let Some(peer) = &self.peer {
+            peer.metrics.held_back(held_back);
+        }
+        if !held_back {
+            self.resumed_at = Some(now);
+        } else if !std::mem::replace(&mut self.held_back_warned, true) {
+            // Once per connection: a session that keeps reaching the window would otherwise warn
+            // for each release.
+            let oldest = self.holds.oldest();
+            warn!(?oldest, "input waits for the application to release a held message, 256 messages back");
+        }
     }
 
     /// Operators hear of their changes, committed now, with the numbers as they stand (a new
