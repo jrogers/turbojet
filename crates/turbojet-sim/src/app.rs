@@ -5,6 +5,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use turbojet::fields::SessionRejectReason;
 use turbojet::message::tags;
 use turbojet::{
     Application, Context, Disconnect, Hold, Message, MessageReject, MsgType, Receipt, SendError, SessionHandle,
@@ -48,6 +49,9 @@ pub struct RecordingApp {
     /// Acknowledge each order with an ExecutionReport (the acceptor's application).
     pub acks: bool,
     pub deliveries: Mutex<Vec<Delivery>>,
+    /// MsgSeqNums the session rejected for SendingTime accuracy, as each Reject was made: a store
+    /// failure can cut a Reject from the output after the number is recorded as received.
+    pub rejected_late: Mutex<Vec<u64>>,
     pub handle: Mutex<Option<SessionHandle>>,
     /// Acknowledgements sent so far: each gets its own ExecID, since an order redelivered after a
     /// crash is acknowledged again.
@@ -213,6 +217,15 @@ pub fn id_of(msg: &Message) -> Option<&str> {
 }
 
 impl Application for RecordingApp {
+    fn to_admin(&self, _session: &SessionHandle, msg: &mut Message) {
+        if msg.msg_type() == MsgType::Reject
+            && msg.get(tags::SESSION_REJECT_REASON) == Some(SessionRejectReason::SendingTimeAccuracyProblem.code())
+            && let Some(seq) = msg.get(tags::REF_SEQ_NUM).and_then(|s| s.parse().ok())
+        {
+            self.rejected_late.lock().unwrap().push(seq);
+        }
+    }
+
     fn on_logon(&self, session: &SessionHandle) {
         *self.handle.lock().unwrap() = Some(session.clone());
         self.record(Lifecycle::LoggedOn);

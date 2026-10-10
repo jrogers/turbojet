@@ -2,9 +2,9 @@
 //! seed.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fmt, mem};
 
 use std::future::Future;
 use std::pin::Pin;
@@ -1427,6 +1427,10 @@ impl World {
     fn check_all(&mut self) -> Result<(), Violation> {
         for s in [Side::Initiator, Side::Acceptor] {
             self.sync_ledger(s)?;
+        }
+        for s in [Side::Initiator, Side::Acceptor] {
+            let rejected = mem::take(&mut *self.nodes[s.index()].app.rejected_late.lock().unwrap());
+            self.checker.rejected(s, rejected);
         }
         for s in [Side::Initiator, Side::Acceptor] {
             let deliveries = self.nodes[s.index()].app.deliveries.lock().unwrap();

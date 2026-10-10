@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use turbojet::codec::{Decoded, decode};
-use turbojet::fields::SessionRejectReason;
 use turbojet::message::tags;
 use turbojet::{CancelOnDisconnect, CancelTrigger, Disconnect, Message, MsgType};
 
@@ -379,6 +378,11 @@ impl Checker {
         }
     }
 
+    /// `side` rejected the other side's `seqs` for SendingTime accuracy.
+    pub fn rejected(&mut self, side: Side, seqs: impl IntoIterator<Item = u64>) {
+        self.sent[side.other().index()].rejected_late.extend(seqs);
+    }
+
     /// Whether the other side rejected `side`'s `seq`, of this epoch, for SendingTime accuracy.
     pub fn rejected_late(&self, side: Side, seq: u64) -> bool {
         self.sent[side.index()].rejected_late.contains(&seq)
@@ -477,11 +481,6 @@ impl Checker {
     }
 
     fn sent_message(&mut self, side: Side, msg: &Message) -> Result<(), Violation> {
-        if msg.msg_type() == MsgType::Reject
-            && msg.get(tags::SESSION_REJECT_REASON) == Some(SessionRejectReason::SendingTimeAccuracyProblem.code())
-        {
-            self.sent[side.other().index()].rejected_late.insert(number(msg, tags::REF_SEQ_NUM));
-        }
         let sent = &mut self.sent[side.index()];
         let seq = number(msg, tags::MSG_SEQ_NUM);
         let Some(recorded) = sent.recorded.get(&seq) else {
@@ -720,11 +719,8 @@ mod tests {
         let mut h = Harness::default();
         h.send(order("a"), 1).unwrap();
         h.send(order("b"), 2).unwrap();
-        let late = Message::new(MsgType::Reject)
-            .with(tags::REF_SEQ_NUM, 1u64)
-            .with(tags::SESSION_REJECT_REASON, SessionRejectReason::SendingTimeAccuracyProblem.code());
         h.checker.stored(Side::Acceptor, &[Stored::Sent { seq: 1, bytes: None }]).unwrap();
-        h.checker.written(Side::Acceptor, &framed(late, 1, &[]), SimTime(0)).unwrap();
+        h.checker.rejected(Side::Acceptor, [1]);
         let b = Delivery { id: "b".into(), seq: 2, redelivered: false };
         assert_eq!(h.checker.delivered(Side::Acceptor, &[b]).map_err(|e| e.rule), Ok(()));
     }

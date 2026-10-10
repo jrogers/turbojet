@@ -11,3 +11,4 @@
 1791059174727075802 a torn commit's evictions left in place, deleting the journal's latest record with its segment (simulator bug)
 1791059372245236621 journal records of commits storing no messages filled a small budget and evicted the messages a resend needed
 1791108354367472323 a message delayed past max_latency, rejected for SendingTime accuracy as the spec says, still expected delivered (simulator bug)
+1791626904724181466 a message rejected for SendingTime accuracy whose Reject a store failure cut from the output, the rejection kept (simulator bug)
