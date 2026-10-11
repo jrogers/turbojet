@@ -108,6 +108,10 @@ pub struct SessionConfig {
     pub check_orig_sending_time: bool,
     /// Reject a message with a header field after a body field (14). On by default.
     pub check_header_order: bool,
+    /// Reject a message with a field that has no value, `58=` (4). On by default; off, as
+    /// QuickFIX's ValidateFieldsHaveValues=N, such a field reaches the application (and the
+    /// validator, which passes it) as an empty value. A Logon is always checked.
+    pub check_empty_values: bool,
     /// How SendingTime(52) is written, on resends and gap fills too: milliseconds by default.
     /// A resend's OrigSendingTime(122) is copied as it was first sent.
     pub timestamp_precision: Precision,
@@ -241,6 +245,7 @@ impl SessionConfig {
             max_latency: Some(Duration::from_secs(120)),
             check_orig_sending_time: true,
             check_header_order: true,
+            check_empty_values: true,
             timestamp_precision: Precision::Millis,
             data_fields: DataFields::standard(),
             send_queue: 10_000,
@@ -2114,7 +2119,7 @@ impl Session {
             let reason = Some(SessionRejectReason::RequiredTagMissing);
             return self.reject(msg, Some(tag), reason, &format!("Required tag {tag} missing"), now);
         }
-        if let Some(tag) = empty {
+        if let Some(tag) = empty.filter(|_| self.config.check_empty_values) {
             let reason = Some(SessionRejectReason::TagSpecifiedWithoutValue);
             return self.reject(msg, Some(tag), reason, &format!("Tag {tag} specified without a value"), now);
         }
@@ -2136,7 +2141,10 @@ impl Session {
             && validator.applies_to(&mtype)
             && let Err(invalid) = validator.validate(msg)
         {
-            return self.reject(msg, invalid.tag, invalid.reason, &invalid.text, now);
+            if validator.options().reject_invalid {
+                return self.reject(msg, invalid.tag, invalid.reason, &invalid.text, now);
+            }
+            warn!(seq_num, tag = ?invalid.tag, text = %invalid.text, "delivering a message that failed validation");
         }
         self.dispatch(msg, seq_num, now, arrived);
     }

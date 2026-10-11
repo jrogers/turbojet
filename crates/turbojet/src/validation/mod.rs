@@ -4,7 +4,8 @@
 //! on a session with [`SessionConfig::with_dictionary`](crate::SessionConfig::with_dictionary).
 //! The session then checks every inbound application message before the application sees it, and
 //! answers one that fails with a session Reject (35=3) carrying the reason and the offending tag;
-//! the message counts as received but isn't delivered. Session-level messages the dictionary
+//! the message counts as received but isn't delivered. With
+//! [`reject_invalid`](ValidationOptions::reject_invalid) off, it's logged and delivered instead. Session-level messages the dictionary
 //! defines are checked too, so an unknown tag in a Heartbeat is rejected, except Logon, which the
 //! engine checks itself, and Logout, which always completes.
 //!
@@ -58,7 +59,8 @@ type Fast = BuildHasherDefault<FxHasher>;
 type FastMap<K, V> = HashMap<K, V, Fast>;
 type FastSet<T> = HashSet<T, Fast>;
 
-/// Which checks a [`Validator`] makes; all on by default, except allowing user-defined tags.
+/// Which checks a [`Validator`] makes, and what's done with a message that fails one. The
+/// defaults are QuickFIX's: every check on, user-defined tags checked, failures rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ValidationOptions {
@@ -79,12 +81,17 @@ pub struct ValidationOptions {
     /// Reject a repeating group whose count doesn't match its entries (16) or whose entries are
     /// out of order (15).
     pub groups: bool,
-    /// Accept undefined user-defined tags (5000 and up), which venues often add, when
-    /// `undefined_tags` would reject them.
+    /// Accept user-defined tags (5000 and up), which venues often add, wherever they appear:
+    /// undefined ones, which `undefined_tags` would reject, and ones the dictionary defines in a
+    /// message it doesn't list them for, which `tags_not_in_message` would (QuickFIX's
+    /// ValidateUserDefinedFields=N). Their values are still checked.
     pub allow_user_defined_tags: bool,
     /// Check session-level messages the dictionary defines (not Logon or Logout), as well as
     /// application messages.
     pub admin_messages: bool,
+    /// Reject a message that fails a check. Off, the failure is logged as a warning and the
+    /// message delivered anyway (QuickFIX's RejectInvalidMessage=N).
+    pub reject_invalid: bool,
 }
 
 impl Default for ValidationOptions {
@@ -100,6 +107,7 @@ impl Default for ValidationOptions {
             groups: true,
             allow_user_defined_tags: false,
             admin_messages: true,
+            reject_invalid: true,
         }
     }
 }
@@ -215,6 +223,11 @@ impl Validator {
         self
     }
 
+    /// The checks this validator makes.
+    pub fn options(&self) -> ValidationOptions {
+        self.options
+    }
+
     /// Whether messages of this type are checked: application messages are, and session-level
     /// messages the dictionary defines unless [`ValidationOptions::admin_messages`] is off. Logon
     /// is the engine's to check, and a Logout always completes, so neither is. An application-only
@@ -228,8 +241,9 @@ impl Validator {
             && self.messages.contains_key(msg_type.code())
     }
 
-    /// Checks `msg`, which has already passed the session's own checks (header, sequence, no
-    /// empty values).
+    /// Checks `msg`, which has already passed the session's own checks (header, sequence, and no
+    /// empty values unless [`SessionConfig::check_empty_values`](crate::SessionConfig::check_empty_values)
+    /// is off: an empty value passes here).
     ///
     /// # Errors
     ///
@@ -306,8 +320,8 @@ impl Validator {
         if let Some(member) = rules.members.get(&tag) {
             return Ok(Some(member));
         }
+        let user_defined = tag >= 5000 && self.options.allow_user_defined_tags;
         if !self.fields.contains_key(&tag) {
-            let user_defined = tag >= 5000 && self.options.allow_user_defined_tags;
             // Session test case 14a: "Invalid tag number" (0), as QuickFIX and QuickFIX/J also
             // answer, rather than "Undefined tag" (3).
             if self.options.undefined_tags && !user_defined {
@@ -317,7 +331,7 @@ impl Validator {
                     &format!("Invalid tag number {tag}"),
                 ));
             }
-        } else if self.options.tags_not_in_message {
+        } else if self.options.tags_not_in_message && !user_defined {
             let text = format!("Tag {tag} not defined for this message type");
             return Err(self.invalid(Some(tag), SessionRejectReason::TagNotDefinedForMessageType, &text));
         }
@@ -396,6 +410,10 @@ impl Validator {
     }
 
     fn check_value(&self, tag: u32, value: &str) -> Result<(), Invalid> {
+        // Only reaches here if the session lets empty values through.
+        if value.is_empty() {
+            return Ok(());
+        }
         let Some(field) = self.fields.get(&tag) else { return Ok(()) };
         if let Some(codes) = &field.codes {
             if !self.options.values {

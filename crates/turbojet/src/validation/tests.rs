@@ -165,6 +165,7 @@ fn each_check_can_be_turned_off() {
         groups: false,
         allow_user_defined_tags: false,
         admin_messages: false,
+        reject_invalid: false,
     };
     let v = validator().with_options(all_off);
     for body in ["54=1|55=AAPL|", "11=A|54=9|55=AAPL|9999=x|58=hi|38=ten|11=B|", "11=A|54=1|55=AAPL|78=2|79=X|80=5|"] {
@@ -178,8 +179,21 @@ fn user_defined_tags_can_be_allowed() {
     let options = ValidationOptions { allow_user_defined_tags: true, ..ValidationOptions::default() };
     let v = validator().with_options(options);
     v.validate(&msg("11=A|54=1|55=AAPL|9999=x|")).unwrap();
+    // A defined one outside the message it belongs to (Note, in a NoAllocs entry), as QuickFIX's
+    // ValidateUserDefinedFields=N; refused by default.
+    v.validate(&msg("11=A|54=1|55=AAPL|5002=x|")).unwrap();
+    assert_eq!(
+        failure(&validator(), "11=A|54=1|55=AAPL|5002=x|").1,
+        Some(SessionRejectReason::TagNotDefinedForMessageType)
+    );
     // Below 5000 an undefined tag is still refused.
     assert_eq!(failure(&v, "11=A|54=1|55=AAPL|4999=x|").1, Some(SessionRejectReason::InvalidTagNumber));
+}
+
+/// The session rejects empty values unless told not to, so one that reaches the validator passes.
+#[test]
+fn empty_values_pass() {
+    validator().validate(&msg("11=A|54=|55=AAPL|38=|")).unwrap();
 }
 
 #[test]

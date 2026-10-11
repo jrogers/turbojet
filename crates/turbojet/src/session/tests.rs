@@ -2311,6 +2311,21 @@ fn empty_target_comp_id_is_rejected_as_without_a_value() {
     assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("4"));
 }
 
+/// QuickFIX's ValidateFieldsHaveValues=N: an empty value is delivered as it is.
+#[test]
+fn empty_values_can_be_delivered() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let out = s.recv(order(2, "A").with(tags::TEXT, ""), h.t0);
+    assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("4"));
+
+    let mut h = Harness::new();
+    h.config.check_empty_values = false;
+    let mut s = h.logged_on();
+    assert_eq!(types(&s.recv(order(2, "A").with(tags::TEXT, ""), h.t0)), ["ExecutionReport"]);
+    assert_eq!(h.app.received(), 1);
+}
+
 /// Each way a logged-on session ends reaches `on_logout` with its own reason.
 #[test]
 fn on_logout_says_how_the_session_ended() {
@@ -5054,6 +5069,7 @@ fn an_initiator_with_an_invalid_inbound_limit_is_refused_when_built() {
 #[cfg(feature = "validation")]
 mod validation {
     use super::*;
+    use crate::validation::{ValidationOptions, Validator};
 
     const DICT: &str = "<fix type='FIX' major='4' minor='4'>
      <messages>
@@ -5091,6 +5107,18 @@ mod validation {
 
         // It counted as received: the next message is 3, and a valid one is delivered.
         assert_eq!(types(&s.recv(order(3, "B"), h.t0)), ["ExecutionReport"]);
+        assert_eq!(h.app.received(), 1);
+    }
+
+    /// QuickFIX's RejectInvalidMessage=N: logged, and delivered.
+    #[test]
+    fn invalid_messages_can_be_delivered() {
+        let mut h = Harness::new();
+        let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
+        let options = ValidationOptions { reject_invalid: false, ..ValidationOptions::default() };
+        h.config = h.config.clone().with_validator(Validator::new(&dict).with_options(options));
+        let mut s = h.logged_on();
+        assert_eq!(types(&s.recv(order(2, "A").with(tags::SIDE, "9"), h.t0)), ["ExecutionReport"]);
         assert_eq!(h.app.received(), 1);
     }
 
