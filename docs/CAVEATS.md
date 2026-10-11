@@ -86,6 +86,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   OrdRejReason, a LastLiquidityInd or TargetStrategy of its own): a validator with
   `ValidationOptions::values` on (the default, as in QuickFIX), and `?` on `parse` of a message
   generated with `--strict-enums`. Merge the venue's dictionary first, or turn the check off.
+- The validator accepts a group entry's fields in any order after its delimiter, as QuickFIX's
+  ValidateUnorderedGroupFields=N; QuickFIX's default rejects them. Unknown tags below 5000 and
+  from 5000 up can't be treated differently except as `allow_user_defined_tags` does: accepting
+  unknown tags below 5000 (QuickFIX's AllowUnknownMsgFields=Y) accepts them from 5000 up too.
 - Counterparty settings (`CounterpartyMap`, the sessions file) and stores
   (`StorageByCounterparty`) are chosen by CompID, so a counterparty's sessions with different
   SubIDs share them. A `Counterparties` resolver of one's own sees the full `SessionId`.

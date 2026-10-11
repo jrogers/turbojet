@@ -511,6 +511,8 @@ for a counterparty that needs it:
   than its SendingTime. A missing one is rejected (1); a later one is rejected (10) and the
   session logs out. Gap fills are exempt.
 - `check_header_order` (on): a header field after a body field is rejected (14).
+- `check_empty_values` (on): a field without a value, `58=`, is rejected (4). Off, it's delivered
+  as an empty value. A Logon is always checked.
 
 On FIX 4.2, which defines reasons only up to 11, a Reject for a later one leaves the reason out
 and says what's wrong in its Text.
@@ -536,7 +538,10 @@ delivered; it still counts as received. The checks, each of which can be turned 
 MsgType not in the dictionary (373=11), undefined tag (0), tag not defined for the message (2),
 required tag missing, including in group entries (1), value not one of the field's codes (5),
 data format (6), a tag repeated outside a group (13), and group counts and order (16, 15).
-`allow_user_defined_tags` accepts undefined tags from 5000 up, which venues often add. With a
+`allow_user_defined_tags` accepts tags from 5000 up, which venues often add, wherever they appear.
+With `reject_invalid` off, a message that fails is logged and delivered instead. The defaults are
+QuickFIX's, and a sessions file sets them with `validation = { values = false, ... }`. A QuickFIX
+dictionary's `allowOtherValues="Y"` lets a field take codes it doesn't list. With a
 FIX 4.2 dictionary, reasons added after 4.2 are left out and only the text says what's wrong.
 Session-level messages are checked where the dictionary defines them (`admin_messages` turns this
 off), except Logon, which the engine checks itself, and Logout, which always completes. Correct a
@@ -990,9 +995,8 @@ ExecutionReport, found by any ClOrdID the order has had); other message types ge
 BusinessMessageReject `j`. Market and Limit orders, TimeInForce Day/GTC, Side
 Buy/Sell/SellShort/SellShortExempt. Business rejections without a specific FIX 4.2 reason code
 use the spec's "Broker option", named BrokerCredit (OrdRejReason 0, CxlRejReason 2), with an
-explanatory Text. The typed FIX 4.2 messages type every field in the dictionary, so an
-out-of-spec value is rejected even in a field the gateway doesn't use (e.g. Rule80A 47 or
-OpenClose 77) rather than ignored.
+explanatory Text. An unknown Side, OrdType or TimeInForce code gets a Reject `3` (value
+incorrect); one in a field the gateway doesn't use (e.g. Rule80A 47 or OpenClose 77) is ignored.
 
 The gateway cancels on disconnect, as most venues do: when a session drops without a Logout and
 the counterparty doesn't log back on within 5 seconds, its open orders are cancelled and the count
@@ -1176,10 +1180,10 @@ to partition the crate.
 | Decode NewOrderSingle (169 B): into a new message / a reused one | 197 ns / 164 ns | 817 / 985 MiB/s |
 | Encode NewOrderSingle (169 B) | 47 ns | 3.4 GiB/s |
 | Encode ExecutionReport (209 B) | 54 ns | 3.6 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 98 ns / 173 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 148 ns / 273 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 448 ns / 722 ns / 692 ns | |
-| Typed build ExecutionReport | 156 ns | |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 110 ns / 181 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 136 ns / 220 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 503 ns / 787 ns / 615 ns | |
+| Typed build ExecutionReport | 171 ns | |
 | Format a timestamp (same second / new second) | 11 ns / 33 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store) | 755 ns | 1.32M msg/s |
 | Session: order → ack, wire to wire (decode + session, which encodes) | 939 ns | 1.06M msg/s |

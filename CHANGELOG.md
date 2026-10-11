@@ -181,6 +181,15 @@ Notable changes to the published crates.
 - `Command`, `CommandSender`, `CommandReceiver`, `SessionRegistry`, `SessionHandle` and `SendError`
   take the type of what's sent, defaulting to `Message`, so existing code is unchanged;
   `SessionRegistry::with_storage` builds a registry of any kind.
+- `ValidationOptions::reject_invalid` (on by default): off, a message that fails validation is
+  logged and delivered rather than rejected, as QuickFIX's RejectInvalidMessage=N.
+- `SessionConfig::check_empty_values` (on by default): off, a field without a value is delivered
+  as an empty value rather than rejected (4), as QuickFIX's ValidateFieldsHaveValues=N.
+- `ValidationOptions::allow_user_defined_tags` also accepts a defined tag from 5000 up in a
+  message the dictionary doesn't list it for, as QuickFIX's ValidateUserDefinedFields=N does; it
+  accepted only undefined ones. `Validator::options` gives a validator's options.
+- The validator accepts any code in a field a QuickFIX dictionary marks `allowOtherValues="Y"`.
+- `Code<E>` converts from a `CodeRef<E>` with `.into()`.
 
 ### `turbojet-codegen`
 
@@ -191,6 +200,25 @@ Notable changes to the published crates.
   versions (`sinceVersion`), nested groups, variable-length data and included type files.
   Generated messages implement `turbojet::sbe::Encode`, and byte arrays (UUIDs, say) are copied
   whole.
+- Breaking: enumerated fields are generated as `turbojet::fields::Code<E>`, which keeps a code
+  the dictionary doesn't list as `Code::Unknown` rather than failing the parse, as QuickFIX's
+  typed fields do. `--strict-enums` (`Generator::strict_enums`) generates `E`, as before, and
+  replaces `--lenient-enums` (`Generator::lenient_enums`); `--lenient-enum Field` keeps one field
+  a `Code` among strict ones, as does a dictionary's `allowOtherValues="Y"`.
+
+### `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` and `turbojet-fix50sp2`
+
+- Breaking: enumerated fields are `turbojet::fields::Code<E>`, so a message with a code the
+  dictionary doesn't list, in any enumerated field, parses rather than failing, keeping it as
+  `Code::Unknown`. Compare a field with a value directly (`order.side == Side::Buy`), set one with
+  `.into()`, and get the enum with `.known()`; constructors take either. To reject unknown codes,
+  check messages against a dictionary (`SessionConfig::with_dictionary`, feature `validation`).
+  Parsing and building typed messages take about 16 ns longer, the fields being bigger.
+
+### `turbojet-dictionary`
+
+- `Field::allow_other_values`: a QuickFIX dictionary's `allowOtherValues="Y"`, which a merged
+  venue dictionary can set.
 
 ### `turbojet-config`
 
@@ -228,6 +256,13 @@ Notable changes to the published crates.
 - `SessionsFile::initiator_stores` gives each initiator's session and its store, to read what a
   session stored before its initiator starts (a gateway looking for requests it sent before a
   crash, say).
+- `validation = { values = false, reject_invalid = false, ... }`, keyed as `ValidationOptions`'
+  fields, in `[defaults]`, a counterparty's section or an initiator's: the checks the section's
+  dictionaries make (feature `validation`). `check_empty_values` beside `check_header_order`.
+- The QuickFIX converter maps RequiresOrigSendingTime, ValidateFieldsOutOfOrder,
+  ValidateFieldsHaveValues, RejectInvalidMessage, ValidateUserDefinedFields,
+  AllowUnknownMsgFields and ValidateIncomingMessage, and accepts ValidateSequenceNumbers,
+  ValidateChecksum and RejectGarbledMessage at their defaults.
 
 ### `turbojet-sql`
 

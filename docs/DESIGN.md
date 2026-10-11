@@ -285,9 +285,27 @@ Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`);
 generated into its own crate (`turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44`,
 `turbojet-fix50sp2`, the last over FIXT 1.1's header), and CI checks they match. A dictionary's
 mistakes can be corrected before generating (`Dictionary::make_optional`, `--optional`;
-`turbojet-fix42` makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did), and enumerated
-fields are generated as `fields::Code<E>`, keeping unknown codes (`--strict-enums` for `E`). Sessions can also check
-inbound messages against a dictionary (feature `validation`, `SessionConfig::with_dictionary`).
+`turbojet-fix42` makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did). Sessions can also
+check inbound messages against a dictionary (feature `validation`, `SessionConfig::with_dictionary`).
+
+Enumerated fields are generated as `fields::Code<E>`, which keeps a code the dictionary doesn't
+list as `Code::Unknown`. They were strict until 2026-10-11: an unknown code in any field, even one
+the application never read, failed the parse, and an application that rejected the message lost it,
+since a counterparty doesn't resend what we reject. QuickFIX's typed fields never fail on a code;
+rejecting one is its data dictionary's job, at session level, and Turbojet now splits it the same
+way. `--strict-enums` still types fields `E`. The cost is size: `Option<Code<E>>` is 24 bytes to
+`Option<E>`'s 1, so typed messages are bigger and each parse or build moves more. On an M3
+(criterion medians, a loaded machine, both measured the same day) owned parsing of a FIX 4.2
+NewOrderSingle went from 120 ns to 136 ns, borrowed from 93 ns to 110 ns, and building an
+ExecutionReport from 155 ns to 171 ns; a known code still allocates nothing.
+
+The validator's switches follow QuickFIX/J's, with its defaults: `reject_invalid` is its
+RejectInvalidMessage, `allow_user_defined_tags` its ValidateUserDefinedFields=N (both the tag
+number and the in-message checks, from 5000 up), `undefined_tags` and `tags_not_in_message` its
+AllowUnknownMsgFields, and `SessionConfig::check_empty_values` and `check_header_order` its
+ValidateFieldsHaveValues and ValidateFieldsOutOfOrder. A QuickFIX dictionary's
+`allowOtherValues="Y"` turns off the code check for its field and keeps it a `Code<E>` under
+`--strict-enums`. The QuickFIX settings converter maps each of these.
 
 ## SBE and FIXP
 
@@ -492,6 +510,10 @@ was before:
 - Borrowed typed parsing was measured 2026-10-01, when typed messages gained borrowed forms.
 - Owned typed parsing was re-measured 2026-10-03, after owned messages were parsed straight into
   their owned form: 166 ns, 335 ns and 1.04 µs just before, on the same day.
+- Typed parsing and building were re-measured 2026-10-11, on a loaded machine, after enumerated
+  fields became `Code<E>`. With strict fields, the same day: 93 ns / 166 ns borrowed, 120 ns /
+  199 ns owned, 468 ns / 769 ns / 551 ns with nested groups, and 155 ns to build. The table had
+  98 / 173, 148 / 273, 448 / 722 / 692 and 156.
 - Session order → ack was re-measured 2026-10-03, after the application's replies were built in
   messages the session reuses: 945 ns and 1.20 µs just before.
 - Disk stores were measured 2026-10-02 with group commit: before it, storing 100 messages with
