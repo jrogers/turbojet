@@ -190,6 +190,15 @@ fn user_defined_tags_can_be_allowed() {
     assert_eq!(failure(&v, "11=A|54=1|55=AAPL|4999=x|").1, Some(SessionRejectReason::InvalidTagNumber));
 }
 
+/// QuickFIX's `allowOtherValues="Y"`: any code is accepted.
+#[test]
+fn fields_can_allow_other_values() {
+    let dict = DICT.replace("name='Side' type='CHAR'>", "name='Side' type='CHAR' allowOtherValues='Y'>");
+    let v = Validator::new(&turbojet_dictionary::Dictionary::from_xml(&dict).unwrap());
+    v.validate(&msg("11=A|54=Z|55=AAPL|")).unwrap();
+    assert_eq!(failure(&validator(), "11=A|54=Z|55=AAPL|").1, Some(SessionRejectReason::ValueIsIncorrect));
+}
+
 /// The session rejects empty values unless told not to, so one that reaches the validator passes.
 #[test]
 fn empty_values_pass() {

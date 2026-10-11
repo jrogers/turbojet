@@ -220,6 +220,10 @@ pub struct Field {
     pub ty: FieldType,
     /// The permitted values, for enumerated fields; empty otherwise.
     pub values: Vec<Value>,
+    /// Whether codes `values` doesn't list are permitted too (QuickFIX's `allowOtherValues="Y"`):
+    /// the validator accepts any, and generated code keeps the field a `Code<E>` even with
+    /// `--strict-enums`.
+    pub allow_other_values: bool,
     /// The documentation (Orchestra's synopsis); `None` if there is none, as in QuickFIX.
     pub doc: Option<String>,
     /// Whether the FIX standard deprecates the field. It's still valid on the wire.

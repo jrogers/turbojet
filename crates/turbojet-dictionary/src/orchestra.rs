@@ -383,6 +383,7 @@ impl<'a, 'input> Parser<'a, 'input> {
                 name: name.to_string(),
                 ty,
                 values,
+                allow_other_values: false,
                 doc: synopsis(el),
                 deprecated: el.attribute("deprecated").is_some(),
             });

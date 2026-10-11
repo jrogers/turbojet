@@ -527,7 +527,8 @@ fn collect_tags(members: &[Flat], tag: &impl Fn(&str) -> u32, out: &mut FastSet<
 
 /// The permitted codes of an enumerated field.
 fn codes(field: &Field) -> Option<FastSet<String>> {
-    (!field.values.is_empty()).then(|| field.values.iter().map(|v| v.code.clone()).collect())
+    (!field.values.is_empty() && !field.allow_other_values)
+        .then(|| field.values.iter().map(|v| v.code.clone()).collect())
 }
 
 fn is_multiple(ty: &FieldType) -> bool {

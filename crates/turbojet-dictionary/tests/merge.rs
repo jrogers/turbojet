@@ -27,6 +27,18 @@ fn extends_enum_values_and_takes_venue_descriptions() {
 }
 
 #[test]
+fn a_venue_can_allow_other_values() {
+    let mut dict = Dictionary::from_xml(BASE).unwrap();
+    assert!(!dict.field("Side").unwrap().allow_other_values);
+    let venue = "<fix><fields><field number='54' name='Side' type='CHAR' allowOtherValues='Y'/></fields></fix>";
+    dict.merge_xml(venue).unwrap();
+    assert!(dict.field("Side").unwrap().allow_other_values);
+    // Re-listing the field without the attribute doesn't take it away.
+    dict.merge_xml("<fix><fields><field number='54' name='Side' type='CHAR'/></fields></fix>").unwrap();
+    assert!(dict.field("Side").unwrap().allow_other_values);
+}
+
+#[test]
 fn keeps_base_descriptions_when_the_venue_has_none() {
     let mut dict = Dictionary::from_xml(BASE).unwrap();
     let venue = "<fix><fields><field number='54' name='Side' type='CHAR'>\

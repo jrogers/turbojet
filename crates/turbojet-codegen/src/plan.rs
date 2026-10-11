@@ -395,7 +395,8 @@ impl SlotPlanner<'_> {
         match self.enum_types.get(field.name.as_str()) {
             _ if is_data => "Vec<u8>".to_string(),
             Some(ty) => {
-                let ty = if lenient_all || lenient.contains(&field.name) { format!("Code<{ty}>") } else { ty.clone() };
+                let lenient = lenient_all || field.allow_other_values || lenient.contains(&field.name);
+                let ty = if lenient { format!("Code<{ty}>") } else { ty.clone() };
                 // A multi-value field holds a list of codes.
                 if is_multiple(&field.ty) { format!("Vec<{ty}>") } else { ty }
             }
@@ -664,6 +665,13 @@ mod tests {
         assert_eq!((side(&one), role(&one)), ("Side".to_string(), "Code<PartyRole>".to_string()));
         // The enums themselves are the same either way.
         assert_eq!(one.enums.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Side", "ExecInst", "PartyRole"]);
+
+        // A field that allows other values stays lenient.
+        let mut open = dict.clone();
+        open.merge_xml("<fix><fields><field number='54' name='Side' type='CHAR' allowOtherValues='Y'/></fields></fix>")
+            .unwrap();
+        let plan = super::build(&open, &Options { skip: &skip, lenient_all: false, ..Options::default() }).unwrap();
+        assert_eq!(side(&plan), "Code<Side>");
 
         let err = lenient(false, &["Text".to_string()]).map(|_| ()).unwrap_err();
         assert_eq!(

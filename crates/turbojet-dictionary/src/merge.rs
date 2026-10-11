@@ -8,7 +8,7 @@ impl Dictionary {
     /// format this one was loaded from). Orchestra overlays aren't supported yet.
     ///
     /// New fields, components and messages are added. An existing field gains the venue's enum
-    /// values and takes its type, and an existing value takes the venue's description where it
+    /// values (and its `allowOtherValues`, if set) and takes its type, and an existing value takes the venue's description where it
     /// gives one; the field's and its values' official names and documentation are kept, since a
     /// QuickFIX dictionary has none. An existing component or message is replaced whole, except
     /// that a message keeps its documentation. A header or trailer in the venue replaces this
@@ -86,6 +86,7 @@ impl Dictionary {
             match self.fields.iter_mut().find(|f| f.name == field.name) {
                 Some(existing) => {
                     existing.ty = field.ty;
+                    existing.allow_other_values |= field.allow_other_values;
                     if field.doc.is_some() {
                         existing.doc = field.doc;
                     }
@@ -212,7 +213,15 @@ mod tests {
     }
 
     fn side(doc: Option<&str>, values: Vec<Value>) -> Field {
-        Field { tag: 54, name: "Side".into(), ty: FieldType::Char, values, doc: doc.map(Into::into), deprecated: false }
+        Field {
+            tag: 54,
+            name: "Side".into(),
+            ty: FieldType::Char,
+            values,
+            allow_other_values: false,
+            doc: doc.map(Into::into),
+            deprecated: false,
+        }
     }
 
     fn dict(field: Field) -> Dictionary {
