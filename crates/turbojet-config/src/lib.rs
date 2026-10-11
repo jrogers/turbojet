@@ -68,10 +68,13 @@
 //! defaults' (a list whole): `store` (`memory` by default), `logout_timeout`, `schedule` (as
 //! [`SessionSchedule`](turbojet::SessionSchedule) parses it), `holidays` (a file of dates),
 //! `max_latency` (a duration or `off`), `check_orig_sending_time`, `check_header_order`,
+//! `check_empty_values`,
 //! `timestamp_precision` (`seconds`, `millis`, `micros` or `nanos`), `data_fields` (`[[length,
 //! data], ...]`), `outbound_limit` and `inbound_limit` (`100/1s` or `off`), `over_limit`
 //! (`delay`, the default, or `reject`), `appl_versions` (ApplVerID codes, or `{ id, dictionary
-//! }`), `dictionary` (feature `validation`), `latency_metrics` (feature `metrics`), `heartbeat =
+//! }`), `dictionary` (feature `validation`), `validation` (the checks a dictionary makes, keys as
+//! [`ValidationOptions`](turbojet::validation::ValidationOptions)'s fields, `{ values = false,
+//! reject_invalid = false }`; feature `validation`), `latency_metrics` (feature `metrics`), `heartbeat =
 //! { min, max }` (the HeartBtInt a counterparty may ask for), `require_client_certificate`,
 //! `resend_request_chunk` (the most messages one ResendRequest asks for),
 //! `max_sessions_per_counterparty` (how many sessions, told apart by SubIDs and LocationIDs, one

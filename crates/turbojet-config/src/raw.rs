@@ -211,6 +211,7 @@ pub(crate) struct RawSettings {
     pub max_latency: Option<String>,
     pub check_orig_sending_time: Option<bool>,
     pub check_header_order: Option<bool>,
+    pub check_empty_values: Option<bool>,
     pub timestamp_precision: Option<RawPrecision>,
     pub data_fields: Option<Vec<[u32; 2]>>,
     pub outbound_limit: Option<String>,
@@ -218,6 +219,7 @@ pub(crate) struct RawSettings {
     pub over_limit: Option<OverLimit>,
     pub appl_versions: Option<Vec<RawApplVersion>>,
     pub dictionary: Option<PathBuf>,
+    pub validation: Option<RawValidation>,
     pub latency_metrics: Option<bool>,
     pub heartbeat: Option<RawHeartbeat>,
     pub require_client_certificate: Option<bool>,
@@ -247,6 +249,7 @@ impl RawSettings {
             max_latency,
             check_orig_sending_time,
             check_header_order,
+            check_empty_values,
             timestamp_precision,
             data_fields,
             outbound_limit,
@@ -254,6 +257,7 @@ impl RawSettings {
             over_limit,
             appl_versions,
             dictionary,
+            validation,
             latency_metrics,
             heartbeat,
             require_client_certificate,
@@ -263,6 +267,24 @@ impl RawSettings {
             max_sessions_per_counterparty,
         )
     }
+}
+
+/// `validation`: the checks a session's dictionaries make, as `turbojet::validation::
+/// ValidationOptions`; each key left out keeps its default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawValidation {
+    pub unknown_msg_types: Option<bool>,
+    pub undefined_tags: Option<bool>,
+    pub tags_not_in_message: Option<bool>,
+    pub required_tags: Option<bool>,
+    pub values: Option<bool>,
+    pub formats: Option<bool>,
+    pub repeated_tags: Option<bool>,
+    pub groups: Option<bool>,
+    pub allow_user_defined_tags: Option<bool>,
+    pub admin_messages: Option<bool>,
+    pub reject_invalid: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

@@ -547,6 +547,9 @@ fn apply(
     if let Some(check) = settings.check_header_order {
         config.check_header_order = check;
     }
+    if let Some(check) = settings.check_empty_values {
+        config.check_empty_values = check;
+    }
     if let Some(chunk) = settings.resend_request_chunk {
         config.resend_request_chunk = Some(chunk);
     }
@@ -708,7 +711,7 @@ fn validation(
                 {
                     let path = dir.join(path);
                     let loaded = dictionaries.get(path).map_err(|e| Error::at(section, "appl_versions", e))?;
-                    update(config, |c| c.with_dictionary(&loaded));
+                    update(config, |c| c.with_validator(validator(&loaded, settings)));
                 }
                 #[cfg(not(feature = "validation"))]
                 return Err(needs_validation(section, "appl_versions"));
@@ -726,12 +729,37 @@ fn validation(
         #[cfg(feature = "validation")]
         {
             let loaded = dictionaries.get(dir.join(path)).map_err(|e| Error::at(section, "dictionary", e))?;
-            update(config, |c| c.with_dictionary(&loaded));
+            update(config, |c| c.with_validator(validator(&loaded, settings)));
         }
         #[cfg(not(feature = "validation"))]
         return Err(needs_validation(section, "dictionary"));
     }
+    #[cfg(not(feature = "validation"))]
+    if settings.validation.is_some() {
+        return Err(needs_validation(section, "validation"));
+    }
     Ok(())
+}
+
+/// A validator for `dictionary`, with the checks `settings`' `validation` sets.
+#[cfg(feature = "validation")]
+fn validator(dictionary: &turbojet_dictionary::Dictionary, settings: &RawSettings) -> turbojet::validation::Validator {
+    let mut options = turbojet::validation::ValidationOptions::default();
+    if let Some(raw) = settings.validation {
+        let set = |option: &mut bool, value: Option<bool>| *option = value.unwrap_or(*option);
+        set(&mut options.unknown_msg_types, raw.unknown_msg_types);
+        set(&mut options.undefined_tags, raw.undefined_tags);
+        set(&mut options.tags_not_in_message, raw.tags_not_in_message);
+        set(&mut options.required_tags, raw.required_tags);
+        set(&mut options.values, raw.values);
+        set(&mut options.formats, raw.formats);
+        set(&mut options.repeated_tags, raw.repeated_tags);
+        set(&mut options.groups, raw.groups);
+        set(&mut options.allow_user_defined_tags, raw.allow_user_defined_tags);
+        set(&mut options.admin_messages, raw.admin_messages);
+        set(&mut options.reject_invalid, raw.reject_invalid);
+    }
+    turbojet::validation::Validator::new(dictionary).with_options(options)
 }
 
 /// Every store, by name. A store the previous file defined the same way is kept, not opened
@@ -850,6 +878,7 @@ mod tests {
             schedule = "daily 08:00-17:00 mon-fri"
             check_orig_sending_time = false
             check_header_order = false
+            check_empty_values = false
             timestamp_precision = "micros"
             data_fields = [[5000, 5001]]
             inbound_limit = "50/1s"
@@ -862,7 +891,7 @@ mod tests {
         let config = &loaded.acceptor().settings("A").counterparty.config;
         assert_eq!(config.logout_timeout, Duration::from_secs(2));
         assert_eq!(config.schedule, Some("daily 08:00-17:00 mon-fri".parse().unwrap()));
-        assert!(!config.check_orig_sending_time && !config.check_header_order);
+        assert!(!config.check_orig_sending_time && !config.check_header_order && !config.check_empty_values);
         assert_eq!(config.resend_request_chunk, Some(100));
         assert_eq!(config.max_sessions_per_counterparty, 4);
         assert_eq!(config.timestamp_precision, Precision::Micros);
@@ -1068,6 +1097,7 @@ mod tests {
     #[test]
     fn a_dictionary_needs_the_validation_feature() {
         assert!(error("[defaults]\ndictionary = \"FIX44.xml\"").starts_with("defaults: dictionary: needs"));
+        assert!(error("[defaults]\nvalidation = { values = false }").starts_with("defaults: validation: needs"));
     }
 
     #[cfg(feature = "validation")]
@@ -1079,6 +1109,22 @@ mod tests {
         assert!(loaded.acceptor().settings("B").counterparty.config.validator.is_none());
         let error = error("[defaults]\ndictionary = \"missing.xml\"");
         assert!(error.starts_with("defaults: dictionary: ") && error.contains("missing.xml"), "{error}");
+    }
+
+    #[cfg(feature = "validation")]
+    #[test]
+    fn validation_options_apply_to_the_dictionaries() {
+        let orchestra = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
+        let text = "[defaults]\nvalidation = { values = false, reject_invalid = false }\n\
+                    [counterparty.A]\ndictionary = \"OrchestraFIX44.xml\"\n\
+                    [counterparty.B]\ndictionary = \"OrchestraFIX44.xml\"\nvalidation = { groups = false }";
+        let loaded = load_in(&orchestra, text).unwrap();
+        let options = |name| loaded.acceptor().settings(name).counterparty.config.validator.as_ref().unwrap().options();
+        let (a, b) = (options("A"), options("B"));
+        assert!(!a.values && !a.reject_invalid && a.groups && a.formats);
+        // A counterparty's table replaces the defaults' whole.
+        assert!(b.values && b.reject_invalid && !b.groups);
+        assert!(error("[defaults]\nvalidation = { value = false }").contains("unknown field `value`"));
     }
 
     const INITIATOR: &str = r#"
