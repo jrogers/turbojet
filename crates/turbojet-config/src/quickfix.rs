@@ -10,7 +10,8 @@ use std::fmt::{self, Write as _};
 /// become one `[acceptor]`, which they must agree on (BeginString, SenderCompID, the address and
 /// port, LogonTimeout), and a `[counterparty.TARGET]` each; initiator sessions become
 /// `[initiator.TARGET]`. Keys that map are converted. Keys Turbojet sets in code (logging, socket
-/// options) or does differently (validation switches) are listed in a comment, not converted.
+/// options) or does differently (ValidateUnorderedGroupFields) are listed in a comment, not
+/// converted.
 /// Any other key, or a value that would make Turbojet behave differently from QuickFIX, is a
 /// problem: every one is reported, and nothing is written.
 ///
@@ -68,13 +69,8 @@ const NOT_CONVERTED: &[&str] = &[
     "FileIncludeMilliseconds",
     "FileIncludeTimeStampForMessages",
     "TransportDataDictionary",
-    "ValidateFieldsOutOfOrder",
-    "ValidateFieldsHaveValues",
-    "ValidateUserDefinedFields",
+    // Turbojet accepts a group entry's fields in any order after its delimiter.
     "ValidateUnorderedGroupFields",
-    "ValidateIncomingMessage",
-    "AllowUnknownMsgFields",
-    "RejectInvalidMessage",
 ];
 /// Socket keys that are converted, or refused, rather than listed as not converted.
 const SOCKET_KEYS_HANDLED: &[&str] =
@@ -88,6 +84,9 @@ const ONLY_DEFAULT: &[(&str, &str, &str)] = &[
     ("SocketUseSSL", "N", "set up TLS by hand: a sessions file's tls takes PEM files or a PKCS#12 bundle"),
     ("SendRedundantResendRequests", "N", "Turbojet doesn't send redundant ResendRequests"),
     ("CheckCompID", "Y", "Turbojet always checks CompIDs"),
+    ("ValidateSequenceNumbers", "Y", "Turbojet always checks sequence numbers"),
+    ("ValidateChecksum", "Y", "Turbojet always checks CheckSum(10)"),
+    ("RejectGarbledMessage", "N", "Turbojet ignores garbled messages, as the FIX spec says"),
 ];
 
 /// QuickFIX/J's ProxyType (`http`, or `socks` with ProxyVersion 5, its default), ProxyHost,
@@ -418,6 +417,15 @@ impl Output {
         if let Some(precision) = precision(session, problems) {
             lines.push(format!("timestamp_precision = {}", quote(precision)));
         }
+        for (key, setting) in [
+            ("RequiresOrigSendingTime", "check_orig_sending_time"),
+            ("ValidateFieldsOutOfOrder", "check_header_order"),
+            ("ValidateFieldsHaveValues", "check_empty_values"),
+        ] {
+            if let Some(check) = session.flag(key, problems) {
+                lines.push(format!("{setting} = {check}"));
+            }
+        }
         if let Some(chunk) = session.take("ResendRequestChunkSize") {
             match chunk.parse::<u64>() {
                 Ok(0) => {}
@@ -561,7 +569,9 @@ fn precision(session: &mut Session, problems: &mut Vec<String>) -> Option<&'stat
 /// The dictionaries messages are checked against: `dictionary`, or for FIXT `appl_versions`.
 fn dictionaries(session: &mut Session, problems: &mut Vec<String>) -> Vec<String> {
     let default_version = session.take("DefaultApplVerID");
-    let use_dictionary = session.flag("UseDataDictionary", problems).unwrap_or(true);
+    let validate = session.flag("ValidateIncomingMessage", problems).unwrap_or(true);
+    let use_dictionary = session.flag("UseDataDictionary", problems).unwrap_or(true) && validate;
+    let validation = validation(session, problems);
     let data = session.take("DataDictionary");
     let mut app: Vec<(String, String)> = Vec::new();
     for key in session.keys.keys().filter(|key| key.starts_with("AppDataDictionary")).cloned().collect::<Vec<_>>() {
@@ -575,6 +585,9 @@ fn dictionaries(session: &mut Session, problems: &mut Vec<String>) -> Vec<String
     }
     if let Some(path) = data {
         lines.push(format!("dictionary = {}", quote(&path)));
+    }
+    if !validation.is_empty() {
+        lines.push(format!("validation = {{ {} }}", validation.join(", ")));
     }
     let mut versions = Vec::new();
     if let Some(default) = &default_version {
@@ -600,6 +613,28 @@ fn dictionaries(session: &mut Session, problems: &mut Vec<String>) -> Vec<String
         lines.push(format!("appl_versions = [{}]", entries.collect::<Vec<_>>().join(", ")));
     }
     lines
+}
+
+/// The `validation` table's keys for QuickFIX's validation switches.
+fn validation(session: &mut Session, problems: &mut Vec<String>) -> Vec<&'static str> {
+    let mut keys = Vec::new();
+    if session.flag("RejectInvalidMessage", problems) == Some(false) {
+        keys.push("reject_invalid = false");
+    }
+    let user_defined = session.flag("ValidateUserDefinedFields", problems).unwrap_or(true);
+    if session.flag("AllowUnknownMsgFields", problems) == Some(true) {
+        if user_defined {
+            problems.push(format!(
+                "{}: AllowUnknownMsgFields=Y with ValidateUserDefinedFields=Y: Turbojet can't accept unknown tags \
+                 below 5000 and still check those from 5000 up; add ValidateUserDefinedFields=N to accept both",
+                session.name
+            ));
+        }
+        keys.extend(["undefined_tags = false", "tags_not_in_message = false"]);
+    } else if !user_defined {
+        keys.push("allow_user_defined_tags = true");
+    }
+    keys
 }
 
 /// The ApplVerID code for a QuickFIX version name (`FIX.5.0SP2`) or code (`9`).

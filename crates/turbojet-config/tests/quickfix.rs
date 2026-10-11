@@ -157,6 +157,54 @@ AppDataDictionary.FIX.4.4=FIX44.xml
     assert!(!toml.contains("schedule"), "a NonStopSession has none: {toml}");
 }
 
+/// QuickFIX's validation switches, as session checks and a `validation` table.
+#[test]
+fn validation_switches_convert() {
+    let cfg = "\
+[SESSION]
+ConnectionType=initiator
+BeginString=FIX.4.4
+SenderCompID=A
+TargetCompID=B
+SocketConnectHost=h
+SocketConnectPort=1
+NonStopSession=Y
+DataDictionary=FIX44.xml
+RequiresOrigSendingTime=N
+ValidateFieldsOutOfOrder=N
+ValidateFieldsHaveValues=N
+RejectInvalidMessage=N
+ValidateUserDefinedFields=N
+ValidateChecksum=Y
+ValidateUnorderedGroupFields=N
+";
+    let toml = convert(cfg).unwrap();
+    for line in [
+        "check_orig_sending_time = false",
+        "check_header_order = false",
+        "check_empty_values = false",
+        r#"dictionary = "FIX44.xml""#,
+        "validation = { reject_invalid = false, allow_user_defined_tags = true }",
+        "# ValidateUnorderedGroupFields=N: not converted",
+    ] {
+        assert!(toml.contains(line), "{line}: {toml}");
+    }
+
+    let toml = convert(&format!("{cfg}AllowUnknownMsgFields=Y\n")).unwrap();
+    assert!(
+        toml.contains("validation = { reject_invalid = false, undefined_tags = false, tags_not_in_message = false }"),
+        "{toml}"
+    );
+    let checked = cfg.replace("ValidateUserDefinedFields=N\n", "");
+    let err = convert(&format!("{checked}AllowUnknownMsgFields=Y\n")).unwrap_err().to_string();
+    assert!(err.contains("AllowUnknownMsgFields=Y with ValidateUserDefinedFields=Y"), "{err}");
+
+    let off = convert(&format!("{cfg}ValidateIncomingMessage=N\n")).unwrap();
+    assert!(!off.contains("dictionary") && !off.contains("validation ="), "{off}");
+    let err = convert(&format!("{cfg}ValidateSequenceNumbers=N\n")).unwrap_err().to_string();
+    assert!(err.contains("ValidateSequenceNumbers"), "{err}");
+}
+
 /// Every problem is reported at once, each naming its session and key.
 #[test]
 fn what_doesnt_map_is_reported_together() {
