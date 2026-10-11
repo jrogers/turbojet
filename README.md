@@ -14,7 +14,7 @@
 > QuickFIX/J and QuickFIX/n, in CI; passes 221 of QuickFIX's 235 scripted session acceptance scenarios (the rest
 > are listed with their reasons); and has its parsers and session state machine fuzzed. It hasn't
 > been certified with any venue or run against a real counterparty, its APIs will change before
-> 1.0, and it has known gaps (see [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md) and [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md)). Don't use it to trade real money or to
+> 1.0, and it has known gaps (see [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) and [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md)). Don't use it to trade real money or to
 > connect to real counterparties without testing it thoroughly yourself. It is provided as is,
 > without warranty of any kind; see the licenses below.
 
@@ -87,12 +87,12 @@ Turbojet aims to be a FIX engine that a trading or order execution system can bu
 one can send a duplicate order or lose a fill, so it puts **safety first, then performance, then
 developer experience**, after TigerBeetle's
 [Tiger Style](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md);
-[STYLE.md](https://github.com/jrogers/turbojet/blob/main/STYLE.md) says what that means in
+[STYLE.md](https://github.com/jrogers/turbojet/blob/main/docs/STYLE.md) says what that means in
 practice, and where Turbojet differs.
 
 - **Safe.** What a counterparty sends is bounded (message size, header fields, messages held
   ahead of a gap, how much of a resend is held at once, output it won't read), and what still
-  grows without a limit is listed in [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md). Invariants are asserted, paired where they can
+  grows without a limit is listed in [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md). Invariants are asserted, paired where they can
   be (a message is checked as it's stored and again as it's read back), and the parsers and
   session state machine are fuzzed with those assertions on. Two sessions, FIX or FIXP, are also
   run against each other in a deterministic simulator (`crates/turbojet-sim`), over a network
@@ -114,8 +114,8 @@ practice, and where Turbojet differs.
   transports are traits or plain streams you can replace.
 - **Tested.** CI tests every feature combination and the minimum supported Rust version, runs
   clippy with warnings as errors, and checks every dependency's licence and known advisories.
-  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md), and how Turbojet is built in
-  [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/DESIGN.md). Until a 1.0 release, APIs may still change (see the warning above).
+  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md), and how Turbojet is built in
+  [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md). Until a 1.0 release, APIs may still change (see the warning above).
 
 ## Using the engine
 
@@ -1017,7 +1017,7 @@ something else writes out, as the trait's example does. Entries carry no timesta
 yourself. The bytes are raw: Password(554), NewPassword(925) and FIXP credentials are in them, and
 `turbojet::mask_secrets(&mut bytes)` overwrites them with `*`s in a copy before it's kept. An
 acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`) comes with no `SessionId`, to
-the acceptor's own log; a `Counterparty` config may set another log for the rest. CAVEATS.md lists
+the acceptor's own log; a `Counterparty` config may set another log for the rest. docs/CAVEATS.md lists
 the finer points.
 
 ```rust
@@ -1207,7 +1207,7 @@ the operating system. The SBE rows use B3's Binary Entrypoint schema; the FIXP r
 orders under FIXP 1.0 with recoverable flows, each end storing in memory. The SQL rows used
 PostgreSQL 14 on the same machine over TCP, and SQLite synced is `synchronous = FULL` with
 `fullfsync`, as `DiskStorage`'s fsync is. Rows were measured between 2026-09-27 and 2026-10-06 on
-the same machine; [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/DESIGN.md#measurement-history) says when, and what each was
+the same machine; [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#measurement-history) says when, and what each was
 before.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
@@ -1256,8 +1256,8 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
 
 ## Limitations
 
-[CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/CAVEATS.md) lists behaviour worth knowing about, and
-[ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/ROADMAP.md) the planned work. In brief:
+[CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) lists behaviour worth knowing about, and
+[ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md) the planned work. In brief:
 
 - Gateway orders live in memory; a restart keeps session state but forgets orders, and orders
   are acknowledged but not routed or matched.

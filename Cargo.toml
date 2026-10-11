@@ -18,7 +18,7 @@ repository = "https://github.com/jrogers/turbojet"
 codegen-units = 1
 lto = "fat"
 
-# Lints behind STYLE.md, for the crates that opt in with `[lints] workspace = true` (all but the
+# Lints behind docs/STYLE.md, for the crates that opt in with `[lints] workspace = true` (all but the
 # generated turbojet-fix* crates, whose code is macro invocations).
 [workspace.lints.rust]
 # Deny rather than forbid, so a reviewed exception can `#[allow]` it locally with a reason.

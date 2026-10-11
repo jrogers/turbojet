@@ -16,7 +16,7 @@
 //! [FIXTradingCommunity/orchestrations](https://github.com/FIXTradingCommunity/orchestrations).
 
 // Library code handles every error or names the invariant that rules it out, in an `expect`
-// (STYLE.md). Tests, benches and examples may unwrap.
+// (docs/STYLE.md). Tests, benches and examples may unwrap.
 #![warn(clippy::unwrap_used)]
 
 mod correct;
