@@ -250,3 +250,24 @@ async fn allow_limits_where_connections_come_from_and_reloads() {
     venue.rewrite(&FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nallow = [\"10.1.2.0/16\"]"));
     assert!(venue.reload().unwrap_err().contains("acceptor: allow: '10.1.2.0/16' has bits set past its prefix"));
 }
+
+/// The acceptor's store is durable only while every store a counterparty can log on to is.
+#[test]
+fn the_acceptors_store_is_durable_if_each_counterpartys_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sessions.toml");
+    let durable = |text: &str| {
+        std::fs::write(&path, text).unwrap();
+        let sessions = SessionsFile::load(&path).unwrap();
+        sessions.acceptor_store().unwrap().is_durable()
+    };
+    let acceptor = "[acceptor]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"VENUE\"\n\
+                    listen = \"127.0.0.1:0\"\n";
+    let disk = "[store.disk]\nkind = \"disk\"\ndir = \"store\"\n\n";
+    assert!(!durable(&format!("{acceptor}\n[counterparty.BROKER]\n")), "memory by default");
+    assert!(durable(&format!("{disk}{acceptor}\n[counterparty.BROKER]\nstore = \"disk\"\n")));
+    let admit = format!("{disk}{acceptor}unknown = \"admit\"\n\n[counterparty.BROKER]\nstore = \"disk\"\n");
+    assert!(!durable(&admit), "unlisted counterparties log on into memory");
+    let admit = admit.replace("unknown = \"admit\"\n", "unknown = \"admit\"\n\n[defaults]\nstore = \"disk\"\n");
+    assert!(durable(&admit));
+}

@@ -337,6 +337,14 @@ impl SessionsFile {
         stores.map(|(name, initiator)| (name.clone(), initiator.id(), loaded.store(&initiator.store).clone())).collect()
     }
 
+    /// The store the [`acceptor`](Self::acceptor) keeps its sessions in, if the file has
+    /// `[acceptor]`: it opens each in its counterparty's store, as the file current then says. To
+    /// ask whether they're [durable](SessionStorage::is_durable), say.
+    pub fn acceptor_store(&self) -> Option<Arc<dyn SessionStorage>> {
+        self.current.get().acceptor.as_ref()?;
+        Some(Arc::new(Router(self.current.clone())))
+    }
+
     /// The acceptor's own configuration, `[acceptor]` and `[defaults]`, if the file has one.
     pub fn base(&self) -> Option<SessionConfig> {
         self.current.get().acceptor.as_ref().map(|acceptor| acceptor.base.clone())
@@ -513,6 +521,15 @@ impl SessionStorage for Router {
 
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
         self.0.get().counterparty_store(&id.target_comp_id).begin_open(id)
+    }
+
+    /// Whether every store a counterparty can log on to, as the file current now says, is.
+    fn is_durable(&self) -> bool {
+        let loaded = self.0.get();
+        let acceptor = loaded.acceptor();
+        let unlisted = (loaded.unknown() == Unknown::Admit).then_some(&acceptor.unlisted);
+        let mut stores = acceptor.listed.values().chain(unlisted);
+        stores.all(|resolved| loaded.store(&resolved.store).is_durable())
     }
 }
 

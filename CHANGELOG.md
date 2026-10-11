@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `SessionStorage::is_durable` says whether a store's sessions survive the process ending: false
+  for `MemoryStorage`, true by default, and for `StorageByCounterparty` only if every store it
+  routes to is.
 - `Context::hold` keeps a message in flight after `on_message` returns, until the `Hold` is
   released or dropped, for an application that finishes it elsewhere (a gateway forwarding an
   order, say): if the process stops first, the next connection asks for it and everything after it
@@ -222,6 +225,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `SessionsFile::acceptor_store` is the store the acceptor keeps its sessions in, durable only
+  while every store a counterparty can log on to is.
 - `SessionsFile::counterparty_config` gives the `SessionConfig` the acceptor would give a
   counterparty, by CompID: a listed one's settings over `[defaults]`, the defaults for an
   unlisted one under `unknown = "admit"`, or `None` if it would be refused. It reads the file as

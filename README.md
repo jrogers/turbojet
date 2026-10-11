@@ -954,7 +954,7 @@ A session waiting for a release logs a warning, once per connection, and sets th
 `turbojet_held_back` gauge (feature `metrics`). `Context::new`, for unit tests, and replays
 (`turbojet::replay`) give holds that do nothing. Holds aren't available on FIXP sessions.
 
-- `MemoryStorage`: survives reconnects, not restarts. Each session keeps its newest sent messages
+- `MemoryStorage`: survives reconnects, not restarts (`is_durable` says so). Each session keeps its newest sent messages
   up to 64 MiB (`with_max_session_bytes`); a resend gap-fills older ones, logs a warning and counts
   it in `turbojet_resend_requests_evicted_total`. It keeps at most 1,024 sessions
   (`with_max_sessions`) and never forgets one: a new session's Logon past that is refused.

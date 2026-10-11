@@ -137,6 +137,10 @@ impl SessionStorage for MemoryStorage {
         debug_assert!(sessions.len() <= self.max_sessions);
         Ok(Box::new(MemoryLog { state, max_bytes: self.max_session_bytes }))
     }
+
+    fn is_durable(&self) -> bool {
+        false
+    }
 }
 
 struct MemoryLog {

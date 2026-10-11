@@ -55,6 +55,10 @@ impl SessionStorage for StorageByCounterparty {
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
         self.route(id).begin_open(id)
     }
+
+    fn is_durable(&self) -> bool {
+        self.default.is_durable() && self.by_comp_id.values().all(|storage| storage.is_durable())
+    }
 }
 
 impl fmt::Debug for StorageByCounterparty {
@@ -70,6 +74,18 @@ mod tests {
     use super::*;
     use crate::store::MemoryStorage;
     use crate::store::conformance::{self, id};
+
+    /// Durable only if the default and every routed store are.
+    #[test]
+    fn is_durable_if_every_store_is() {
+        struct Durable;
+        impl SessionStorage for Durable {}
+        let durable = || -> Arc<dyn SessionStorage> { Arc::new(Durable) };
+        assert!(!MemoryStorage::new().is_durable());
+        assert!(StorageByCounterparty::new(durable()).with("A", durable()).is_durable());
+        assert!(!StorageByCounterparty::new(durable()).with("A", Arc::new(MemoryStorage::new())).is_durable());
+        assert!(!StorageByCounterparty::new(Arc::new(MemoryStorage::new())).with("A", durable()).is_durable());
+    }
 
     #[test]
     fn passes_the_conformance_suite() {
