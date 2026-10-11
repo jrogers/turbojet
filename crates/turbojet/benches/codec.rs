@@ -99,13 +99,13 @@ fn fix44_nested_order() -> Message {
     };
     let party = |id: &str, role: PartyRole| {
         let mut party = Parties::new(id);
-        party.party_id_source = Some(PartyIDSource::Proprietary);
-        party.party_role = Some(role);
+        party.party_id_source = Some(PartyIDSource::Proprietary.into());
+        party.party_role = Some(role.into());
         party.party_sub_ids = [("DESK-1", PartySubIDType::Application), ("TRADER-7", PartySubIDType::Person)]
             .into_iter()
             .map(|(sub_id, kind)| {
                 let mut sub = PtysSubGrp::new(sub_id);
-                sub.party_sub_id_type = Some(kind);
+                sub.party_sub_id_type = Some(kind.into());
                 sub
             })
             .collect();

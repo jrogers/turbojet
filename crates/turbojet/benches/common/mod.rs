@@ -31,7 +31,7 @@ pub fn new_order_single(cl_ord_id: u64) -> NewOrderSingle {
     order.account = Some("ACCT-001".into());
     order.order_qty = Some(Decimal::new(100, 0));
     order.price = Some(Decimal::new(15025, 2));
-    order.time_in_force = Some(TimeInForce::Day);
+    order.time_in_force = Some(TimeInForce::Day.into());
     order
 }
 
@@ -57,9 +57,9 @@ pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
     report.cl_ord_id = Some(order.cl_ord_id.into());
     report.account = order.account.map(Into::into);
     report.order_qty = order.order_qty;
-    report.ord_type = Some(order.ord_type);
+    report.ord_type = Some(order.ord_type.into());
     report.price = order.price;
-    report.time_in_force = order.time_in_force;
+    report.time_in_force = order.time_in_force.map(Into::into);
     report.transact_time = Some(UtcTimestamp::now());
     report
 }

@@ -3,7 +3,9 @@
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{CompactString, Decimal, MonthYear, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimestamp};
+use turbojet::fields::{
+    Code, CompactString, Decimal, MonthYear, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimestamp,
+};
 
 turbojet::fix_message! {
     /// IOI(6).
@@ -19,21 +21,21 @@ turbojet::fix_message! {
         /// IOIID(23).
         ioiid: req CompactString = IOIID,
         /// IOITransType(28).
-        ioi_trans_type: req IOITransType = IOI_TRANS_TYPE,
+        ioi_trans_type: req Code<IOITransType> = IOI_TRANS_TYPE,
         /// IOIRefID(26).
         ioi_ref_id: opt CompactString = IOI_REF_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -41,7 +43,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -53,15 +55,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -109,59 +111,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -187,7 +189,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -211,21 +213,21 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -233,11 +235,11 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// IOIQty(27).
-        ioi_qty: req IOIQty = IOI_QTY,
+        ioi_qty: req Code<IOIQty> = IOI_QTY,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoStipulations(232).
@@ -245,13 +247,13 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegIOIGrp = NO_LEGS,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// ValidUntilTime(62).
         valid_until_time: opt UtcTimestamp = VALID_UNTIL_TIME,
         /// IOIQltyInd(25).
-        ioi_qlty_ind: opt IOIQltyInd = IOI_QLTY_IND,
+        ioi_qlty_ind: opt Code<IOIQltyInd> = IOI_QLTY_IND,
         /// IOINaturalFlag(130).
         ioi_natural_flag: opt bool = IOI_NATURAL_FLAG,
         /// NoIOIQualifiers(199).
@@ -271,19 +273,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -293,21 +295,26 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
     }
 }
 
 impl IOI {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(ioiid: impl Into<CompactString>, ioi_trans_type: IOITransType, side: Side, ioi_qty: IOIQty) -> Self {
+    pub fn new(
+        ioiid: impl Into<CompactString>,
+        ioi_trans_type: impl Into<Code<IOITransType>>,
+        side: impl Into<Code<Side>>,
+        ioi_qty: impl Into<Code<IOIQty>>,
+    ) -> Self {
         Self {
             appl_id: None,
             appl_seq_num: None,
             appl_last_seq_num: None,
             appl_resend_flag: None,
             ioiid: ioiid.into(),
-            ioi_trans_type,
+            ioi_trans_type: ioi_trans_type.into(),
             ioi_ref_id: None,
             symbol: None,
             symbol_sfx: None,
@@ -405,14 +412,14 @@ impl IOI {
             delivery_type: None,
             margin_ratio: None,
             underlyings: Vec::new(),
-            side,
+            side: side.into(),
             qty_type: None,
             order_qty: None,
             cash_order_qty: None,
             order_percent: None,
             rounding_direction: None,
             rounding_modulus: None,
-            ioi_qty,
+            ioi_qty: ioi_qty.into(),
             currency: None,
             stipulations: Vec::new(),
             legs: Vec::new(),
@@ -451,21 +458,21 @@ turbojet::fix_message! {
         /// AdvId(2).
         adv_id: req CompactString = ADV_ID,
         /// AdvTransType(5).
-        adv_trans_type: req AdvTransType = ADV_TRANS_TYPE,
+        adv_trans_type: req Code<AdvTransType> = ADV_TRANS_TYPE,
         /// AdvRefID(3).
         adv_ref_id: opt CompactString = ADV_REF_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -473,7 +480,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -485,15 +492,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -541,59 +548,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -619,7 +626,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -637,11 +644,11 @@ turbojet::fix_message! {
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// AdvSide(4).
-        adv_side: req AdvSide = ADV_SIDE,
+        adv_side: req Code<AdvSide> = ADV_SIDE,
         /// Quantity(53).
         quantity: req Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// Currency(15).
@@ -659,9 +666,9 @@ turbojet::fix_message! {
         /// LastMkt(30).
         last_mkt: opt CompactString = LAST_MKT,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
     }
 }
 
@@ -670,13 +677,13 @@ impl Advertisement {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         adv_id: impl Into<CompactString>,
-        adv_trans_type: AdvTransType,
-        adv_side: AdvSide,
+        adv_trans_type: impl Into<Code<AdvTransType>>,
+        adv_side: impl Into<Code<AdvSide>>,
         quantity: Decimal,
     ) -> Self {
         Self {
             adv_id: adv_id.into(),
-            adv_trans_type,
+            adv_trans_type: adv_trans_type.into(),
             adv_ref_id: None,
             symbol: None,
             symbol_sfx: None,
@@ -765,7 +772,7 @@ impl Advertisement {
             complex_events: Vec::new(),
             legs: Vec::new(),
             underlyings: Vec::new(),
-            adv_side,
+            adv_side: adv_side.into(),
             quantity,
             qty_type: None,
             price: None,
@@ -832,7 +839,7 @@ turbojet::fix_message! {
         /// OrigCrossID(551).
         orig_cross_id: opt CompactString = ORIG_CROSS_ID,
         /// CrossType(549).
-        cross_type: opt CrossType = CROSS_TYPE,
+        cross_type: opt Code<CrossType> = CROSS_TYPE,
         /// TrdMatchID(880).
         trd_match_id: opt CompactString = TRD_MATCH_ID,
         /// ExecID(17).
@@ -840,55 +847,55 @@ turbojet::fix_message! {
         /// ExecRefID(19).
         exec_ref_id: opt CompactString = EXEC_REF_ID,
         /// ExecType(150).
-        exec_type: req ExecType = EXEC_TYPE,
+        exec_type: req Code<ExecType> = EXEC_TYPE,
         /// OrdStatus(39).
-        ord_status: req OrdStatus = ORD_STATUS,
+        ord_status: req Code<OrdStatus> = ORD_STATUS,
         /// WorkingIndicator(636).
         working_indicator: opt bool = WORKING_INDICATOR,
         /// OrdRejReason(103).
-        ord_rej_reason: opt OrdRejReason = ORD_REJ_REASON,
+        ord_rej_reason: opt Code<OrdRejReason> = ORD_REJ_REASON,
         /// ExecRestatementReason(378).
-        exec_restatement_reason: opt ExecRestatementReason = EXEC_RESTATEMENT_REASON,
+        exec_restatement_reason: opt Code<ExecRestatementReason> = EXEC_RESTATEMENT_REASON,
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// DayBookingInst(589).
-        day_booking_inst: opt DayBookingInst = DAY_BOOKING_INST,
+        day_booking_inst: opt Code<DayBookingInst> = DAY_BOOKING_INST,
         /// BookingUnit(590).
-        booking_unit: opt BookingUnit = BOOKING_UNIT,
+        booking_unit: opt Code<BookingUnit> = BOOKING_UNIT,
         /// PreallocMethod(591).
-        prealloc_method: opt PreallocMethod = PREALLOC_METHOD,
+        prealloc_method: opt Code<PreallocMethod> = PREALLOC_METHOD,
         /// AllocID(70).
         alloc_id: opt CompactString = ALLOC_ID,
         /// NoAllocs(78).
         allocs: group PreAllocGrp = NO_ALLOCS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// MatchType(574).
-        match_type: opt MatchType = MATCH_TYPE,
+        match_type: opt Code<MatchType> = MATCH_TYPE,
         /// OrderCategory(1115).
-        order_category: opt OrderCategory = ORDER_CATEGORY,
+        order_category: opt Code<OrderCategory> = ORDER_CATEGORY,
         /// CashMargin(544).
-        cash_margin: opt CashMargin = CASH_MARGIN,
+        cash_margin: opt Code<CashMargin> = CASH_MARGIN,
         /// ClearingFeeIndicator(635).
-        clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
+        clearing_fee_indicator: opt Code<ClearingFeeIndicator> = CLEARING_FEE_INDICATOR,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -896,7 +903,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -908,15 +915,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -964,59 +971,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -1042,7 +1049,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -1064,23 +1071,23 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -1088,25 +1095,25 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// LotType(1093).
-        lot_type: opt LotType = LOT_TYPE,
+        lot_type: opt Code<LotType> = LOT_TYPE,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -1114,19 +1121,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -1136,19 +1143,19 @@ turbojet::fix_message! {
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -1156,19 +1163,19 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// PeggedPrice(839).
         pegged_price: opt Decimal = PEGGED_PRICE,
         /// PeggedRefPrice(1095).
@@ -1176,7 +1183,7 @@ turbojet::fix_message! {
         /// DiscretionPrice(845).
         discretion_price: opt Decimal = DISCRETION_PRICE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -1196,7 +1203,7 @@ turbojet::fix_message! {
         /// SolicitedFlag(377).
         solicited_flag: opt bool = SOLICITED_FLAG,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -1204,17 +1211,17 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// AggressorIndicator(1057).
         aggressor_indicator: opt bool = AGGRESSOR_INDICATOR,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// LastQty(32).
         last_qty: opt Decimal = LAST_QTY,
         /// CalculatedCcyLastQty(1056).
@@ -1236,13 +1243,13 @@ turbojet::fix_message! {
         /// LastMkt(30).
         last_mkt: opt CompactString = LAST_MKT,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// TimeBracket(943).
         time_bracket: opt CompactString = TIME_BRACKET,
         /// LastCapacity(29).
-        last_capacity: opt LastCapacity = LAST_CAPACITY,
+        last_capacity: opt Code<LastCapacity> = LAST_CAPACITY,
         /// LeavesQty(151).
         leaves_qty: req Decimal = LEAVES_QTY,
         /// CumQty(14).
@@ -1262,7 +1269,7 @@ turbojet::fix_message! {
         /// NoFills(1362).
         fills: group FillsGrp = NO_FILLS,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// TradeDate(75).
         trade_date: opt NaiveDate = TRADE_DATE,
         /// TransactTime(60).
@@ -1272,29 +1279,29 @@ turbojet::fix_message! {
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CommCurrency(479).
         comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
-        fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
+        fund_renew_waiv: opt Code<FundRenewWaiv> = FUND_RENEW_WAIV,
         /// Spread(218).
         spread: opt Decimal = SPREAD,
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -1304,7 +1311,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// GrossTradeAmt(381).
         gross_trade_amt: opt Decimal = GROSS_TRADE_AMT,
         /// NumDaysInterest(157).
@@ -1344,9 +1351,9 @@ turbojet::fix_message! {
         /// SettlCurrFxRate(155).
         settl_curr_fx_rate: opt Decimal = SETTL_CURR_FX_RATE,
         /// SettlCurrFxRateCalc(156).
-        settl_curr_fx_rate_calc: opt SettlCurrFxRateCalc = SETTL_CURR_FX_RATE_CALC,
+        settl_curr_fx_rate_calc: opt Code<SettlCurrFxRateCalc> = SETTL_CURR_FX_RATE_CALC,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -1358,9 +1365,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -1374,13 +1381,13 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         max_floor: opt Decimal = MAX_FLOOR,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
         max_show: opt Decimal = MAX_SHOW,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -1398,11 +1405,11 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         last_forward_points2: opt Decimal = LAST_FORWARD_POINTS2,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
@@ -1412,15 +1419,15 @@ turbojet::fix_message! {
         /// ExecValuationPoint(515).
         exec_valuation_point: opt UtcTimestamp = EXEC_VALUATION_POINT,
         /// ExecPriceType(484).
-        exec_price_type: opt ExecPriceType = EXEC_PRICE_TYPE,
+        exec_price_type: opt Code<ExecPriceType> = EXEC_PRICE_TYPE,
         /// ExecPriceAdjustment(485).
         exec_price_adjustment: opt Decimal = EXEC_PRICE_ADJUSTMENT,
         /// PriorityIndicator(638).
-        priority_indicator: opt PriorityIndicator = PRIORITY_INDICATOR,
+        priority_indicator: opt Code<PriorityIndicator> = PRIORITY_INDICATOR,
         /// PriceImprovement(639).
         price_improvement: opt Decimal = PRICE_IMPROVEMENT,
         /// LastLiquidityInd(851).
-        last_liquidity_ind: opt LastLiquidityInd = LAST_LIQUIDITY_IND,
+        last_liquidity_ind: opt Code<LastLiquidityInd> = LAST_LIQUIDITY_IND,
         /// NoContAmts(518).
         cont_amts: group ContAmtGrp = NO_CONT_AMTS,
         /// NoLegs(555).
@@ -1438,9 +1445,9 @@ turbojet::fix_message! {
         /// ReceivedDeptID(1030).
         received_dept_id: opt CompactString = RECEIVED_DEPT_ID,
         /// CustOrderHandlingInst(1031).
-        cust_order_handling_inst: opt Vec<CustOrderHandlingInst> = CUST_ORDER_HANDLING_INST,
+        cust_order_handling_inst: opt Vec<Code<CustOrderHandlingInst>> = CUST_ORDER_HANDLING_INST,
         /// OrderHandlingInstSource(1032).
-        order_handling_inst_source: opt OrderHandlingInstSource = ORDER_HANDLING_INST_SOURCE,
+        order_handling_inst_source: opt Code<OrderHandlingInstSource> = ORDER_HANDLING_INST_SOURCE,
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// Volatility(1188).
@@ -1460,9 +1467,9 @@ impl ExecutionReport {
     pub fn new(
         order_id: impl Into<CompactString>,
         exec_id: impl Into<CompactString>,
-        exec_type: ExecType,
-        ord_status: OrdStatus,
-        side: Side,
+        exec_type: impl Into<Code<ExecType>>,
+        ord_status: impl Into<Code<OrdStatus>>,
+        side: impl Into<Code<Side>>,
         leaves_qty: Decimal,
         cum_qty: Decimal,
     ) -> Self {
@@ -1494,8 +1501,8 @@ impl ExecutionReport {
             trd_match_id: None,
             exec_id: exec_id.into(),
             exec_ref_id: None,
-            exec_type,
-            ord_status,
+            exec_type: exec_type.into(),
+            ord_status: ord_status.into(),
             working_indicator: None,
             ord_rej_reason: None,
             exec_restatement_reason: None,
@@ -1608,7 +1615,7 @@ impl ExecutionReport {
             delivery_type: None,
             margin_ratio: None,
             underlyings: Vec::new(),
-            side,
+            side: side.into(),
             stipulations: Vec::new(),
             qty_type: None,
             order_qty: None,
@@ -1809,7 +1816,7 @@ turbojet::fix_message! {
         /// OrigClOrdID(41).
         orig_cl_ord_id: opt CompactString = ORIG_CL_ORD_ID,
         /// OrdStatus(39).
-        ord_status: req OrdStatus = ORD_STATUS,
+        ord_status: req Code<OrdStatus> = ORD_STATUS,
         /// WorkingIndicator(636).
         working_indicator: opt bool = WORKING_INDICATOR,
         /// OrigOrdModTime(586).
@@ -1819,9 +1826,9 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// TradeOriginationDate(229).
         trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradeDate(75).
@@ -1829,9 +1836,9 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// CxlRejResponseTo(434).
-        cxl_rej_response_to: req CxlRejResponseTo = CXL_REJ_RESPONSE_TO,
+        cxl_rej_response_to: req Code<CxlRejResponseTo> = CXL_REJ_RESPONSE_TO,
         /// CxlRejReason(102).
-        cxl_rej_reason: opt CxlRejReason = CXL_REJ_REASON,
+        cxl_rej_reason: opt Code<CxlRejReason> = CXL_REJ_REASON,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -1845,8 +1852,8 @@ impl OrderCancelReject {
     pub fn new(
         order_id: impl Into<CompactString>,
         cl_ord_id: impl Into<CompactString>,
-        ord_status: OrdStatus,
-        cxl_rej_response_to: CxlRejResponseTo,
+        ord_status: impl Into<Code<OrdStatus>>,
+        cxl_rej_response_to: impl Into<Code<CxlRejResponseTo>>,
     ) -> Self {
         Self {
             order_id: order_id.into(),
@@ -1855,7 +1862,7 @@ impl OrderCancelReject {
             cl_ord_id: cl_ord_id.into(),
             cl_ord_link_id: None,
             orig_cl_ord_id: None,
-            ord_status,
+            ord_status: ord_status.into(),
             working_indicator: None,
             orig_ord_mod_time: None,
             list_id: None,
@@ -1865,7 +1872,7 @@ impl OrderCancelReject {
             trade_origination_date: None,
             trade_date: None,
             transact_time: None,
-            cxl_rej_response_to,
+            cxl_rej_response_to: cxl_rej_response_to.into(),
             cxl_rej_reason: None,
             text: None,
             encoded_text: None,
@@ -1889,13 +1896,13 @@ turbojet::fix_message! {
         /// NoNewsRefIDs(1475).
         news_ref_ids: group NewsRefGrp = NO_NEWS_REF_IDS,
         /// NewsCategory(1473).
-        news_category: opt NewsCategory = NEWS_CATEGORY,
+        news_category: opt Code<NewsCategory> = NEWS_CATEGORY,
         /// LanguageCode(1474).
         language_code: opt CompactString = LANGUAGE_CODE,
         /// OrigTime(42).
         orig_time: opt UtcTimestamp = ORIG_TIME,
         /// Urgency(61).
-        urgency: opt Urgency = URGENCY,
+        urgency: opt Code<Urgency> = URGENCY,
         /// Headline(148).
         headline: req CompactString = HEADLINE,
         /// EncodedHeadline(359).
@@ -1957,7 +1964,7 @@ turbojet::fix_message! {
         /// EmailThreadID(164).
         email_thread_id: req CompactString = EMAIL_THREAD_ID,
         /// EmailType(94).
-        email_type: req EmailType = EMAIL_TYPE,
+        email_type: req Code<EmailType> = EMAIL_TYPE,
         /// OrigTime(42).
         orig_time: opt UtcTimestamp = ORIG_TIME,
         /// Subject(147).
@@ -1988,13 +1995,13 @@ impl Email {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         email_thread_id: impl Into<CompactString>,
-        email_type: EmailType,
+        email_type: impl Into<Code<EmailType>>,
         subject: impl Into<CompactString>,
         lines_of_text: Vec<LinesOfTextGrp>,
     ) -> Self {
         Self {
             email_thread_id: email_thread_id.into(),
-            email_type,
+            email_type: email_type.into(),
             orig_time: None,
             subject: subject.into(),
             encoded_subject: None,
@@ -2028,31 +2035,31 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// DayBookingInst(589).
-        day_booking_inst: opt DayBookingInst = DAY_BOOKING_INST,
+        day_booking_inst: opt Code<DayBookingInst> = DAY_BOOKING_INST,
         /// BookingUnit(590).
-        booking_unit: opt BookingUnit = BOOKING_UNIT,
+        booking_unit: opt Code<BookingUnit> = BOOKING_UNIT,
         /// PreallocMethod(591).
-        prealloc_method: opt PreallocMethod = PREALLOC_METHOD,
+        prealloc_method: opt Code<PreallocMethod> = PREALLOC_METHOD,
         /// AllocID(70).
         alloc_id: opt CompactString = ALLOC_ID,
         /// NoAllocs(78).
         allocs: group PreAllocGrp = NO_ALLOCS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// CashMargin(544).
-        cash_margin: opt CashMargin = CASH_MARGIN,
+        cash_margin: opt Code<CashMargin> = CASH_MARGIN,
         /// ClearingFeeIndicator(635).
-        clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
+        clearing_fee_indicator: opt Code<ClearingFeeIndicator> = CLEARING_FEE_INDICATOR,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -2064,9 +2071,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -2082,23 +2089,23 @@ turbojet::fix_message! {
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -2106,7 +2113,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -2118,15 +2125,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -2174,59 +2181,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -2252,7 +2259,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -2274,13 +2281,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -2288,7 +2295,7 @@ turbojet::fix_message! {
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// LocateReqd(114).
         locate_reqd: opt bool = LOCATE_REQD,
         /// TransactTime(60).
@@ -2296,7 +2303,7 @@ turbojet::fix_message! {
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -2304,23 +2311,23 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// OrdType(40).
-        ord_type: req OrdType = ORD_TYPE,
+        ord_type: req Code<OrdType> = ORD_TYPE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -2328,19 +2335,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -2352,19 +2359,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -2374,7 +2381,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// ComplianceID(376).
@@ -2386,7 +2393,7 @@ turbojet::fix_message! {
         /// QuoteID(117).
         quote_id: opt CompactString = QUOTE_ID,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -2394,29 +2401,29 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CommCurrency(479).
         comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
-        fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
+        fund_renew_waiv: opt Code<FundRenewWaiv> = FUND_RENEW_WAIV,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ForexReq(121).
         forex_req: opt bool = FOREX_REQ,
         /// SettlCurrency(120).
         settl_currency: opt CompactString = SETTL_CURRENCY,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -2434,9 +2441,9 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         price2: opt Decimal = PRICE2,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// CoveredOrUncovered(203).
-        covered_or_uncovered: opt CoveredOrUncovered = COVERED_OR_UNCOVERED,
+        covered_or_uncovered: opt Code<CoveredOrUncovered> = COVERED_OR_UNCOVERED,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
@@ -2444,19 +2451,19 @@ turbojet::fix_message! {
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -2464,21 +2471,21 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -2490,9 +2497,9 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         participation_rate: opt Decimal = PARTICIPATION_RATE,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
@@ -2504,15 +2511,15 @@ turbojet::fix_message! {
         /// ReceivedDeptID(1030).
         received_dept_id: opt CompactString = RECEIVED_DEPT_ID,
         /// CustOrderHandlingInst(1031).
-        cust_order_handling_inst: opt Vec<CustOrderHandlingInst> = CUST_ORDER_HANDLING_INST,
+        cust_order_handling_inst: opt Vec<Code<CustOrderHandlingInst>> = CUST_ORDER_HANDLING_INST,
         /// OrderHandlingInstSource(1032).
-        order_handling_inst_source: opt OrderHandlingInstSource = ORDER_HANDLING_INST_SOURCE,
+        order_handling_inst_source: opt Code<OrderHandlingInstSource> = ORDER_HANDLING_INST_SOURCE,
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// RefOrderID(1080).
         ref_order_id: opt CompactString = REF_ORDER_ID,
         /// RefOrderIDSource(1081).
-        ref_order_id_source: opt RefOrderIDSource = REF_ORDER_ID_SOURCE,
+        ref_order_id_source: opt Code<RefOrderIDSource> = REF_ORDER_ID_SOURCE,
     }
 }
 
@@ -2521,9 +2528,9 @@ impl NewOrderSingle {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         cl_ord_id: impl Into<CompactString>,
-        side: Side,
+        side: impl Into<Code<Side>>,
         transact_time: UtcTimestamp,
-        ord_type: OrdType,
+        ord_type: impl Into<Code<OrdType>>,
     ) -> Self {
         Self {
             cl_ord_id: cl_ord_id.into(),
@@ -2658,7 +2665,7 @@ impl NewOrderSingle {
             margin_ratio: None,
             underlyings: Vec::new(),
             prev_close_px: None,
-            side,
+            side: side.into(),
             locate_reqd: None,
             transact_time,
             stipulations: Vec::new(),
@@ -2668,7 +2675,7 @@ impl NewOrderSingle {
             order_percent: None,
             rounding_direction: None,
             rounding_modulus: None,
-            ord_type,
+            ord_type: ord_type.into(),
             price_type: None,
             price: None,
             price_protection_scope: None,
@@ -2779,23 +2786,23 @@ turbojet::fix_message! {
         /// ClientBidID(391).
         client_bid_id: opt CompactString = CLIENT_BID_ID,
         /// ProgRptReqs(414).
-        prog_rpt_reqs: opt ProgRptReqs = PROG_RPT_REQS,
+        prog_rpt_reqs: opt Code<ProgRptReqs> = PROG_RPT_REQS,
         /// BidType(394).
-        bid_type: req BidType = BID_TYPE,
+        bid_type: req Code<BidType> = BID_TYPE,
         /// ProgPeriodInterval(415).
         prog_period_interval: opt i64 = PROG_PERIOD_INTERVAL,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// ListExecInstType(433).
-        list_exec_inst_type: opt ListExecInstType = LIST_EXEC_INST_TYPE,
+        list_exec_inst_type: opt Code<ListExecInstType> = LIST_EXEC_INST_TYPE,
         /// ListExecInst(69).
         list_exec_inst: opt CompactString = LIST_EXEC_INST,
         /// ContingencyType(1385).
-        contingency_type: opt ContingencyType = CONTINGENCY_TYPE,
+        contingency_type: opt Code<ContingencyType> = CONTINGENCY_TYPE,
         /// EncodedListExecInst(353).
         encoded_list_exec_inst: opt_data Vec<u8> = ENCODED_LIST_EXEC_INST_LEN => ENCODED_LIST_EXEC_INST,
         /// AllowableOneSidednessPct(765).
@@ -2820,7 +2827,7 @@ impl NewOrderList {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         list_id: impl Into<CompactString>,
-        bid_type: BidType,
+        bid_type: impl Into<Code<BidType>>,
         tot_no_orders: i64,
         orders: Vec<ListOrdGrp>,
     ) -> Self {
@@ -2829,7 +2836,7 @@ impl NewOrderList {
             bid_id: None,
             client_bid_id: None,
             prog_rpt_reqs: None,
-            bid_type,
+            bid_type: bid_type.into(),
             prog_period_interval: None,
             cancellation_rights: None,
             money_laundering_status: None,
@@ -2869,23 +2876,23 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -2893,7 +2900,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -2905,15 +2912,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -2961,59 +2968,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -3039,7 +3046,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -3061,19 +3068,19 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// OrderQty(38).
@@ -3083,7 +3090,7 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// ComplianceID(376).
@@ -3098,7 +3105,7 @@ turbojet::fix_message! {
 impl OrderCancelRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(cl_ord_id: impl Into<CompactString>, side: Side, transact_time: UtcTimestamp) -> Self {
+    pub fn new(cl_ord_id: impl Into<CompactString>, side: impl Into<Code<Side>>, transact_time: UtcTimestamp) -> Self {
         Self {
             orig_cl_ord_id: None,
             order_id: None,
@@ -3206,7 +3213,7 @@ impl OrderCancelRequest {
             delivery_type: None,
             margin_ratio: None,
             underlyings: Vec::new(),
-            side,
+            side: side.into(),
             transact_time,
             order_qty: None,
             cash_order_qty: None,
@@ -3246,31 +3253,31 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// DayBookingInst(589).
-        day_booking_inst: opt DayBookingInst = DAY_BOOKING_INST,
+        day_booking_inst: opt Code<DayBookingInst> = DAY_BOOKING_INST,
         /// BookingUnit(590).
-        booking_unit: opt BookingUnit = BOOKING_UNIT,
+        booking_unit: opt Code<BookingUnit> = BOOKING_UNIT,
         /// PreallocMethod(591).
-        prealloc_method: opt PreallocMethod = PREALLOC_METHOD,
+        prealloc_method: opt Code<PreallocMethod> = PREALLOC_METHOD,
         /// AllocID(70).
         alloc_id: opt CompactString = ALLOC_ID,
         /// NoAllocs(78).
         allocs: group PreAllocGrp = NO_ALLOCS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// CashMargin(544).
-        cash_margin: opt CashMargin = CASH_MARGIN,
+        cash_margin: opt Code<CashMargin> = CASH_MARGIN,
         /// ClearingFeeIndicator(635).
-        clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
+        clearing_fee_indicator: opt Code<ClearingFeeIndicator> = CLEARING_FEE_INDICATOR,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -3282,9 +3289,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -3300,21 +3307,21 @@ turbojet::fix_message! {
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -3322,7 +3329,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -3334,15 +3341,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -3390,59 +3397,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -3468,7 +3475,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -3490,23 +3497,23 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -3514,23 +3521,23 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// OrdType(40).
-        ord_type: req OrdType = ORD_TYPE,
+        ord_type: req Code<OrdType> = ORD_TYPE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -3538,19 +3545,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -3562,19 +3569,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -3584,23 +3591,23 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -3608,21 +3615,21 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -3640,7 +3647,7 @@ turbojet::fix_message! {
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -3648,29 +3655,29 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CommCurrency(479).
         comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
-        fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
+        fund_renew_waiv: opt Code<FundRenewWaiv> = FUND_RENEW_WAIV,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ForexReq(121).
         forex_req: opt bool = FOREX_REQ,
         /// SettlCurrency(120).
         settl_currency: opt CompactString = SETTL_CURRENCY,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -3688,9 +3695,9 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         price2: opt Decimal = PRICE2,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// CoveredOrUncovered(203).
-        covered_or_uncovered: opt CoveredOrUncovered = COVERED_OR_UNCOVERED,
+        covered_or_uncovered: opt Code<CoveredOrUncovered> = COVERED_OR_UNCOVERED,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
@@ -3698,9 +3705,9 @@ turbojet::fix_message! {
         /// LocateReqd(114).
         locate_reqd: opt bool = LOCATE_REQD,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
@@ -3712,9 +3719,9 @@ turbojet::fix_message! {
         /// ReceivedDeptID(1030).
         received_dept_id: opt CompactString = RECEIVED_DEPT_ID,
         /// CustOrderHandlingInst(1031).
-        cust_order_handling_inst: opt Vec<CustOrderHandlingInst> = CUST_ORDER_HANDLING_INST,
+        cust_order_handling_inst: opt Vec<Code<CustOrderHandlingInst>> = CUST_ORDER_HANDLING_INST,
         /// OrderHandlingInstSource(1032).
-        order_handling_inst_source: opt OrderHandlingInstSource = ORDER_HANDLING_INST_SOURCE,
+        order_handling_inst_source: opt Code<OrderHandlingInstSource> = ORDER_HANDLING_INST_SOURCE,
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
     }
@@ -3725,9 +3732,9 @@ impl OrderCancelReplaceRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         cl_ord_id: impl Into<CompactString>,
-        side: Side,
+        side: impl Into<Code<Side>>,
         transact_time: UtcTimestamp,
-        ord_type: OrdType,
+        ord_type: impl Into<Code<OrdType>>,
     ) -> Self {
         Self {
             order_id: None,
@@ -3864,7 +3871,7 @@ impl OrderCancelReplaceRequest {
             delivery_type: None,
             margin_ratio: None,
             underlyings: Vec::new(),
-            side,
+            side: side.into(),
             transact_time,
             qty_type: None,
             order_qty: None,
@@ -3872,7 +3879,7 @@ impl OrderCancelReplaceRequest {
             order_percent: None,
             rounding_direction: None,
             rounding_modulus: None,
-            ord_type,
+            ord_type: ord_type.into(),
             price_type: None,
             price: None,
             price_protection_scope: None,
@@ -3988,19 +3995,19 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -4008,7 +4015,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -4020,15 +4027,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -4076,59 +4083,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -4154,7 +4161,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -4176,26 +4183,26 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
     }
 }
 
 impl OrderStatusRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(side: Side) -> Self {
+    pub fn new(side: impl Into<Code<Side>>) -> Self {
         Self {
             order_id: None,
             cl_ord_id: None,
@@ -4300,7 +4307,7 @@ impl OrderStatusRequest {
             delivery_type: None,
             margin_ratio: None,
             underlyings: Vec::new(),
-            side,
+            side: side.into(),
         }
     }
 }
@@ -4311,25 +4318,25 @@ turbojet::fix_message! {
         /// AllocID(70).
         alloc_id: req CompactString = ALLOC_ID,
         /// AllocTransType(71).
-        alloc_trans_type: req AllocTransType = ALLOC_TRANS_TYPE,
+        alloc_trans_type: req Code<AllocTransType> = ALLOC_TRANS_TYPE,
         /// AllocType(626).
-        alloc_type: req AllocType = ALLOC_TYPE,
+        alloc_type: req Code<AllocType> = ALLOC_TYPE,
         /// SecondaryAllocID(793).
         secondary_alloc_id: opt CompactString = SECONDARY_ALLOC_ID,
         /// RefAllocID(72).
         ref_alloc_id: opt CompactString = REF_ALLOC_ID,
         /// AllocCancReplaceReason(796).
-        alloc_canc_replace_reason: opt AllocCancReplaceReason = ALLOC_CANC_REPLACE_REASON,
+        alloc_canc_replace_reason: opt Code<AllocCancReplaceReason> = ALLOC_CANC_REPLACE_REASON,
         /// AllocIntermedReqType(808).
-        alloc_intermed_req_type: opt AllocIntermedReqType = ALLOC_INTERMED_REQ_TYPE,
+        alloc_intermed_req_type: opt Code<AllocIntermedReqType> = ALLOC_INTERMED_REQ_TYPE,
         /// AllocLinkID(196).
         alloc_link_id: opt CompactString = ALLOC_LINK_ID,
         /// AllocLinkType(197).
-        alloc_link_type: opt AllocLinkType = ALLOC_LINK_TYPE,
+        alloc_link_type: opt Code<AllocLinkType> = ALLOC_LINK_TYPE,
         /// BookingRefID(466).
         booking_ref_id: opt CompactString = BOOKING_REF_ID,
         /// AllocNoOrdersType(857).
-        alloc_no_orders_type: opt AllocNoOrdersType = ALLOC_NO_ORDERS_TYPE,
+        alloc_no_orders_type: opt Code<AllocNoOrdersType> = ALLOC_NO_ORDERS_TYPE,
         /// NoOrders(73).
         orders: group OrdAllocGrp = NO_ORDERS,
         /// NoExecs(124).
@@ -4339,21 +4346,21 @@ turbojet::fix_message! {
         /// ReversalIndicator(700).
         reversal_indicator: opt bool = REVERSAL_INDICATOR,
         /// MatchType(574).
-        match_type: opt MatchType = MATCH_TYPE,
+        match_type: opt Code<MatchType> = MATCH_TYPE,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -4361,7 +4368,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -4373,15 +4380,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -4429,59 +4436,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -4507,7 +4514,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -4521,7 +4528,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -4535,13 +4542,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -4551,17 +4558,17 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: req Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// LastMkt(30).
         last_mkt: opt CompactString = LAST_MKT,
         /// TradeOriginationDate(229).
         trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AvgPx(6).
         avg_px: opt Decimal = AVG_PX,
         /// AvgParPx(860).
@@ -4571,17 +4578,17 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// AvgPxPrecision(74).
@@ -4593,11 +4600,11 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// GrossTradeAmt(381).
         gross_trade_amt: opt Decimal = GROSS_TRADE_AMT,
         /// Concession(238).
@@ -4607,7 +4614,7 @@ turbojet::fix_message! {
         /// NetMoney(118).
         net_money: opt Decimal = NET_MONEY,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// AutoAcceptIndicator(754).
         auto_accept_indicator: opt bool = AUTO_ACCEPT_INDICATOR,
         /// Text(58).
@@ -4637,7 +4644,7 @@ turbojet::fix_message! {
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -4647,7 +4654,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// TotNoAllocs(892).
@@ -4657,19 +4664,19 @@ turbojet::fix_message! {
         /// NoAllocs(78).
         allocs: group AllocGrp = NO_ALLOCS,
         /// AvgPxIndicator(819).
-        avg_px_indicator: opt AvgPxIndicator = AVG_PX_INDICATOR,
+        avg_px_indicator: opt Code<AvgPxIndicator> = AVG_PX_INDICATOR,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// TrdType(828).
-        trd_type: opt TrdType = TRD_TYPE,
+        trd_type: opt Code<TrdType> = TRD_TYPE,
         /// TrdSubType(829).
-        trd_sub_type: opt TrdSubType = TRD_SUB_TYPE,
+        trd_sub_type: opt Code<TrdSubType> = TRD_SUB_TYPE,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// TradeInputSource(578).
         trade_input_source: opt CompactString = TRADE_INPUT_SOURCE,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// MessageEventSource(1011).
         message_event_source: opt CompactString = MESSAGE_EVENT_SOURCE,
         /// RndPx(991).
@@ -4684,16 +4691,16 @@ impl AllocationInstruction {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         alloc_id: impl Into<CompactString>,
-        alloc_trans_type: AllocTransType,
-        alloc_type: AllocType,
-        side: Side,
+        alloc_trans_type: impl Into<Code<AllocTransType>>,
+        alloc_type: impl Into<Code<AllocType>>,
+        side: impl Into<Code<Side>>,
         quantity: Decimal,
         trade_date: NaiveDate,
     ) -> Self {
         Self {
             alloc_id: alloc_id.into(),
-            alloc_trans_type,
-            alloc_type,
+            alloc_trans_type: alloc_trans_type.into(),
+            alloc_type: alloc_type.into(),
             secondary_alloc_id: None,
             ref_alloc_id: None,
             alloc_canc_replace_reason: None,
@@ -4707,7 +4714,7 @@ impl AllocationInstruction {
             previously_reported: None,
             reversal_indicator: None,
             match_type: None,
-            side,
+            side: side.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -4969,15 +4976,15 @@ turbojet::fix_message! {
         /// ListID(66).
         list_id: req CompactString = LIST_ID,
         /// ListStatusType(429).
-        list_status_type: req ListStatusType = LIST_STATUS_TYPE,
+        list_status_type: req Code<ListStatusType> = LIST_STATUS_TYPE,
         /// NoRpts(82).
         no_rpts: req i64 = NO_RPTS,
         /// ListOrderStatus(431).
-        list_order_status: req ListOrderStatus = LIST_ORDER_STATUS,
+        list_order_status: req Code<ListOrderStatus> = LIST_ORDER_STATUS,
         /// ContingencyType(1385).
-        contingency_type: opt ContingencyType = CONTINGENCY_TYPE,
+        contingency_type: opt Code<ContingencyType> = CONTINGENCY_TYPE,
         /// ListRejectReason(1386).
-        list_reject_reason: opt ListRejectReason = LIST_REJECT_REASON,
+        list_reject_reason: opt Code<ListRejectReason> = LIST_REJECT_REASON,
         /// RptSeq(83).
         rpt_seq: req i64 = RPT_SEQ,
         /// ListStatusText(444).
@@ -5000,18 +5007,18 @@ impl ListStatus {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         list_id: impl Into<CompactString>,
-        list_status_type: ListStatusType,
+        list_status_type: impl Into<Code<ListStatusType>>,
         no_rpts: i64,
-        list_order_status: ListOrderStatus,
+        list_order_status: impl Into<Code<ListOrderStatus>>,
         rpt_seq: i64,
         tot_no_orders: i64,
         orders: Vec<OrdListStatGrp>,
     ) -> Self {
         Self {
             list_id: list_id.into(),
-            list_status_type,
+            list_status_type: list_status_type.into(),
             no_rpts,
-            list_order_status,
+            list_order_status: list_order_status.into(),
             contingency_type: None,
             list_reject_reason: None,
             rpt_seq,
@@ -5039,19 +5046,19 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// AllocStatus(87).
-        alloc_status: req AllocStatus = ALLOC_STATUS,
+        alloc_status: req Code<AllocStatus> = ALLOC_STATUS,
         /// AllocRejCode(88).
-        alloc_rej_code: opt AllocRejCode = ALLOC_REJ_CODE,
+        alloc_rej_code: opt Code<AllocRejCode> = ALLOC_REJ_CODE,
         /// AllocType(626).
-        alloc_type: opt AllocType = ALLOC_TYPE,
+        alloc_type: opt Code<AllocType> = ALLOC_TYPE,
         /// AllocIntermedReqType(808).
-        alloc_intermed_req_type: opt AllocIntermedReqType = ALLOC_INTERMED_REQ_TYPE,
+        alloc_intermed_req_type: opt Code<AllocIntermedReqType> = ALLOC_INTERMED_REQ_TYPE,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -5064,14 +5071,14 @@ turbojet::fix_message! {
 impl AllocationInstructionAck {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_id: impl Into<CompactString>, alloc_status: AllocStatus) -> Self {
+    pub fn new(alloc_id: impl Into<CompactString>, alloc_status: impl Into<Code<AllocStatus>>) -> Self {
         Self {
             alloc_id: alloc_id.into(),
             party_ids: Vec::new(),
             secondary_alloc_id: None,
             trade_date: None,
             transact_time: None,
-            alloc_status,
+            alloc_status: alloc_status.into(),
             alloc_rej_code: None,
             alloc_type: None,
             alloc_intermed_req_type: None,
@@ -5095,19 +5102,19 @@ turbojet::fix_message! {
         /// ExecID(17).
         exec_id: req CompactString = EXEC_ID,
         /// DKReason(127).
-        dk_reason: req DKReason = DK_REASON,
+        dk_reason: req Code<DKReason> = DK_REASON,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -5115,7 +5122,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -5127,15 +5134,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -5183,59 +5190,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -5261,7 +5268,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -5279,7 +5286,7 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -5287,7 +5294,7 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// LastQty(32).
@@ -5307,14 +5314,14 @@ impl DontKnowTrade {
     pub fn new(
         order_id: impl Into<CompactString>,
         exec_id: impl Into<CompactString>,
-        dk_reason: DKReason,
-        side: Side,
+        dk_reason: impl Into<Code<DKReason>>,
+        side: impl Into<Code<Side>>,
     ) -> Self {
         Self {
             order_id: order_id.into(),
             secondary_order_id: None,
             exec_id: exec_id.into(),
-            dk_reason,
+            dk_reason: dk_reason.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -5402,7 +5409,7 @@ impl DontKnowTrade {
             complex_events: Vec::new(),
             underlyings: Vec::new(),
             legs: Vec::new(),
-            side,
+            side: side.into(),
             order_qty: None,
             cash_order_qty: None,
             order_percent: None,
@@ -5426,15 +5433,15 @@ turbojet::fix_message! {
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PrivateQuote(1171).
         private_quote: opt bool = PRIVATE_QUOTE,
         /// RespondentType(1172).
-        respondent_type: opt RespondentType = RESPONDENT_TYPE,
+        respondent_type: opt Code<RespondentType> = RESPONDENT_TYPE,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// NoRootPartyIDs(1116).
@@ -5482,31 +5489,31 @@ turbojet::fix_message! {
         /// QuoteRespID(693).
         quote_resp_id: opt CompactString = QUOTE_RESP_ID,
         /// QuoteType(537).
-        quote_type: opt QuoteType = QUOTE_TYPE,
+        quote_type: opt Code<QuoteType> = QUOTE_TYPE,
         /// PrivateQuote(1171).
         private_quote: opt bool = PRIVATE_QUOTE,
         /// NoQuoteQualifiers(735).
         quote_qualifiers: group QuotQualGrp = NO_QUOTE_QUALIFIERS,
         /// QuoteResponseLevel(301).
-        quote_response_level: opt QuoteResponseLevel = QUOTE_RESPONSE_LEVEL,
+        quote_response_level: opt Code<QuoteResponseLevel> = QUOTE_RESPONSE_LEVEL,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -5514,7 +5521,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -5526,15 +5533,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -5582,59 +5589,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -5660,7 +5667,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -5682,19 +5689,19 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -5702,11 +5709,11 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// SettlDate2(193).
@@ -5728,9 +5735,9 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// NoLegs(555).
         legs: group LegQuotGrp = NO_LEGS,
         /// BidPx(132).
@@ -5776,7 +5783,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// BidForwardPoints2(642).
         ///
         /// Deprecated in the FIX standard.
@@ -5790,43 +5797,43 @@ turbojet::fix_message! {
         /// SettlCurrOfferFxRate(657).
         settl_curr_offer_fx_rate: opt Decimal = SETTL_CURR_OFFER_FX_RATE,
         /// SettlCurrFxRateCalc(156).
-        settl_curr_fx_rate_calc: opt SettlCurrFxRateCalc = SETTL_CURR_FX_RATE_CALC,
+        settl_curr_fx_rate_calc: opt Code<SettlCurrFxRateCalc> = SETTL_CURR_FX_RATE_CALC,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Spread(218).
         spread: opt Decimal = SPREAD,
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -5836,7 +5843,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -6037,9 +6044,9 @@ turbojet::fix_message! {
         /// SettlInstReqID(791).
         settl_inst_req_id: opt CompactString = SETTL_INST_REQ_ID,
         /// SettlInstMode(160).
-        settl_inst_mode: req SettlInstMode = SETTL_INST_MODE,
+        settl_inst_mode: req Code<SettlInstMode> = SETTL_INST_MODE,
         /// SettlInstReqRejCode(792).
-        settl_inst_req_rej_code: opt SettlInstReqRejCode = SETTL_INST_REQ_REJ_CODE,
+        settl_inst_req_rej_code: opt Code<SettlInstReqRejCode> = SETTL_INST_REQ_REJ_CODE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -6058,13 +6065,13 @@ impl SettlementInstructions {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         settl_inst_msg_id: impl Into<CompactString>,
-        settl_inst_mode: SettlInstMode,
+        settl_inst_mode: impl Into<Code<SettlInstMode>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             settl_inst_msg_id: settl_inst_msg_id.into(),
             settl_inst_req_id: None,
-            settl_inst_mode,
+            settl_inst_mode: settl_inst_mode.into(),
             settl_inst_req_rej_code: None,
             text: None,
             encoded_text: None,
@@ -6081,19 +6088,19 @@ turbojet::fix_message! {
         /// MDReqID(262).
         md_req_id: req CompactString = MD_REQ_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: req SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: req Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// MarketDepth(264).
         market_depth: req i64 = MARKET_DEPTH,
         /// MDUpdateType(265).
-        md_update_type: opt MDUpdateType = MD_UPDATE_TYPE,
+        md_update_type: opt Code<MDUpdateType> = MD_UPDATE_TYPE,
         /// AggregatedBook(266).
         aggregated_book: opt bool = AGGREGATED_BOOK,
         /// OpenCloseSettlFlag(286).
-        open_close_settl_flag: opt Vec<OpenCloseSettlFlag> = OPEN_CLOSE_SETTL_FLAG,
+        open_close_settl_flag: opt Vec<Code<OpenCloseSettlFlag>> = OPEN_CLOSE_SETTL_FLAG,
         /// Scope(546).
-        scope: opt Vec<Scope> = SCOPE,
+        scope: opt Vec<Code<Scope>> = SCOPE,
         /// MDImplicitDelete(547).
         md_implicit_delete: opt bool = MD_IMPLICIT_DELETE,
         /// NoMDEntryTypes(267).
@@ -6103,11 +6110,11 @@ turbojet::fix_message! {
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ApplQueueAction(815).
-        appl_queue_action: opt ApplQueueAction = APPL_QUEUE_ACTION,
+        appl_queue_action: opt Code<ApplQueueAction> = APPL_QUEUE_ACTION,
         /// ApplQueueMax(812).
         appl_queue_max: opt i64 = APPL_QUEUE_MAX,
         /// MDQuoteType(1070).
-        md_quote_type: opt MDQuoteType = MD_QUOTE_TYPE,
+        md_quote_type: opt Code<MDQuoteType> = MD_QUOTE_TYPE,
     }
 }
 
@@ -6116,14 +6123,14 @@ impl MarketDataRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         md_req_id: impl Into<CompactString>,
-        subscription_request_type: SubscriptionRequestType,
+        subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
         market_depth: i64,
         md_entry_types: Vec<MDReqGrp>,
         related_sym: Vec<InstrmtMDReqGrp>,
     ) -> Self {
         Self {
             md_req_id: md_req_id.into(),
-            subscription_request_type,
+            subscription_request_type: subscription_request_type.into(),
             party_ids: Vec::new(),
             market_depth,
             md_update_type: None,
@@ -6159,7 +6166,7 @@ turbojet::fix_message! {
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// MDBookType(1021).
-        md_book_type: opt MDBookType = MD_BOOK_TYPE,
+        md_book_type: opt Code<MDBookType> = MD_BOOK_TYPE,
         /// MDSubBookType(1173).
         md_sub_book_type: opt i64 = MD_SUB_BOOK_TYPE,
         /// MarketDepth(264).
@@ -6177,15 +6184,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -6193,7 +6200,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -6205,15 +6212,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -6261,59 +6268,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -6339,7 +6346,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -6357,9 +6364,9 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// FinancialStatus(291).
-        financial_status: opt Vec<FinancialStatus> = FINANCIAL_STATUS,
+        financial_status: opt Vec<Code<FinancialStatus>> = FINANCIAL_STATUS,
         /// CorporateAction(292).
-        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
+        corporate_action: opt Vec<Code<CorporateAction>> = CORPORATE_ACTION,
         /// NetChgPrevDay(451).
         net_chg_prev_day: opt Decimal = NET_CHG_PREV_DAY,
         /// NoMDEntries(268).
@@ -6367,7 +6374,7 @@ turbojet::fix_message! {
         /// ApplQueueDepth(813).
         appl_queue_depth: opt i64 = APPL_QUEUE_DEPTH,
         /// ApplQueueResolution(814).
-        appl_queue_resolution: opt ApplQueueResolution = APPL_QUEUE_RESOLUTION,
+        appl_queue_resolution: opt Code<ApplQueueResolution> = APPL_QUEUE_RESOLUTION,
         /// NoRoutingIDs(215).
         routing_ids: group RoutingGrp = NO_ROUTING_IDS,
     }
@@ -6503,7 +6510,7 @@ turbojet::fix_message! {
         /// ApplResendFlag(1352).
         appl_resend_flag: opt bool = APPL_RESEND_FLAG,
         /// MDBookType(1021).
-        md_book_type: opt MDBookType = MD_BOOK_TYPE,
+        md_book_type: opt Code<MDBookType> = MD_BOOK_TYPE,
         /// MDFeedType(1022).
         md_feed_type: opt CompactString = MD_FEED_TYPE,
         /// TradeDate(75).
@@ -6515,7 +6522,7 @@ turbojet::fix_message! {
         /// ApplQueueDepth(813).
         appl_queue_depth: opt i64 = APPL_QUEUE_DEPTH,
         /// ApplQueueResolution(814).
-        appl_queue_resolution: opt ApplQueueResolution = APPL_QUEUE_RESOLUTION,
+        appl_queue_resolution: opt Code<ApplQueueResolution> = APPL_QUEUE_RESOLUTION,
         /// NoRoutingIDs(215).
         routing_ids: group RoutingGrp = NO_ROUTING_IDS,
     }
@@ -6550,7 +6557,7 @@ turbojet::fix_message! {
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// MDReqRejReason(281).
-        md_req_rej_reason: opt MDReqRejReason = MD_REQ_REJ_REASON,
+        md_req_rej_reason: opt Code<MDReqRejReason> = MD_REQ_REJ_REASON,
         /// NoAltMDSource(816).
         alt_md_source: group MDRjctGrp = NO_ALT_MD_SOURCE,
         /// Text(58).
@@ -6585,11 +6592,11 @@ turbojet::fix_message! {
         /// QuoteMsgID(1166).
         quote_msg_id: opt CompactString = QUOTE_MSG_ID,
         /// QuoteCancelType(298).
-        quote_cancel_type: req QuoteCancelType = QUOTE_CANCEL_TYPE,
+        quote_cancel_type: req Code<QuoteCancelType> = QUOTE_CANCEL_TYPE,
         /// QuoteType(537).
-        quote_type: opt QuoteType = QUOTE_TYPE,
+        quote_type: opt Code<QuoteType> = QUOTE_TYPE,
         /// QuoteResponseLevel(301).
-        quote_response_level: opt QuoteResponseLevel = QUOTE_RESPONSE_LEVEL,
+        quote_response_level: opt Code<QuoteResponseLevel> = QUOTE_RESPONSE_LEVEL,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -6597,13 +6604,13 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// NoQuoteEntries(295).
         quote_entries: group QuotCxlEntriesGrp = NO_QUOTE_ENTRIES,
     }
@@ -6612,12 +6619,12 @@ turbojet::fix_message! {
 impl QuoteCancel {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(quote_cancel_type: QuoteCancelType) -> Self {
+    pub fn new(quote_cancel_type: impl Into<Code<QuoteCancelType>>) -> Self {
         Self {
             quote_req_id: None,
             quote_id: None,
             quote_msg_id: None,
-            quote_cancel_type,
+            quote_cancel_type: quote_cancel_type.into(),
             quote_type: None,
             quote_response_level: None,
             party_ids: Vec::new(),
@@ -6642,15 +6649,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -6658,7 +6665,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -6670,15 +6677,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -6726,59 +6733,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -6804,7 +6811,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -6826,13 +6833,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -6846,15 +6853,15 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
     }
 }
 
@@ -6981,15 +6988,15 @@ turbojet::fix_message! {
         /// QuoteID(117).
         quote_id: opt CompactString = QUOTE_ID,
         /// QuoteStatus(297).
-        quote_status: req QuoteStatus = QUOTE_STATUS,
+        quote_status: req Code<QuoteStatus> = QUOTE_STATUS,
         /// QuoteRejectReason(300).
-        quote_reject_reason: opt QuoteRejectReason = QUOTE_REJECT_REASON,
+        quote_reject_reason: opt Code<QuoteRejectReason> = QUOTE_REJECT_REASON,
         /// QuoteResponseLevel(301).
-        quote_response_level: opt QuoteResponseLevel = QUOTE_RESPONSE_LEVEL,
+        quote_response_level: opt Code<QuoteResponseLevel> = QUOTE_RESPONSE_LEVEL,
         /// QuoteType(537).
-        quote_type: opt QuoteType = QUOTE_TYPE,
+        quote_type: opt Code<QuoteType> = QUOTE_TYPE,
         /// QuoteCancelType(298).
-        quote_cancel_type: opt QuoteCancelType = QUOTE_CANCEL_TYPE,
+        quote_cancel_type: opt Code<QuoteCancelType> = QUOTE_CANCEL_TYPE,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -6997,9 +7004,9 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -7012,11 +7019,11 @@ turbojet::fix_message! {
 impl MassQuoteAcknowledgement {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(quote_status: QuoteStatus) -> Self {
+    pub fn new(quote_status: impl Into<Code<QuoteStatus>>) -> Self {
         Self {
             quote_req_id: None,
             quote_id: None,
-            quote_status,
+            quote_status: quote_status.into(),
             quote_reject_reason: None,
             quote_response_level: None,
             quote_type: None,
@@ -7039,7 +7046,7 @@ turbojet::fix_message! {
         /// SecurityReqID(320).
         security_req_id: req CompactString = SECURITY_REQ_ID,
         /// SecurityRequestType(321).
-        security_request_type: req SecurityRequestType = SECURITY_REQUEST_TYPE,
+        security_request_type: req Code<SecurityRequestType> = SECURITY_REQUEST_TYPE,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
@@ -7047,15 +7054,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -7063,7 +7070,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -7075,15 +7082,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -7131,59 +7138,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -7209,7 +7216,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -7223,7 +7230,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -7237,9 +7244,9 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// NoLegs(555).
@@ -7249,19 +7256,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -7271,21 +7278,24 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// ExpirationCycle(827).
-        expiration_cycle: opt ExpirationCycle = EXPIRATION_CYCLE,
+        expiration_cycle: opt Code<ExpirationCycle> = EXPIRATION_CYCLE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
     }
 }
 
 impl SecurityDefinitionRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(security_req_id: impl Into<CompactString>, security_request_type: SecurityRequestType) -> Self {
+    pub fn new(
+        security_req_id: impl Into<CompactString>,
+        security_request_type: impl Into<Code<SecurityRequestType>>,
+    ) -> Self {
         Self {
             security_req_id: security_req_id.into(),
-            security_request_type,
+            security_request_type: security_request_type.into(),
             market_id: None,
             market_segment_id: None,
             symbol: None,
@@ -7424,21 +7434,21 @@ turbojet::fix_message! {
         /// SecurityResponseID(322).
         security_response_id: opt CompactString = SECURITY_RESPONSE_ID,
         /// SecurityResponseType(323).
-        security_response_type: opt SecurityResponseType = SECURITY_RESPONSE_TYPE,
+        security_response_type: opt Code<SecurityResponseType> = SECURITY_RESPONSE_TYPE,
         /// CorporateAction(292).
-        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
+        corporate_action: opt Vec<Code<CorporateAction>> = CORPORATE_ACTION,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -7446,7 +7456,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -7458,15 +7468,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -7514,59 +7524,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -7592,7 +7602,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -7606,7 +7616,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -7628,19 +7638,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -7650,7 +7660,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// NoMarketSegments(1310).
         market_segments: group MarketSegmentGrp = NO_MARKET_SEGMENTS,
         /// TransactTime(60).
@@ -7795,15 +7805,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -7811,7 +7821,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -7823,15 +7833,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -7879,59 +7889,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -7957,7 +7967,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -7971,7 +7981,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -7983,15 +7993,15 @@ turbojet::fix_message! {
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// SubscriptionRequestType(263).
-        subscription_request_type: req SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: req Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
     }
 }
 
@@ -8000,7 +8010,7 @@ impl SecurityStatusRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         security_status_req_id: impl Into<CompactString>,
-        subscription_request_type: SubscriptionRequestType,
+        subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
     ) -> Self {
         Self {
             security_status_req_id: security_status_req_id.into(),
@@ -8095,7 +8105,7 @@ impl SecurityStatusRequest {
             underlyings: Vec::new(),
             legs: Vec::new(),
             currency: None,
-            subscription_request_type,
+            subscription_request_type: subscription_request_type.into(),
             market_id: None,
             market_segment_id: None,
             trading_session_id: None,
@@ -8120,15 +8130,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -8136,7 +8146,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -8148,15 +8158,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -8204,59 +8214,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -8282,7 +8292,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -8296,7 +8306,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -8312,27 +8322,27 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// UnsolicitedIndicator(325).
         unsolicited_indicator: opt bool = UNSOLICITED_INDICATOR,
         /// SecurityTradingStatus(326).
-        security_trading_status: opt SecurityTradingStatus = SECURITY_TRADING_STATUS,
+        security_trading_status: opt Code<SecurityTradingStatus> = SECURITY_TRADING_STATUS,
         /// SecurityTradingEvent(1174).
-        security_trading_event: opt SecurityTradingEvent = SECURITY_TRADING_EVENT,
+        security_trading_event: opt Code<SecurityTradingEvent> = SECURITY_TRADING_EVENT,
         /// FinancialStatus(291).
-        financial_status: opt Vec<FinancialStatus> = FINANCIAL_STATUS,
+        financial_status: opt Vec<Code<FinancialStatus>> = FINANCIAL_STATUS,
         /// CorporateAction(292).
-        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
+        corporate_action: opt Vec<Code<CorporateAction>> = CORPORATE_ACTION,
         /// HaltReason(327).
-        halt_reason: opt HaltReason = HALT_REASON,
+        halt_reason: opt Code<HaltReason> = HALT_REASON,
         /// InViewOfCommon(328).
         in_view_of_common: opt bool = IN_VIEW_OF_COMMON,
         /// DueToRelated(329).
         due_to_related: opt bool = DUE_TO_RELATED,
         /// MDBookType(1021).
-        md_book_type: opt MDBookType = MD_BOOK_TYPE,
+        md_book_type: opt Code<MDBookType> = MD_BOOK_TYPE,
         /// MarketDepth(264).
         market_depth: opt i64 = MARKET_DEPTH,
         /// BuyVolume(330).
@@ -8348,7 +8358,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// Adjustment(334).
-        adjustment: opt Adjustment = ADJUSTMENT,
+        adjustment: opt Code<Adjustment> = ADJUSTMENT,
         /// FirstPx(1025).
         first_px: opt Decimal = FIRST_PX,
         /// Text(58).
@@ -8497,15 +8507,15 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// TradSesMethod(338).
-        trad_ses_method: opt TradSesMethod = TRAD_SES_METHOD,
+        trad_ses_method: opt Code<TradSesMethod> = TRAD_SES_METHOD,
         /// TradSesMode(339).
-        trad_ses_mode: opt TradSesMode = TRAD_SES_MODE,
+        trad_ses_mode: opt Code<TradSesMode> = TRAD_SES_MODE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: req SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: req Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// SecurityExchange(207).
         security_exchange: opt CompactString = SECURITY_EXCHANGE,
     }
@@ -8514,7 +8524,10 @@ turbojet::fix_message! {
 impl TradingSessionStatusRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trad_ses_req_id: impl Into<CompactString>, subscription_request_type: SubscriptionRequestType) -> Self {
+    pub fn new(
+        trad_ses_req_id: impl Into<CompactString>,
+        subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
+    ) -> Self {
         Self {
             trad_ses_req_id: trad_ses_req_id.into(),
             market_id: None,
@@ -8523,7 +8536,7 @@ impl TradingSessionStatusRequest {
             trading_session_sub_id: None,
             trad_ses_method: None,
             trad_ses_mode: None,
-            subscription_request_type,
+            subscription_request_type: subscription_request_type.into(),
             security_exchange: None,
         }
     }
@@ -8547,21 +8560,21 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: req TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: req Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// TradSesMethod(338).
-        trad_ses_method: opt TradSesMethod = TRAD_SES_METHOD,
+        trad_ses_method: opt Code<TradSesMethod> = TRAD_SES_METHOD,
         /// TradSesMode(339).
-        trad_ses_mode: opt TradSesMode = TRAD_SES_MODE,
+        trad_ses_mode: opt Code<TradSesMode> = TRAD_SES_MODE,
         /// UnsolicitedIndicator(325).
         unsolicited_indicator: opt bool = UNSOLICITED_INDICATOR,
         /// TradSesStatus(340).
-        trad_ses_status: req TradSesStatus = TRAD_SES_STATUS,
+        trad_ses_status: req Code<TradSesStatus> = TRAD_SES_STATUS,
         /// TradSesEvent(1368).
-        trad_ses_event: opt TradSesEvent = TRAD_SES_EVENT,
+        trad_ses_event: opt Code<TradSesEvent> = TRAD_SES_EVENT,
         /// TradSesStatusRejReason(567).
-        trad_ses_status_rej_reason: opt TradSesStatusRejReason = TRAD_SES_STATUS_REJ_REASON,
+        trad_ses_status_rej_reason: opt Code<TradSesStatusRejReason> = TRAD_SES_STATUS_REJ_REASON,
         /// TradSesStartTime(341).
         trad_ses_start_time: opt UtcTimestamp = TRAD_SES_START_TIME,
         /// TradSesOpenTime(342).
@@ -8581,15 +8594,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -8597,7 +8610,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -8609,15 +8622,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -8665,59 +8678,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -8743,7 +8756,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -8762,7 +8775,10 @@ turbojet::fix_message! {
 impl TradingSessionStatus {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trading_session_id: TradingSessionID, trad_ses_status: TradSesStatus) -> Self {
+    pub fn new(
+        trading_session_id: impl Into<Code<TradingSessionID>>,
+        trad_ses_status: impl Into<Code<TradSesStatus>>,
+    ) -> Self {
         Self {
             appl_id: None,
             appl_seq_num: None,
@@ -8771,12 +8787,12 @@ impl TradingSessionStatus {
             trad_ses_req_id: None,
             market_id: None,
             market_segment_id: None,
-            trading_session_id,
+            trading_session_id: trading_session_id.into(),
             trading_session_sub_id: None,
             trad_ses_method: None,
             trad_ses_mode: None,
             unsolicited_indicator: None,
-            trad_ses_status,
+            trad_ses_status: trad_ses_status.into(),
             trad_ses_event: None,
             trad_ses_status_rej_reason: None,
             trad_ses_start_time: None,
@@ -8884,17 +8900,17 @@ turbojet::fix_message! {
         /// QuoteID(117).
         quote_id: req CompactString = QUOTE_ID,
         /// QuoteType(537).
-        quote_type: opt QuoteType = QUOTE_TYPE,
+        quote_type: opt Code<QuoteType> = QUOTE_TYPE,
         /// QuoteResponseLevel(301).
-        quote_response_level: opt QuoteResponseLevel = QUOTE_RESPONSE_LEVEL,
+        quote_response_level: opt Code<QuoteResponseLevel> = QUOTE_RESPONSE_LEVEL,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// DefBidSize(293).
         def_bid_size: opt Decimal = DEF_BID_SIZE,
         /// DefOfferSize(294).
@@ -8932,13 +8948,13 @@ turbojet::fix_message! {
         /// ClientBidID(391).
         client_bid_id: req CompactString = CLIENT_BID_ID,
         /// BidRequestTransType(374).
-        bid_request_trans_type: req BidRequestTransType = BID_REQUEST_TRANS_TYPE,
+        bid_request_trans_type: req Code<BidRequestTransType> = BID_REQUEST_TRANS_TYPE,
         /// ListName(392).
         list_name: opt CompactString = LIST_NAME,
         /// TotNoRelatedSym(393).
         tot_no_related_sym: req i64 = TOT_NO_RELATED_SYM,
         /// BidType(394).
-        bid_type: req BidType = BID_TYPE,
+        bid_type: req Code<BidType> = BID_TYPE,
         /// NumTickets(395).
         num_tickets: opt i64 = NUM_TICKETS,
         /// Currency(15).
@@ -8952,7 +8968,7 @@ turbojet::fix_message! {
         /// NoBidComponents(420).
         bid_components: group BidCompReqGrp = NO_BID_COMPONENTS,
         /// LiquidityIndType(409).
-        liquidity_ind_type: opt LiquidityIndType = LIQUIDITY_IND_TYPE,
+        liquidity_ind_type: opt Code<LiquidityIndType> = LIQUIDITY_IND_TYPE,
         /// WtAverageLiquidity(410).
         wt_average_liquidity: opt Decimal = WT_AVERAGE_LIQUIDITY,
         /// ExchangeForPhysical(411).
@@ -8962,11 +8978,11 @@ turbojet::fix_message! {
         /// CrossPercent(413).
         cross_percent: opt Decimal = CROSS_PERCENT,
         /// ProgRptReqs(414).
-        prog_rpt_reqs: opt ProgRptReqs = PROG_RPT_REQS,
+        prog_rpt_reqs: opt Code<ProgRptReqs> = PROG_RPT_REQS,
         /// ProgPeriodInterval(415).
         prog_period_interval: opt i64 = PROG_PERIOD_INTERVAL,
         /// IncTaxInd(416).
-        inc_tax_ind: opt IncTaxInd = INC_TAX_IND,
+        inc_tax_ind: opt Code<IncTaxInd> = INC_TAX_IND,
         /// ForexReq(121).
         forex_req: opt bool = FOREX_REQ,
         /// NumBidders(417).
@@ -8974,9 +8990,9 @@ turbojet::fix_message! {
         /// TradeDate(75).
         trade_date: opt NaiveDate = TRADE_DATE,
         /// BidTradeType(418).
-        bid_trade_type: req BidTradeType = BID_TRADE_TYPE,
+        bid_trade_type: req Code<BidTradeType> = BID_TRADE_TYPE,
         /// BasisPxType(419).
-        basis_px_type: req BasisPxType = BASIS_PX_TYPE,
+        basis_px_type: req Code<BasisPxType> = BASIS_PX_TYPE,
         /// StrikeTime(443).
         strike_time: opt UtcTimestamp = STRIKE_TIME,
         /// Text(58).
@@ -8991,19 +9007,19 @@ impl BidRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         client_bid_id: impl Into<CompactString>,
-        bid_request_trans_type: BidRequestTransType,
+        bid_request_trans_type: impl Into<Code<BidRequestTransType>>,
         tot_no_related_sym: i64,
-        bid_type: BidType,
-        bid_trade_type: BidTradeType,
-        basis_px_type: BasisPxType,
+        bid_type: impl Into<Code<BidType>>,
+        bid_trade_type: impl Into<Code<BidTradeType>>,
+        basis_px_type: impl Into<Code<BasisPxType>>,
     ) -> Self {
         Self {
             bid_id: None,
             client_bid_id: client_bid_id.into(),
-            bid_request_trans_type,
+            bid_request_trans_type: bid_request_trans_type.into(),
             list_name: None,
             tot_no_related_sym,
-            bid_type,
+            bid_type: bid_type.into(),
             num_tickets: None,
             currency: None,
             side_value1: None,
@@ -9021,8 +9037,8 @@ impl BidRequest {
             forex_req: None,
             num_bidders: None,
             trade_date: None,
-            bid_trade_type,
-            basis_px_type,
+            bid_trade_type: bid_trade_type.into(),
+            basis_px_type: basis_px_type.into(),
             strike_time: None,
             text: None,
             encoded_text: None,
@@ -9078,7 +9094,7 @@ turbojet::fix_message! {
         /// RegistID(513).
         regist_id: req CompactString = REGIST_ID,
         /// RegistTransType(514).
-        regist_trans_type: req RegistTransType = REGIST_TRANS_TYPE,
+        regist_trans_type: req Code<RegistTransType> = REGIST_TRANS_TYPE,
         /// RegistRefID(508).
         regist_ref_id: req CompactString = REGIST_REF_ID,
         /// ClOrdID(11).
@@ -9088,13 +9104,13 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// RegistAcctType(493).
         regist_acct_type: opt CompactString = REGIST_ACCT_TYPE,
         /// TaxAdvantageType(495).
-        tax_advantage_type: opt TaxAdvantageType = TAX_ADVANTAGE_TYPE,
+        tax_advantage_type: opt Code<TaxAdvantageType> = TAX_ADVANTAGE_TYPE,
         /// OwnershipType(517).
-        ownership_type: opt OwnershipType = OWNERSHIP_TYPE,
+        ownership_type: opt Code<OwnershipType> = OWNERSHIP_TYPE,
         /// NoRegistDtls(473).
         regist_dtls: group RgstDtlsGrp = NO_REGIST_DTLS,
         /// NoDistribInsts(510).
@@ -9107,12 +9123,12 @@ impl RegistrationInstructions {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         regist_id: impl Into<CompactString>,
-        regist_trans_type: RegistTransType,
+        regist_trans_type: impl Into<Code<RegistTransType>>,
         regist_ref_id: impl Into<CompactString>,
     ) -> Self {
         Self {
             regist_id: regist_id.into(),
-            regist_trans_type,
+            regist_trans_type: regist_trans_type.into(),
             regist_ref_id: regist_ref_id.into(),
             cl_ord_id: None,
             party_ids: Vec::new(),
@@ -9133,7 +9149,7 @@ turbojet::fix_message! {
         /// RegistID(513).
         regist_id: req CompactString = REGIST_ID,
         /// RegistTransType(514).
-        regist_trans_type: req RegistTransType = REGIST_TRANS_TYPE,
+        regist_trans_type: req Code<RegistTransType> = REGIST_TRANS_TYPE,
         /// RegistRefID(508).
         regist_ref_id: req CompactString = REGIST_REF_ID,
         /// ClOrdID(11).
@@ -9143,11 +9159,11 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// RegistStatus(506).
-        regist_status: req RegistStatus = REGIST_STATUS,
+        regist_status: req Code<RegistStatus> = REGIST_STATUS,
         /// RegistRejReasonCode(507).
-        regist_rej_reason_code: opt RegistRejReasonCode = REGIST_REJ_REASON_CODE,
+        regist_rej_reason_code: opt Code<RegistRejReasonCode> = REGIST_REJ_REASON_CODE,
         /// RegistRejReasonText(496).
         regist_rej_reason_text: opt CompactString = REGIST_REJ_REASON_TEXT,
     }
@@ -9158,19 +9174,19 @@ impl RegistrationInstructionsResponse {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         regist_id: impl Into<CompactString>,
-        regist_trans_type: RegistTransType,
+        regist_trans_type: impl Into<Code<RegistTransType>>,
         regist_ref_id: impl Into<CompactString>,
-        regist_status: RegistStatus,
+        regist_status: impl Into<Code<RegistStatus>>,
     ) -> Self {
         Self {
             regist_id: regist_id.into(),
-            regist_trans_type,
+            regist_trans_type: regist_trans_type.into(),
             regist_ref_id: regist_ref_id.into(),
             cl_ord_id: None,
             party_ids: Vec::new(),
             account: None,
             acct_id_source: None,
-            regist_status,
+            regist_status: regist_status.into(),
             regist_rej_reason_code: None,
             regist_rej_reason_text: None,
         }
@@ -9185,11 +9201,11 @@ turbojet::fix_message! {
         /// SecondaryClOrdID(526).
         secondary_cl_ord_id: opt CompactString = SECONDARY_CL_ORD_ID,
         /// MassCancelRequestType(530).
-        mass_cancel_request_type: req MassCancelRequestType = MASS_CANCEL_REQUEST_TYPE,
+        mass_cancel_request_type: req Code<MassCancelRequestType> = MASS_CANCEL_REQUEST_TYPE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -9197,15 +9213,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -9213,7 +9229,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -9225,15 +9241,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -9281,59 +9297,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -9359,7 +9375,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -9375,19 +9391,19 @@ turbojet::fix_message! {
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -9399,9 +9415,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -9449,21 +9465,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -9487,11 +9503,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -9511,7 +9527,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -9525,7 +9541,7 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
@@ -9540,13 +9556,13 @@ impl OrderMassCancelRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         cl_ord_id: impl Into<CompactString>,
-        mass_cancel_request_type: MassCancelRequestType,
+        mass_cancel_request_type: impl Into<Code<MassCancelRequestType>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             cl_ord_id: cl_ord_id.into(),
             secondary_cl_ord_id: None,
-            mass_cancel_request_type,
+            mass_cancel_request_type: mass_cancel_request_type.into(),
             trading_session_id: None,
             trading_session_sub_id: None,
             party_ids: Vec::new(),
@@ -9730,11 +9746,11 @@ turbojet::fix_message! {
         /// SecondaryOrderID(198).
         secondary_order_id: opt CompactString = SECONDARY_ORDER_ID,
         /// MassCancelRequestType(530).
-        mass_cancel_request_type: req MassCancelRequestType = MASS_CANCEL_REQUEST_TYPE,
+        mass_cancel_request_type: req Code<MassCancelRequestType> = MASS_CANCEL_REQUEST_TYPE,
         /// MassCancelResponse(531).
-        mass_cancel_response: req MassCancelResponse = MASS_CANCEL_RESPONSE,
+        mass_cancel_response: req Code<MassCancelResponse> = MASS_CANCEL_RESPONSE,
         /// MassCancelRejectReason(532).
-        mass_cancel_reject_reason: opt MassCancelRejectReason = MASS_CANCEL_REJECT_REASON,
+        mass_cancel_reject_reason: opt Code<MassCancelRejectReason> = MASS_CANCEL_REJECT_REASON,
         /// TotalAffectedOrders(533).
         total_affected_orders: opt i64 = TOTAL_AFFECTED_ORDERS,
         /// NoAffectedOrders(534).
@@ -9742,9 +9758,9 @@ turbojet::fix_message! {
         /// NoNotAffectedOrders(1370).
         not_affected_orders: group NotAffectedOrdersGrp = NO_NOT_AFFECTED_ORDERS,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -9752,15 +9768,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -9768,7 +9784,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -9780,15 +9796,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -9836,59 +9852,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -9914,7 +9930,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -9930,19 +9946,19 @@ turbojet::fix_message! {
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -9954,9 +9970,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -10004,21 +10020,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -10042,11 +10058,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -10066,7 +10082,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -10080,7 +10096,7 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
@@ -10096,8 +10112,8 @@ impl OrderMassCancelReport {
     pub fn new(
         order_id: impl Into<CompactString>,
         mass_action_report_id: impl Into<CompactString>,
-        mass_cancel_request_type: MassCancelRequestType,
-        mass_cancel_response: MassCancelResponse,
+        mass_cancel_request_type: impl Into<Code<MassCancelRequestType>>,
+        mass_cancel_response: impl Into<Code<MassCancelResponse>>,
     ) -> Self {
         Self {
             cl_ord_id: None,
@@ -10105,8 +10121,8 @@ impl OrderMassCancelReport {
             order_id: order_id.into(),
             mass_action_report_id: mass_action_report_id.into(),
             secondary_order_id: None,
-            mass_cancel_request_type,
-            mass_cancel_response,
+            mass_cancel_request_type: mass_cancel_request_type.into(),
+            mass_cancel_response: mass_cancel_response.into(),
             mass_cancel_reject_reason: None,
             total_affected_orders: None,
             affected_orders: Vec::new(),
@@ -10286,9 +10302,9 @@ turbojet::fix_message! {
         /// CrossID(548).
         cross_id: req CompactString = CROSS_ID,
         /// CrossType(549).
-        cross_type: req CrossType = CROSS_TYPE,
+        cross_type: req Code<CrossType> = CROSS_TYPE,
         /// CrossPrioritization(550).
-        cross_prioritization: req CrossPrioritization = CROSS_PRIORITIZATION,
+        cross_prioritization: req Code<CrossPrioritization> = CROSS_PRIORITIZATION,
         /// NoRootPartyIDs(1116).
         root_party_ids: group RootParties = NO_ROOT_PARTY_IDS,
         /// NoSides(552).
@@ -10296,15 +10312,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -10312,7 +10328,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -10324,15 +10340,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -10380,59 +10396,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -10458,7 +10474,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -10476,13 +10492,13 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -10494,9 +10510,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -10512,11 +10528,11 @@ turbojet::fix_message! {
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// LocateReqd(114).
@@ -10528,19 +10544,19 @@ turbojet::fix_message! {
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// OrdType(40).
-        ord_type: req OrdType = ORD_TYPE,
+        ord_type: req Code<OrdType> = ORD_TYPE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -10548,19 +10564,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -10572,19 +10588,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -10594,7 +10610,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// ComplianceID(376).
@@ -10604,7 +10620,7 @@ turbojet::fix_message! {
         /// QuoteID(117).
         quote_id: opt CompactString = QUOTE_ID,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -10612,7 +10628,7 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
@@ -10620,19 +10636,19 @@ turbojet::fix_message! {
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -10640,21 +10656,21 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -10666,9 +10682,9 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         participation_rate: opt Decimal = PARTICIPATION_RATE,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
@@ -10681,16 +10697,16 @@ impl NewOrderCross {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         cross_id: impl Into<CompactString>,
-        cross_type: CrossType,
-        cross_prioritization: CrossPrioritization,
+        cross_type: impl Into<Code<CrossType>>,
+        cross_prioritization: impl Into<Code<CrossPrioritization>>,
         sides: Vec<SideCrossOrdModGrp>,
         transact_time: UtcTimestamp,
-        ord_type: OrdType,
+        ord_type: impl Into<Code<OrdType>>,
     ) -> Self {
         Self {
             cross_id: cross_id.into(),
-            cross_type,
-            cross_prioritization,
+            cross_type: cross_type.into(),
+            cross_prioritization: cross_prioritization.into(),
             root_party_ids: Vec::new(),
             sides,
             symbol: None,
@@ -10805,7 +10821,7 @@ impl NewOrderCross {
             transact_time,
             trans_bkd_time: None,
             stipulations: Vec::new(),
-            ord_type,
+            ord_type: ord_type.into(),
             price_type: None,
             price: None,
             price_protection_scope: None,
@@ -10891,9 +10907,9 @@ turbojet::fix_message! {
         /// HostCrossID(961).
         host_cross_id: opt CompactString = HOST_CROSS_ID,
         /// CrossType(549).
-        cross_type: req CrossType = CROSS_TYPE,
+        cross_type: req Code<CrossType> = CROSS_TYPE,
         /// CrossPrioritization(550).
-        cross_prioritization: req CrossPrioritization = CROSS_PRIORITIZATION,
+        cross_prioritization: req Code<CrossPrioritization> = CROSS_PRIORITIZATION,
         /// NoRootPartyIDs(1116).
         root_party_ids: group RootParties = NO_ROOT_PARTY_IDS,
         /// NoSides(552).
@@ -10901,15 +10917,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -10917,7 +10933,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -10929,15 +10945,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -10985,59 +11001,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -11063,7 +11079,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -11081,13 +11097,13 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -11099,9 +11115,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -11117,11 +11133,11 @@ turbojet::fix_message! {
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// LocateReqd(114).
@@ -11133,19 +11149,19 @@ turbojet::fix_message! {
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// OrdType(40).
-        ord_type: req OrdType = ORD_TYPE,
+        ord_type: req Code<OrdType> = ORD_TYPE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -11153,19 +11169,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -11177,19 +11193,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -11199,7 +11215,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// ComplianceID(376).
@@ -11209,7 +11225,7 @@ turbojet::fix_message! {
         /// QuoteID(117).
         quote_id: opt CompactString = QUOTE_ID,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -11217,7 +11233,7 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
@@ -11225,19 +11241,19 @@ turbojet::fix_message! {
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -11245,21 +11261,21 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -11271,9 +11287,9 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         participation_rate: opt Decimal = PARTICIPATION_RATE,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
@@ -11287,19 +11303,19 @@ impl CrossOrderCancelReplaceRequest {
     pub fn new(
         cross_id: impl Into<CompactString>,
         orig_cross_id: impl Into<CompactString>,
-        cross_type: CrossType,
-        cross_prioritization: CrossPrioritization,
+        cross_type: impl Into<Code<CrossType>>,
+        cross_prioritization: impl Into<Code<CrossPrioritization>>,
         sides: Vec<SideCrossOrdModGrp>,
         transact_time: UtcTimestamp,
-        ord_type: OrdType,
+        ord_type: impl Into<Code<OrdType>>,
     ) -> Self {
         Self {
             order_id: None,
             cross_id: cross_id.into(),
             orig_cross_id: orig_cross_id.into(),
             host_cross_id: None,
-            cross_type,
-            cross_prioritization,
+            cross_type: cross_type.into(),
+            cross_prioritization: cross_prioritization.into(),
             root_party_ids: Vec::new(),
             sides,
             symbol: None,
@@ -11414,7 +11430,7 @@ impl CrossOrderCancelReplaceRequest {
             transact_time,
             trans_bkd_time: None,
             stipulations: Vec::new(),
-            ord_type,
+            ord_type: ord_type.into(),
             price_type: None,
             price: None,
             price_protection_scope: None,
@@ -11500,9 +11516,9 @@ turbojet::fix_message! {
         /// HostCrossID(961).
         host_cross_id: opt CompactString = HOST_CROSS_ID,
         /// CrossType(549).
-        cross_type: req CrossType = CROSS_TYPE,
+        cross_type: req Code<CrossType> = CROSS_TYPE,
         /// CrossPrioritization(550).
-        cross_prioritization: req CrossPrioritization = CROSS_PRIORITIZATION,
+        cross_prioritization: req Code<CrossPrioritization> = CROSS_PRIORITIZATION,
         /// NoRootPartyIDs(1116).
         root_party_ids: group RootParties = NO_ROOT_PARTY_IDS,
         /// NoSides(552).
@@ -11510,15 +11526,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -11526,7 +11542,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -11538,15 +11554,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -11594,59 +11610,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -11672,7 +11688,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -11700,8 +11716,8 @@ impl CrossOrderCancelRequest {
     pub fn new(
         cross_id: impl Into<CompactString>,
         orig_cross_id: impl Into<CompactString>,
-        cross_type: CrossType,
-        cross_prioritization: CrossPrioritization,
+        cross_type: impl Into<Code<CrossType>>,
+        cross_prioritization: impl Into<Code<CrossPrioritization>>,
         sides: Vec<SideCrossOrdCxlGrp>,
         transact_time: UtcTimestamp,
     ) -> Self {
@@ -11710,8 +11726,8 @@ impl CrossOrderCancelRequest {
             cross_id: cross_id.into(),
             orig_cross_id: orig_cross_id.into(),
             host_cross_id: None,
-            cross_type,
-            cross_prioritization,
+            cross_type: cross_type.into(),
+            cross_prioritization: cross_prioritization.into(),
             root_party_ids: Vec::new(),
             sides,
             symbol: None,
@@ -11820,13 +11836,13 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
     }
@@ -11867,7 +11883,7 @@ turbojet::fix_message! {
         /// SecurityResponseID(322).
         security_response_id: req CompactString = SECURITY_RESPONSE_ID,
         /// SecurityResponseType(323).
-        security_response_type: req SecurityResponseType = SECURITY_RESPONSE_TYPE,
+        security_response_type: req Code<SecurityResponseType> = SECURITY_RESPONSE_TYPE,
         /// TotNoSecurityTypes(557).
         tot_no_security_types: opt i64 = TOT_NO_SECURITY_TYPES,
         /// LastFragment(893).
@@ -11883,11 +11899,11 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
     }
 }
 
@@ -11897,7 +11913,7 @@ impl SecurityTypes {
     pub fn new(
         security_req_id: impl Into<CompactString>,
         security_response_id: impl Into<CompactString>,
-        security_response_type: SecurityResponseType,
+        security_response_type: impl Into<Code<SecurityResponseType>>,
     ) -> Self {
         Self {
             appl_id: None,
@@ -11906,7 +11922,7 @@ impl SecurityTypes {
             appl_resend_flag: None,
             security_req_id: security_req_id.into(),
             security_response_id: security_response_id.into(),
-            security_response_type,
+            security_response_type: security_response_type.into(),
             tot_no_security_types: None,
             last_fragment: None,
             security_types: Vec::new(),
@@ -11927,13 +11943,13 @@ turbojet::fix_message! {
         /// SecurityReqID(320).
         security_req_id: req CompactString = SECURITY_REQ_ID,
         /// SecurityListRequestType(559).
-        security_list_request_type: req SecurityListRequestType = SECURITY_LIST_REQUEST_TYPE,
+        security_list_request_type: req Code<SecurityListRequestType> = SECURITY_LIST_REQUEST_TYPE,
         /// SecurityListID(1465).
         security_list_id: opt CompactString = SECURITY_LIST_ID,
         /// SecurityListType(1470).
-        security_list_type: opt SecurityListType = SECURITY_LIST_TYPE,
+        security_list_type: opt Code<SecurityListType> = SECURITY_LIST_TYPE,
         /// SecurityListTypeSource(1471).
-        security_list_type_source: opt SecurityListTypeSource = SECURITY_LIST_TYPE_SOURCE,
+        security_list_type_source: opt Code<SecurityListTypeSource> = SECURITY_LIST_TYPE_SOURCE,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
@@ -11941,15 +11957,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -11957,7 +11973,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -11969,15 +11985,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -12025,59 +12041,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -12103,7 +12119,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -12117,7 +12133,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -12131,13 +12147,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -12151,21 +12167,24 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
     }
 }
 
 impl SecurityListRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(security_req_id: impl Into<CompactString>, security_list_request_type: SecurityListRequestType) -> Self {
+    pub fn new(
+        security_req_id: impl Into<CompactString>,
+        security_list_request_type: impl Into<Code<SecurityListRequestType>>,
+    ) -> Self {
         Self {
             security_req_id: security_req_id.into(),
-            security_list_request_type,
+            security_list_request_type: security_list_request_type.into(),
             security_list_id: None,
             security_list_type: None,
             security_list_type_source: None,
@@ -12304,15 +12323,15 @@ turbojet::fix_message! {
         /// EncodedSecurityListDesc(1469).
         encoded_security_list_desc: opt_data Vec<u8> = ENCODED_SECURITY_LIST_DESC_LEN => ENCODED_SECURITY_LIST_DESC,
         /// SecurityListType(1470).
-        security_list_type: opt SecurityListType = SECURITY_LIST_TYPE,
+        security_list_type: opt Code<SecurityListType> = SECURITY_LIST_TYPE,
         /// SecurityListTypeSource(1471).
-        security_list_type_source: opt SecurityListTypeSource = SECURITY_LIST_TYPE_SOURCE,
+        security_list_type_source: opt Code<SecurityListTypeSource> = SECURITY_LIST_TYPE_SOURCE,
         /// SecurityReqID(320).
         security_req_id: opt CompactString = SECURITY_REQ_ID,
         /// SecurityResponseID(322).
         security_response_id: opt CompactString = SECURITY_RESPONSE_ID,
         /// SecurityRequestResult(560).
-        security_request_result: opt SecurityRequestResult = SECURITY_REQUEST_RESULT,
+        security_request_result: opt Code<SecurityRequestResult> = SECURITY_REQUEST_RESULT,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// TotNoRelatedSym(393).
@@ -12364,7 +12383,7 @@ turbojet::fix_message! {
         /// SecurityReqID(320).
         security_req_id: req CompactString = SECURITY_REQ_ID,
         /// SecurityListRequestType(559).
-        security_list_request_type: req SecurityListRequestType = SECURITY_LIST_REQUEST_TYPE,
+        security_list_request_type: req Code<SecurityListRequestType> = SECURITY_LIST_REQUEST_TYPE,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
@@ -12372,19 +12391,19 @@ turbojet::fix_message! {
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -12396,9 +12415,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -12446,21 +12465,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -12484,11 +12503,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -12508,7 +12527,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -12520,15 +12539,15 @@ turbojet::fix_message! {
         /// DerivativeSymbol(1214).
         derivative_symbol: opt CompactString = DERIVATIVE_SYMBOL,
         /// DerivativeSymbolSfx(1215).
-        derivative_symbol_sfx: opt DerivativeSymbolSfx = DERIVATIVE_SYMBOL_SFX,
+        derivative_symbol_sfx: opt Code<DerivativeSymbolSfx> = DERIVATIVE_SYMBOL_SFX,
         /// DerivativeSecurityID(1216).
         derivative_security_id: opt CompactString = DERIVATIVE_SECURITY_ID,
         /// DerivativeSecurityIDSource(1217).
-        derivative_security_id_source: opt DerivativeSecurityIDSource = DERIVATIVE_SECURITY_ID_SOURCE,
+        derivative_security_id_source: opt Code<DerivativeSecurityIDSource> = DERIVATIVE_SECURITY_ID_SOURCE,
         /// NoDerivativeSecurityAltID(1218).
         derivative_security_alt_id: group DerivativeSecurityAltIDGrp = NO_DERIVATIVE_SECURITY_ALT_ID,
         /// DerivativeProduct(1246).
-        derivative_product: opt DerivativeProduct = DERIVATIVE_PRODUCT,
+        derivative_product: opt Code<DerivativeProduct> = DERIVATIVE_PRODUCT,
         /// DerivativeProductComplex(1228).
         derivative_product_complex: opt CompactString = DERIVATIVE_PRODUCT_COMPLEX,
         /// DerivFlexProductEligibilityIndicator(1243).
@@ -12538,7 +12557,7 @@ turbojet::fix_message! {
         /// DerivativeCFICode(1248).
         derivative_cfi_code: opt CompactString = DERIVATIVE_CFI_CODE,
         /// DerivativeSecurityType(1249).
-        derivative_security_type: opt DerivativeSecurityType = DERIVATIVE_SECURITY_TYPE,
+        derivative_security_type: opt Code<DerivativeSecurityType> = DERIVATIVE_SECURITY_TYPE,
         /// DerivativeSecuritySubType(1250).
         derivative_security_sub_type: opt CompactString = DERIVATIVE_SECURITY_SUB_TYPE,
         /// DerivativeMaturityMonthYear(1251).
@@ -12550,9 +12569,9 @@ turbojet::fix_message! {
         /// DerivativeSettleOnOpenFlag(1254).
         derivative_settle_on_open_flag: opt CompactString = DERIVATIVE_SETTLE_ON_OPEN_FLAG,
         /// DerivativeInstrmtAssignmentMethod(1255).
-        derivative_instrmt_assignment_method: opt DerivativeInstrmtAssignmentMethod = DERIVATIVE_INSTRMT_ASSIGNMENT_METHOD,
+        derivative_instrmt_assignment_method: opt Code<DerivativeInstrmtAssignmentMethod> = DERIVATIVE_INSTRMT_ASSIGNMENT_METHOD,
         /// DerivativeSecurityStatus(1256).
-        derivative_security_status: opt DerivativeSecurityStatus = DERIVATIVE_SECURITY_STATUS,
+        derivative_security_status: opt Code<DerivativeSecurityStatus> = DERIVATIVE_SECURITY_STATUS,
         /// DerivativeIssueDate(1276).
         derivative_issue_date: opt NaiveDate = DERIVATIVE_ISSUE_DATE,
         /// DerivativeInstrRegistry(1257).
@@ -12576,41 +12595,41 @@ turbojet::fix_message! {
         /// DerivativeContractMultiplier(1266).
         derivative_contract_multiplier: opt Decimal = DERIVATIVE_CONTRACT_MULTIPLIER,
         /// DerivativeContractMultiplierUnit(1438).
-        derivative_contract_multiplier_unit: opt DerivativeContractMultiplierUnit = DERIVATIVE_CONTRACT_MULTIPLIER_UNIT,
+        derivative_contract_multiplier_unit: opt Code<DerivativeContractMultiplierUnit> = DERIVATIVE_CONTRACT_MULTIPLIER_UNIT,
         /// DerivativeFlowScheduleType(1442).
-        derivative_flow_schedule_type: opt DerivativeFlowScheduleType = DERIVATIVE_FLOW_SCHEDULE_TYPE,
+        derivative_flow_schedule_type: opt Code<DerivativeFlowScheduleType> = DERIVATIVE_FLOW_SCHEDULE_TYPE,
         /// DerivativeMinPriceIncrement(1267).
         derivative_min_price_increment: opt Decimal = DERIVATIVE_MIN_PRICE_INCREMENT,
         /// DerivativeMinPriceIncrementAmount(1268).
         derivative_min_price_increment_amount: opt Decimal = DERIVATIVE_MIN_PRICE_INCREMENT_AMOUNT,
         /// DerivativeUnitOfMeasure(1269).
-        derivative_unit_of_measure: opt DerivativeUnitOfMeasure = DERIVATIVE_UNIT_OF_MEASURE,
+        derivative_unit_of_measure: opt Code<DerivativeUnitOfMeasure> = DERIVATIVE_UNIT_OF_MEASURE,
         /// DerivativeUnitOfMeasureQty(1270).
         derivative_unit_of_measure_qty: opt Decimal = DERIVATIVE_UNIT_OF_MEASURE_QTY,
         /// DerivativePriceUnitOfMeasure(1315).
-        derivative_price_unit_of_measure: opt DerivativePriceUnitOfMeasure = DERIVATIVE_PRICE_UNIT_OF_MEASURE,
+        derivative_price_unit_of_measure: opt Code<DerivativePriceUnitOfMeasure> = DERIVATIVE_PRICE_UNIT_OF_MEASURE,
         /// DerivativePriceUnitOfMeasureQty(1316).
         derivative_price_unit_of_measure_qty: opt Decimal = DERIVATIVE_PRICE_UNIT_OF_MEASURE_QTY,
         /// DerivativeSettlMethod(1317).
-        derivative_settl_method: opt DerivativeSettlMethod = DERIVATIVE_SETTL_METHOD,
+        derivative_settl_method: opt Code<DerivativeSettlMethod> = DERIVATIVE_SETTL_METHOD,
         /// DerivativePriceQuoteMethod(1318).
-        derivative_price_quote_method: opt DerivativePriceQuoteMethod = DERIVATIVE_PRICE_QUOTE_METHOD,
+        derivative_price_quote_method: opt Code<DerivativePriceQuoteMethod> = DERIVATIVE_PRICE_QUOTE_METHOD,
         /// DerivativeValuationMethod(1319).
-        derivative_valuation_method: opt DerivativeValuationMethod = DERIVATIVE_VALUATION_METHOD,
+        derivative_valuation_method: opt Code<DerivativeValuationMethod> = DERIVATIVE_VALUATION_METHOD,
         /// DerivativeListMethod(1320).
-        derivative_list_method: opt DerivativeListMethod = DERIVATIVE_LIST_METHOD,
+        derivative_list_method: opt Code<DerivativeListMethod> = DERIVATIVE_LIST_METHOD,
         /// DerivativeCapPrice(1321).
         derivative_cap_price: opt Decimal = DERIVATIVE_CAP_PRICE,
         /// DerivativeFloorPrice(1322).
         derivative_floor_price: opt Decimal = DERIVATIVE_FLOOR_PRICE,
         /// DerivativePutOrCall(1323).
-        derivative_put_or_call: opt DerivativePutOrCall = DERIVATIVE_PUT_OR_CALL,
+        derivative_put_or_call: opt Code<DerivativePutOrCall> = DERIVATIVE_PUT_OR_CALL,
         /// DerivativeExerciseStyle(1299).
-        derivative_exercise_style: opt DerivativeExerciseStyle = DERIVATIVE_EXERCISE_STYLE,
+        derivative_exercise_style: opt Code<DerivativeExerciseStyle> = DERIVATIVE_EXERCISE_STYLE,
         /// DerivativeOptPayAmount(1225).
         derivative_opt_pay_amount: opt Decimal = DERIVATIVE_OPT_PAY_AMOUNT,
         /// DerivativeTimeUnit(1271).
-        derivative_time_unit: opt DerivativeTimeUnit = DERIVATIVE_TIME_UNIT,
+        derivative_time_unit: opt Code<DerivativeTimeUnit> = DERIVATIVE_TIME_UNIT,
         /// DerivativeSecurityExchange(1272).
         derivative_security_exchange: opt CompactString = DERIVATIVE_SECURITY_EXCHANGE,
         /// DerivativePositionLimit(1273).
@@ -12644,21 +12663,24 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
     }
 }
 
 impl DerivativeSecurityListRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(security_req_id: impl Into<CompactString>, security_list_request_type: SecurityListRequestType) -> Self {
+    pub fn new(
+        security_req_id: impl Into<CompactString>,
+        security_list_request_type: impl Into<Code<SecurityListRequestType>>,
+    ) -> Self {
         Self {
             security_req_id: security_req_id.into(),
-            security_list_request_type,
+            security_list_request_type: security_list_request_type.into(),
             market_id: None,
             market_segment_id: None,
             underlying_symbol: None,
@@ -12819,25 +12841,25 @@ turbojet::fix_message! {
         /// SecurityResponseID(322).
         security_response_id: opt CompactString = SECURITY_RESPONSE_ID,
         /// SecurityRequestResult(560).
-        security_request_result: opt SecurityRequestResult = SECURITY_REQUEST_RESULT,
+        security_request_result: opt Code<SecurityRequestResult> = SECURITY_REQUEST_RESULT,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -12849,9 +12871,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -12899,21 +12921,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -12937,11 +12959,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -12961,7 +12983,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -12973,15 +12995,15 @@ turbojet::fix_message! {
         /// DerivativeSymbol(1214).
         derivative_symbol: opt CompactString = DERIVATIVE_SYMBOL,
         /// DerivativeSymbolSfx(1215).
-        derivative_symbol_sfx: opt DerivativeSymbolSfx = DERIVATIVE_SYMBOL_SFX,
+        derivative_symbol_sfx: opt Code<DerivativeSymbolSfx> = DERIVATIVE_SYMBOL_SFX,
         /// DerivativeSecurityID(1216).
         derivative_security_id: opt CompactString = DERIVATIVE_SECURITY_ID,
         /// DerivativeSecurityIDSource(1217).
-        derivative_security_id_source: opt DerivativeSecurityIDSource = DERIVATIVE_SECURITY_ID_SOURCE,
+        derivative_security_id_source: opt Code<DerivativeSecurityIDSource> = DERIVATIVE_SECURITY_ID_SOURCE,
         /// NoDerivativeSecurityAltID(1218).
         derivative_security_alt_id: group DerivativeSecurityAltIDGrp = NO_DERIVATIVE_SECURITY_ALT_ID,
         /// DerivativeProduct(1246).
-        derivative_product: opt DerivativeProduct = DERIVATIVE_PRODUCT,
+        derivative_product: opt Code<DerivativeProduct> = DERIVATIVE_PRODUCT,
         /// DerivativeProductComplex(1228).
         derivative_product_complex: opt CompactString = DERIVATIVE_PRODUCT_COMPLEX,
         /// DerivFlexProductEligibilityIndicator(1243).
@@ -12991,7 +13013,7 @@ turbojet::fix_message! {
         /// DerivativeCFICode(1248).
         derivative_cfi_code: opt CompactString = DERIVATIVE_CFI_CODE,
         /// DerivativeSecurityType(1249).
-        derivative_security_type: opt DerivativeSecurityType = DERIVATIVE_SECURITY_TYPE,
+        derivative_security_type: opt Code<DerivativeSecurityType> = DERIVATIVE_SECURITY_TYPE,
         /// DerivativeSecuritySubType(1250).
         derivative_security_sub_type: opt CompactString = DERIVATIVE_SECURITY_SUB_TYPE,
         /// DerivativeMaturityMonthYear(1251).
@@ -13003,9 +13025,9 @@ turbojet::fix_message! {
         /// DerivativeSettleOnOpenFlag(1254).
         derivative_settle_on_open_flag: opt CompactString = DERIVATIVE_SETTLE_ON_OPEN_FLAG,
         /// DerivativeInstrmtAssignmentMethod(1255).
-        derivative_instrmt_assignment_method: opt DerivativeInstrmtAssignmentMethod = DERIVATIVE_INSTRMT_ASSIGNMENT_METHOD,
+        derivative_instrmt_assignment_method: opt Code<DerivativeInstrmtAssignmentMethod> = DERIVATIVE_INSTRMT_ASSIGNMENT_METHOD,
         /// DerivativeSecurityStatus(1256).
-        derivative_security_status: opt DerivativeSecurityStatus = DERIVATIVE_SECURITY_STATUS,
+        derivative_security_status: opt Code<DerivativeSecurityStatus> = DERIVATIVE_SECURITY_STATUS,
         /// DerivativeIssueDate(1276).
         derivative_issue_date: opt NaiveDate = DERIVATIVE_ISSUE_DATE,
         /// DerivativeInstrRegistry(1257).
@@ -13029,41 +13051,41 @@ turbojet::fix_message! {
         /// DerivativeContractMultiplier(1266).
         derivative_contract_multiplier: opt Decimal = DERIVATIVE_CONTRACT_MULTIPLIER,
         /// DerivativeContractMultiplierUnit(1438).
-        derivative_contract_multiplier_unit: opt DerivativeContractMultiplierUnit = DERIVATIVE_CONTRACT_MULTIPLIER_UNIT,
+        derivative_contract_multiplier_unit: opt Code<DerivativeContractMultiplierUnit> = DERIVATIVE_CONTRACT_MULTIPLIER_UNIT,
         /// DerivativeFlowScheduleType(1442).
-        derivative_flow_schedule_type: opt DerivativeFlowScheduleType = DERIVATIVE_FLOW_SCHEDULE_TYPE,
+        derivative_flow_schedule_type: opt Code<DerivativeFlowScheduleType> = DERIVATIVE_FLOW_SCHEDULE_TYPE,
         /// DerivativeMinPriceIncrement(1267).
         derivative_min_price_increment: opt Decimal = DERIVATIVE_MIN_PRICE_INCREMENT,
         /// DerivativeMinPriceIncrementAmount(1268).
         derivative_min_price_increment_amount: opt Decimal = DERIVATIVE_MIN_PRICE_INCREMENT_AMOUNT,
         /// DerivativeUnitOfMeasure(1269).
-        derivative_unit_of_measure: opt DerivativeUnitOfMeasure = DERIVATIVE_UNIT_OF_MEASURE,
+        derivative_unit_of_measure: opt Code<DerivativeUnitOfMeasure> = DERIVATIVE_UNIT_OF_MEASURE,
         /// DerivativeUnitOfMeasureQty(1270).
         derivative_unit_of_measure_qty: opt Decimal = DERIVATIVE_UNIT_OF_MEASURE_QTY,
         /// DerivativePriceUnitOfMeasure(1315).
-        derivative_price_unit_of_measure: opt DerivativePriceUnitOfMeasure = DERIVATIVE_PRICE_UNIT_OF_MEASURE,
+        derivative_price_unit_of_measure: opt Code<DerivativePriceUnitOfMeasure> = DERIVATIVE_PRICE_UNIT_OF_MEASURE,
         /// DerivativePriceUnitOfMeasureQty(1316).
         derivative_price_unit_of_measure_qty: opt Decimal = DERIVATIVE_PRICE_UNIT_OF_MEASURE_QTY,
         /// DerivativeSettlMethod(1317).
-        derivative_settl_method: opt DerivativeSettlMethod = DERIVATIVE_SETTL_METHOD,
+        derivative_settl_method: opt Code<DerivativeSettlMethod> = DERIVATIVE_SETTL_METHOD,
         /// DerivativePriceQuoteMethod(1318).
-        derivative_price_quote_method: opt DerivativePriceQuoteMethod = DERIVATIVE_PRICE_QUOTE_METHOD,
+        derivative_price_quote_method: opt Code<DerivativePriceQuoteMethod> = DERIVATIVE_PRICE_QUOTE_METHOD,
         /// DerivativeValuationMethod(1319).
-        derivative_valuation_method: opt DerivativeValuationMethod = DERIVATIVE_VALUATION_METHOD,
+        derivative_valuation_method: opt Code<DerivativeValuationMethod> = DERIVATIVE_VALUATION_METHOD,
         /// DerivativeListMethod(1320).
-        derivative_list_method: opt DerivativeListMethod = DERIVATIVE_LIST_METHOD,
+        derivative_list_method: opt Code<DerivativeListMethod> = DERIVATIVE_LIST_METHOD,
         /// DerivativeCapPrice(1321).
         derivative_cap_price: opt Decimal = DERIVATIVE_CAP_PRICE,
         /// DerivativeFloorPrice(1322).
         derivative_floor_price: opt Decimal = DERIVATIVE_FLOOR_PRICE,
         /// DerivativePutOrCall(1323).
-        derivative_put_or_call: opt DerivativePutOrCall = DERIVATIVE_PUT_OR_CALL,
+        derivative_put_or_call: opt Code<DerivativePutOrCall> = DERIVATIVE_PUT_OR_CALL,
         /// DerivativeExerciseStyle(1299).
-        derivative_exercise_style: opt DerivativeExerciseStyle = DERIVATIVE_EXERCISE_STYLE,
+        derivative_exercise_style: opt Code<DerivativeExerciseStyle> = DERIVATIVE_EXERCISE_STYLE,
         /// DerivativeOptPayAmount(1225).
         derivative_opt_pay_amount: opt Decimal = DERIVATIVE_OPT_PAY_AMOUNT,
         /// DerivativeTimeUnit(1271).
-        derivative_time_unit: opt DerivativeTimeUnit = DERIVATIVE_TIME_UNIT,
+        derivative_time_unit: opt Code<DerivativeTimeUnit> = DERIVATIVE_TIME_UNIT,
         /// DerivativeSecurityExchange(1272).
         derivative_security_exchange: opt CompactString = DERIVATIVE_SECURITY_EXCHANGE,
         /// DerivativePositionLimit(1273).
@@ -13274,31 +13296,31 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// DayBookingInst(589).
-        day_booking_inst: opt DayBookingInst = DAY_BOOKING_INST,
+        day_booking_inst: opt Code<DayBookingInst> = DAY_BOOKING_INST,
         /// BookingUnit(590).
-        booking_unit: opt BookingUnit = BOOKING_UNIT,
+        booking_unit: opt Code<BookingUnit> = BOOKING_UNIT,
         /// PreallocMethod(591).
-        prealloc_method: opt PreallocMethod = PREALLOC_METHOD,
+        prealloc_method: opt Code<PreallocMethod> = PREALLOC_METHOD,
         /// AllocID(70).
         alloc_id: opt CompactString = ALLOC_ID,
         /// NoAllocs(78).
         allocs: group PreAllocMlegGrp = NO_ALLOCS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// CashMargin(544).
-        cash_margin: opt CashMargin = CASH_MARGIN,
+        cash_margin: opt Code<CashMargin> = CASH_MARGIN,
         /// ClearingFeeIndicator(635).
-        clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
+        clearing_fee_indicator: opt Code<ClearingFeeIndicator> = CLEARING_FEE_INDICATOR,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -13310,9 +13332,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -13328,25 +13350,25 @@ turbojet::fix_message! {
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -13354,7 +13376,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -13366,15 +13388,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -13422,59 +13444,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -13500,7 +13522,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -13526,7 +13548,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -13534,27 +13556,27 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// OrdType(40).
-        ord_type: req OrdType = ORD_TYPE,
+        ord_type: req Code<OrdType> = ORD_TYPE,
         /// MultilegModel(1377).
-        multileg_model: opt MultilegModel = MULTILEG_MODEL,
+        multileg_model: opt Code<MultilegModel> = MULTILEG_MODEL,
         /// MultilegPriceMethod(1378).
-        multileg_price_method: opt MultilegPriceMethod = MULTILEG_PRICE_METHOD,
+        multileg_price_method: opt Code<MultilegPriceMethod> = MULTILEG_PRICE_METHOD,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -13562,19 +13584,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -13594,9 +13616,9 @@ turbojet::fix_message! {
         /// RefOrderID(1080).
         ref_order_id: opt CompactString = REF_ORDER_ID,
         /// RefOrderIDSource(1081).
-        ref_order_id_source: opt RefOrderIDSource = REF_ORDER_ID_SOURCE,
+        ref_order_id_source: opt Code<RefOrderIDSource> = REF_ORDER_ID_SOURCE,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -13604,37 +13626,37 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CommCurrency(479).
         comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
-        fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
+        fund_renew_waiv: opt Code<FundRenewWaiv> = FUND_RENEW_WAIV,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ForexReq(121).
         forex_req: opt bool = FOREX_REQ,
         /// SettlCurrency(120).
         settl_currency: opt CompactString = SETTL_CURRENCY,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// CoveredOrUncovered(203).
-        covered_or_uncovered: opt CoveredOrUncovered = COVERED_OR_UNCOVERED,
+        covered_or_uncovered: opt Code<CoveredOrUncovered> = COVERED_OR_UNCOVERED,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
@@ -13642,19 +13664,19 @@ turbojet::fix_message! {
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -13662,21 +13684,21 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -13690,15 +13712,15 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         participation_rate: opt Decimal = PARTICIPATION_RATE,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
         designation: opt CompactString = DESIGNATION,
         /// MultiLegRptTypeReq(563).
-        multi_leg_rpt_type_req: opt MultiLegRptTypeReq = MULTI_LEG_RPT_TYPE_REQ,
+        multi_leg_rpt_type_req: opt Code<MultiLegRptTypeReq> = MULTI_LEG_RPT_TYPE_REQ,
     }
 }
 
@@ -13707,9 +13729,9 @@ impl NewOrderMultileg {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         cl_ord_id: impl Into<CompactString>,
-        side: Side,
+        side: impl Into<Code<Side>>,
         transact_time: UtcTimestamp,
-        ord_type: OrdType,
+        ord_type: impl Into<Code<OrdType>>,
     ) -> Self {
         Self {
             cl_ord_id: cl_ord_id.into(),
@@ -13748,7 +13770,7 @@ impl NewOrderMultileg {
             ex_destination_id_source: None,
             trading_sessions: Vec::new(),
             process_code: None,
-            side,
+            side: side.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -13846,7 +13868,7 @@ impl NewOrderMultileg {
             order_percent: None,
             rounding_direction: None,
             rounding_modulus: None,
-            ord_type,
+            ord_type: ord_type.into(),
             multileg_model: None,
             multileg_price_method: None,
             price_type: None,
@@ -13952,31 +13974,31 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// DayBookingInst(589).
-        day_booking_inst: opt DayBookingInst = DAY_BOOKING_INST,
+        day_booking_inst: opt Code<DayBookingInst> = DAY_BOOKING_INST,
         /// BookingUnit(590).
-        booking_unit: opt BookingUnit = BOOKING_UNIT,
+        booking_unit: opt Code<BookingUnit> = BOOKING_UNIT,
         /// PreallocMethod(591).
-        prealloc_method: opt PreallocMethod = PREALLOC_METHOD,
+        prealloc_method: opt Code<PreallocMethod> = PREALLOC_METHOD,
         /// AllocID(70).
         alloc_id: opt CompactString = ALLOC_ID,
         /// NoAllocs(78).
         allocs: group PreAllocMlegGrp = NO_ALLOCS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// CashMargin(544).
-        cash_margin: opt CashMargin = CASH_MARGIN,
+        cash_margin: opt Code<CashMargin> = CASH_MARGIN,
         /// ClearingFeeIndicator(635).
-        clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
+        clearing_fee_indicator: opt Code<ClearingFeeIndicator> = CLEARING_FEE_INDICATOR,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MatchIncrement(1089).
@@ -13988,9 +14010,9 @@ turbojet::fix_message! {
         /// SecondaryDisplayQty(1082).
         secondary_display_qty: opt Decimal = SECONDARY_DISPLAY_QTY,
         /// DisplayWhen(1083).
-        display_when: opt DisplayWhen = DISPLAY_WHEN,
+        display_when: opt Code<DisplayWhen> = DISPLAY_WHEN,
         /// DisplayMethod(1084).
-        display_method: opt DisplayMethod = DISPLAY_METHOD,
+        display_method: opt Code<DisplayMethod> = DISPLAY_METHOD,
         /// DisplayLowQty(1085).
         display_low_qty: opt Decimal = DISPLAY_LOW_QTY,
         /// DisplayHighQty(1086).
@@ -14006,25 +14028,25 @@ turbojet::fix_message! {
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -14032,7 +14054,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -14044,15 +14066,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -14100,59 +14122,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -14178,7 +14200,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -14204,7 +14226,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -14212,27 +14234,27 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// OrdType(40).
-        ord_type: req OrdType = ORD_TYPE,
+        ord_type: req Code<OrdType> = ORD_TYPE,
         /// MultilegModel(1377).
-        multileg_model: opt MultilegModel = MULTILEG_MODEL,
+        multileg_model: opt Code<MultilegModel> = MULTILEG_MODEL,
         /// MultilegPriceMethod(1378).
-        multileg_price_method: opt MultilegPriceMethod = MULTILEG_PRICE_METHOD,
+        multileg_price_method: opt Code<MultilegPriceMethod> = MULTILEG_PRICE_METHOD,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceProtectionScope(1092).
-        price_protection_scope: opt PriceProtectionScope = PRICE_PROTECTION_SCOPE,
+        price_protection_scope: opt Code<PriceProtectionScope> = PRICE_PROTECTION_SCOPE,
         /// StopPx(99).
         stop_px: opt Decimal = STOP_PX,
         /// TriggerType(1100).
-        trigger_type: opt TriggerType = TRIGGER_TYPE,
+        trigger_type: opt Code<TriggerType> = TRIGGER_TYPE,
         /// TriggerAction(1101).
-        trigger_action: opt TriggerAction = TRIGGER_ACTION,
+        trigger_action: opt Code<TriggerAction> = TRIGGER_ACTION,
         /// TriggerPrice(1102).
         trigger_price: opt Decimal = TRIGGER_PRICE,
         /// TriggerSymbol(1103).
@@ -14240,19 +14262,19 @@ turbojet::fix_message! {
         /// TriggerSecurityID(1104).
         trigger_security_id: opt CompactString = TRIGGER_SECURITY_ID,
         /// TriggerSecurityIDSource(1105).
-        trigger_security_id_source: opt TriggerSecurityIDSource = TRIGGER_SECURITY_ID_SOURCE,
+        trigger_security_id_source: opt Code<TriggerSecurityIDSource> = TRIGGER_SECURITY_ID_SOURCE,
         /// TriggerSecurityDesc(1106).
         trigger_security_desc: opt CompactString = TRIGGER_SECURITY_DESC,
         /// TriggerPriceType(1107).
-        trigger_price_type: opt TriggerPriceType = TRIGGER_PRICE_TYPE,
+        trigger_price_type: opt Code<TriggerPriceType> = TRIGGER_PRICE_TYPE,
         /// TriggerPriceTypeScope(1108).
-        trigger_price_type_scope: opt TriggerPriceTypeScope = TRIGGER_PRICE_TYPE_SCOPE,
+        trigger_price_type_scope: opt Code<TriggerPriceTypeScope> = TRIGGER_PRICE_TYPE_SCOPE,
         /// TriggerPriceDirection(1109).
-        trigger_price_direction: opt TriggerPriceDirection = TRIGGER_PRICE_DIRECTION,
+        trigger_price_direction: opt Code<TriggerPriceDirection> = TRIGGER_PRICE_DIRECTION,
         /// TriggerNewPrice(1110).
         trigger_new_price: opt Decimal = TRIGGER_NEW_PRICE,
         /// TriggerOrderType(1111).
-        trigger_order_type: opt TriggerOrderType = TRIGGER_ORDER_TYPE,
+        trigger_order_type: opt Code<TriggerOrderType> = TRIGGER_ORDER_TYPE,
         /// TriggerNewQty(1112).
         trigger_new_qty: opt Decimal = TRIGGER_NEW_QTY,
         /// TriggerTradingSessionID(1113).
@@ -14270,7 +14292,7 @@ turbojet::fix_message! {
         /// QuoteID(117).
         quote_id: opt CompactString = QUOTE_ID,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -14278,37 +14300,37 @@ turbojet::fix_message! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CommCurrency(479).
         comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
-        fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
+        fund_renew_waiv: opt Code<FundRenewWaiv> = FUND_RENEW_WAIV,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ForexReq(121).
         forex_req: opt bool = FOREX_REQ,
         /// SettlCurrency(120).
         settl_currency: opt CompactString = SETTL_CURRENCY,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// CoveredOrUncovered(203).
-        covered_or_uncovered: opt CoveredOrUncovered = COVERED_OR_UNCOVERED,
+        covered_or_uncovered: opt Code<CoveredOrUncovered> = COVERED_OR_UNCOVERED,
         /// MaxShow(210).
         ///
         /// Deprecated in the FIX standard.
@@ -14316,19 +14338,19 @@ turbojet::fix_message! {
         /// PegOffsetValue(211).
         peg_offset_value: opt Decimal = PEG_OFFSET_VALUE,
         /// PegPriceType(1094).
-        peg_price_type: opt PegPriceType = PEG_PRICE_TYPE,
+        peg_price_type: opt Code<PegPriceType> = PEG_PRICE_TYPE,
         /// PegMoveType(835).
-        peg_move_type: opt PegMoveType = PEG_MOVE_TYPE,
+        peg_move_type: opt Code<PegMoveType> = PEG_MOVE_TYPE,
         /// PegOffsetType(836).
-        peg_offset_type: opt PegOffsetType = PEG_OFFSET_TYPE,
+        peg_offset_type: opt Code<PegOffsetType> = PEG_OFFSET_TYPE,
         /// PegLimitType(837).
-        peg_limit_type: opt PegLimitType = PEG_LIMIT_TYPE,
+        peg_limit_type: opt Code<PegLimitType> = PEG_LIMIT_TYPE,
         /// PegRoundDirection(838).
-        peg_round_direction: opt PegRoundDirection = PEG_ROUND_DIRECTION,
+        peg_round_direction: opt Code<PegRoundDirection> = PEG_ROUND_DIRECTION,
         /// PegScope(840).
-        peg_scope: opt PegScope = PEG_SCOPE,
+        peg_scope: opt Code<PegScope> = PEG_SCOPE,
         /// PegSecurityIDSource(1096).
-        peg_security_id_source: opt PegSecurityIDSource = PEG_SECURITY_ID_SOURCE,
+        peg_security_id_source: opt Code<PegSecurityIDSource> = PEG_SECURITY_ID_SOURCE,
         /// PegSecurityID(1097).
         peg_security_id: opt CompactString = PEG_SECURITY_ID,
         /// PegSymbol(1098).
@@ -14336,21 +14358,21 @@ turbojet::fix_message! {
         /// PegSecurityDesc(1099).
         peg_security_desc: opt CompactString = PEG_SECURITY_DESC,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffsetValue(389).
         discretion_offset_value: opt Decimal = DISCRETION_OFFSET_VALUE,
         /// DiscretionMoveType(841).
-        discretion_move_type: opt DiscretionMoveType = DISCRETION_MOVE_TYPE,
+        discretion_move_type: opt Code<DiscretionMoveType> = DISCRETION_MOVE_TYPE,
         /// DiscretionOffsetType(842).
-        discretion_offset_type: opt DiscretionOffsetType = DISCRETION_OFFSET_TYPE,
+        discretion_offset_type: opt Code<DiscretionOffsetType> = DISCRETION_OFFSET_TYPE,
         /// DiscretionLimitType(843).
-        discretion_limit_type: opt DiscretionLimitType = DISCRETION_LIMIT_TYPE,
+        discretion_limit_type: opt Code<DiscretionLimitType> = DISCRETION_LIMIT_TYPE,
         /// DiscretionRoundDirection(844).
-        discretion_round_direction: opt DiscretionRoundDirection = DISCRETION_ROUND_DIRECTION,
+        discretion_round_direction: opt Code<DiscretionRoundDirection> = DISCRETION_ROUND_DIRECTION,
         /// DiscretionScope(846).
-        discretion_scope: opt DiscretionScope = DISCRETION_SCOPE,
+        discretion_scope: opt Code<DiscretionScope> = DISCRETION_SCOPE,
         /// TargetStrategy(847).
-        target_strategy: opt TargetStrategy = TARGET_STRATEGY,
+        target_strategy: opt Code<TargetStrategy> = TARGET_STRATEGY,
         /// NoStrategyParameters(957).
         strategy_parameters: group StrategyParametersGrp = NO_STRATEGY_PARAMETERS,
         /// TargetStrategyParameters(848).
@@ -14364,22 +14386,22 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         participation_rate: opt Decimal = PARTICIPATION_RATE,
         /// CancellationRights(480).
-        cancellation_rights: opt CancellationRights = CANCELLATION_RIGHTS,
+        cancellation_rights: opt Code<CancellationRights> = CANCELLATION_RIGHTS,
         /// MoneyLaunderingStatus(481).
-        money_laundering_status: opt MoneyLaunderingStatus = MONEY_LAUNDERING_STATUS,
+        money_laundering_status: opt Code<MoneyLaunderingStatus> = MONEY_LAUNDERING_STATUS,
         /// RegistID(513).
         regist_id: opt CompactString = REGIST_ID,
         /// Designation(494).
         designation: opt CompactString = DESIGNATION,
         /// MultiLegRptTypeReq(563).
-        multi_leg_rpt_type_req: opt MultiLegRptTypeReq = MULTI_LEG_RPT_TYPE_REQ,
+        multi_leg_rpt_type_req: opt Code<MultiLegRptTypeReq> = MULTI_LEG_RPT_TYPE_REQ,
     }
 }
 
 impl MultilegOrderCancelReplace {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(side: Side, transact_time: UtcTimestamp, ord_type: OrdType) -> Self {
+    pub fn new(side: impl Into<Code<Side>>, transact_time: UtcTimestamp, ord_type: impl Into<Code<OrdType>>) -> Self {
         Self {
             order_id: None,
             orig_cl_ord_id: None,
@@ -14420,7 +14442,7 @@ impl MultilegOrderCancelReplace {
             ex_destination_id_source: None,
             trading_sessions: Vec::new(),
             process_code: None,
-            side,
+            side: side.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -14518,7 +14540,7 @@ impl MultilegOrderCancelReplace {
             order_percent: None,
             rounding_direction: None,
             rounding_modulus: None,
-            ord_type,
+            ord_type: ord_type.into(),
             multileg_model: None,
             multileg_price_method: None,
             price_type: None,
@@ -14612,9 +14634,9 @@ turbojet::fix_message! {
         /// SecondaryFirmTradeID(1042).
         secondary_firm_trade_id: opt CompactString = SECONDARY_FIRM_TRADE_ID,
         /// TradeRequestType(569).
-        trade_request_type: req TradeRequestType = TRADE_REQUEST_TYPE,
+        trade_request_type: req Code<TradeRequestType> = TRADE_REQUEST_TYPE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// TradeReportID(571).
         trade_report_id: opt CompactString = TRADE_REPORT_ID,
         /// SecondaryTradeReportID(818).
@@ -14624,23 +14646,23 @@ turbojet::fix_message! {
         /// ExecID(17).
         exec_id: opt CompactString = EXEC_ID,
         /// ExecType(150).
-        exec_type: opt ExecType = EXEC_TYPE,
+        exec_type: opt Code<ExecType> = EXEC_TYPE,
         /// OrderID(37).
         order_id: opt CompactString = ORDER_ID,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// TrdType(828).
-        trd_type: opt TrdType = TRD_TYPE,
+        trd_type: opt Code<TrdType> = TRD_TYPE,
         /// TrdSubType(829).
-        trd_sub_type: opt TrdSubType = TRD_SUB_TYPE,
+        trd_sub_type: opt Code<TrdSubType> = TRD_SUB_TYPE,
         /// TradeHandlingInstr(1123).
-        trade_handling_instr: opt TradeHandlingInstr = TRADE_HANDLING_INSTR,
+        trade_handling_instr: opt Code<TradeHandlingInstr> = TRADE_HANDLING_INSTR,
         /// TransferReason(830).
         transfer_reason: opt CompactString = TRANSFER_REASON,
         /// SecondaryTrdType(855).
-        secondary_trd_type: opt SecondaryTrdType = SECONDARY_TRD_TYPE,
+        secondary_trd_type: opt Code<SecondaryTrdType> = SECONDARY_TRD_TYPE,
         /// TradeLinkID(820).
         trade_link_id: opt CompactString = TRADE_LINK_ID,
         /// TrdMatchID(880).
@@ -14650,15 +14672,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -14666,7 +14688,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -14678,15 +14700,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -14734,59 +14756,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -14812,7 +14834,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -14826,7 +14848,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -14840,13 +14862,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -14858,21 +14880,21 @@ turbojet::fix_message! {
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// TimeBracket(943).
         time_bracket: opt CompactString = TIME_BRACKET,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// TradeInputSource(578).
         trade_input_source: opt CompactString = TRADE_INPUT_SOURCE,
         /// TradeInputDevice(579).
         trade_input_device: opt CompactString = TRADE_INPUT_DEVICE,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// Text(58).
@@ -14887,14 +14909,17 @@ turbojet::fix_message! {
 impl TradeCaptureReportRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trade_request_id: impl Into<CompactString>, trade_request_type: TradeRequestType) -> Self {
+    pub fn new(
+        trade_request_id: impl Into<CompactString>,
+        trade_request_type: impl Into<Code<TradeRequestType>>,
+    ) -> Self {
         Self {
             trade_request_id: trade_request_id.into(),
             trade_id: None,
             secondary_trade_id: None,
             firm_trade_id: None,
             secondary_firm_trade_id: None,
-            trade_request_type,
+            trade_request_type: trade_request_type.into(),
             subscription_request_type: None,
             trade_report_id: None,
             secondary_trade_report_id: None,
@@ -15050,23 +15075,23 @@ turbojet::fix_message! {
         /// SecondaryFirmTradeID(1042).
         secondary_firm_trade_id: opt CompactString = SECONDARY_FIRM_TRADE_ID,
         /// TradeReportTransType(487).
-        trade_report_trans_type: opt TradeReportTransType = TRADE_REPORT_TRANS_TYPE,
+        trade_report_trans_type: opt Code<TradeReportTransType> = TRADE_REPORT_TRANS_TYPE,
         /// TradeReportType(856).
-        trade_report_type: opt TradeReportType = TRADE_REPORT_TYPE,
+        trade_report_type: opt Code<TradeReportType> = TRADE_REPORT_TYPE,
         /// TrdRptStatus(939).
-        trd_rpt_status: opt TrdRptStatus = TRD_RPT_STATUS,
+        trd_rpt_status: opt Code<TrdRptStatus> = TRD_RPT_STATUS,
         /// TradeRequestID(568).
         trade_request_id: opt CompactString = TRADE_REQUEST_ID,
         /// TrdType(828).
-        trd_type: opt TrdType = TRD_TYPE,
+        trd_type: opt Code<TrdType> = TRD_TYPE,
         /// TrdSubType(829).
-        trd_sub_type: opt TrdSubType = TRD_SUB_TYPE,
+        trd_sub_type: opt Code<TrdSubType> = TRD_SUB_TYPE,
         /// SecondaryTrdType(855).
-        secondary_trd_type: opt SecondaryTrdType = SECONDARY_TRD_TYPE,
+        secondary_trd_type: opt Code<SecondaryTrdType> = SECONDARY_TRD_TYPE,
         /// TradeHandlingInstr(1123).
-        trade_handling_instr: opt TradeHandlingInstr = TRADE_HANDLING_INSTR,
+        trade_handling_instr: opt Code<TradeHandlingInstr> = TRADE_HANDLING_INSTR,
         /// OrigTradeHandlingInstr(1124).
-        orig_trade_handling_instr: opt OrigTradeHandlingInstr = ORIG_TRADE_HANDLING_INSTR,
+        orig_trade_handling_instr: opt Code<OrigTradeHandlingInstr> = ORIG_TRADE_HANDLING_INSTR,
         /// OrigTradeDate(1125).
         orig_trade_date: opt NaiveDate = ORIG_TRADE_DATE,
         /// OrigTradeID(1126).
@@ -15076,7 +15101,7 @@ turbojet::fix_message! {
         /// TransferReason(830).
         transfer_reason: opt CompactString = TRANSFER_REASON,
         /// ExecType(150).
-        exec_type: opt ExecType = EXEC_TYPE,
+        exec_type: opt Code<ExecType> = EXEC_TYPE,
         /// TotNumTradeReports(748).
         tot_num_trade_reports: opt i64 = TOT_NUM_TRADE_REPORTS,
         /// LastRptRequested(912).
@@ -15084,7 +15109,7 @@ turbojet::fix_message! {
         /// UnsolicitedIndicator(325).
         unsolicited_indicator: opt bool = UNSOLICITED_INDICATOR,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// TradeReportRefID(572).
         trade_report_ref_id: opt CompactString = TRADE_REPORT_REF_ID,
         /// SecondaryTradeReportRefID(881).
@@ -15104,21 +15129,21 @@ turbojet::fix_message! {
         /// SecondaryExecID(527).
         secondary_exec_id: opt CompactString = SECONDARY_EXEC_ID,
         /// ExecRestatementReason(378).
-        exec_restatement_reason: opt ExecRestatementReason = EXEC_RESTATEMENT_REASON,
+        exec_restatement_reason: opt Code<ExecRestatementReason> = EXEC_RESTATEMENT_REASON,
         /// PreviouslyReported(570).
         previously_reported: opt bool = PREVIOUSLY_REPORTED,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// NoRootPartyIDs(1116).
         root_party_ids: group RootParties = NO_ROOT_PARTY_IDS,
         /// AsOfIndicator(1015).
-        as_of_indicator: opt AsOfIndicator = AS_OF_INDICATOR,
+        as_of_indicator: opt Code<AsOfIndicator> = AS_OF_INDICATOR,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// VenueType(1430).
-        venue_type: opt VenueType = VENUE_TYPE,
+        venue_type: opt Code<VenueType> = VENUE_TYPE,
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// MarketID(1301).
@@ -15126,15 +15151,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -15142,7 +15167,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -15154,15 +15179,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -15210,59 +15235,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -15288,7 +15313,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -15310,19 +15335,19 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -15332,7 +15357,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// UnderlyingTradingSessionID(822).
@@ -15370,23 +15395,23 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// AvgPxIndicator(819).
-        avg_px_indicator: opt AvgPxIndicator = AVG_PX_INDICATOR,
+        avg_px_indicator: opt Code<AvgPxIndicator> = AVG_PX_INDICATOR,
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// TradeLegRefID(824).
         trade_leg_ref_id: opt CompactString = TRADE_LEG_REF_ID,
         /// NoLegs(555).
@@ -15396,15 +15421,15 @@ turbojet::fix_message! {
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// UnderlyingSettlementDate(987).
         underlying_settlement_date: opt NaiveDate = UNDERLYING_SETTLEMENT_DATE,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// MatchType(574).
-        match_type: opt MatchType = MATCH_TYPE,
+        match_type: opt Code<MatchType> = MATCH_TYPE,
         /// NoSides(552).
         sides: req_group TrdCapRptSideGrp = NO_SIDES,
         /// Volatility(1188).
@@ -15424,9 +15449,9 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         publish_trd_indicator: opt bool = PUBLISH_TRD_INDICATOR,
         /// TradePublishIndicator(1390).
-        trade_publish_indicator: opt TradePublishIndicator = TRADE_PUBLISH_INDICATOR,
+        trade_publish_indicator: opt Code<TradePublishIndicator> = TRADE_PUBLISH_INDICATOR,
         /// ShortSaleReason(853).
-        short_sale_reason: opt ShortSaleReason = SHORT_SALE_REASON,
+        short_sale_reason: opt Code<ShortSaleReason> = SHORT_SALE_REASON,
         /// TierCode(994).
         tier_code: opt CompactString = TIER_CODE,
         /// MessageEventSource(1011).
@@ -15663,7 +15688,7 @@ turbojet::fix_message! {
         /// MassStatusReqID(584).
         mass_status_req_id: req CompactString = MASS_STATUS_REQ_ID,
         /// MassStatusReqType(585).
-        mass_status_req_type: req MassStatusReqType = MASS_STATUS_REQ_TYPE,
+        mass_status_req_type: req Code<MassStatusReqType> = MASS_STATUS_REQ_TYPE,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -15671,23 +15696,23 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -15695,7 +15720,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -15707,15 +15732,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -15763,59 +15788,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -15841,7 +15866,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -15857,19 +15882,19 @@ turbojet::fix_message! {
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -15881,9 +15906,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -15931,21 +15956,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -15969,11 +15994,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -15993,7 +16018,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -16003,17 +16028,20 @@ turbojet::fix_message! {
         /// UnderlyingPutOrCall(315).
         underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
     }
 }
 
 impl OrderMassStatusRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(mass_status_req_id: impl Into<CompactString>, mass_status_req_type: MassStatusReqType) -> Self {
+    pub fn new(
+        mass_status_req_id: impl Into<CompactString>,
+        mass_status_req_type: impl Into<Code<MassStatusReqType>>,
+    ) -> Self {
         Self {
             mass_status_req_id: mass_status_req_id.into(),
-            mass_status_req_type,
+            mass_status_req_type: mass_status_req_type.into(),
             party_ids: Vec::new(),
             target_party_ids: Vec::new(),
             account: None,
@@ -16188,11 +16216,11 @@ turbojet::fix_message! {
         /// RFQReqID(644).
         rfq_req_id: opt CompactString = RFQ_REQ_ID,
         /// QuoteRequestRejectReason(658).
-        quote_request_reject_reason: req QuoteRequestRejectReason = QUOTE_REQUEST_REJECT_REASON,
+        quote_request_reject_reason: req Code<QuoteRequestRejectReason> = QUOTE_REQUEST_REJECT_REASON,
         /// PrivateQuote(1171).
         private_quote: opt bool = PRIVATE_QUOTE,
         /// RespondentType(1172).
-        respondent_type: opt RespondentType = RESPONDENT_TYPE,
+        respondent_type: opt Code<RespondentType> = RESPONDENT_TYPE,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// NoRootPartyIDs(1116).
@@ -16211,13 +16239,13 @@ impl QuoteRequestReject {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         quote_req_id: impl Into<CompactString>,
-        quote_request_reject_reason: QuoteRequestRejectReason,
+        quote_request_reject_reason: impl Into<Code<QuoteRequestRejectReason>>,
         related_sym: Vec<QuotReqRjctGrp>,
     ) -> Self {
         Self {
             quote_req_id: quote_req_id.into(),
             rfq_req_id: None,
-            quote_request_reject_reason,
+            quote_request_reject_reason: quote_request_reject_reason.into(),
             private_quote: None,
             respondent_type: None,
             pre_trade_anonymity: None,
@@ -16239,7 +16267,7 @@ turbojet::fix_message! {
         /// NoRelatedSym(146).
         related_sym: req_group RFQReqGrp = NO_RELATED_SYM,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// PrivateQuote(1171).
         private_quote: opt bool = PRIVATE_QUOTE,
     }
@@ -16273,29 +16301,29 @@ turbojet::fix_message! {
         /// QuoteRespID(693).
         quote_resp_id: opt CompactString = QUOTE_RESP_ID,
         /// QuoteType(537).
-        quote_type: opt QuoteType = QUOTE_TYPE,
+        quote_type: opt Code<QuoteType> = QUOTE_TYPE,
         /// QuoteCancelType(298).
-        quote_cancel_type: opt QuoteCancelType = QUOTE_CANCEL_TYPE,
+        quote_cancel_type: opt Code<QuoteCancelType> = QUOTE_CANCEL_TYPE,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
         target_party_ids: group TargetParties = NO_TARGET_PARTY_IDS,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -16303,7 +16331,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -16315,15 +16343,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -16371,59 +16399,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -16449,7 +16477,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -16471,19 +16499,19 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -16491,11 +16519,11 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// SettlDate2(193).
@@ -16513,9 +16541,9 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// NoLegs(555).
         legs: group LegQuotStatGrp = NO_LEGS,
         /// NoQuoteQualifiers(735).
@@ -16525,25 +16553,25 @@ turbojet::fix_message! {
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Spread(218).
         spread: opt Decimal = SPREAD,
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -16553,7 +16581,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// BidPx(132).
         bid_px: opt Decimal = BID_PX,
         /// OfferPx(133).
@@ -16593,7 +16621,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// BidForwardPoints2(642).
         ///
         /// Deprecated in the FIX standard.
@@ -16607,27 +16635,27 @@ turbojet::fix_message! {
         /// SettlCurrOfferFxRate(657).
         settl_curr_offer_fx_rate: opt Decimal = SETTL_CURR_OFFER_FX_RATE,
         /// SettlCurrFxRateCalc(156).
-        settl_curr_fx_rate_calc: opt SettlCurrFxRateCalc = SETTL_CURR_FX_RATE_CALC,
+        settl_curr_fx_rate_calc: opt Code<SettlCurrFxRateCalc> = SETTL_CURR_FX_RATE_CALC,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// QuoteStatus(297).
-        quote_status: opt QuoteStatus = QUOTE_STATUS,
+        quote_status: opt Code<QuoteStatus> = QUOTE_STATUS,
         /// QuoteRejectReason(300).
-        quote_reject_reason: opt QuoteRejectReason = QUOTE_REJECT_REASON,
+        quote_reject_reason: opt Code<QuoteRejectReason> = QUOTE_REJECT_REASON,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -16831,17 +16859,17 @@ turbojet::fix_message! {
         /// QuoteMsgID(1166).
         quote_msg_id: opt CompactString = QUOTE_MSG_ID,
         /// QuoteRespType(694).
-        quote_resp_type: req QuoteRespType = QUOTE_RESP_TYPE,
+        quote_resp_type: req Code<QuoteRespType> = QUOTE_RESP_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderCapacity(528).
-        order_capacity: opt OrderCapacity = ORDER_CAPACITY,
+        order_capacity: opt Code<OrderCapacity> = ORDER_CAPACITY,
         /// OrderRestrictions(529).
-        order_restrictions: opt Vec<OrderRestrictions> = ORDER_RESTRICTIONS,
+        order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
         /// IOIID(23).
         ioiid: opt CompactString = IOIID,
         /// QuoteType(537).
-        quote_type: opt QuoteType = QUOTE_TYPE,
+        quote_type: opt Code<QuoteType> = QUOTE_TYPE,
         /// PreTradeAnonymity(1091).
         pre_trade_anonymity: opt bool = PRE_TRADE_ANONYMITY,
         /// NoQuoteQualifiers(735).
@@ -16849,21 +16877,21 @@ turbojet::fix_message! {
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -16871,7 +16899,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -16883,15 +16911,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -16939,59 +16967,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -17017,7 +17045,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -17039,19 +17067,19 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -17059,13 +17087,13 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// SettlDate2(193).
@@ -17083,9 +17111,9 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// NoLegs(555).
         legs: group LegQuotGrp = NO_LEGS,
         /// BidPx(132).
@@ -17125,7 +17153,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// BidForwardPoints2(642).
         ///
         /// Deprecated in the FIX standard.
@@ -17139,17 +17167,17 @@ turbojet::fix_message! {
         /// SettlCurrOfferFxRate(657).
         settl_curr_offer_fx_rate: opt Decimal = SETTL_CURR_OFFER_FX_RATE,
         /// SettlCurrFxRateCalc(156).
-        settl_curr_fx_rate_calc: opt SettlCurrFxRateCalc = SETTL_CURR_FX_RATE_CALC,
+        settl_curr_fx_rate_calc: opt Code<SettlCurrFxRateCalc> = SETTL_CURR_FX_RATE_CALC,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// ExDestination(100).
         ex_destination: opt CompactString = EX_DESTINATION,
         /// ExDestinationIDSource(1133).
-        ex_destination_id_source: opt ExDestinationIDSource = EX_DESTINATION_ID_SOURCE,
+        ex_destination_id_source: opt Code<ExDestinationIDSource> = EX_DESTINATION_ID_SOURCE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -17157,25 +17185,25 @@ turbojet::fix_message! {
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// Spread(218).
         spread: opt Decimal = SPREAD,
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -17185,19 +17213,19 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
     }
 }
 
 impl QuoteResponse {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(quote_resp_id: impl Into<CompactString>, quote_resp_type: QuoteRespType) -> Self {
+    pub fn new(quote_resp_id: impl Into<CompactString>, quote_resp_type: impl Into<Code<QuoteRespType>>) -> Self {
         Self {
             quote_resp_id: quote_resp_id.into(),
             quote_id: None,
             quote_msg_id: None,
-            quote_resp_type,
+            quote_resp_type: quote_resp_type.into(),
             cl_ord_id: None,
             order_capacity: None,
             order_restrictions: None,
@@ -17381,15 +17409,15 @@ turbojet::fix_message! {
         /// ConfirmReqID(859).
         confirm_req_id: opt CompactString = CONFIRM_REQ_ID,
         /// ConfirmTransType(666).
-        confirm_trans_type: req ConfirmTransType = CONFIRM_TRANS_TYPE,
+        confirm_trans_type: req Code<ConfirmTransType> = CONFIRM_TRANS_TYPE,
         /// ConfirmType(773).
-        confirm_type: req ConfirmType = CONFIRM_TYPE,
+        confirm_type: req Code<ConfirmType> = CONFIRM_TYPE,
         /// CopyMsgIndicator(797).
         copy_msg_indicator: opt bool = COPY_MSG_INDICATOR,
         /// LegalConfirm(650).
         legal_confirm: opt bool = LEGAL_CONFIRM,
         /// ConfirmStatus(665).
-        confirm_status: req ConfirmStatus = CONFIRM_STATUS,
+        confirm_status: req Code<ConfirmStatus> = CONFIRM_STATUS,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoOrders(73).
@@ -17409,15 +17437,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -17425,7 +17453,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -17437,15 +17465,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -17493,59 +17521,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -17571,7 +17599,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -17585,7 +17613,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -17599,13 +17627,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -17613,7 +17641,7 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -17623,13 +17651,13 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// AllocQty(80).
         alloc_qty: req Decimal = ALLOC_QTY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// LastMkt(30).
@@ -17639,15 +17667,15 @@ turbojet::fix_message! {
         /// AllocAccount(79).
         alloc_account: req CompactString = ALLOC_ACCOUNT,
         /// AllocAcctIDSource(661).
-        alloc_acct_id_source: opt AllocAcctIDSource = ALLOC_ACCT_ID_SOURCE,
+        alloc_acct_id_source: opt Code<AllocAcctIDSource> = ALLOC_ACCT_ID_SOURCE,
         /// AllocAccountType(798).
-        alloc_account_type: opt AllocAccountType = ALLOC_ACCOUNT_TYPE,
+        alloc_account_type: opt Code<AllocAccountType> = ALLOC_ACCOUNT_TYPE,
         /// AvgPx(6).
         avg_px: req Decimal = AVG_PX,
         /// AvgPxPrecision(74).
         avg_px_precision: opt i64 = AVG_PX_PRECISION,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AvgParPx(860).
         avg_par_px: opt Decimal = AVG_PAR_PX,
         /// Spread(218).
@@ -17655,17 +17683,17 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// ReportedPx(861).
         reported_px: opt Decimal = REPORTED_PX,
         /// Text(58).
@@ -17673,7 +17701,7 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// GrossTradeAmt(381).
         gross_trade_amt: req Decimal = GROSS_TRADE_AMT,
         /// NumDaysInterest(157).
@@ -17707,15 +17735,15 @@ turbojet::fix_message! {
         /// SettlCurrFxRate(155).
         settl_curr_fx_rate: opt Decimal = SETTL_CURR_FX_RATE,
         /// SettlCurrFxRateCalc(156).
-        settl_curr_fx_rate_calc: opt SettlCurrFxRateCalc = SETTL_CURR_FX_RATE_CALC,
+        settl_curr_fx_rate_calc: opt Code<SettlCurrFxRateCalc> = SETTL_CURR_FX_RATE_CALC,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// SettlDeliveryType(172).
-        settl_delivery_type: opt SettlDeliveryType = SETTL_DELIVERY_TYPE,
+        settl_delivery_type: opt Code<SettlDeliveryType> = SETTL_DELIVERY_TYPE,
         /// StandInstDbType(169).
-        stand_inst_db_type: opt StandInstDbType = STAND_INST_DB_TYPE,
+        stand_inst_db_type: opt Code<StandInstDbType> = STAND_INST_DB_TYPE,
         /// StandInstDbName(170).
         stand_inst_db_name: opt CompactString = STAND_INST_DB_NAME,
         /// StandInstDbID(171).
@@ -17725,11 +17753,11 @@ turbojet::fix_message! {
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// CommCurrency(479).
         comm_currency: opt CompactString = COMM_CURRENCY,
         /// FundRenewWaiv(497).
-        fund_renew_waiv: opt FundRenewWaiv = FUND_RENEW_WAIV,
+        fund_renew_waiv: opt Code<FundRenewWaiv> = FUND_RENEW_WAIV,
         /// SharedCommission(858).
         shared_commission: opt Decimal = SHARED_COMMISSION,
         /// NoStipulations(232).
@@ -17744,13 +17772,13 @@ impl Confirmation {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         confirm_id: impl Into<CompactString>,
-        confirm_trans_type: ConfirmTransType,
-        confirm_type: ConfirmType,
-        confirm_status: ConfirmStatus,
+        confirm_trans_type: impl Into<Code<ConfirmTransType>>,
+        confirm_type: impl Into<Code<ConfirmType>>,
+        confirm_status: impl Into<Code<ConfirmStatus>>,
         transact_time: UtcTimestamp,
         trade_date: NaiveDate,
         alloc_qty: Decimal,
-        side: Side,
+        side: impl Into<Code<Side>>,
         capacities: Vec<CpctyConfGrp>,
         alloc_account: impl Into<CompactString>,
         avg_px: Decimal,
@@ -17761,11 +17789,11 @@ impl Confirmation {
             confirm_id: confirm_id.into(),
             confirm_ref_id: None,
             confirm_req_id: None,
-            confirm_trans_type,
-            confirm_type,
+            confirm_trans_type: confirm_trans_type.into(),
+            confirm_type: confirm_type.into(),
             copy_msg_indicator: None,
             legal_confirm: None,
-            confirm_status,
+            confirm_status: confirm_status.into(),
             party_ids: Vec::new(),
             orders: Vec::new(),
             alloc_id: None,
@@ -17881,7 +17909,7 @@ impl Confirmation {
             yield_redemption_price_type: None,
             alloc_qty,
             qty_type: None,
-            side,
+            side: side.into(),
             currency: None,
             last_mkt: None,
             capacities,
@@ -17945,9 +17973,9 @@ turbojet::fix_message! {
         /// PosReqID(710).
         pos_req_id: opt CompactString = POS_REQ_ID,
         /// PosTransType(709).
-        pos_trans_type: req PosTransType = POS_TRANS_TYPE,
+        pos_trans_type: req Code<PosTransType> = POS_TRANS_TYPE,
         /// PosMaintAction(712).
-        pos_maint_action: req PosMaintAction = POS_MAINT_ACTION,
+        pos_maint_action: req Code<PosMaintAction> = POS_MAINT_ACTION,
         /// OrigPosReqRefID(713).
         orig_pos_req_ref_id: opt CompactString = ORIG_POS_REQ_REF_ID,
         /// PosMaintRptRefID(714).
@@ -17955,7 +17983,7 @@ turbojet::fix_message! {
         /// ClearingBusinessDate(715).
         clearing_business_date: req NaiveDate = CLEARING_BUSINESS_DATE,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// NoPartyIDs(453).
@@ -17963,21 +17991,21 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -17985,7 +18013,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -17997,15 +18025,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -18053,59 +18081,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -18131,7 +18159,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -18159,7 +18187,7 @@ turbojet::fix_message! {
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// AdjustmentType(718).
-        adjustment_type: opt AdjustmentType = ADJUSTMENT_TYPE,
+        adjustment_type: opt Code<AdjustmentType> = ADJUSTMENT_TYPE,
         /// ContraryInstructionIndicator(719).
         contrary_instruction_indicator: opt bool = CONTRARY_INSTRUCTION_INDICATOR,
         /// PriorSpreadIndicator(720).
@@ -18179,16 +18207,16 @@ impl PositionMaintenanceRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
-        pos_trans_type: PosTransType,
-        pos_maint_action: PosMaintAction,
+        pos_trans_type: impl Into<Code<PosTransType>>,
+        pos_maint_action: impl Into<Code<PosMaintAction>>,
         clearing_business_date: NaiveDate,
         party_ids: Vec<Parties>,
         positions: Vec<PositionQty>,
     ) -> Self {
         Self {
             pos_req_id: None,
-            pos_trans_type,
-            pos_maint_action,
+            pos_trans_type: pos_trans_type.into(),
+            pos_maint_action: pos_maint_action.into(),
             orig_pos_req_ref_id: None,
             pos_maint_rpt_ref_id: None,
             clearing_business_date,
@@ -18307,21 +18335,21 @@ turbojet::fix_message! {
         /// PosMaintRptID(721).
         pos_maint_rpt_id: req CompactString = POS_MAINT_RPT_ID,
         /// PosTransType(709).
-        pos_trans_type: req PosTransType = POS_TRANS_TYPE,
+        pos_trans_type: req Code<PosTransType> = POS_TRANS_TYPE,
         /// PosReqID(710).
         pos_req_id: opt CompactString = POS_REQ_ID,
         /// PosMaintAction(712).
-        pos_maint_action: req PosMaintAction = POS_MAINT_ACTION,
+        pos_maint_action: req Code<PosMaintAction> = POS_MAINT_ACTION,
         /// OrigPosReqRefID(713).
         orig_pos_req_ref_id: opt CompactString = ORIG_POS_REQ_REF_ID,
         /// PosMaintStatus(722).
-        pos_maint_status: req PosMaintStatus = POS_MAINT_STATUS,
+        pos_maint_status: req Code<PosMaintStatus> = POS_MAINT_STATUS,
         /// PosMaintResult(723).
-        pos_maint_result: opt PosMaintResult = POS_MAINT_RESULT,
+        pos_maint_result: opt Code<PosMaintResult> = POS_MAINT_RESULT,
         /// ClearingBusinessDate(715).
         clearing_business_date: req NaiveDate = CLEARING_BUSINESS_DATE,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// NoPartyIDs(453).
@@ -18329,23 +18357,23 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// PosMaintRptRefID(714).
         pos_maint_rpt_ref_id: opt CompactString = POS_MAINT_RPT_REF_ID,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -18353,7 +18381,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -18365,15 +18393,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -18421,59 +18449,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -18499,7 +18527,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -18533,7 +18561,7 @@ turbojet::fix_message! {
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// AdjustmentType(718).
-        adjustment_type: opt AdjustmentType = ADJUSTMENT_TYPE,
+        adjustment_type: opt Code<AdjustmentType> = ADJUSTMENT_TYPE,
         /// ThresholdAmount(834).
         threshold_amount: opt Decimal = THRESHOLD_AMOUNT,
         /// Text(58).
@@ -18548,19 +18576,19 @@ impl PositionMaintenanceReport {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         pos_maint_rpt_id: impl Into<CompactString>,
-        pos_trans_type: PosTransType,
-        pos_maint_action: PosMaintAction,
-        pos_maint_status: PosMaintStatus,
+        pos_trans_type: impl Into<Code<PosTransType>>,
+        pos_maint_action: impl Into<Code<PosMaintAction>>,
+        pos_maint_status: impl Into<Code<PosMaintStatus>>,
         clearing_business_date: NaiveDate,
         positions: Vec<PositionQty>,
     ) -> Self {
         Self {
             pos_maint_rpt_id: pos_maint_rpt_id.into(),
-            pos_trans_type,
+            pos_trans_type: pos_trans_type.into(),
             pos_req_id: None,
-            pos_maint_action,
+            pos_maint_action: pos_maint_action.into(),
             orig_pos_req_ref_id: None,
-            pos_maint_status,
+            pos_maint_status: pos_maint_status.into(),
             pos_maint_result: None,
             clearing_business_date,
             settl_sess_id: None,
@@ -18679,11 +18707,11 @@ turbojet::fix_message! {
         /// PosReqID(710).
         pos_req_id: req CompactString = POS_REQ_ID,
         /// PosReqType(724).
-        pos_req_type: req PosReqType = POS_REQ_TYPE,
+        pos_req_type: req Code<PosReqType> = POS_REQ_TYPE,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// SettlCurrency(120).
         settl_currency: opt CompactString = SETTL_CURRENCY,
         /// NoPartyIDs(453).
@@ -18691,21 +18719,21 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -18713,7 +18741,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -18725,15 +18753,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -18781,59 +18809,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -18859,7 +18887,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -18881,7 +18909,7 @@ turbojet::fix_message! {
         /// ClearingBusinessDate(715).
         clearing_business_date: req NaiveDate = CLEARING_BUSINESS_DATE,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// NoTradingSessions(386).
@@ -18889,7 +18917,7 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// Text(58).
@@ -18904,14 +18932,14 @@ impl RequestForPositions {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         pos_req_id: impl Into<CompactString>,
-        pos_req_type: PosReqType,
+        pos_req_type: impl Into<Code<PosReqType>>,
         party_ids: Vec<Parties>,
         clearing_business_date: NaiveDate,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             pos_req_id: pos_req_id.into(),
-            pos_req_type,
+            pos_req_type: pos_req_type.into(),
             match_status: None,
             subscription_request_type: None,
             settl_currency: None,
@@ -19032,19 +19060,19 @@ turbojet::fix_message! {
         /// UnsolicitedIndicator(325).
         unsolicited_indicator: opt bool = UNSOLICITED_INDICATOR,
         /// PosReqResult(728).
-        pos_req_result: req PosReqResult = POS_REQ_RESULT,
+        pos_req_result: req Code<PosReqResult> = POS_REQ_RESULT,
         /// PosReqStatus(729).
-        pos_req_status: req PosReqStatus = POS_REQ_STATUS,
+        pos_req_status: req Code<PosReqStatus> = POS_REQ_STATUS,
         /// PosReqType(724).
-        pos_req_type: opt PosReqType = POS_REQ_TYPE,
+        pos_req_type: opt Code<PosReqType> = POS_REQ_TYPE,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// SettlCurrency(120).
@@ -19054,21 +19082,21 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -19076,7 +19104,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -19088,15 +19116,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -19144,59 +19172,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -19222,7 +19250,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -19242,7 +19270,7 @@ turbojet::fix_message! {
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// Text(58).
@@ -19257,8 +19285,8 @@ impl RequestForPositionsAck {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         pos_maint_rpt_id: impl Into<CompactString>,
-        pos_req_result: PosReqResult,
-        pos_req_status: PosReqStatus,
+        pos_req_result: impl Into<Code<PosReqResult>>,
+        pos_req_status: impl Into<Code<PosReqStatus>>,
         party_ids: Vec<Parties>,
     ) -> Self {
         Self {
@@ -19266,8 +19294,8 @@ impl RequestForPositionsAck {
             pos_req_id: None,
             total_num_pos_reports: None,
             unsolicited_indicator: None,
-            pos_req_result,
-            pos_req_status,
+            pos_req_result: pos_req_result.into(),
+            pos_req_status: pos_req_status.into(),
             pos_req_type: None,
             match_status: None,
             clearing_business_date: None,
@@ -19391,23 +19419,23 @@ turbojet::fix_message! {
         /// PosReqID(710).
         pos_req_id: opt CompactString = POS_REQ_ID,
         /// PosReqType(724).
-        pos_req_type: opt PosReqType = POS_REQ_TYPE,
+        pos_req_type: opt Code<PosReqType> = POS_REQ_TYPE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// TotalNumPosReports(727).
         total_num_pos_reports: opt i64 = TOTAL_NUM_POS_REPORTS,
         /// PosReqResult(728).
-        pos_req_result: opt PosReqResult = POS_REQ_RESULT,
+        pos_req_result: opt Code<PosReqResult> = POS_REQ_RESULT,
         /// UnsolicitedIndicator(325).
         unsolicited_indicator: opt bool = UNSOLICITED_INDICATOR,
         /// ClearingBusinessDate(715).
         clearing_business_date: req NaiveDate = CLEARING_BUSINESS_DATE,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// SettlCurrency(120).
         settl_currency: opt CompactString = SETTL_CURRENCY,
         /// MessageEventSource(1011).
@@ -19417,21 +19445,21 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AcctIDSource(660).
-        acct_id_source: opt AcctIDSource = ACCT_ID_SOURCE,
+        acct_id_source: opt Code<AcctIDSource> = ACCT_ID_SOURCE,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -19439,7 +19467,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -19451,15 +19479,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -19507,59 +19535,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -19585,7 +19613,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -19603,11 +19631,11 @@ turbojet::fix_message! {
         /// SettlPrice(730).
         settl_price: opt Decimal = SETTL_PRICE,
         /// SettlPriceType(731).
-        settl_price_type: opt SettlPriceType = SETTL_PRICE_TYPE,
+        settl_price_type: opt Code<SettlPriceType> = SETTL_PRICE_TYPE,
         /// PriorSettlPrice(734).
         prior_settl_price: opt Decimal = PRIOR_SETTL_PRICE,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// NoUnderlyings(711).
@@ -19617,11 +19645,11 @@ turbojet::fix_message! {
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// RegistStatus(506).
-        regist_status: opt RegistStatus = REGIST_STATUS,
+        regist_status: opt Code<RegistStatus> = REGIST_STATUS,
         /// DeliveryDate(743).
         delivery_date: opt NaiveDate = DELIVERY_DATE,
         /// ModelType(1434).
-        model_type: opt ModelType = MODEL_TYPE,
+        model_type: opt Code<ModelType> = MODEL_TYPE,
         /// PriceDelta(811).
         price_delta: opt Decimal = PRICE_DELTA,
         /// Text(58).
@@ -19779,27 +19807,27 @@ turbojet::fix_message! {
         /// SecondaryFirmTradeID(1042).
         secondary_firm_trade_id: opt CompactString = SECONDARY_FIRM_TRADE_ID,
         /// TradeRequestType(569).
-        trade_request_type: req TradeRequestType = TRADE_REQUEST_TYPE,
+        trade_request_type: req Code<TradeRequestType> = TRADE_REQUEST_TYPE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// TotNumTradeReports(748).
         tot_num_trade_reports: opt i64 = TOT_NUM_TRADE_REPORTS,
         /// TradeRequestResult(749).
-        trade_request_result: req TradeRequestResult = TRADE_REQUEST_RESULT,
+        trade_request_result: req Code<TradeRequestResult> = TRADE_REQUEST_RESULT,
         /// TradeRequestStatus(750).
-        trade_request_status: req TradeRequestStatus = TRADE_REQUEST_STATUS,
+        trade_request_status: req Code<TradeRequestStatus> = TRADE_REQUEST_STATUS,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -19807,7 +19835,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -19819,15 +19847,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -19875,59 +19903,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -19953,7 +19981,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -19971,9 +19999,9 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// Text(58).
@@ -19990,9 +20018,9 @@ impl TradeCaptureReportRequestAck {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         trade_request_id: impl Into<CompactString>,
-        trade_request_type: TradeRequestType,
-        trade_request_result: TradeRequestResult,
-        trade_request_status: TradeRequestStatus,
+        trade_request_type: impl Into<Code<TradeRequestType>>,
+        trade_request_result: impl Into<Code<TradeRequestResult>>,
+        trade_request_status: impl Into<Code<TradeRequestStatus>>,
     ) -> Self {
         Self {
             trade_request_id: trade_request_id.into(),
@@ -20000,11 +20028,11 @@ impl TradeCaptureReportRequestAck {
             secondary_trade_id: None,
             firm_trade_id: None,
             secondary_firm_trade_id: None,
-            trade_request_type,
+            trade_request_type: trade_request_type.into(),
             subscription_request_type: None,
             tot_num_trade_reports: None,
-            trade_request_result,
-            trade_request_status,
+            trade_request_result: trade_request_result.into(),
+            trade_request_status: trade_request_status.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -20116,19 +20144,19 @@ turbojet::fix_message! {
         /// SecondaryFirmTradeID(1042).
         secondary_firm_trade_id: opt CompactString = SECONDARY_FIRM_TRADE_ID,
         /// TradeReportTransType(487).
-        trade_report_trans_type: opt TradeReportTransType = TRADE_REPORT_TRANS_TYPE,
+        trade_report_trans_type: opt Code<TradeReportTransType> = TRADE_REPORT_TRANS_TYPE,
         /// TradeReportType(856).
-        trade_report_type: opt TradeReportType = TRADE_REPORT_TYPE,
+        trade_report_type: opt Code<TradeReportType> = TRADE_REPORT_TYPE,
         /// TrdType(828).
-        trd_type: opt TrdType = TRD_TYPE,
+        trd_type: opt Code<TrdType> = TRD_TYPE,
         /// TrdSubType(829).
-        trd_sub_type: opt TrdSubType = TRD_SUB_TYPE,
+        trd_sub_type: opt Code<TrdSubType> = TRD_SUB_TYPE,
         /// SecondaryTrdType(855).
-        secondary_trd_type: opt SecondaryTrdType = SECONDARY_TRD_TYPE,
+        secondary_trd_type: opt Code<SecondaryTrdType> = SECONDARY_TRD_TYPE,
         /// TradeHandlingInstr(1123).
-        trade_handling_instr: opt TradeHandlingInstr = TRADE_HANDLING_INSTR,
+        trade_handling_instr: opt Code<TradeHandlingInstr> = TRADE_HANDLING_INSTR,
         /// OrigTradeHandlingInstr(1124).
-        orig_trade_handling_instr: opt OrigTradeHandlingInstr = ORIG_TRADE_HANDLING_INSTR,
+        orig_trade_handling_instr: opt Code<OrigTradeHandlingInstr> = ORIG_TRADE_HANDLING_INSTR,
         /// OrigTradeDate(1125).
         orig_trade_date: opt NaiveDate = ORIG_TRADE_DATE,
         /// OrigTradeID(1126).
@@ -20140,7 +20168,7 @@ turbojet::fix_message! {
         /// NoRootPartyIDs(1116).
         root_party_ids: group RootParties = NO_ROOT_PARTY_IDS,
         /// ExecType(150).
-        exec_type: opt ExecType = EXEC_TYPE,
+        exec_type: opt Code<ExecType> = EXEC_TYPE,
         /// TradeReportRefID(572).
         trade_report_ref_id: opt CompactString = TRADE_REPORT_REF_ID,
         /// SecondaryTradeReportRefID(881).
@@ -20148,15 +20176,15 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         secondary_trade_report_ref_id: opt CompactString = SECONDARY_TRADE_REPORT_REF_ID,
         /// TrdRptStatus(939).
-        trd_rpt_status: opt TrdRptStatus = TRD_RPT_STATUS,
+        trd_rpt_status: opt Code<TrdRptStatus> = TRD_RPT_STATUS,
         /// TradeReportRejectReason(751).
-        trade_report_reject_reason: opt TradeReportRejectReason = TRADE_REPORT_REJECT_REASON,
+        trade_report_reject_reason: opt Code<TradeReportRejectReason> = TRADE_REPORT_REJECT_REASON,
         /// SecondaryTradeReportID(818).
         ///
         /// Deprecated in the FIX standard.
         secondary_trade_report_id: opt CompactString = SECONDARY_TRADE_REPORT_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// TradeLinkID(820).
         trade_link_id: opt CompactString = TRADE_LINK_ID,
         /// TrdMatchID(880).
@@ -20166,27 +20194,27 @@ turbojet::fix_message! {
         /// SecondaryExecID(527).
         secondary_exec_id: opt CompactString = SECONDARY_EXEC_ID,
         /// ExecRestatementReason(378).
-        exec_restatement_reason: opt ExecRestatementReason = EXEC_RESTATEMENT_REASON,
+        exec_restatement_reason: opt Code<ExecRestatementReason> = EXEC_RESTATEMENT_REASON,
         /// PreviouslyReported(570).
         previously_reported: opt bool = PREVIOUSLY_REPORTED,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// UnderlyingTradingSessionID(822).
         underlying_trading_session_id: opt CompactString = UNDERLYING_TRADING_SESSION_ID,
         /// UnderlyingTradingSessionSubID(823).
         underlying_trading_session_sub_id: opt CompactString = UNDERLYING_TRADING_SESSION_SUB_ID,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// LastQty(32).
         last_qty: opt Decimal = LAST_QTY,
         /// LastPx(31).
         last_px: opt Decimal = LAST_PX,
         /// VenueType(1430).
-        venue_type: opt VenueType = VENUE_TYPE,
+        venue_type: opt Code<VenueType> = VENUE_TYPE,
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// MarketID(1301).
@@ -20194,15 +20222,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -20210,7 +20238,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -20222,15 +20250,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -20278,59 +20306,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -20356,7 +20384,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -20392,21 +20420,21 @@ turbojet::fix_message! {
         /// AvgPx(6).
         avg_px: opt Decimal = AVG_PX,
         /// AvgPxIndicator(819).
-        avg_px_indicator: opt AvgPxIndicator = AVG_PX_INDICATOR,
+        avg_px_indicator: opt Code<AvgPxIndicator> = AVG_PX_INDICATOR,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// TradeLegRefID(824).
         trade_leg_ref_id: opt CompactString = TRADE_LEG_REF_ID,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// MatchType(574).
-        match_type: opt MatchType = MATCH_TYPE,
+        match_type: opt Code<MatchType> = MATCH_TYPE,
         /// CopyMsgIndicator(797).
         copy_msg_indicator: opt bool = COPY_MSG_INDICATOR,
         /// NoTrdRepIndicators(1387).
@@ -20416,15 +20444,15 @@ turbojet::fix_message! {
         /// Deprecated in the FIX standard.
         publish_trd_indicator: opt bool = PUBLISH_TRD_INDICATOR,
         /// TradePublishIndicator(1390).
-        trade_publish_indicator: opt TradePublishIndicator = TRADE_PUBLISH_INDICATOR,
+        trade_publish_indicator: opt Code<TradePublishIndicator> = TRADE_PUBLISH_INDICATOR,
         /// ShortSaleReason(853).
-        short_sale_reason: opt ShortSaleReason = SHORT_SALE_REASON,
+        short_sale_reason: opt Code<ShortSaleReason> = SHORT_SALE_REASON,
         /// NoLegs(555).
         legs: group TrdInstrmtLegGrp = NO_LEGS,
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// Text(58).
@@ -20432,9 +20460,9 @@ turbojet::fix_message! {
         /// EncodedText(355).
         encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
         /// AsOfIndicator(1015).
-        as_of_indicator: opt AsOfIndicator = AS_OF_INDICATOR,
+        as_of_indicator: opt Code<AsOfIndicator> = AS_OF_INDICATOR,
         /// ClearingFeeIndicator(635).
-        clearing_fee_indicator: opt ClearingFeeIndicator = CLEARING_FEE_INDICATOR,
+        clearing_fee_indicator: opt Code<ClearingFeeIndicator> = CLEARING_FEE_INDICATOR,
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// TierCode(994).
@@ -20643,39 +20671,39 @@ turbojet::fix_message! {
         /// AllocID(70).
         alloc_id: opt CompactString = ALLOC_ID,
         /// AllocTransType(71).
-        alloc_trans_type: req AllocTransType = ALLOC_TRANS_TYPE,
+        alloc_trans_type: req Code<AllocTransType> = ALLOC_TRANS_TYPE,
         /// AllocReportRefID(795).
         alloc_report_ref_id: opt CompactString = ALLOC_REPORT_REF_ID,
         /// AllocCancReplaceReason(796).
-        alloc_canc_replace_reason: opt AllocCancReplaceReason = ALLOC_CANC_REPLACE_REASON,
+        alloc_canc_replace_reason: opt Code<AllocCancReplaceReason> = ALLOC_CANC_REPLACE_REASON,
         /// SecondaryAllocID(793).
         secondary_alloc_id: opt CompactString = SECONDARY_ALLOC_ID,
         /// AllocReportType(794).
-        alloc_report_type: req AllocReportType = ALLOC_REPORT_TYPE,
+        alloc_report_type: req Code<AllocReportType> = ALLOC_REPORT_TYPE,
         /// AllocStatus(87).
-        alloc_status: req AllocStatus = ALLOC_STATUS,
+        alloc_status: req Code<AllocStatus> = ALLOC_STATUS,
         /// AllocRejCode(88).
-        alloc_rej_code: opt AllocRejCode = ALLOC_REJ_CODE,
+        alloc_rej_code: opt Code<AllocRejCode> = ALLOC_REJ_CODE,
         /// RefAllocID(72).
         ref_alloc_id: opt CompactString = REF_ALLOC_ID,
         /// AllocIntermedReqType(808).
-        alloc_intermed_req_type: opt AllocIntermedReqType = ALLOC_INTERMED_REQ_TYPE,
+        alloc_intermed_req_type: opt Code<AllocIntermedReqType> = ALLOC_INTERMED_REQ_TYPE,
         /// AllocLinkID(196).
         alloc_link_id: opt CompactString = ALLOC_LINK_ID,
         /// AllocLinkType(197).
-        alloc_link_type: opt AllocLinkType = ALLOC_LINK_TYPE,
+        alloc_link_type: opt Code<AllocLinkType> = ALLOC_LINK_TYPE,
         /// BookingRefID(466).
         booking_ref_id: opt CompactString = BOOKING_REF_ID,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// TrdType(828).
-        trd_type: opt TrdType = TRD_TYPE,
+        trd_type: opt Code<TrdType> = TRD_TYPE,
         /// TrdSubType(829).
-        trd_sub_type: opt TrdSubType = TRD_SUB_TYPE,
+        trd_sub_type: opt Code<TrdSubType> = TRD_SUB_TYPE,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// TradeInputSource(578).
         trade_input_source: opt CompactString = TRADE_INPUT_SOURCE,
         /// RndPx(991).
@@ -20685,9 +20713,9 @@ turbojet::fix_message! {
         /// TradeInputDevice(579).
         trade_input_device: opt CompactString = TRADE_INPUT_DEVICE,
         /// AvgPxIndicator(819).
-        avg_px_indicator: opt AvgPxIndicator = AVG_PX_INDICATOR,
+        avg_px_indicator: opt Code<AvgPxIndicator> = AVG_PX_INDICATOR,
         /// AllocNoOrdersType(857).
-        alloc_no_orders_type: opt AllocNoOrdersType = ALLOC_NO_ORDERS_TYPE,
+        alloc_no_orders_type: opt Code<AllocNoOrdersType> = ALLOC_NO_ORDERS_TYPE,
         /// NoOrders(73).
         orders: group OrdAllocGrp = NO_ORDERS,
         /// NoExecs(124).
@@ -20697,21 +20725,21 @@ turbojet::fix_message! {
         /// ReversalIndicator(700).
         reversal_indicator: opt bool = REVERSAL_INDICATOR,
         /// MatchType(574).
-        match_type: opt MatchType = MATCH_TYPE,
+        match_type: opt Code<MatchType> = MATCH_TYPE,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -20719,7 +20747,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -20731,15 +20759,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -20787,59 +20815,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -20865,7 +20893,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -20879,7 +20907,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -20893,13 +20921,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -20909,17 +20937,17 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: req Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// LastMkt(30).
         last_mkt: opt CompactString = LAST_MKT,
         /// TradeOriginationDate(229).
         trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AvgPx(6).
         avg_px: req Decimal = AVG_PX,
         /// AvgParPx(860).
@@ -20929,17 +20957,17 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// AvgPxPrecision(74).
@@ -20951,11 +20979,11 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// GrossTradeAmt(381).
         gross_trade_amt: opt Decimal = GROSS_TRADE_AMT,
         /// Concession(238).
@@ -20965,7 +20993,7 @@ turbojet::fix_message! {
         /// NetMoney(118).
         net_money: opt Decimal = NET_MONEY,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// AutoAcceptIndicator(754).
         auto_accept_indicator: opt bool = AUTO_ACCEPT_INDICATOR,
         /// Text(58).
@@ -20995,7 +21023,7 @@ turbojet::fix_message! {
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -21005,7 +21033,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// TotNoAllocs(892).
@@ -21024,10 +21052,10 @@ impl AllocationReport {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         alloc_report_id: impl Into<CompactString>,
-        alloc_trans_type: AllocTransType,
-        alloc_report_type: AllocReportType,
-        alloc_status: AllocStatus,
-        side: Side,
+        alloc_trans_type: impl Into<Code<AllocTransType>>,
+        alloc_report_type: impl Into<Code<AllocReportType>>,
+        alloc_status: impl Into<Code<AllocStatus>>,
+        side: impl Into<Code<Side>>,
         quantity: Decimal,
         avg_px: Decimal,
         trade_date: NaiveDate,
@@ -21035,12 +21063,12 @@ impl AllocationReport {
         Self {
             alloc_report_id: alloc_report_id.into(),
             alloc_id: None,
-            alloc_trans_type,
+            alloc_trans_type: alloc_trans_type.into(),
             alloc_report_ref_id: None,
             alloc_canc_replace_reason: None,
             secondary_alloc_id: None,
-            alloc_report_type,
-            alloc_status,
+            alloc_report_type: alloc_report_type.into(),
+            alloc_status: alloc_status.into(),
             alloc_rej_code: None,
             ref_alloc_id: None,
             alloc_intermed_req_type: None,
@@ -21063,7 +21091,7 @@ impl AllocationReport {
             previously_reported: None,
             reversal_indicator: None,
             match_type: None,
-            side,
+            side: side.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -21231,11 +21259,11 @@ turbojet::fix_message! {
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// AvgPxIndicator(819).
-        avg_px_indicator: opt AvgPxIndicator = AVG_PX_INDICATOR,
+        avg_px_indicator: opt Code<AvgPxIndicator> = AVG_PX_INDICATOR,
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// AllocTransType(71).
-        alloc_trans_type: opt AllocTransType = ALLOC_TRANS_TYPE,
+        alloc_trans_type: opt Code<AllocTransType> = ALLOC_TRANS_TYPE,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// SecondaryAllocID(793).
@@ -21245,19 +21273,19 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// AllocStatus(87).
-        alloc_status: opt AllocStatus = ALLOC_STATUS,
+        alloc_status: opt Code<AllocStatus> = ALLOC_STATUS,
         /// AllocRejCode(88).
-        alloc_rej_code: opt AllocRejCode = ALLOC_REJ_CODE,
+        alloc_rej_code: opt Code<AllocRejCode> = ALLOC_REJ_CODE,
         /// AllocReportType(794).
-        alloc_report_type: opt AllocReportType = ALLOC_REPORT_TYPE,
+        alloc_report_type: opt Code<AllocReportType> = ALLOC_REPORT_TYPE,
         /// AllocIntermedReqType(808).
-        alloc_intermed_req_type: opt AllocIntermedReqType = ALLOC_INTERMED_REQ_TYPE,
+        alloc_intermed_req_type: opt Code<AllocIntermedReqType> = ALLOC_INTERMED_REQ_TYPE,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -21306,11 +21334,11 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// AffirmStatus(940).
-        affirm_status: req AffirmStatus = AFFIRM_STATUS,
+        affirm_status: req Code<AffirmStatus> = AFFIRM_STATUS,
         /// ConfirmRejReason(774).
-        confirm_rej_reason: opt ConfirmRejReason = CONFIRM_REJ_REASON,
+        confirm_rej_reason: opt Code<ConfirmRejReason> = CONFIRM_REJ_REASON,
         /// MatchStatus(573).
-        match_status: opt MatchStatus = MATCH_STATUS,
+        match_status: opt Code<MatchStatus> = MATCH_STATUS,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -21325,13 +21353,13 @@ impl ConfirmationAck {
         confirm_id: impl Into<CompactString>,
         trade_date: NaiveDate,
         transact_time: UtcTimestamp,
-        affirm_status: AffirmStatus,
+        affirm_status: impl Into<Code<AffirmStatus>>,
     ) -> Self {
         Self {
             confirm_id: confirm_id.into(),
             trade_date,
             transact_time,
-            affirm_status,
+            affirm_status: affirm_status.into(),
             confirm_rej_reason: None,
             match_status: None,
             text: None,
@@ -21352,13 +21380,13 @@ turbojet::fix_message! {
         /// AllocAccount(79).
         alloc_account: opt CompactString = ALLOC_ACCOUNT,
         /// AllocAcctIDSource(661).
-        alloc_acct_id_source: opt AllocAcctIDSource = ALLOC_ACCT_ID_SOURCE,
+        alloc_acct_id_source: opt Code<AllocAcctIDSource> = ALLOC_ACCT_ID_SOURCE,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SettlCurrency(120).
@@ -21370,7 +21398,7 @@ turbojet::fix_message! {
         /// LastUpdateTime(779).
         last_update_time: opt UtcTimestamp = LAST_UPDATE_TIME,
         /// StandInstDbType(169).
-        stand_inst_db_type: opt StandInstDbType = STAND_INST_DB_TYPE,
+        stand_inst_db_type: opt Code<StandInstDbType> = STAND_INST_DB_TYPE,
         /// StandInstDbName(170).
         stand_inst_db_name: opt CompactString = STAND_INST_DB_NAME,
         /// StandInstDbID(171).
@@ -21427,19 +21455,19 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -21447,7 +21475,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -21459,15 +21487,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -21515,59 +21543,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -21593,7 +21621,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -21621,7 +21649,7 @@ turbojet::fix_message! {
         /// SettlPrice(730).
         settl_price: opt Decimal = SETTL_PRICE,
         /// SettlPriceType(731).
-        settl_price_type: opt SettlPriceType = SETTL_PRICE_TYPE,
+        settl_price_type: opt Code<SettlPriceType> = SETTL_PRICE_TYPE,
         /// UnderlyingSettlPrice(732).
         underlying_settl_price: opt Decimal = UNDERLYING_SETTL_PRICE,
         /// PriorSettlPrice(734).
@@ -21629,15 +21657,15 @@ turbojet::fix_message! {
         /// ExpireDate(432).
         expire_date: opt NaiveDate = EXPIRE_DATE,
         /// AssignmentMethod(744).
-        assignment_method: opt AssignmentMethod = ASSIGNMENT_METHOD,
+        assignment_method: opt Code<AssignmentMethod> = ASSIGNMENT_METHOD,
         /// AssignmentUnit(745).
         assignment_unit: opt Decimal = ASSIGNMENT_UNIT,
         /// OpenInterest(746).
         open_interest: opt Decimal = OPEN_INTEREST,
         /// ExerciseMethod(747).
-        exercise_method: opt ExerciseMethod = EXERCISE_METHOD,
+        exercise_method: opt Code<ExerciseMethod> = EXERCISE_METHOD,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// ClearingBusinessDate(715).
@@ -21784,7 +21812,7 @@ turbojet::fix_message! {
         /// CollReqID(894).
         coll_req_id: req CompactString = COLL_REQ_ID,
         /// CollAsgnReason(895).
-        coll_asgn_reason: req CollAsgnReason = COLL_ASGN_REASON,
+        coll_asgn_reason: req Code<CollAsgnReason> = COLL_ASGN_REASON,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// ExpireTime(126).
@@ -21794,7 +21822,7 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderID(37).
@@ -21810,15 +21838,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -21826,7 +21854,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -21838,15 +21866,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -21894,59 +21922,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -21972,7 +22000,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -21994,13 +22022,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// SettlDate(64).
@@ -22008,7 +22036,7 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoLegs(555).
@@ -22024,13 +22052,13 @@ turbojet::fix_message! {
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// NoMiscFees(136).
         misc_fees: group MiscFeesGrp = NO_MISC_FEES,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AccruedInterestAmt(159).
         accrued_interest_amt: opt Decimal = ACCRUED_INTEREST_AMT,
         /// EndAccruedInterestAmt(920).
@@ -22044,25 +22072,25 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// ClearingBusinessDate(715).
@@ -22079,12 +22107,12 @@ impl CollateralRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         coll_req_id: impl Into<CompactString>,
-        coll_asgn_reason: CollAsgnReason,
+        coll_asgn_reason: impl Into<Code<CollAsgnReason>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             coll_req_id: coll_req_id.into(),
-            coll_asgn_reason,
+            coll_asgn_reason: coll_asgn_reason.into(),
             transact_time,
             expire_time: None,
             party_ids: Vec::new(),
@@ -22236,9 +22264,9 @@ turbojet::fix_message! {
         /// CollReqID(894).
         coll_req_id: opt CompactString = COLL_REQ_ID,
         /// CollAsgnReason(895).
-        coll_asgn_reason: req CollAsgnReason = COLL_ASGN_REASON,
+        coll_asgn_reason: req Code<CollAsgnReason> = COLL_ASGN_REASON,
         /// CollAsgnTransType(903).
-        coll_asgn_trans_type: req CollAsgnTransType = COLL_ASGN_TRANS_TYPE,
+        coll_asgn_trans_type: req Code<CollAsgnTransType> = COLL_ASGN_TRANS_TYPE,
         /// CollAsgnRefID(907).
         coll_asgn_ref_id: opt CompactString = COLL_ASGN_REF_ID,
         /// TransactTime(60).
@@ -22250,7 +22278,7 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderID(37).
@@ -22266,15 +22294,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -22282,7 +22310,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -22294,15 +22322,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -22350,59 +22378,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -22428,7 +22456,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -22450,13 +22478,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// SettlDate(64).
@@ -22464,7 +22492,7 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoLegs(555).
@@ -22480,13 +22508,13 @@ turbojet::fix_message! {
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// NoMiscFees(136).
         misc_fees: group MiscFeesGrp = NO_MISC_FEES,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AccruedInterestAmt(159).
         accrued_interest_amt: opt Decimal = ACCRUED_INTEREST_AMT,
         /// EndAccruedInterestAmt(920).
@@ -22500,23 +22528,23 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// SettlDeliveryType(172).
-        settl_delivery_type: opt SettlDeliveryType = SETTL_DELIVERY_TYPE,
+        settl_delivery_type: opt Code<SettlDeliveryType> = SETTL_DELIVERY_TYPE,
         /// StandInstDbType(169).
-        stand_inst_db_type: opt StandInstDbType = STAND_INST_DB_TYPE,
+        stand_inst_db_type: opt Code<StandInstDbType> = STAND_INST_DB_TYPE,
         /// StandInstDbName(170).
         stand_inst_db_name: opt CompactString = STAND_INST_DB_NAME,
         /// StandInstDbID(171).
@@ -22524,11 +22552,11 @@ turbojet::fix_message! {
         /// NoDlvyInst(85).
         dlvy_inst: group DlvyInstGrp = NO_DLVY_INST,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// ClearingBusinessDate(715).
@@ -22545,15 +22573,15 @@ impl CollateralAssignment {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         coll_asgn_id: impl Into<CompactString>,
-        coll_asgn_reason: CollAsgnReason,
-        coll_asgn_trans_type: CollAsgnTransType,
+        coll_asgn_reason: impl Into<Code<CollAsgnReason>>,
+        coll_asgn_trans_type: impl Into<Code<CollAsgnTransType>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             coll_asgn_id: coll_asgn_id.into(),
             coll_req_id: None,
-            coll_asgn_reason,
-            coll_asgn_trans_type,
+            coll_asgn_reason: coll_asgn_reason.into(),
+            coll_asgn_trans_type: coll_asgn_trans_type.into(),
             coll_asgn_ref_id: None,
             transact_time,
             expire_time: None,
@@ -22713,19 +22741,19 @@ turbojet::fix_message! {
         /// CollReqID(894).
         coll_req_id: opt CompactString = COLL_REQ_ID,
         /// CollAsgnReason(895).
-        coll_asgn_reason: opt CollAsgnReason = COLL_ASGN_REASON,
+        coll_asgn_reason: opt Code<CollAsgnReason> = COLL_ASGN_REASON,
         /// CollAsgnTransType(903).
-        coll_asgn_trans_type: opt CollAsgnTransType = COLL_ASGN_TRANS_TYPE,
+        coll_asgn_trans_type: opt Code<CollAsgnTransType> = COLL_ASGN_TRANS_TYPE,
         /// CollAsgnRespType(905).
-        coll_asgn_resp_type: req CollAsgnRespType = COLL_ASGN_RESP_TYPE,
+        coll_asgn_resp_type: req Code<CollAsgnRespType> = COLL_ASGN_RESP_TYPE,
         /// CollAsgnRejectReason(906).
-        coll_asgn_reject_reason: opt CollAsgnRejectReason = COLL_ASGN_REJECT_REASON,
+        coll_asgn_reject_reason: opt Code<CollAsgnRejectReason> = COLL_ASGN_REJECT_REASON,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// CollApplType(1043).
-        coll_appl_type: opt CollApplType = COLL_APPL_TYPE,
+        coll_appl_type: opt Code<CollApplType> = COLL_APPL_TYPE,
         /// FinancialStatus(291).
-        financial_status: opt Vec<FinancialStatus> = FINANCIAL_STATUS,
+        financial_status: opt Vec<Code<FinancialStatus>> = FINANCIAL_STATUS,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// NoPartyIDs(453).
@@ -22733,7 +22761,7 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderID(37).
@@ -22749,15 +22777,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -22765,7 +22793,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -22777,15 +22805,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -22833,59 +22861,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -22911,7 +22939,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -22933,13 +22961,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// SettlDate(64).
@@ -22947,7 +22975,7 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoLegs(555).
@@ -22963,13 +22991,13 @@ turbojet::fix_message! {
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// NoMiscFees(136).
         misc_fees: group MiscFeesGrp = NO_MISC_FEES,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AccruedInterestAmt(159).
         accrued_interest_amt: opt Decimal = ACCRUED_INTEREST_AMT,
         /// EndAccruedInterestAmt(920).
@@ -22983,17 +23011,17 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// Text(58).
@@ -23008,7 +23036,7 @@ impl CollateralResponse {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         coll_resp_id: impl Into<CompactString>,
-        coll_asgn_resp_type: CollAsgnRespType,
+        coll_asgn_resp_type: impl Into<Code<CollAsgnRespType>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
@@ -23017,7 +23045,7 @@ impl CollateralResponse {
             coll_req_id: None,
             coll_asgn_reason: None,
             coll_asgn_trans_type: None,
-            coll_asgn_resp_type,
+            coll_asgn_resp_type: coll_asgn_resp_type.into(),
             coll_asgn_reject_reason: None,
             transact_time,
             coll_appl_type: None,
@@ -23169,11 +23197,11 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// CollApplType(1043).
-        coll_appl_type: opt CollApplType = COLL_APPL_TYPE,
+        coll_appl_type: opt Code<CollApplType> = COLL_APPL_TYPE,
         /// FinancialStatus(291).
-        financial_status: opt Vec<FinancialStatus> = FINANCIAL_STATUS,
+        financial_status: opt Vec<Code<FinancialStatus>> = FINANCIAL_STATUS,
         /// CollStatus(910).
-        coll_status: req CollStatus = COLL_STATUS,
+        coll_status: req Code<CollStatus> = COLL_STATUS,
         /// TotNumReports(911).
         tot_num_reports: opt i64 = TOT_NUM_REPORTS,
         /// LastRptRequested(912).
@@ -23183,7 +23211,7 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderID(37).
@@ -23199,15 +23227,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -23215,7 +23243,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -23227,15 +23255,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -23283,59 +23311,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -23361,7 +23389,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -23383,13 +23411,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// SettlDate(64).
@@ -23397,7 +23425,7 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoLegs(555).
@@ -23413,13 +23441,13 @@ turbojet::fix_message! {
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// NoMiscFees(136).
         misc_fees: group MiscFeesGrp = NO_MISC_FEES,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AccruedInterestAmt(159).
         accrued_interest_amt: opt Decimal = ACCRUED_INTEREST_AMT,
         /// EndAccruedInterestAmt(920).
@@ -23433,23 +23461,23 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// SettlDeliveryType(172).
-        settl_delivery_type: opt SettlDeliveryType = SETTL_DELIVERY_TYPE,
+        settl_delivery_type: opt Code<SettlDeliveryType> = SETTL_DELIVERY_TYPE,
         /// StandInstDbType(169).
-        stand_inst_db_type: opt StandInstDbType = STAND_INST_DB_TYPE,
+        stand_inst_db_type: opt Code<StandInstDbType> = STAND_INST_DB_TYPE,
         /// StandInstDbName(170).
         stand_inst_db_name: opt CompactString = STAND_INST_DB_NAME,
         /// StandInstDbID(171).
@@ -23457,11 +23485,11 @@ turbojet::fix_message! {
         /// NoDlvyInst(85).
         dlvy_inst: group DlvyInstGrp = NO_DLVY_INST,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// ClearingBusinessDate(715).
@@ -23476,14 +23504,14 @@ turbojet::fix_message! {
 impl CollateralReport {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(coll_rpt_id: impl Into<CompactString>, coll_status: CollStatus) -> Self {
+    pub fn new(coll_rpt_id: impl Into<CompactString>, coll_status: impl Into<Code<CollStatus>>) -> Self {
         Self {
             coll_rpt_id: coll_rpt_id.into(),
             coll_inquiry_id: None,
             transact_time: None,
             coll_appl_type: None,
             financial_status: None,
-            coll_status,
+            coll_status: coll_status.into(),
             tot_num_reports: None,
             last_rpt_requested: None,
             party_ids: Vec::new(),
@@ -23640,9 +23668,9 @@ turbojet::fix_message! {
         /// NoCollInquiryQualifier(938).
         coll_inquiry_qualifier: group CollInqQualGrp = NO_COLL_INQUIRY_QUALIFIER,
         /// SubscriptionRequestType(263).
-        subscription_request_type: opt SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: opt Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// NoPartyIDs(453).
@@ -23650,7 +23678,7 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderID(37).
@@ -23666,15 +23694,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -23682,7 +23710,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -23694,15 +23722,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -23750,59 +23778,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -23828,7 +23856,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -23850,13 +23878,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// SettlDate(64).
@@ -23864,7 +23892,7 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoLegs(555).
@@ -23880,11 +23908,11 @@ turbojet::fix_message! {
         /// NoTrdRegTimestamps(768).
         trd_reg_timestamps: group TrdRegTimestamps = NO_TRD_REG_TIMESTAMPS,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AccruedInterestAmt(159).
         accrued_interest_amt: opt Decimal = ACCRUED_INTEREST_AMT,
         /// EndAccruedInterestAmt(920).
@@ -23898,23 +23926,23 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// SettlDeliveryType(172).
-        settl_delivery_type: opt SettlDeliveryType = SETTL_DELIVERY_TYPE,
+        settl_delivery_type: opt Code<SettlDeliveryType> = SETTL_DELIVERY_TYPE,
         /// StandInstDbType(169).
-        stand_inst_db_type: opt StandInstDbType = STAND_INST_DB_TYPE,
+        stand_inst_db_type: opt Code<StandInstDbType> = STAND_INST_DB_TYPE,
         /// StandInstDbName(170).
         stand_inst_db_name: opt CompactString = STAND_INST_DB_NAME,
         /// StandInstDbID(171).
@@ -23922,11 +23950,11 @@ turbojet::fix_message! {
         /// NoDlvyInst(85).
         dlvy_inst: group DlvyInstGrp = NO_DLVY_INST,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// ClearingBusinessDate(715).
@@ -24097,7 +24125,7 @@ turbojet::fix_message! {
     /// NetworkCounterpartySystemStatusRequest(BC).
     NetworkCounterpartySystemStatusRequest / NetworkCounterpartySystemStatusRequestRef = "BC" {
         /// NetworkRequestType(935).
-        network_request_type: req NetworkRequestType = NETWORK_REQUEST_TYPE,
+        network_request_type: req Code<NetworkRequestType> = NETWORK_REQUEST_TYPE,
         /// NetworkRequestID(933).
         network_request_id: req CompactString = NETWORK_REQUEST_ID,
         /// NoCompIDs(936).
@@ -24108,8 +24136,15 @@ turbojet::fix_message! {
 impl NetworkCounterpartySystemStatusRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(network_request_type: NetworkRequestType, network_request_id: impl Into<CompactString>) -> Self {
-        Self { network_request_type, network_request_id: network_request_id.into(), comp_ids: Vec::new() }
+    pub fn new(
+        network_request_type: impl Into<Code<NetworkRequestType>>,
+        network_request_id: impl Into<CompactString>,
+    ) -> Self {
+        Self {
+            network_request_type: network_request_type.into(),
+            network_request_id: network_request_id.into(),
+            comp_ids: Vec::new(),
+        }
     }
 }
 
@@ -24117,7 +24152,7 @@ turbojet::fix_message! {
     /// NetworkCounterpartySystemStatusResponse(BD).
     NetworkCounterpartySystemStatusResponse / NetworkCounterpartySystemStatusResponseRef = "BD" {
         /// NetworkStatusResponseType(937).
-        network_status_response_type: req NetworkStatusResponseType = NETWORK_STATUS_RESPONSE_TYPE,
+        network_status_response_type: req Code<NetworkStatusResponseType> = NETWORK_STATUS_RESPONSE_TYPE,
         /// NetworkRequestID(933).
         network_request_id: opt CompactString = NETWORK_REQUEST_ID,
         /// NetworkResponseID(932).
@@ -24133,12 +24168,12 @@ impl NetworkCounterpartySystemStatusResponse {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
-        network_status_response_type: NetworkStatusResponseType,
+        network_status_response_type: impl Into<Code<NetworkStatusResponseType>>,
         network_response_id: impl Into<CompactString>,
         comp_ids: Vec<CompIDStatGrp>,
     ) -> Self {
         Self {
-            network_status_response_type,
+            network_status_response_type: network_status_response_type.into(),
             network_request_id: None,
             network_response_id: network_response_id.into(),
             last_network_response_id: None,
@@ -24153,7 +24188,7 @@ turbojet::fix_message! {
         /// UserRequestID(923).
         user_request_id: req CompactString = USER_REQUEST_ID,
         /// UserRequestType(924).
-        user_request_type: req UserRequestType = USER_REQUEST_TYPE,
+        user_request_type: req Code<UserRequestType> = USER_REQUEST_TYPE,
         /// Username(553).
         username: req CompactString = USERNAME,
         /// Password(554).
@@ -24176,12 +24211,12 @@ impl UserRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         user_request_id: impl Into<CompactString>,
-        user_request_type: UserRequestType,
+        user_request_type: impl Into<Code<UserRequestType>>,
         username: impl Into<CompactString>,
     ) -> Self {
         Self {
             user_request_id: user_request_id.into(),
-            user_request_type,
+            user_request_type: user_request_type.into(),
             username: username.into(),
             password: None,
             new_password: None,
@@ -24201,7 +24236,7 @@ turbojet::fix_message! {
         /// Username(553).
         username: req CompactString = USERNAME,
         /// UserStatus(926).
-        user_status: opt UserStatus = USER_STATUS,
+        user_status: opt Code<UserStatus> = USER_STATUS,
         /// UserStatusText(927).
         user_status_text: opt CompactString = USER_STATUS_TEXT,
     }
@@ -24226,9 +24261,9 @@ turbojet::fix_message! {
         /// CollInquiryID(909).
         coll_inquiry_id: req CompactString = COLL_INQUIRY_ID,
         /// CollInquiryStatus(945).
-        coll_inquiry_status: req CollInquiryStatus = COLL_INQUIRY_STATUS,
+        coll_inquiry_status: req Code<CollInquiryStatus> = COLL_INQUIRY_STATUS,
         /// CollInquiryResult(946).
-        coll_inquiry_result: opt CollInquiryResult = COLL_INQUIRY_RESULT,
+        coll_inquiry_result: opt Code<CollInquiryResult> = COLL_INQUIRY_RESULT,
         /// NoCollInquiryQualifier(938).
         coll_inquiry_qualifier: group CollInqQualGrp = NO_COLL_INQUIRY_QUALIFIER,
         /// TotNumReports(911).
@@ -24238,7 +24273,7 @@ turbojet::fix_message! {
         /// Account(1).
         account: opt CompactString = ACCOUNT,
         /// AccountType(581).
-        account_type: opt AccountType = ACCOUNT_TYPE,
+        account_type: opt Code<AccountType> = ACCOUNT_TYPE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OrderID(37).
@@ -24254,15 +24289,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -24270,7 +24305,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -24282,15 +24317,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -24338,59 +24373,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -24416,7 +24451,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -24438,13 +24473,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// SettlDate(64).
@@ -24452,7 +24487,7 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: opt Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// NoLegs(555).
@@ -24460,17 +24495,17 @@ turbojet::fix_message! {
         /// NoUnderlyings(711).
         underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// SettlSessSubID(717).
         settl_sess_sub_id: opt CompactString = SETTL_SESS_SUB_ID,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// ResponseTransportType(725).
-        response_transport_type: opt ResponseTransportType = RESPONSE_TRANSPORT_TYPE,
+        response_transport_type: opt Code<ResponseTransportType> = RESPONSE_TRANSPORT_TYPE,
         /// ResponseDestination(726).
         response_destination: opt CompactString = RESPONSE_DESTINATION,
         /// Text(58).
@@ -24483,10 +24518,13 @@ turbojet::fix_message! {
 impl CollateralInquiryAck {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(coll_inquiry_id: impl Into<CompactString>, coll_inquiry_status: CollInquiryStatus) -> Self {
+    pub fn new(
+        coll_inquiry_id: impl Into<CompactString>,
+        coll_inquiry_status: impl Into<Code<CollInquiryStatus>>,
+    ) -> Self {
         Self {
             coll_inquiry_id: coll_inquiry_id.into(),
-            coll_inquiry_status,
+            coll_inquiry_status: coll_inquiry_status.into(),
             coll_inquiry_result: None,
             coll_inquiry_qualifier: Vec::new(),
             tot_num_reports: None,
@@ -24618,7 +24656,7 @@ turbojet::fix_message! {
         /// ConfirmReqID(859).
         confirm_req_id: req CompactString = CONFIRM_REQ_ID,
         /// ConfirmType(773).
-        confirm_type: req ConfirmType = CONFIRM_TYPE,
+        confirm_type: req Code<ConfirmType> = CONFIRM_TYPE,
         /// NoOrders(73).
         orders: group OrdAllocGrp = NO_ORDERS,
         /// AllocID(70).
@@ -24632,9 +24670,9 @@ turbojet::fix_message! {
         /// AllocAccount(79).
         alloc_account: opt CompactString = ALLOC_ACCOUNT,
         /// AllocAcctIDSource(661).
-        alloc_acct_id_source: opt AllocAcctIDSource = ALLOC_ACCT_ID_SOURCE,
+        alloc_acct_id_source: opt Code<AllocAcctIDSource> = ALLOC_ACCT_ID_SOURCE,
         /// AllocAccountType(798).
-        alloc_account_type: opt AllocAccountType = ALLOC_ACCOUNT_TYPE,
+        alloc_account_type: opt Code<AllocAccountType> = ALLOC_ACCOUNT_TYPE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -24647,12 +24685,12 @@ impl ConfirmationRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         confirm_req_id: impl Into<CompactString>,
-        confirm_type: ConfirmType,
+        confirm_type: impl Into<Code<ConfirmType>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             confirm_req_id: confirm_req_id.into(),
-            confirm_type,
+            confirm_type: confirm_type.into(),
             orders: Vec::new(),
             alloc_id: None,
             secondary_alloc_id: None,
@@ -24695,15 +24733,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -24711,7 +24749,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -24723,15 +24761,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -24779,59 +24817,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -24857,7 +24895,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -25010,25 +25048,25 @@ turbojet::fix_message! {
         /// SecurityResponseID(322).
         security_response_id: opt CompactString = SECURITY_RESPONSE_ID,
         /// SecurityResponseType(323).
-        security_response_type: opt SecurityResponseType = SECURITY_RESPONSE_TYPE,
+        security_response_type: opt Code<SecurityResponseType> = SECURITY_RESPONSE_TYPE,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// SecurityUpdateAction(980).
-        security_update_action: opt SecurityUpdateAction = SECURITY_UPDATE_ACTION,
+        security_update_action: opt Code<SecurityUpdateAction> = SECURITY_UPDATE_ACTION,
         /// CorporateAction(292).
-        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
+        corporate_action: opt Vec<Code<CorporateAction>> = CORPORATE_ACTION,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -25036,7 +25074,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -25048,15 +25086,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -25104,59 +25142,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -25182,7 +25220,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -25196,7 +25234,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -25218,19 +25256,19 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -25240,7 +25278,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// NoMarketSegments(1310).
         market_segments: group MarketSegmentGrp = NO_MARKET_SEGMENTS,
         /// TransactTime(60).
@@ -25400,23 +25438,23 @@ turbojet::fix_message! {
         /// EncodedSecurityListDesc(1469).
         encoded_security_list_desc: opt_data Vec<u8> = ENCODED_SECURITY_LIST_DESC_LEN => ENCODED_SECURITY_LIST_DESC,
         /// SecurityListType(1470).
-        security_list_type: opt SecurityListType = SECURITY_LIST_TYPE,
+        security_list_type: opt Code<SecurityListType> = SECURITY_LIST_TYPE,
         /// SecurityListTypeSource(1471).
-        security_list_type_source: opt SecurityListTypeSource = SECURITY_LIST_TYPE_SOURCE,
+        security_list_type_source: opt Code<SecurityListTypeSource> = SECURITY_LIST_TYPE_SOURCE,
         /// SecurityReqID(320).
         security_req_id: opt CompactString = SECURITY_REQ_ID,
         /// SecurityResponseID(322).
         security_response_id: opt CompactString = SECURITY_RESPONSE_ID,
         /// SecurityRequestResult(560).
-        security_request_result: opt SecurityRequestResult = SECURITY_REQUEST_RESULT,
+        security_request_result: opt Code<SecurityRequestResult> = SECURITY_REQUEST_RESULT,
         /// TotNoRelatedSym(393).
         tot_no_related_sym: opt i64 = TOT_NO_RELATED_SYM,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// SecurityUpdateAction(980).
-        security_update_action: opt SecurityUpdateAction = SECURITY_UPDATE_ACTION,
+        security_update_action: opt Code<SecurityUpdateAction> = SECURITY_UPDATE_ACTION,
         /// CorporateAction(292).
-        corporate_action: opt Vec<CorporateAction> = CORPORATE_ACTION,
+        corporate_action: opt Vec<Code<CorporateAction>> = CORPORATE_ACTION,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
@@ -25468,11 +25506,11 @@ turbojet::fix_message! {
         /// PosMaintRptID(721).
         pos_maint_rpt_id: req CompactString = POS_MAINT_RPT_ID,
         /// PosReqType(724).
-        pos_req_type: opt PosReqType = POS_REQ_TYPE,
+        pos_req_type: opt Code<PosReqType> = POS_REQ_TYPE,
         /// ClearingBusinessDate(715).
         clearing_business_date: req NaiveDate = CLEARING_BUSINESS_DATE,
         /// SettlSessID(716).
-        settl_sess_id: opt SettlSessID = SETTL_SESS_ID,
+        settl_sess_id: opt Code<SettlSessID> = SETTL_SESS_ID,
         /// PosMaintRptRefID(714).
         pos_maint_rpt_ref_id: opt CompactString = POS_MAINT_RPT_REF_ID,
         /// NoPartyIDs(453).
@@ -25518,25 +25556,25 @@ turbojet::fix_message! {
         /// AllocID(70).
         alloc_id: req CompactString = ALLOC_ID,
         /// AllocTransType(71).
-        alloc_trans_type: req AllocTransType = ALLOC_TRANS_TYPE,
+        alloc_trans_type: req Code<AllocTransType> = ALLOC_TRANS_TYPE,
         /// AllocType(626).
-        alloc_type: req AllocType = ALLOC_TYPE,
+        alloc_type: req Code<AllocType> = ALLOC_TYPE,
         /// SecondaryAllocID(793).
         secondary_alloc_id: opt CompactString = SECONDARY_ALLOC_ID,
         /// RefAllocID(72).
         ref_alloc_id: opt CompactString = REF_ALLOC_ID,
         /// AllocCancReplaceReason(796).
-        alloc_canc_replace_reason: opt AllocCancReplaceReason = ALLOC_CANC_REPLACE_REASON,
+        alloc_canc_replace_reason: opt Code<AllocCancReplaceReason> = ALLOC_CANC_REPLACE_REASON,
         /// AllocIntermedReqType(808).
-        alloc_intermed_req_type: opt AllocIntermedReqType = ALLOC_INTERMED_REQ_TYPE,
+        alloc_intermed_req_type: opt Code<AllocIntermedReqType> = ALLOC_INTERMED_REQ_TYPE,
         /// AllocLinkID(196).
         alloc_link_id: opt CompactString = ALLOC_LINK_ID,
         /// AllocLinkType(197).
-        alloc_link_type: opt AllocLinkType = ALLOC_LINK_TYPE,
+        alloc_link_type: opt Code<AllocLinkType> = ALLOC_LINK_TYPE,
         /// BookingRefID(466).
         booking_ref_id: opt CompactString = BOOKING_REF_ID,
         /// AllocNoOrdersType(857).
-        alloc_no_orders_type: opt AllocNoOrdersType = ALLOC_NO_ORDERS_TYPE,
+        alloc_no_orders_type: opt Code<AllocNoOrdersType> = ALLOC_NO_ORDERS_TYPE,
         /// NoOrders(73).
         orders: group OrdAllocGrp = NO_ORDERS,
         /// NoExecs(124).
@@ -25546,21 +25584,21 @@ turbojet::fix_message! {
         /// ReversalIndicator(700).
         reversal_indicator: opt bool = REVERSAL_INDICATOR,
         /// MatchType(574).
-        match_type: opt MatchType = MATCH_TYPE,
+        match_type: opt Code<MatchType> = MATCH_TYPE,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -25568,7 +25606,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -25580,15 +25618,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -25636,59 +25674,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -25714,7 +25752,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -25728,7 +25766,7 @@ turbojet::fix_message! {
         /// NoComplexEvents(1483).
         complex_events: group ComplexEvents = NO_COMPLEX_EVENTS,
         /// DeliveryForm(668).
-        delivery_form: opt DeliveryForm = DELIVERY_FORM,
+        delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
         /// PctAtRisk(869).
         pct_at_risk: opt Decimal = PCT_AT_RISK,
         /// NoInstrAttrib(870).
@@ -25742,13 +25780,13 @@ turbojet::fix_message! {
         /// AgreementCurrency(918).
         agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
         /// TerminationType(788).
-        termination_type: opt TerminationType = TERMINATION_TYPE,
+        termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
         /// StartDate(916).
         start_date: opt NaiveDate = START_DATE,
         /// EndDate(917).
         end_date: opt NaiveDate = END_DATE,
         /// DeliveryType(919).
-        delivery_type: opt DeliveryType = DELIVERY_TYPE,
+        delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
         /// MarginRatio(898).
         margin_ratio: opt Decimal = MARGIN_RATIO,
         /// NoUnderlyings(711).
@@ -25758,17 +25796,17 @@ turbojet::fix_message! {
         /// Quantity(53).
         quantity: req Decimal = QUANTITY,
         /// QtyType(854).
-        qty_type: opt QtyType = QTY_TYPE,
+        qty_type: opt Code<QtyType> = QTY_TYPE,
         /// LastMkt(30).
         last_mkt: opt CompactString = LAST_MKT,
         /// TradeOriginationDate(229).
         trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// AvgPx(6).
         avg_px: opt Decimal = AVG_PX,
         /// AvgParPx(860).
@@ -25778,17 +25816,17 @@ turbojet::fix_message! {
         /// BenchmarkCurveCurrency(220).
         benchmark_curve_currency: opt CompactString = BENCHMARK_CURVE_CURRENCY,
         /// BenchmarkCurveName(221).
-        benchmark_curve_name: opt BenchmarkCurveName = BENCHMARK_CURVE_NAME,
+        benchmark_curve_name: opt Code<BenchmarkCurveName> = BENCHMARK_CURVE_NAME,
         /// BenchmarkCurvePoint(222).
         benchmark_curve_point: opt CompactString = BENCHMARK_CURVE_POINT,
         /// BenchmarkPrice(662).
         benchmark_price: opt Decimal = BENCHMARK_PRICE,
         /// BenchmarkPriceType(663).
-        benchmark_price_type: opt BenchmarkPriceType = BENCHMARK_PRICE_TYPE,
+        benchmark_price_type: opt Code<BenchmarkPriceType> = BENCHMARK_PRICE_TYPE,
         /// BenchmarkSecurityID(699).
         benchmark_security_id: opt CompactString = BENCHMARK_SECURITY_ID,
         /// BenchmarkSecurityIDSource(761).
-        benchmark_security_id_source: opt BenchmarkSecurityIDSource = BENCHMARK_SECURITY_ID_SOURCE,
+        benchmark_security_id_source: opt Code<BenchmarkSecurityIDSource> = BENCHMARK_SECURITY_ID_SOURCE,
         /// Currency(15).
         currency: opt CompactString = CURRENCY,
         /// AvgPxPrecision(74).
@@ -25800,11 +25838,11 @@ turbojet::fix_message! {
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// SettlType(63).
-        settl_type: opt SettlType = SETTL_TYPE,
+        settl_type: opt Code<SettlType> = SETTL_TYPE,
         /// SettlDate(64).
         settl_date: opt NaiveDate = SETTL_DATE,
         /// BookingType(775).
-        booking_type: opt BookingType = BOOKING_TYPE,
+        booking_type: opt Code<BookingType> = BOOKING_TYPE,
         /// GrossTradeAmt(381).
         gross_trade_amt: opt Decimal = GROSS_TRADE_AMT,
         /// Concession(238).
@@ -25814,7 +25852,7 @@ turbojet::fix_message! {
         /// NetMoney(118).
         net_money: opt Decimal = NET_MONEY,
         /// PositionEffect(77).
-        position_effect: opt PositionEffect = POSITION_EFFECT,
+        position_effect: opt Code<PositionEffect> = POSITION_EFFECT,
         /// AutoAcceptIndicator(754).
         auto_accept_indicator: opt bool = AUTO_ACCEPT_INDICATOR,
         /// Text(58).
@@ -25844,7 +25882,7 @@ turbojet::fix_message! {
         /// NoStipulations(232).
         stipulations: group Stipulations = NO_STIPULATIONS,
         /// YieldType(235).
-        yield_type: opt YieldType = YIELD_TYPE,
+        yield_type: opt Code<YieldType> = YIELD_TYPE,
         /// Yield(236).
         r#yield: opt Decimal = YIELD,
         /// YieldCalcDate(701).
@@ -25854,7 +25892,7 @@ turbojet::fix_message! {
         /// YieldRedemptionPrice(697).
         yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
         /// YieldRedemptionPriceType(698).
-        yield_redemption_price_type: opt YieldRedemptionPriceType = YIELD_REDEMPTION_PRICE_TYPE,
+        yield_redemption_price_type: opt Code<YieldRedemptionPriceType> = YIELD_REDEMPTION_PRICE_TYPE,
         /// NoPosAmt(753).
         pos_amt: group PositionAmountData = NO_POS_AMT,
         /// TotNoAllocs(892).
@@ -25864,19 +25902,19 @@ turbojet::fix_message! {
         /// NoAllocs(78).
         allocs: group AllocGrp = NO_ALLOCS,
         /// AvgPxIndicator(819).
-        avg_px_indicator: opt AvgPxIndicator = AVG_PX_INDICATOR,
+        avg_px_indicator: opt Code<AvgPxIndicator> = AVG_PX_INDICATOR,
         /// ClearingBusinessDate(715).
         clearing_business_date: opt NaiveDate = CLEARING_BUSINESS_DATE,
         /// TrdType(828).
-        trd_type: opt TrdType = TRD_TYPE,
+        trd_type: opt Code<TrdType> = TRD_TYPE,
         /// TrdSubType(829).
-        trd_sub_type: opt TrdSubType = TRD_SUB_TYPE,
+        trd_sub_type: opt Code<TrdSubType> = TRD_SUB_TYPE,
         /// CustOrderCapacity(582).
-        cust_order_capacity: opt CustOrderCapacity = CUST_ORDER_CAPACITY,
+        cust_order_capacity: opt Code<CustOrderCapacity> = CUST_ORDER_CAPACITY,
         /// TradeInputSource(578).
         trade_input_source: opt CompactString = TRADE_INPUT_SOURCE,
         /// MultiLegReportingType(442).
-        multi_leg_reporting_type: opt MultiLegReportingType = MULTI_LEG_REPORTING_TYPE,
+        multi_leg_reporting_type: opt Code<MultiLegReportingType> = MULTI_LEG_REPORTING_TYPE,
         /// MessageEventSource(1011).
         message_event_source: opt CompactString = MESSAGE_EVENT_SOURCE,
         /// RndPx(991).
@@ -25889,16 +25927,16 @@ impl AllocationInstructionAlert {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         alloc_id: impl Into<CompactString>,
-        alloc_trans_type: AllocTransType,
-        alloc_type: AllocType,
-        side: Side,
+        alloc_trans_type: impl Into<Code<AllocTransType>>,
+        alloc_type: impl Into<Code<AllocType>>,
+        side: impl Into<Code<Side>>,
         quantity: Decimal,
         trade_date: NaiveDate,
     ) -> Self {
         Self {
             alloc_id: alloc_id.into(),
-            alloc_trans_type,
-            alloc_type,
+            alloc_trans_type: alloc_trans_type.into(),
+            alloc_type: alloc_type.into(),
             secondary_alloc_id: None,
             ref_alloc_id: None,
             alloc_canc_replace_reason: None,
@@ -25912,7 +25950,7 @@ impl AllocationInstructionAlert {
             previously_reported: None,
             reversal_indicator: None,
             match_type: None,
-            side,
+            side: side.into(),
             symbol: None,
             symbol_sfx: None,
             security_id: None,
@@ -26088,23 +26126,23 @@ turbojet::fix_message! {
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// ExecAckStatus(1036).
-        exec_ack_status: req ExecAckStatus = EXEC_ACK_STATUS,
+        exec_ack_status: req Code<ExecAckStatus> = EXEC_ACK_STATUS,
         /// ExecID(17).
         exec_id: req CompactString = EXEC_ID,
         /// DKReason(127).
-        dk_reason: opt DKReason = DK_REASON,
+        dk_reason: opt Code<DKReason> = DK_REASON,
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -26112,7 +26150,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -26124,15 +26162,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -26180,59 +26218,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -26258,7 +26296,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -26276,7 +26314,7 @@ turbojet::fix_message! {
         /// NoLegs(555).
         legs: group InstrmtLegGrp = NO_LEGS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// CashOrderQty(152).
@@ -26284,7 +26322,7 @@ turbojet::fix_message! {
         /// OrderPercent(516).
         order_percent: opt Decimal = ORDER_PERCENT,
         /// RoundingDirection(468).
-        rounding_direction: opt RoundingDirection = ROUNDING_DIRECTION,
+        rounding_direction: opt Code<RoundingDirection> = ROUNDING_DIRECTION,
         /// RoundingModulus(469).
         rounding_modulus: opt Decimal = ROUNDING_MODULUS,
         /// LastQty(32).
@@ -26292,7 +26330,7 @@ turbojet::fix_message! {
         /// LastPx(31).
         last_px: opt Decimal = LAST_PX,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// LastParPx(669).
         last_par_px: opt Decimal = LAST_PAR_PX,
         /// CumQty(14).
@@ -26311,15 +26349,15 @@ impl ExecutionAcknowledgement {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         order_id: impl Into<CompactString>,
-        exec_ack_status: ExecAckStatus,
+        exec_ack_status: impl Into<Code<ExecAckStatus>>,
         exec_id: impl Into<CompactString>,
-        side: Side,
+        side: impl Into<Code<Side>>,
     ) -> Self {
         Self {
             order_id: order_id.into(),
             secondary_order_id: None,
             cl_ord_id: None,
-            exec_ack_status,
+            exec_ack_status: exec_ack_status.into(),
             exec_id: exec_id.into(),
             dk_reason: None,
             symbol: None,
@@ -26409,7 +26447,7 @@ impl ExecutionAcknowledgement {
             complex_events: Vec::new(),
             underlyings: Vec::new(),
             legs: Vec::new(),
-            side,
+            side: side.into(),
             order_qty: None,
             cash_order_qty: None,
             order_percent: None,
@@ -26470,24 +26508,27 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// SecurityExchange(207).
         security_exchange: opt CompactString = SECURITY_EXCHANGE,
         /// TradSesMethod(338).
-        trad_ses_method: opt TradSesMethod = TRAD_SES_METHOD,
+        trad_ses_method: opt Code<TradSesMethod> = TRAD_SES_METHOD,
         /// TradSesMode(339).
-        trad_ses_mode: opt TradSesMode = TRAD_SES_MODE,
+        trad_ses_mode: opt Code<TradSesMode> = TRAD_SES_MODE,
         /// SubscriptionRequestType(263).
-        subscription_request_type: req SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: req Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
     }
 }
 
 impl TradingSessionListRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(trad_ses_req_id: impl Into<CompactString>, subscription_request_type: SubscriptionRequestType) -> Self {
+    pub fn new(
+        trad_ses_req_id: impl Into<CompactString>,
+        subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
+    ) -> Self {
         Self {
             trad_ses_req_id: trad_ses_req_id.into(),
             market_id: None,
@@ -26497,7 +26538,7 @@ impl TradingSessionListRequest {
             security_exchange: None,
             trad_ses_method: None,
             trad_ses_mode: None,
-            subscription_request_type,
+            subscription_request_type: subscription_request_type.into(),
         }
     }
 }
@@ -26520,7 +26561,7 @@ turbojet::fix_message! {
         /// SettlObligMsgID(1160).
         settl_oblig_msg_id: req CompactString = SETTL_OBLIG_MSG_ID,
         /// SettlObligMode(1159).
-        settl_oblig_mode: req SettlObligMode = SETTL_OBLIG_MODE,
+        settl_oblig_mode: req Code<SettlObligMode> = SETTL_OBLIG_MODE,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -26537,7 +26578,7 @@ impl SettlementObligationReport {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         settl_oblig_msg_id: impl Into<CompactString>,
-        settl_oblig_mode: SettlObligMode,
+        settl_oblig_mode: impl Into<Code<SettlObligMode>>,
         settl_oblig: Vec<SettlObligationInstructions>,
     ) -> Self {
         Self {
@@ -26548,7 +26589,7 @@ impl SettlementObligationReport {
             clearing_business_date: None,
             settlement_cycle_no: None,
             settl_oblig_msg_id: settl_oblig_msg_id.into(),
-            settl_oblig_mode,
+            settl_oblig_mode: settl_oblig_mode.into(),
             text: None,
             encoded_text: None,
             transact_time: None,
@@ -26573,25 +26614,25 @@ turbojet::fix_message! {
         /// SecurityResponseID(322).
         security_response_id: opt CompactString = SECURITY_RESPONSE_ID,
         /// SecurityRequestResult(560).
-        security_request_result: opt SecurityRequestResult = SECURITY_REQUEST_RESULT,
+        security_request_result: opt Code<SecurityRequestResult> = SECURITY_REQUEST_RESULT,
         /// SecurityUpdateAction(980).
-        security_update_action: opt SecurityUpdateAction = SECURITY_UPDATE_ACTION,
+        security_update_action: opt Code<SecurityUpdateAction> = SECURITY_UPDATE_ACTION,
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -26603,9 +26644,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -26653,21 +26694,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -26691,11 +26732,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -26715,7 +26756,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -26727,15 +26768,15 @@ turbojet::fix_message! {
         /// DerivativeSymbol(1214).
         derivative_symbol: opt CompactString = DERIVATIVE_SYMBOL,
         /// DerivativeSymbolSfx(1215).
-        derivative_symbol_sfx: opt DerivativeSymbolSfx = DERIVATIVE_SYMBOL_SFX,
+        derivative_symbol_sfx: opt Code<DerivativeSymbolSfx> = DERIVATIVE_SYMBOL_SFX,
         /// DerivativeSecurityID(1216).
         derivative_security_id: opt CompactString = DERIVATIVE_SECURITY_ID,
         /// DerivativeSecurityIDSource(1217).
-        derivative_security_id_source: opt DerivativeSecurityIDSource = DERIVATIVE_SECURITY_ID_SOURCE,
+        derivative_security_id_source: opt Code<DerivativeSecurityIDSource> = DERIVATIVE_SECURITY_ID_SOURCE,
         /// NoDerivativeSecurityAltID(1218).
         derivative_security_alt_id: group DerivativeSecurityAltIDGrp = NO_DERIVATIVE_SECURITY_ALT_ID,
         /// DerivativeProduct(1246).
-        derivative_product: opt DerivativeProduct = DERIVATIVE_PRODUCT,
+        derivative_product: opt Code<DerivativeProduct> = DERIVATIVE_PRODUCT,
         /// DerivativeProductComplex(1228).
         derivative_product_complex: opt CompactString = DERIVATIVE_PRODUCT_COMPLEX,
         /// DerivFlexProductEligibilityIndicator(1243).
@@ -26745,7 +26786,7 @@ turbojet::fix_message! {
         /// DerivativeCFICode(1248).
         derivative_cfi_code: opt CompactString = DERIVATIVE_CFI_CODE,
         /// DerivativeSecurityType(1249).
-        derivative_security_type: opt DerivativeSecurityType = DERIVATIVE_SECURITY_TYPE,
+        derivative_security_type: opt Code<DerivativeSecurityType> = DERIVATIVE_SECURITY_TYPE,
         /// DerivativeSecuritySubType(1250).
         derivative_security_sub_type: opt CompactString = DERIVATIVE_SECURITY_SUB_TYPE,
         /// DerivativeMaturityMonthYear(1251).
@@ -26757,9 +26798,9 @@ turbojet::fix_message! {
         /// DerivativeSettleOnOpenFlag(1254).
         derivative_settle_on_open_flag: opt CompactString = DERIVATIVE_SETTLE_ON_OPEN_FLAG,
         /// DerivativeInstrmtAssignmentMethod(1255).
-        derivative_instrmt_assignment_method: opt DerivativeInstrmtAssignmentMethod = DERIVATIVE_INSTRMT_ASSIGNMENT_METHOD,
+        derivative_instrmt_assignment_method: opt Code<DerivativeInstrmtAssignmentMethod> = DERIVATIVE_INSTRMT_ASSIGNMENT_METHOD,
         /// DerivativeSecurityStatus(1256).
-        derivative_security_status: opt DerivativeSecurityStatus = DERIVATIVE_SECURITY_STATUS,
+        derivative_security_status: opt Code<DerivativeSecurityStatus> = DERIVATIVE_SECURITY_STATUS,
         /// DerivativeIssueDate(1276).
         derivative_issue_date: opt NaiveDate = DERIVATIVE_ISSUE_DATE,
         /// DerivativeInstrRegistry(1257).
@@ -26783,41 +26824,41 @@ turbojet::fix_message! {
         /// DerivativeContractMultiplier(1266).
         derivative_contract_multiplier: opt Decimal = DERIVATIVE_CONTRACT_MULTIPLIER,
         /// DerivativeContractMultiplierUnit(1438).
-        derivative_contract_multiplier_unit: opt DerivativeContractMultiplierUnit = DERIVATIVE_CONTRACT_MULTIPLIER_UNIT,
+        derivative_contract_multiplier_unit: opt Code<DerivativeContractMultiplierUnit> = DERIVATIVE_CONTRACT_MULTIPLIER_UNIT,
         /// DerivativeFlowScheduleType(1442).
-        derivative_flow_schedule_type: opt DerivativeFlowScheduleType = DERIVATIVE_FLOW_SCHEDULE_TYPE,
+        derivative_flow_schedule_type: opt Code<DerivativeFlowScheduleType> = DERIVATIVE_FLOW_SCHEDULE_TYPE,
         /// DerivativeMinPriceIncrement(1267).
         derivative_min_price_increment: opt Decimal = DERIVATIVE_MIN_PRICE_INCREMENT,
         /// DerivativeMinPriceIncrementAmount(1268).
         derivative_min_price_increment_amount: opt Decimal = DERIVATIVE_MIN_PRICE_INCREMENT_AMOUNT,
         /// DerivativeUnitOfMeasure(1269).
-        derivative_unit_of_measure: opt DerivativeUnitOfMeasure = DERIVATIVE_UNIT_OF_MEASURE,
+        derivative_unit_of_measure: opt Code<DerivativeUnitOfMeasure> = DERIVATIVE_UNIT_OF_MEASURE,
         /// DerivativeUnitOfMeasureQty(1270).
         derivative_unit_of_measure_qty: opt Decimal = DERIVATIVE_UNIT_OF_MEASURE_QTY,
         /// DerivativePriceUnitOfMeasure(1315).
-        derivative_price_unit_of_measure: opt DerivativePriceUnitOfMeasure = DERIVATIVE_PRICE_UNIT_OF_MEASURE,
+        derivative_price_unit_of_measure: opt Code<DerivativePriceUnitOfMeasure> = DERIVATIVE_PRICE_UNIT_OF_MEASURE,
         /// DerivativePriceUnitOfMeasureQty(1316).
         derivative_price_unit_of_measure_qty: opt Decimal = DERIVATIVE_PRICE_UNIT_OF_MEASURE_QTY,
         /// DerivativeSettlMethod(1317).
-        derivative_settl_method: opt DerivativeSettlMethod = DERIVATIVE_SETTL_METHOD,
+        derivative_settl_method: opt Code<DerivativeSettlMethod> = DERIVATIVE_SETTL_METHOD,
         /// DerivativePriceQuoteMethod(1318).
-        derivative_price_quote_method: opt DerivativePriceQuoteMethod = DERIVATIVE_PRICE_QUOTE_METHOD,
+        derivative_price_quote_method: opt Code<DerivativePriceQuoteMethod> = DERIVATIVE_PRICE_QUOTE_METHOD,
         /// DerivativeValuationMethod(1319).
-        derivative_valuation_method: opt DerivativeValuationMethod = DERIVATIVE_VALUATION_METHOD,
+        derivative_valuation_method: opt Code<DerivativeValuationMethod> = DERIVATIVE_VALUATION_METHOD,
         /// DerivativeListMethod(1320).
-        derivative_list_method: opt DerivativeListMethod = DERIVATIVE_LIST_METHOD,
+        derivative_list_method: opt Code<DerivativeListMethod> = DERIVATIVE_LIST_METHOD,
         /// DerivativeCapPrice(1321).
         derivative_cap_price: opt Decimal = DERIVATIVE_CAP_PRICE,
         /// DerivativeFloorPrice(1322).
         derivative_floor_price: opt Decimal = DERIVATIVE_FLOOR_PRICE,
         /// DerivativePutOrCall(1323).
-        derivative_put_or_call: opt DerivativePutOrCall = DERIVATIVE_PUT_OR_CALL,
+        derivative_put_or_call: opt Code<DerivativePutOrCall> = DERIVATIVE_PUT_OR_CALL,
         /// DerivativeExerciseStyle(1299).
-        derivative_exercise_style: opt DerivativeExerciseStyle = DERIVATIVE_EXERCISE_STYLE,
+        derivative_exercise_style: opt Code<DerivativeExerciseStyle> = DERIVATIVE_EXERCISE_STYLE,
         /// DerivativeOptPayAmount(1225).
         derivative_opt_pay_amount: opt Decimal = DERIVATIVE_OPT_PAY_AMOUNT,
         /// DerivativeTimeUnit(1271).
-        derivative_time_unit: opt DerivativeTimeUnit = DERIVATIVE_TIME_UNIT,
+        derivative_time_unit: opt Code<DerivativeTimeUnit> = DERIVATIVE_TIME_UNIT,
         /// DerivativeSecurityExchange(1272).
         derivative_security_exchange: opt CompactString = DERIVATIVE_SECURITY_EXCHANGE,
         /// DerivativePositionLimit(1273).
@@ -27048,7 +27089,7 @@ turbojet::fix_message! {
         /// MarketReqID(1393).
         market_req_id: req CompactString = MARKET_REQ_ID,
         /// SubscriptionRequestType(263).
-        subscription_request_type: req SubscriptionRequestType = SUBSCRIPTION_REQUEST_TYPE,
+        subscription_request_type: req Code<SubscriptionRequestType> = SUBSCRIPTION_REQUEST_TYPE,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
@@ -27061,10 +27102,13 @@ turbojet::fix_message! {
 impl MarketDefinitionRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(market_req_id: impl Into<CompactString>, subscription_request_type: SubscriptionRequestType) -> Self {
+    pub fn new(
+        market_req_id: impl Into<CompactString>,
+        subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
+    ) -> Self {
         Self {
             market_req_id: market_req_id.into(),
-            subscription_request_type,
+            subscription_request_type: subscription_request_type.into(),
             market_id: None,
             market_segment_id: None,
             parent_mkt_segm_id: None,
@@ -27104,7 +27148,7 @@ turbojet::fix_message! {
         /// NoLotTypeRules(1234).
         lot_type_rules: group LotTypeRules = NO_LOT_TYPE_RULES,
         /// PriceLimitType(1306).
-        price_limit_type: opt PriceLimitType = PRICE_LIMIT_TYPE,
+        price_limit_type: opt Code<PriceLimitType> = PRICE_LIMIT_TYPE,
         /// LowLimitPrice(1148).
         low_limit_price: opt Decimal = LOW_LIMIT_PRICE,
         /// HighLimitPrice(1149).
@@ -27112,7 +27156,7 @@ turbojet::fix_message! {
         /// TradingReferencePrice(1150).
         trading_reference_price: opt Decimal = TRADING_REFERENCE_PRICE,
         /// ExpirationCycle(827).
-        expiration_cycle: opt ExpirationCycle = EXPIRATION_CYCLE,
+        expiration_cycle: opt Code<ExpirationCycle> = EXPIRATION_CYCLE,
         /// MinTradeVol(562).
         min_trade_vol: opt Decimal = MIN_TRADE_VOL,
         /// MaxTradeVol(1140).
@@ -27120,17 +27164,17 @@ turbojet::fix_message! {
         /// MaxPriceVariation(1143).
         max_price_variation: opt Decimal = MAX_PRICE_VARIATION,
         /// ImpliedMarketIndicator(1144).
-        implied_market_indicator: opt ImpliedMarketIndicator = IMPLIED_MARKET_INDICATOR,
+        implied_market_indicator: opt Code<ImpliedMarketIndicator> = IMPLIED_MARKET_INDICATOR,
         /// TradingCurrency(1245).
         trading_currency: opt CompactString = TRADING_CURRENCY,
         /// RoundLot(561).
         round_lot: opt Decimal = ROUND_LOT,
         /// MultilegModel(1377).
-        multileg_model: opt MultilegModel = MULTILEG_MODEL,
+        multileg_model: opt Code<MultilegModel> = MULTILEG_MODEL,
         /// MultilegPriceMethod(1378).
-        multileg_price_method: opt MultilegPriceMethod = MULTILEG_PRICE_METHOD,
+        multileg_price_method: opt Code<MultilegPriceMethod> = MULTILEG_PRICE_METHOD,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// NoOrdTypeRules(1237).
         ord_type_rules: group OrdTypeRules = NO_ORD_TYPE_RULES,
         /// NoTimeInForceRules(1239).
@@ -27205,7 +27249,7 @@ turbojet::fix_message! {
         /// MarketReqID(1393).
         market_req_id: opt CompactString = MARKET_REQ_ID,
         /// MarketUpdateAction(1395).
-        market_update_action: opt MarketUpdateAction = MARKET_UPDATE_ACTION,
+        market_update_action: opt Code<MarketUpdateAction> = MARKET_UPDATE_ACTION,
         /// MarketID(1301).
         market_id: req CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
@@ -27223,7 +27267,7 @@ turbojet::fix_message! {
         /// NoLotTypeRules(1234).
         lot_type_rules: group LotTypeRules = NO_LOT_TYPE_RULES,
         /// PriceLimitType(1306).
-        price_limit_type: opt PriceLimitType = PRICE_LIMIT_TYPE,
+        price_limit_type: opt Code<PriceLimitType> = PRICE_LIMIT_TYPE,
         /// LowLimitPrice(1148).
         low_limit_price: opt Decimal = LOW_LIMIT_PRICE,
         /// HighLimitPrice(1149).
@@ -27231,7 +27275,7 @@ turbojet::fix_message! {
         /// TradingReferencePrice(1150).
         trading_reference_price: opt Decimal = TRADING_REFERENCE_PRICE,
         /// ExpirationCycle(827).
-        expiration_cycle: opt ExpirationCycle = EXPIRATION_CYCLE,
+        expiration_cycle: opt Code<ExpirationCycle> = EXPIRATION_CYCLE,
         /// MinTradeVol(562).
         min_trade_vol: opt Decimal = MIN_TRADE_VOL,
         /// MaxTradeVol(1140).
@@ -27239,17 +27283,17 @@ turbojet::fix_message! {
         /// MaxPriceVariation(1143).
         max_price_variation: opt Decimal = MAX_PRICE_VARIATION,
         /// ImpliedMarketIndicator(1144).
-        implied_market_indicator: opt ImpliedMarketIndicator = IMPLIED_MARKET_INDICATOR,
+        implied_market_indicator: opt Code<ImpliedMarketIndicator> = IMPLIED_MARKET_INDICATOR,
         /// TradingCurrency(1245).
         trading_currency: opt CompactString = TRADING_CURRENCY,
         /// RoundLot(561).
         round_lot: opt Decimal = ROUND_LOT,
         /// MultilegModel(1377).
-        multileg_model: opt MultilegModel = MULTILEG_MODEL,
+        multileg_model: opt Code<MultilegModel> = MULTILEG_MODEL,
         /// MultilegPriceMethod(1378).
-        multileg_price_method: opt MultilegPriceMethod = MULTILEG_PRICE_METHOD,
+        multileg_price_method: opt Code<MultilegPriceMethod> = MULTILEG_PRICE_METHOD,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// NoOrdTypeRules(1237).
         ord_type_rules: group OrdTypeRules = NO_ORD_TYPE_RULES,
         /// NoTimeInForceRules(1239).
@@ -27315,7 +27359,7 @@ turbojet::fix_message! {
         /// NoUsernames(809).
         usernames: group UsernameGrp = NO_USERNAMES,
         /// UserStatus(926).
-        user_status: req UserStatus = USER_STATUS,
+        user_status: req Code<UserStatus> = USER_STATUS,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -27326,8 +27370,8 @@ turbojet::fix_message! {
 impl UserNotification {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(user_status: UserStatus) -> Self {
-        Self { usernames: Vec::new(), user_status, text: None, encoded_text: None }
+    pub fn new(user_status: impl Into<Code<UserStatus>>) -> Self {
+        Self { usernames: Vec::new(), user_status: user_status.into(), text: None, encoded_text: None }
     }
 }
 
@@ -27341,13 +27385,13 @@ turbojet::fix_message! {
         /// MassActionReportID(1369).
         mass_action_report_id: req CompactString = MASS_ACTION_REPORT_ID,
         /// MassActionType(1373).
-        mass_action_type: req MassActionType = MASS_ACTION_TYPE,
+        mass_action_type: req Code<MassActionType> = MASS_ACTION_TYPE,
         /// MassActionScope(1374).
-        mass_action_scope: req MassActionScope = MASS_ACTION_SCOPE,
+        mass_action_scope: req Code<MassActionScope> = MASS_ACTION_SCOPE,
         /// MassActionResponse(1375).
-        mass_action_response: req MassActionResponse = MASS_ACTION_RESPONSE,
+        mass_action_response: req Code<MassActionResponse> = MASS_ACTION_RESPONSE,
         /// MassActionRejectReason(1376).
-        mass_action_reject_reason: opt MassActionRejectReason = MASS_ACTION_REJECT_REASON,
+        mass_action_reject_reason: opt Code<MassActionRejectReason> = MASS_ACTION_REJECT_REASON,
         /// TotalAffectedOrders(533).
         total_affected_orders: opt i64 = TOTAL_AFFECTED_ORDERS,
         /// NoAffectedOrders(534).
@@ -27359,9 +27403,9 @@ turbojet::fix_message! {
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -27369,15 +27413,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -27385,7 +27429,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -27397,15 +27441,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -27453,59 +27497,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -27531,7 +27575,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -27547,19 +27591,19 @@ turbojet::fix_message! {
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -27571,9 +27615,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -27621,21 +27665,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -27659,11 +27703,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -27683,7 +27727,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -27693,7 +27737,7 @@ turbojet::fix_message! {
         /// UnderlyingPutOrCall(315).
         underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: opt UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
@@ -27708,17 +27752,17 @@ impl OrderMassActionReport {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         mass_action_report_id: impl Into<CompactString>,
-        mass_action_type: MassActionType,
-        mass_action_scope: MassActionScope,
-        mass_action_response: MassActionResponse,
+        mass_action_type: impl Into<Code<MassActionType>>,
+        mass_action_scope: impl Into<Code<MassActionScope>>,
+        mass_action_response: impl Into<Code<MassActionResponse>>,
     ) -> Self {
         Self {
             cl_ord_id: None,
             secondary_cl_ord_id: None,
             mass_action_report_id: mass_action_report_id.into(),
-            mass_action_type,
-            mass_action_scope,
-            mass_action_response,
+            mass_action_type: mass_action_type.into(),
+            mass_action_scope: mass_action_scope.into(),
+            mass_action_response: mass_action_response.into(),
             mass_action_reject_reason: None,
             total_affected_orders: None,
             affected_orders: Vec::new(),
@@ -27900,17 +27944,17 @@ turbojet::fix_message! {
         /// SecondaryClOrdID(526).
         secondary_cl_ord_id: opt CompactString = SECONDARY_CL_ORD_ID,
         /// MassActionType(1373).
-        mass_action_type: req MassActionType = MASS_ACTION_TYPE,
+        mass_action_type: req Code<MassActionType> = MASS_ACTION_TYPE,
         /// MassActionScope(1374).
-        mass_action_scope: req MassActionScope = MASS_ACTION_SCOPE,
+        mass_action_scope: req Code<MassActionScope> = MASS_ACTION_SCOPE,
         /// MarketID(1301).
         market_id: opt CompactString = MARKET_ID,
         /// MarketSegmentID(1300).
         market_segment_id: opt CompactString = MARKET_SEGMENT_ID,
         /// TradingSessionID(336).
-        trading_session_id: opt TradingSessionID = TRADING_SESSION_ID,
+        trading_session_id: opt Code<TradingSessionID> = TRADING_SESSION_ID,
         /// TradingSessionSubID(625).
-        trading_session_sub_id: opt TradingSessionSubID = TRADING_SESSION_SUB_ID,
+        trading_session_sub_id: opt Code<TradingSessionSubID> = TRADING_SESSION_SUB_ID,
         /// NoPartyIDs(453).
         party_ids: group Parties = NO_PARTY_IDS,
         /// NoTargetPartyIDs(1461).
@@ -27918,15 +27962,15 @@ turbojet::fix_message! {
         /// Symbol(55).
         symbol: opt CompactString = SYMBOL,
         /// SymbolSfx(65).
-        symbol_sfx: opt SymbolSfx = SYMBOL_SFX,
+        symbol_sfx: opt Code<SymbolSfx> = SYMBOL_SFX,
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// SecurityIDSource(22).
-        security_id_source: opt SecurityIDSource = SECURITY_ID_SOURCE,
+        security_id_source: opt Code<SecurityIDSource> = SECURITY_ID_SOURCE,
         /// NoSecurityAltID(454).
         security_alt_id: group SecAltIDGrp = NO_SECURITY_ALT_ID,
         /// Product(460).
-        product: opt Product = PRODUCT,
+        product: opt Code<Product> = PRODUCT,
         /// ProductComplex(1227).
         product_complex: opt CompactString = PRODUCT_COMPLEX,
         /// SecurityGroup(1151).
@@ -27934,7 +27978,7 @@ turbojet::fix_message! {
         /// CFICode(461).
         cfi_code: opt CompactString = CFI_CODE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// SecuritySubType(762).
         security_sub_type: opt CompactString = SECURITY_SUB_TYPE,
         /// MaturityMonthYear(200).
@@ -27946,15 +27990,15 @@ turbojet::fix_message! {
         /// SettleOnOpenFlag(966).
         settle_on_open_flag: opt CompactString = SETTLE_ON_OPEN_FLAG,
         /// InstrmtAssignmentMethod(1049).
-        instrmt_assignment_method: opt InstrmtAssignmentMethod = INSTRMT_ASSIGNMENT_METHOD,
+        instrmt_assignment_method: opt Code<InstrmtAssignmentMethod> = INSTRMT_ASSIGNMENT_METHOD,
         /// SecurityStatus(965).
-        security_status: opt SecurityStatusCode = SECURITY_STATUS,
+        security_status: opt Code<SecurityStatusCode> = SECURITY_STATUS,
         /// CouponPaymentDate(224).
         coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
         /// RestructuringType(1449).
-        restructuring_type: opt RestructuringType = RESTRUCTURING_TYPE,
+        restructuring_type: opt Code<RestructuringType> = RESTRUCTURING_TYPE,
         /// Seniority(1450).
-        seniority: opt Seniority = SENIORITY,
+        seniority: opt Code<Seniority> = SENIORITY,
         /// NotionalPercentageOutstanding(1451).
         notional_percentage_outstanding: opt Decimal = NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// OriginalNotionalPercentageOutstanding(1452).
@@ -28002,59 +28046,59 @@ turbojet::fix_message! {
         /// StrikeValue(968).
         strike_value: opt Decimal = STRIKE_VALUE,
         /// StrikePriceDeterminationMethod(1478).
-        strike_price_determination_method: opt StrikePriceDeterminationMethod = STRIKE_PRICE_DETERMINATION_METHOD,
+        strike_price_determination_method: opt Code<StrikePriceDeterminationMethod> = STRIKE_PRICE_DETERMINATION_METHOD,
         /// StrikePriceBoundaryMethod(1479).
-        strike_price_boundary_method: opt StrikePriceBoundaryMethod = STRIKE_PRICE_BOUNDARY_METHOD,
+        strike_price_boundary_method: opt Code<StrikePriceBoundaryMethod> = STRIKE_PRICE_BOUNDARY_METHOD,
         /// StrikePriceBoundaryPrecision(1480).
         strike_price_boundary_precision: opt Decimal = STRIKE_PRICE_BOUNDARY_PRECISION,
         /// UnderlyingPriceDeterminationMethod(1481).
-        underlying_price_determination_method: opt UnderlyingPriceDeterminationMethod = UNDERLYING_PRICE_DETERMINATION_METHOD,
+        underlying_price_determination_method: opt Code<UnderlyingPriceDeterminationMethod> = UNDERLYING_PRICE_DETERMINATION_METHOD,
         /// OptAttribute(206).
         opt_attribute: opt char = OPT_ATTRIBUTE,
         /// ContractMultiplier(231).
         contract_multiplier: opt Decimal = CONTRACT_MULTIPLIER,
         /// ContractMultiplierUnit(1435).
-        contract_multiplier_unit: opt ContractMultiplierUnit = CONTRACT_MULTIPLIER_UNIT,
+        contract_multiplier_unit: opt Code<ContractMultiplierUnit> = CONTRACT_MULTIPLIER_UNIT,
         /// FlowScheduleType(1439).
-        flow_schedule_type: opt FlowScheduleType = FLOW_SCHEDULE_TYPE,
+        flow_schedule_type: opt Code<FlowScheduleType> = FLOW_SCHEDULE_TYPE,
         /// MinPriceIncrement(969).
         min_price_increment: opt Decimal = MIN_PRICE_INCREMENT,
         /// MinPriceIncrementAmount(1146).
         min_price_increment_amount: opt Decimal = MIN_PRICE_INCREMENT_AMOUNT,
         /// UnitOfMeasure(996).
-        unit_of_measure: opt UnitOfMeasure = UNIT_OF_MEASURE,
+        unit_of_measure: opt Code<UnitOfMeasure> = UNIT_OF_MEASURE,
         /// UnitOfMeasureQty(1147).
         unit_of_measure_qty: opt Decimal = UNIT_OF_MEASURE_QTY,
         /// PriceUnitOfMeasure(1191).
-        price_unit_of_measure: opt PriceUnitOfMeasure = PRICE_UNIT_OF_MEASURE,
+        price_unit_of_measure: opt Code<PriceUnitOfMeasure> = PRICE_UNIT_OF_MEASURE,
         /// PriceUnitOfMeasureQty(1192).
         price_unit_of_measure_qty: opt Decimal = PRICE_UNIT_OF_MEASURE_QTY,
         /// SettlMethod(1193).
-        settl_method: opt SettlMethod = SETTL_METHOD,
+        settl_method: opt Code<SettlMethod> = SETTL_METHOD,
         /// ExerciseStyle(1194).
-        exercise_style: opt ExerciseStyle = EXERCISE_STYLE,
+        exercise_style: opt Code<ExerciseStyle> = EXERCISE_STYLE,
         /// OptPayoutType(1482).
-        opt_payout_type: opt OptPayoutType = OPT_PAYOUT_TYPE,
+        opt_payout_type: opt Code<OptPayoutType> = OPT_PAYOUT_TYPE,
         /// OptPayoutAmount(1195).
         opt_payout_amount: opt Decimal = OPT_PAYOUT_AMOUNT,
         /// PriceQuoteMethod(1196).
-        price_quote_method: opt PriceQuoteMethod = PRICE_QUOTE_METHOD,
+        price_quote_method: opt Code<PriceQuoteMethod> = PRICE_QUOTE_METHOD,
         /// ValuationMethod(1197).
-        valuation_method: opt ValuationMethod = VALUATION_METHOD,
+        valuation_method: opt Code<ValuationMethod> = VALUATION_METHOD,
         /// ListMethod(1198).
-        list_method: opt ListMethod = LIST_METHOD,
+        list_method: opt Code<ListMethod> = LIST_METHOD,
         /// CapPrice(1199).
         cap_price: opt Decimal = CAP_PRICE,
         /// FloorPrice(1200).
         floor_price: opt Decimal = FLOOR_PRICE,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// FlexibleIndicator(1244).
         flexible_indicator: opt bool = FLEXIBLE_INDICATOR,
         /// FlexProductEligibilityIndicator(1242).
         flex_product_eligibility_indicator: opt bool = FLEX_PRODUCT_ELIGIBILITY_INDICATOR,
         /// TimeUnit(997).
-        time_unit: opt TimeUnit = TIME_UNIT,
+        time_unit: opt Code<TimeUnit> = TIME_UNIT,
         /// CouponRate(223).
         coupon_rate: opt Decimal = COUPON_RATE,
         /// SecurityExchange(207).
@@ -28080,7 +28124,7 @@ turbojet::fix_message! {
         /// ContractSettlMonth(667).
         contract_settl_month: opt MonthYear = CONTRACT_SETTL_MONTH,
         /// CPProgram(875).
-        cp_program: opt CPProgram = CP_PROGRAM,
+        cp_program: opt Code<CPProgram> = CP_PROGRAM,
         /// CPRegType(876).
         cp_reg_type: opt CompactString = CP_REG_TYPE,
         /// NoEvents(864).
@@ -28096,19 +28140,19 @@ turbojet::fix_message! {
         /// UnderlyingSymbol(311).
         underlying_symbol: opt CompactString = UNDERLYING_SYMBOL,
         /// UnderlyingSymbolSfx(312).
-        underlying_symbol_sfx: opt UnderlyingSymbolSfx = UNDERLYING_SYMBOL_SFX,
+        underlying_symbol_sfx: opt Code<UnderlyingSymbolSfx> = UNDERLYING_SYMBOL_SFX,
         /// UnderlyingSecurityID(309).
         underlying_security_id: opt CompactString = UNDERLYING_SECURITY_ID,
         /// UnderlyingSecurityIDSource(305).
-        underlying_security_id_source: opt UnderlyingSecurityIDSource = UNDERLYING_SECURITY_ID_SOURCE,
+        underlying_security_id_source: opt Code<UnderlyingSecurityIDSource> = UNDERLYING_SECURITY_ID_SOURCE,
         /// NoUnderlyingSecurityAltID(457).
         underlying_security_alt_id: group UndSecAltIDGrp = NO_UNDERLYING_SECURITY_ALT_ID,
         /// UnderlyingProduct(462).
-        underlying_product: opt UnderlyingProduct = UNDERLYING_PRODUCT,
+        underlying_product: opt Code<UnderlyingProduct> = UNDERLYING_PRODUCT,
         /// UnderlyingCFICode(463).
         underlying_cfi_code: opt CompactString = UNDERLYING_CFI_CODE,
         /// UnderlyingSecurityType(310).
-        underlying_security_type: opt UnderlyingSecurityType = UNDERLYING_SECURITY_TYPE,
+        underlying_security_type: opt Code<UnderlyingSecurityType> = UNDERLYING_SECURITY_TYPE,
         /// UnderlyingSecuritySubType(763).
         underlying_security_sub_type: opt CompactString = UNDERLYING_SECURITY_SUB_TYPE,
         /// UnderlyingMaturityMonthYear(313).
@@ -28120,9 +28164,9 @@ turbojet::fix_message! {
         /// UnderlyingCouponPaymentDate(241).
         underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
         /// UnderlyingRestructuringType(1453).
-        underlying_restructuring_type: opt UnderlyingRestructuringType = UNDERLYING_RESTRUCTURING_TYPE,
+        underlying_restructuring_type: opt Code<UnderlyingRestructuringType> = UNDERLYING_RESTRUCTURING_TYPE,
         /// UnderlyingSeniority(1454).
-        underlying_seniority: opt UnderlyingSeniority = UNDERLYING_SENIORITY,
+        underlying_seniority: opt Code<UnderlyingSeniority> = UNDERLYING_SENIORITY,
         /// UnderlyingNotionalPercentageOutstanding(1455).
         underlying_notional_percentage_outstanding: opt Decimal = UNDERLYING_NOTIONAL_PERCENTAGE_OUTSTANDING,
         /// UnderlyingOriginalNotionalPercentageOutstanding(1456).
@@ -28170,21 +28214,21 @@ turbojet::fix_message! {
         /// UnderlyingContractMultiplier(436).
         underlying_contract_multiplier: opt Decimal = UNDERLYING_CONTRACT_MULTIPLIER,
         /// UnderlyingContractMultiplierUnit(1437).
-        underlying_contract_multiplier_unit: opt UnderlyingContractMultiplierUnit = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
+        underlying_contract_multiplier_unit: opt Code<UnderlyingContractMultiplierUnit> = UNDERLYING_CONTRACT_MULTIPLIER_UNIT,
         /// UnderlyingFlowScheduleType(1441).
-        underlying_flow_schedule_type: opt UnderlyingFlowScheduleType = UNDERLYING_FLOW_SCHEDULE_TYPE,
+        underlying_flow_schedule_type: opt Code<UnderlyingFlowScheduleType> = UNDERLYING_FLOW_SCHEDULE_TYPE,
         /// UnderlyingUnitOfMeasure(998).
-        underlying_unit_of_measure: opt UnderlyingUnitOfMeasure = UNDERLYING_UNIT_OF_MEASURE,
+        underlying_unit_of_measure: opt Code<UnderlyingUnitOfMeasure> = UNDERLYING_UNIT_OF_MEASURE,
         /// UnderlyingUnitOfMeasureQty(1423).
         underlying_unit_of_measure_qty: opt Decimal = UNDERLYING_UNIT_OF_MEASURE_QTY,
         /// UnderlyingPriceUnitOfMeasure(1424).
-        underlying_price_unit_of_measure: opt UnderlyingPriceUnitOfMeasure = UNDERLYING_PRICE_UNIT_OF_MEASURE,
+        underlying_price_unit_of_measure: opt Code<UnderlyingPriceUnitOfMeasure> = UNDERLYING_PRICE_UNIT_OF_MEASURE,
         /// UnderlyingPriceUnitOfMeasureQty(1425).
         underlying_price_unit_of_measure_qty: opt Decimal = UNDERLYING_PRICE_UNIT_OF_MEASURE_QTY,
         /// UnderlyingTimeUnit(1000).
-        underlying_time_unit: opt UnderlyingTimeUnit = UNDERLYING_TIME_UNIT,
+        underlying_time_unit: opt Code<UnderlyingTimeUnit> = UNDERLYING_TIME_UNIT,
         /// UnderlyingExerciseStyle(1419).
-        underlying_exercise_style: opt UnderlyingExerciseStyle = UNDERLYING_EXERCISE_STYLE,
+        underlying_exercise_style: opt Code<UnderlyingExerciseStyle> = UNDERLYING_EXERCISE_STYLE,
         /// UnderlyingCouponRate(435).
         underlying_coupon_rate: opt Decimal = UNDERLYING_COUPON_RATE,
         /// UnderlyingSecurityExchange(308).
@@ -28208,11 +28252,11 @@ turbojet::fix_message! {
         /// UnderlyingQty(879).
         underlying_qty: opt Decimal = UNDERLYING_QTY,
         /// UnderlyingSettlementType(975).
-        underlying_settlement_type: opt UnderlyingSettlementType = UNDERLYING_SETTLEMENT_TYPE,
+        underlying_settlement_type: opt Code<UnderlyingSettlementType> = UNDERLYING_SETTLEMENT_TYPE,
         /// UnderlyingCashAmount(973).
         underlying_cash_amount: opt Decimal = UNDERLYING_CASH_AMOUNT,
         /// UnderlyingCashType(974).
-        underlying_cash_type: opt UnderlyingCashType = UNDERLYING_CASH_TYPE,
+        underlying_cash_type: opt Code<UnderlyingCashType> = UNDERLYING_CASH_TYPE,
         /// UnderlyingPx(810).
         underlying_px: opt Decimal = UNDERLYING_PX,
         /// UnderlyingDirtyPrice(882).
@@ -28232,7 +28276,7 @@ turbojet::fix_message! {
         /// UnderlyingFXRate(1045).
         underlying_fx_rate: opt Decimal = UNDERLYING_FX_RATE,
         /// UnderlyingFXRateCalc(1046).
-        underlying_fx_rate_calc: opt UnderlyingFXRateCalc = UNDERLYING_FX_RATE_CALC,
+        underlying_fx_rate_calc: opt Code<UnderlyingFXRateCalc> = UNDERLYING_FX_RATE_CALC,
         /// UnderlyingCapValue(1038).
         underlying_cap_value: opt Decimal = UNDERLYING_CAP_VALUE,
         /// NoUndlyInstrumentParties(1058).
@@ -28242,7 +28286,7 @@ turbojet::fix_message! {
         /// UnderlyingPutOrCall(315).
         underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// Text(58).
@@ -28257,15 +28301,15 @@ impl OrderMassActionRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         cl_ord_id: impl Into<CompactString>,
-        mass_action_type: MassActionType,
-        mass_action_scope: MassActionScope,
+        mass_action_type: impl Into<Code<MassActionType>>,
+        mass_action_scope: impl Into<Code<MassActionScope>>,
         transact_time: UtcTimestamp,
     ) -> Self {
         Self {
             cl_ord_id: cl_ord_id.into(),
             secondary_cl_ord_id: None,
-            mass_action_type,
-            mass_action_scope,
+            mass_action_type: mass_action_type.into(),
+            mass_action_scope: mass_action_scope.into(),
             market_id: None,
             market_segment_id: None,
             trading_session_id: None,
@@ -28441,7 +28485,7 @@ turbojet::fix_message! {
         /// ApplReqID(1346).
         appl_req_id: req CompactString = APPL_REQ_ID,
         /// ApplReqType(1347).
-        appl_req_type: req ApplReqType = APPL_REQ_TYPE,
+        appl_req_type: req Code<ApplReqType> = APPL_REQ_TYPE,
         /// NoApplIDs(1351).
         appl_ids: group ApplIDRequestGrp = NO_APPL_IDS,
         /// NoPartyIDs(453).
@@ -28456,10 +28500,10 @@ turbojet::fix_message! {
 impl ApplicationMessageRequest {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(appl_req_id: impl Into<CompactString>, appl_req_type: ApplReqType) -> Self {
+    pub fn new(appl_req_id: impl Into<CompactString>, appl_req_type: impl Into<Code<ApplReqType>>) -> Self {
         Self {
             appl_req_id: appl_req_id.into(),
-            appl_req_type,
+            appl_req_type: appl_req_type.into(),
             appl_ids: Vec::new(),
             party_ids: Vec::new(),
             text: None,
@@ -28476,9 +28520,9 @@ turbojet::fix_message! {
         /// ApplReqID(1346).
         appl_req_id: opt CompactString = APPL_REQ_ID,
         /// ApplReqType(1347).
-        appl_req_type: opt ApplReqType = APPL_REQ_TYPE,
+        appl_req_type: opt Code<ApplReqType> = APPL_REQ_TYPE,
         /// ApplResponseType(1348).
-        appl_response_type: opt ApplResponseType = APPL_RESPONSE_TYPE,
+        appl_response_type: opt Code<ApplResponseType> = APPL_RESPONSE_TYPE,
         /// ApplTotalMessageCount(1349).
         appl_total_message_count: opt i64 = APPL_TOTAL_MESSAGE_COUNT,
         /// NoApplIDs(1351).
@@ -28518,7 +28562,7 @@ turbojet::fix_message! {
         /// ApplReqID(1346).
         appl_req_id: opt CompactString = APPL_REQ_ID,
         /// ApplReportType(1426).
-        appl_report_type: req ApplReportType = APPL_REPORT_TYPE,
+        appl_report_type: req Code<ApplReportType> = APPL_REPORT_TYPE,
         /// NoApplIDs(1351).
         appl_ids: group ApplIDReportGrp = NO_APPL_IDS,
         /// Text(58).
@@ -28531,11 +28575,11 @@ turbojet::fix_message! {
 impl ApplicationMessageReport {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(appl_report_id: impl Into<CompactString>, appl_report_type: ApplReportType) -> Self {
+    pub fn new(appl_report_id: impl Into<CompactString>, appl_report_type: impl Into<Code<ApplReportType>>) -> Self {
         Self {
             appl_report_id: appl_report_id.into(),
             appl_req_id: None,
-            appl_report_type,
+            appl_report_type: appl_report_type.into(),
             appl_ids: Vec::new(),
             text: None,
             encoded_text: None,
@@ -28549,7 +28593,7 @@ turbojet::fix_message! {
         /// StreamAsgnReqID(1497).
         stream_asgn_req_id: req CompactString = STREAM_ASGN_REQ_ID,
         /// StreamAsgnReqType(1498).
-        stream_asgn_req_type: req StreamAsgnReqType = STREAM_ASGN_REQ_TYPE,
+        stream_asgn_req_type: req Code<StreamAsgnReqType> = STREAM_ASGN_REQ_TYPE,
         /// NoAsgnReqs(1499).
         asgn_reqs: req_group StrmAsgnReqGrp = NO_ASGN_REQS,
     }
@@ -28560,10 +28604,14 @@ impl StreamAssignmentRequest {
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
     pub fn new(
         stream_asgn_req_id: impl Into<CompactString>,
-        stream_asgn_req_type: StreamAsgnReqType,
+        stream_asgn_req_type: impl Into<Code<StreamAsgnReqType>>,
         asgn_reqs: Vec<StrmAsgnReqGrp>,
     ) -> Self {
-        Self { stream_asgn_req_id: stream_asgn_req_id.into(), stream_asgn_req_type, asgn_reqs }
+        Self {
+            stream_asgn_req_id: stream_asgn_req_id.into(),
+            stream_asgn_req_type: stream_asgn_req_type.into(),
+            asgn_reqs,
+        }
     }
 }
 
@@ -28573,7 +28621,7 @@ turbojet::fix_message! {
         /// StreamAsgnRptID(1501).
         stream_asgn_rpt_id: req CompactString = STREAM_ASGN_RPT_ID,
         /// StreamAsgnReqType(1498).
-        stream_asgn_req_type: opt StreamAsgnReqType = STREAM_ASGN_REQ_TYPE,
+        stream_asgn_req_type: opt Code<StreamAsgnReqType> = STREAM_ASGN_REQ_TYPE,
         /// StreamAsgnReqID(1497).
         stream_asgn_req_id: opt CompactString = STREAM_ASGN_REQ_ID,
         /// NoAsgnReqs(1499).
@@ -28598,11 +28646,11 @@ turbojet::fix_message! {
     /// StreamAssignmentReportACK(CE).
     StreamAssignmentReportACK / StreamAssignmentReportACKRef = "CE" {
         /// StreamAsgnAckType(1503).
-        stream_asgn_ack_type: req StreamAsgnAckType = STREAM_ASGN_ACK_TYPE,
+        stream_asgn_ack_type: req Code<StreamAsgnAckType> = STREAM_ASGN_ACK_TYPE,
         /// StreamAsgnRptID(1501).
         stream_asgn_rpt_id: req CompactString = STREAM_ASGN_RPT_ID,
         /// StreamAsgnRejReason(1502).
-        stream_asgn_rej_reason: opt StreamAsgnRejReason = STREAM_ASGN_REJ_REASON,
+        stream_asgn_rej_reason: opt Code<StreamAsgnRejReason> = STREAM_ASGN_REJ_REASON,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -28613,9 +28661,12 @@ turbojet::fix_message! {
 impl StreamAssignmentReportACK {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(stream_asgn_ack_type: StreamAsgnAckType, stream_asgn_rpt_id: impl Into<CompactString>) -> Self {
+    pub fn new(
+        stream_asgn_ack_type: impl Into<Code<StreamAsgnAckType>>,
+        stream_asgn_rpt_id: impl Into<CompactString>,
+    ) -> Self {
         Self {
-            stream_asgn_ack_type,
+            stream_asgn_ack_type: stream_asgn_ack_type.into(),
             stream_asgn_rpt_id: stream_asgn_rpt_id.into(),
             stream_asgn_rej_reason: None,
             text: None,

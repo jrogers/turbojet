@@ -43,8 +43,8 @@ pub trait FixEnum: Sized + Copy {
 
 /// An enumerated field's value that may be a code the enum doesn't list: counterparties do send
 /// values outside the spec. Parsing a `Code` never fails on an unknown code, where parsing the
-/// enum itself does. Generated messages use it for the fields made lenient with
-/// `turbojet-codegen`'s `lenient_enums`.
+/// enum itself does. Generated messages use it for enumerated fields, unless generated with
+/// `turbojet-codegen --strict-enums`.
 ///
 /// ```
 /// use turbojet::fields::{Code, EncryptMethod, FromFix};

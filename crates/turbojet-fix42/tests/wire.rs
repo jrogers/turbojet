@@ -32,7 +32,7 @@ fn order() -> NewOrderSingle {
     );
     order.order_qty = Some(Decimal::from_fix("100").unwrap());
     order.price = Some(Decimal::from_fix("150.25").unwrap());
-    order.time_in_force = Some(TimeInForce::Day);
+    order.time_in_force = Some(TimeInForce::Day.into());
     order
 }
 
@@ -52,8 +52,6 @@ fn field_errors_carry_tag_and_reject_reason() {
     let cases = [
         (ORDER.replace("21=1|", ""), tags::HANDL_INST, FieldErrorKind::Missing),
         (ORDER.replace("60=20260927-03:20:48.544|", ""), tags::TRANSACT_TIME, FieldErrorKind::Missing),
-        // "A" is a FIX 4.4 Side, not FIX 4.2.
-        (ORDER.replace("54=1", "54=A"), tags::SIDE, FieldErrorKind::IncorrectValue("A".into())),
         (ORDER.replace("38=100", "38=1e3"), tags::ORDER_QTY, FieldErrorKind::IncorrectFormat("1e3".into())),
     ];
     for (text, tag, kind) in cases {
@@ -61,6 +59,9 @@ fn field_errors_carry_tag_and_reject_reason() {
     }
     let err = wire(&ORDER.replace("21=1|", "")).parse::<NewOrderSingle>().unwrap_err();
     assert_eq!(err.to_string(), "Required tag 21 missing");
+    // "A" is a FIX 4.4 Side, not FIX 4.2: kept, not an error.
+    let order = wire(&ORDER.replace("54=1", "54=A")).parse::<NewOrderSingle>().unwrap();
+    assert_eq!(order.side, turbojet::fields::Code::Unknown("A".into()));
 }
 
 #[test]
@@ -134,9 +135,9 @@ fn order_report() -> ExecutionReport {
         Decimal::ZERO,
     );
     report.cl_ord_id = Some("ORD1".into());
-    report.ord_rej_reason = Some(OrdRejReason::DuplicateOrder);
+    report.ord_rej_reason = Some(OrdRejReason::DuplicateOrder.into());
     report.order_qty = Some(Decimal::from_fix("10").unwrap());
-    report.ord_type = Some(OrdType::Market);
+    report.ord_type = Some(OrdType::Market.into());
     report.text = Some("dup".into());
     report
 }

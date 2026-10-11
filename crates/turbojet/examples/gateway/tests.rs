@@ -173,7 +173,7 @@ async fn order_lifecycle() {
 
     client.send(cancel("CXL2", "ORD1")).await;
     let too_late: OrderCancelReject = client.recv().await.parse().unwrap();
-    assert_eq!(too_late.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel));
+    assert_eq!(too_late.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel.into()));
 
     client.send(Message::new(MsgType::Logout)).await;
     assert_eq!(client.recv().await.msg_type(), MsgType::Logout);
@@ -199,7 +199,7 @@ async fn invalid_orders_are_rejected_without_dropping_the_session() {
     client.send(limit_order("B", "0", "1")).await;
     let er: ExecutionReport = client.recv().await.parse().unwrap();
     assert_eq!(er.ord_status, OrdStatus::Rejected);
-    assert_eq!(er.ord_rej_reason, Some(OrdRejReason::BrokerCredit));
+    assert_eq!(er.ord_rej_reason, Some(OrdRejReason::BrokerCredit.into()));
 
     // A FIX 4.4-only Side value is not valid FIX 4.2: session-level Reject naming the field.
     client.send(Message::from(limit_order("B2", "1", "1")).with(tags::SIDE, "A")).await;
@@ -276,18 +276,18 @@ async fn replace_and_status_through_the_order_lifecycle() {
 
     client.send(replace("A", "B", "250", "151.00")).await;
     let replaced: ExecutionReport = client.recv().await.parse().unwrap();
-    assert_eq!((replaced.exec_type, replaced.ord_status), (ExecType::Replaced, OrdStatus::Replaced));
+    assert_eq!((replaced.exec_type, replaced.ord_status), (ExecType::Replaced.into(), OrdStatus::Replaced.into()));
     assert_eq!((replaced.order_id.as_str(), replaced.leaves_qty), (new.order_id.as_str(), "250".parse().unwrap()));
 
     client.send(status("B")).await;
     let open: ExecutionReport = client.recv().await.parse().unwrap();
     assert_eq!(
         (open.exec_trans_type, open.ord_status, open.price),
-        (ExecTransType::Status, OrdStatus::New, Some("151.00".parse().unwrap()))
+        (ExecTransType::Status.into(), OrdStatus::New.into(), Some("151.00".parse().unwrap()))
     );
 
     // Changing the side isn't allowed: an OrderCancelReject answering the replace.
-    client.send(OrderCancelReplaceRequest { side: Side::Sell, ..replace("B", "C", "1", "1") }).await;
+    client.send(OrderCancelReplaceRequest { side: Side::Sell.into(), ..replace("B", "C", "1", "1") }).await;
     let reject: OrderCancelReject = client.recv().await.parse().unwrap();
     assert_eq!(reject.cxl_rej_response_to, CxlRejResponseTo::OrderCancel);
 

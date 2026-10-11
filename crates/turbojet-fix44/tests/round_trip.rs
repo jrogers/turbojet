@@ -21,7 +21,7 @@ fn limit_order() -> NewOrderSingle {
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
-    order.time_in_force = Some(TimeInForce::Day);
+    order.time_in_force = Some(TimeInForce::Day.into());
     order
 }
 
@@ -41,10 +41,10 @@ fn new_order_single_round_trips() {
 fn parties_round_trip_with_their_nested_sub_ids() {
     let mut order = limit_order();
     let mut firm = Parties::new("FIRM");
-    firm.party_id_source = Some(PartyIDSource::Proprietary);
-    firm.party_role = Some(PartyRole::ExecutingFirm);
+    firm.party_id_source = Some(PartyIDSource::Proprietary.into());
+    firm.party_role = Some(PartyRole::ExecutingFirm.into());
     let mut desk = PtysSubGrp::new("DESK1");
-    desk.party_sub_id_type = Some(PartySubIDType::Application);
+    desk.party_sub_id_type = Some(PartySubIDType::Application.into());
     firm.party_sub_ids.push(desk);
     order.party_ids = vec![firm, Parties::new("CLIENT")];
 
@@ -94,9 +94,9 @@ fn missing_required_fields_are_errors() {
 }
 
 #[test]
-fn unknown_enum_codes_are_errors() {
+fn unknown_enum_codes_are_kept() {
     let text = limit_order().to_message().to_string().replace("|54=1|", "|54=?|");
-    let err = raw(&text).parse::<NewOrderSingle>().unwrap_err();
-    assert_eq!(err.tag, tags::SIDE);
-    assert!(matches!(err.kind, turbojet::message::FieldErrorKind::IncorrectValue(ref v) if v == "?"), "{err:?}");
+    let order = raw(&text).parse::<NewOrderSingle>().unwrap();
+    assert_eq!(order.side, turbojet::fields::Code::Unknown("?".into()));
+    assert_eq!(order.to_message().to_string(), text);
 }

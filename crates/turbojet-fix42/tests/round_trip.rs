@@ -20,7 +20,7 @@ fn new_order_single_round_trips() {
     );
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
-    order.time_in_force = Some(TimeInForce::Day);
+    order.time_in_force = Some(TimeInForce::Day.into());
     let msg = order.to_message();
     let text = msg.to_string();
     assert!(text.starts_with("35=D|11=ORD1|"), "{text}");

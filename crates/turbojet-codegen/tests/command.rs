@@ -122,14 +122,14 @@ fn optional_corrects_the_dictionary() {
 }
 
 #[test]
-fn lenient_enum_flags() {
+fn enum_flags() {
     let base = workspace().join("dictionaries/orchestra/OrchestraFIX42.xml");
-    let one = generate(&[base.as_os_str(), "--lenient-enum".as_ref(), "Side".as_ref()]);
+    let all = generate(&[base.as_os_str()]);
+    assert!(read(&all, "messages.rs").contains("ord_type: req Code<OrdType> = ORD_TYPE,"));
+    let one = generate(&[base.as_os_str(), "--strict-enums".as_ref(), "--lenient-enum".as_ref(), "Side".as_ref()]);
     let messages = read(&one, "messages.rs");
     assert!(messages.contains("side: req Code<Side> = SIDE,"), "{messages}");
     assert!(messages.contains("ord_type: req OrdType = ORD_TYPE,"), "{messages}");
-    let all = generate(&[base.as_os_str(), "--lenient-enums".as_ref()]);
-    assert!(read(&all, "messages.rs").contains("ord_type: req Code<OrdType> = ORD_TYPE,"));
 }
 
 #[test]

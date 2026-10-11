@@ -107,9 +107,10 @@ impl Application for GatewayApp {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
                 let report = self.orders.new_order(&owner, msg.parse()?)?;
-                match report.ord_status {
-                    OrdStatus::Rejected => self.metrics.rejected.increment(1),
-                    _ => self.metrics.accepted.increment(1),
+                if report.ord_status == OrdStatus::Rejected {
+                    self.metrics.rejected.increment(1);
+                } else {
+                    self.metrics.accepted.increment(1);
                 }
                 ctx.send(report);
             }
@@ -227,7 +228,7 @@ mod tests {
         assert_eq!(orders.order(&order_ids[1]).unwrap().status, OrdStatus::New, "another session's order");
 
         let status = orders.status("C1", OrderStatusRequest::new("A", "AAPL", Side::Buy).to_message().parse().unwrap());
-        assert_eq!((status.exec_type, status.ord_status), (ExecType::Canceled, OrdStatus::Canceled));
+        assert_eq!((status.exec_type, status.ord_status), (ExecType::Canceled.into(), OrdStatus::Canceled.into()));
         assert_eq!(status.leaves_qty, 0u64.into());
 
         // Firing again, as after a later disconnect, finds nothing left to cancel.

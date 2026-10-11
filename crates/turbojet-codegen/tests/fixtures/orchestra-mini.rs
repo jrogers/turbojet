@@ -156,7 +156,7 @@ pub mod messages {
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{CompactString, Decimal, UtcTimestamp};
+use turbojet::fields::{Code, CompactString, Decimal, UtcTimestamp};
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
@@ -175,7 +175,7 @@ turbojet::fix_message! {
         /// HandlInst(21).
         ///
         /// Instructions for order handling on Broker trading floor
-        handl_inst: req HandlInst = HANDL_INST,
+        handl_inst: req Code<HandlInst> = HANDL_INST,
         /// Symbol(55).
         ///
         /// Ticker symbol. Use "\[N/A\]" for products which do not have a symbol.
@@ -185,11 +185,11 @@ turbojet::fix_message! {
         /// IDSource(22).
         ///
         /// Identifies class of alternative SecurityID
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// Side(54).
         ///
         /// Side of order
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// TransactTime(60).
         ///
         /// Time of execution/order creation (expressed in UTC (Universal Time Coordinated, also known as "GMT")
@@ -211,8 +211,8 @@ turbojet::fix_message! {
 impl NewOrderSingle {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(cl_ord_id: impl Into<CompactString>, handl_inst: HandlInst, symbol: impl Into<CompactString>, side: Side, transact_time: UtcTimestamp) -> Self {
-        Self { cl_ord_id: cl_ord_id.into(), allocs: Vec::new(), handl_inst, symbol: symbol.into(), security_id: None, id_source: None, side, transact_time, order_qty: None, sending_date: None }
+    pub fn new(cl_ord_id: impl Into<CompactString>, handl_inst: impl Into<Code<HandlInst>>, symbol: impl Into<CompactString>, side: impl Into<Code<Side>>, transact_time: UtcTimestamp) -> Self {
+        Self { cl_ord_id: cl_ord_id.into(), allocs: Vec::new(), handl_inst: handl_inst.into(), symbol: symbol.into(), security_id: None, id_source: None, side: side.into(), transact_time, order_qty: None, sending_date: None }
     }
 }
 
@@ -226,7 +226,7 @@ turbojet::fix_message! {
         /// Side(54).
         ///
         /// Side of order
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// NoAllocs(78).
         ///
         /// Number of repeating AllocAccount/AllocPrice entries.
@@ -239,8 +239,8 @@ turbojet::fix_message! {
 impl Allocation {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_id: impl Into<CompactString>, side: Side, allocs: Vec<AllocGrp>) -> Self {
-        Self { alloc_id: alloc_id.into(), side, allocs, text: None }
+    pub fn new(alloc_id: impl Into<CompactString>, side: impl Into<Code<Side>>, allocs: Vec<AllocGrp>) -> Self {
+        Self { alloc_id: alloc_id.into(), side: side.into(), allocs, text: None }
     }
 }
 }

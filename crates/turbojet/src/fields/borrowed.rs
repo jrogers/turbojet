@@ -173,6 +173,15 @@ impl<E> From<E> for CodeRef<'_, E> {
     }
 }
 
+impl<E> From<CodeRef<'_, E>> for Code<E> {
+    fn from(value: CodeRef<'_, E>) -> Self {
+        match value {
+            CodeRef::Known(value) => Self::Known(value),
+            CodeRef::Unknown(code) => Self::Unknown(code.to_owned()),
+        }
+    }
+}
+
 impl<E: FixEnum> fmt::Display for CodeRef<'_, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.code())
@@ -187,10 +196,7 @@ impl<'a, E: FixEnum + fmt::Debug + PartialEq + 'a> FieldRef<'a> for Code<E> {
     }
 
     fn into_owned(value: CodeRef<'a, E>) -> Self {
-        match value {
-            CodeRef::Known(value) => Self::Known(value),
-            CodeRef::Unknown(code) => Self::Unknown(code.to_owned()),
-        }
+        value.into()
     }
 }
 

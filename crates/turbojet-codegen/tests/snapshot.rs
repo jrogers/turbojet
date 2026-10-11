@@ -8,7 +8,7 @@ use turbojet_dictionary::Dictionary;
 
 /// The code for `fixtures/{name}.xml` matches `fixtures/{name}.rs`, which it first writes if
 /// `UPDATE_SNAPSHOTS` is set, generated with `configure`'s options. The Orchestra snapshot is
-/// generated with docs, to cover them, and `mini-lenient` with lenient enums.
+/// generated with docs, to cover them, and `mini-strict` with strict enums.
 fn check_snapshot(name: &str, xml: &str, configure: impl FnOnce(Generator) -> Generator) {
     let snapshot = format!("{}/tests/fixtures/{name}.rs", env!("CARGO_MANIFEST_DIR"));
     let dict = Dictionary::from_xml(xml).unwrap();
@@ -35,8 +35,8 @@ mod mini {
 }
 
 #[test]
-fn lenient_matches_snapshot() {
-    check_snapshot("mini-lenient", include_str!("fixtures/mini.xml"), |g| g.lenient_enums(true));
+fn strict_matches_snapshot() {
+    check_snapshot("mini-strict", include_str!("fixtures/mini.xml"), |g| g.strict_enums(true));
 }
 
 #[allow(dead_code)]
@@ -45,8 +45,8 @@ mod orchestra_mini {
 }
 
 #[allow(dead_code)]
-mod mini_lenient {
-    include!("fixtures/mini-lenient.rs");
+mod mini_strict {
+    include!("fixtures/mini-strict.rs");
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn dates_times_and_lists_are_typed() {
     use turbojet::fields::{FromFix, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly};
     use turbojet::message::FixMessage;
 
-    let mut schedule = Schedule::new(vec![ExecInst::NotHeld, ExecInst::AllOrNone]);
+    let mut schedule = Schedule::new(vec![ExecInst::NotHeld.into(), ExecInst::AllOrNone.into()]);
     schedule.trade_date = Some(NaiveDate::from_fix("20260930").unwrap());
     schedule.maturity_month_year = Some(MonthYear::from_fix("202612w3").unwrap());
     schedule.md_entry_time = Some(UtcTimeOnly::from_fix("09:30:00.123456").unwrap());
@@ -99,8 +99,8 @@ fn dates_times_and_lists_are_typed() {
 
     // Lenient, a list keeps codes the enum doesn't know.
     let odd = turbojet::Message::from_fields([(35, "U7"), (18, "1 Z")]);
-    assert!(odd.parse::<Schedule>().is_err());
-    let lenient = odd.parse::<mini_lenient::Schedule>().unwrap();
+    assert!(odd.parse::<mini_strict::Schedule>().is_err());
+    let lenient = odd.parse::<Schedule>().unwrap();
     assert_eq!(lenient.exec_inst[1], turbojet::fields::Code::Unknown("Z".into()));
 }
 
@@ -111,16 +111,16 @@ fn lenient_snapshot_keeps_unknown_codes() {
 
     let time = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
     // A known value still goes straight into new().
-    let order = mini_lenient::NewOrderSingle::new("ORD1", mini_lenient::Side::Buy, time);
-    assert_eq!(order.side, mini_lenient::Side::Buy);
+    let order = mini::NewOrderSingle::new("ORD1", mini::Side::Buy, time);
+    assert_eq!(order.side, mini::Side::Buy);
 
     // A code Side doesn't list: the strict message refuses it, the lenient one keeps it.
     let mut odd = order.clone();
     odd.side = Code::Unknown("Z".into());
     let msg = odd.to_message();
     assert!(msg.to_string().contains("|54=Z|"), "{msg}");
-    assert!(msg.parse::<mini::NewOrderSingle>().is_err());
-    assert_eq!(msg.parse::<mini_lenient::NewOrderSingle>().unwrap(), odd);
+    assert!(msg.parse::<mini_strict::NewOrderSingle>().is_err());
+    assert_eq!(msg.parse::<mini::NewOrderSingle>().unwrap(), odd);
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn orchestra_snapshot_compiles_and_round_trips() {
     let mut order =
         NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionInterventionOK, "IBM", Side::SellShort, time);
     order.allocs.push(PreAllocGrp::new("ACC"));
-    order.id_source = Some(IDSource::CUSIP);
+    order.id_source = Some(IDSource::CUSIP.into());
     order.sending_date = Some("20260928".into());
     let msg = order.to_message();
     assert!(msg.to_string().starts_with("35=D|11=ORD1|78=1|79=ACC|21=2|55=IBM|22=1|54=5|60="), "{msg}");

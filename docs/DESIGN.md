@@ -286,7 +286,7 @@ generated into its own crate (`turbojet-fix42`, `turbojet-fix43`, `turbojet-fix4
 `turbojet-fix50sp2`, the last over FIXT 1.1's header), and CI checks they match. A dictionary's
 mistakes can be corrected before generating (`Dictionary::make_optional`, `--optional`;
 `turbojet-fix42` makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did), and enumerated
-fields can accept unknown codes (`--lenient-enums`, `fields::Code`). Sessions can also check
+fields are generated as `fields::Code<E>`, keeping unknown codes (`--strict-enums` for `E`). Sessions can also check
 inbound messages against a dictionary (feature `validation`, `SessionConfig::with_dictionary`).
 
 ## SBE and FIXP

@@ -94,7 +94,7 @@ pub mod groups {
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::{CompactString, Decimal};
+use turbojet::fields::{Code, CompactString, Decimal};
 
 turbojet::fix_group! {
     /// An entry of NoPartyIDs(453).
@@ -102,7 +102,7 @@ turbojet::fix_group! {
         /// PartyID(448).
         party_id: req CompactString = PARTY_ID,
         /// PartyRole(452).
-        party_role: opt PartyRole = PARTY_ROLE,
+        party_role: opt Code<PartyRole> = PARTY_ROLE,
     }
 }
 
@@ -156,7 +156,7 @@ turbojet::fix_group! {
     /// An entry of NoSides(552).
     SideEntry / SideEntryRef {
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// OddLot(575).
@@ -167,8 +167,8 @@ turbojet::fix_group! {
 impl SideEntry {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(side: Side) -> Self {
-        Self { side, cl_ord_id: None, odd_lot: None }
+    pub fn new(side: impl Into<Code<Side>>) -> Self {
+        Self { side: side.into(), cl_ord_id: None, odd_lot: None }
     }
 }
 }
@@ -179,7 +179,7 @@ pub mod messages {
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{CompactString, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{Code, CompactString, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
@@ -191,7 +191,7 @@ turbojet::fix_message! {
         /// NoAllocs(78).
         allocs: group NewOrderSingleAlloc = NO_ALLOCS,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// TransactTime(60).
         transact_time: req UtcTimestamp = TRANSACT_TIME,
         /// OrderQty(38).
@@ -204,8 +204,8 @@ turbojet::fix_message! {
 impl NewOrderSingle {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(cl_ord_id: impl Into<CompactString>, side: Side, transact_time: UtcTimestamp) -> Self {
-        Self { cl_ord_id: cl_ord_id.into(), party_ids: Vec::new(), allocs: Vec::new(), side, transact_time, order_qty: None, text: None }
+    pub fn new(cl_ord_id: impl Into<CompactString>, side: impl Into<Code<Side>>, transact_time: UtcTimestamp) -> Self {
+        Self { cl_ord_id: cl_ord_id.into(), party_ids: Vec::new(), allocs: Vec::new(), side: side.into(), transact_time, order_qty: None, text: None }
     }
 }
 
@@ -253,7 +253,7 @@ turbojet::fix_message! {
     /// Schedule(U7).
     Schedule / ScheduleRef = "U7" {
         /// ExecInst(18).
-        exec_inst: req Vec<ExecInst> = EXEC_INST,
+        exec_inst: req Vec<Code<ExecInst>> = EXEC_INST,
         /// TradeDate(75).
         trade_date: opt NaiveDate = TRADE_DATE,
         /// MaturityMonthYear(200).
@@ -274,7 +274,7 @@ turbojet::fix_message! {
 impl Schedule {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(exec_inst: Vec<ExecInst>) -> Self {
+    pub fn new(exec_inst: Vec<Code<ExecInst>>) -> Self {
         Self { exec_inst, trade_date: None, maturity_month_year: None, md_entry_time: None, tz_transact_time: None, session_open: None, venue_flag: None, labels: None }
     }
 }

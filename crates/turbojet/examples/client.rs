@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     order.order_qty = Some("100".parse()?);
     order.price = Some("150.25".parse()?);
-    order.time_in_force = Some(TimeInForce::Day);
+    order.time_in_force = Some(TimeInForce::Day.into());
     send(&session, order)?;
     reply(&mut events).await?;
 

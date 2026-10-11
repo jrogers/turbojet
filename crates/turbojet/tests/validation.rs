@@ -36,7 +36,7 @@ fn fix42_messages_pass() {
     );
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
-    order.time_in_force = Some(TimeInForce::Day);
+    order.time_in_force = Some(TimeInForce::Day.into());
     order.allocs.push(PreAllocGrp::new("ACC1"));
     validator.validate(&order.to_message()).unwrap();
 
@@ -116,7 +116,7 @@ fn fix44_messages_pass() {
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
     let mut firm = Parties::new("FIRM");
-    firm.party_role = Some(PartyRole::ExecutingFirm);
+    firm.party_role = Some(PartyRole::ExecutingFirm.into());
     firm.party_sub_ids.push(PtysSubGrp::new("DESK1"));
     order.party_ids.push(firm);
     validator.validate(&order.to_message()).unwrap();

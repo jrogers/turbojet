@@ -2,21 +2,21 @@
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::{CompactString, Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{Code, CompactString, Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp};
 
 turbojet::fix_group! {
     /// An entry of NoIOIQualifiers(199).
     IOIQualGrp / IOIQualGrpRef {
         /// IOIQualifier(104).
-        ioi_qualifier: req IOIQualifier = IOI_QUALIFIER,
+        ioi_qualifier: req Code<IOIQualifier> = IOI_QUALIFIER,
     }
 }
 
 impl IOIQualGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(ioi_qualifier: IOIQualifier) -> Self {
-        Self { ioi_qualifier }
+    pub fn new(ioi_qualifier: impl Into<Code<IOIQualifier>>) -> Self {
+        Self { ioi_qualifier: ioi_qualifier.into() }
     }
 }
 
@@ -24,7 +24,7 @@ turbojet::fix_group! {
     /// An entry of NoRoutingIDs(215).
     RoutingGrp / RoutingGrpRef {
         /// RoutingType(216).
-        routing_type: req RoutingType = ROUTING_TYPE,
+        routing_type: req Code<RoutingType> = ROUTING_TYPE,
         /// RoutingID(217).
         routing_id: opt CompactString = ROUTING_ID,
     }
@@ -33,8 +33,8 @@ turbojet::fix_group! {
 impl RoutingGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(routing_type: RoutingType) -> Self {
-        Self { routing_type, routing_id: None }
+    pub fn new(routing_type: impl Into<Code<RoutingType>>) -> Self {
+        Self { routing_type: routing_type.into(), routing_id: None }
     }
 }
 
@@ -75,15 +75,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -191,7 +191,7 @@ turbojet::fix_group! {
         /// ListSeqNo(67).
         list_seq_no: req i64 = LIST_SEQ_NO,
         /// SettlInstMode(160).
-        settl_inst_mode: opt SettlInstMode = SETTL_INST_MODE,
+        settl_inst_mode: opt Code<SettlInstMode> = SETTL_INST_MODE,
         /// ClientID(109).
         client_id: opt CompactString = CLIENT_ID,
         /// ExecBroker(76).
@@ -201,13 +201,13 @@ turbojet::fix_group! {
         /// NoAllocs(78).
         allocs: group PreAllocGrp = NO_ALLOCS,
         /// SettlmntTyp(63).
-        settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
+        settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// HandlInst(21).
-        handl_inst: opt HandlInst = HANDL_INST,
+        handl_inst: opt Code<HandlInst> = HANDL_INST,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// MaxFloor(111).
@@ -217,7 +217,7 @@ turbojet::fix_group! {
         /// NoTradingSessions(386).
         trading_sessions: group TrdgSesGrp = NO_TRADING_SESSIONS,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// Symbol(55).
         symbol: req CompactString = SYMBOL,
         /// SymbolSfx(65).
@@ -225,15 +225,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -255,9 +255,9 @@ turbojet::fix_group! {
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// Side(54).
-        side: req Side = SIDE,
+        side: req Code<Side> = SIDE,
         /// SideValueInd(401).
-        side_value_ind: opt SideValueInd = SIDE_VALUE_IND,
+        side_value_ind: opt Code<SideValueInd> = SIDE_VALUE_IND,
         /// LocateReqd(114).
         locate_reqd: opt bool = LOCATE_REQD,
         /// TransactTime(60).
@@ -267,7 +267,7 @@ turbojet::fix_group! {
         /// CashOrderQty(152).
         cash_order_qty: opt Decimal = CASH_ORDER_QTY,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// StopPx(99).
@@ -283,7 +283,7 @@ turbojet::fix_group! {
         /// QuoteID(117).
         quote_id: opt CompactString = QUOTE_ID,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// EffectiveTime(168).
         effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
         /// ExpireDate(432).
@@ -291,13 +291,13 @@ turbojet::fix_group! {
         /// ExpireTime(126).
         expire_time: opt UtcTimestamp = EXPIRE_TIME,
         /// GTBookingInst(427).
-        gt_booking_inst: opt GTBookingInst = GT_BOOKING_INST,
+        gt_booking_inst: opt Code<GTBookingInst> = GT_BOOKING_INST,
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// Rule80A(47).
-        rule80_a: opt Rule80A = RULE80_A,
+        rule80_a: opt Code<Rule80A> = RULE80_A,
         /// ForexReq(121).
         forex_req: opt bool = FOREX_REQ,
         /// SettlCurrency(120).
@@ -311,17 +311,17 @@ turbojet::fix_group! {
         /// OrderQty2(192).
         order_qty2: opt Decimal = ORDER_QTY2,
         /// OpenClose(77).
-        open_close: opt OpenClose = OPEN_CLOSE,
+        open_close: opt Code<OpenClose> = OPEN_CLOSE,
         /// CoveredOrUncovered(203).
-        covered_or_uncovered: opt CoveredOrUncovered = COVERED_OR_UNCOVERED,
+        covered_or_uncovered: opt Code<CoveredOrUncovered> = COVERED_OR_UNCOVERED,
         /// CustomerOrFirm(204).
-        customer_or_firm: opt CustomerOrFirm = CUSTOMER_OR_FIRM,
+        customer_or_firm: opt Code<CustomerOrFirm> = CUSTOMER_OR_FIRM,
         /// MaxShow(210).
         max_show: opt Decimal = MAX_SHOW,
         /// PegDifference(211).
         peg_difference: opt Decimal = PEG_DIFFERENCE,
         /// DiscretionInst(388).
-        discretion_inst: opt DiscretionInst = DISCRETION_INST,
+        discretion_inst: opt Code<DiscretionInst> = DISCRETION_INST,
         /// DiscretionOffset(389).
         discretion_offset: opt Decimal = DISCRETION_OFFSET,
         /// ClearingFirm(439).
@@ -338,7 +338,7 @@ impl ListOrdGrp {
         cl_ord_id: impl Into<CompactString>,
         list_seq_no: i64,
         symbol: impl Into<CompactString>,
-        side: Side,
+        side: impl Into<Code<Side>>,
     ) -> Self {
         Self {
             cl_ord_id: cl_ord_id.into(),
@@ -375,7 +375,7 @@ impl ListOrdGrp {
             security_desc: None,
             encoded_security_desc: None,
             prev_close_px: None,
-            side,
+            side: side.into(),
             side_value_ind: None,
             locate_reqd: None,
             transact_time: None,
@@ -450,7 +450,7 @@ turbojet::fix_group! {
         /// LastPx(31).
         last_px: opt Decimal = LAST_PX,
         /// LastCapacity(29).
-        last_capacity: opt LastCapacity = LAST_CAPACITY,
+        last_capacity: opt Code<LastCapacity> = LAST_CAPACITY,
     }
 }
 
@@ -472,13 +472,13 @@ turbojet::fix_group! {
         /// AllocShares(80).
         alloc_shares: req Decimal = ALLOC_SHARES,
         /// ProcessCode(81).
-        process_code: opt ProcessCode = PROCESS_CODE,
+        process_code: opt Code<ProcessCode> = PROCESS_CODE,
         /// BrokerOfCredit(92).
         broker_of_credit: opt CompactString = BROKER_OF_CREDIT,
         /// NotifyBrokerOfCredit(208).
         notify_broker_of_credit: opt bool = NOTIFY_BROKER_OF_CREDIT,
         /// AllocHandlInst(209).
-        alloc_handl_inst: opt AllocHandlInst = ALLOC_HANDL_INST,
+        alloc_handl_inst: opt Code<AllocHandlInst> = ALLOC_HANDL_INST,
         /// AllocText(161).
         alloc_text: opt CompactString = ALLOC_TEXT,
         /// EncodedAllocText(361).
@@ -490,7 +490,7 @@ turbojet::fix_group! {
         /// Commission(12).
         commission: opt Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: opt CommType = COMM_TYPE,
+        comm_type: opt Code<CommType> = COMM_TYPE,
         /// AllocAvgPx(153).
         alloc_avg_px: opt Decimal = ALLOC_AVG_PX,
         /// AllocNetMoney(154).
@@ -502,11 +502,11 @@ turbojet::fix_group! {
         /// SettlCurrFxRate(155).
         settl_curr_fx_rate: opt Decimal = SETTL_CURR_FX_RATE,
         /// SettlCurrFxRateCalc(156).
-        settl_curr_fx_rate_calc: opt SettlCurrFxRateCalc = SETTL_CURR_FX_RATE_CALC,
+        settl_curr_fx_rate_calc: opt Code<SettlCurrFxRateCalc> = SETTL_CURR_FX_RATE_CALC,
         /// AccruedInterestAmt(159).
         accrued_interest_amt: opt Decimal = ACCRUED_INTEREST_AMT,
         /// SettlInstMode(160).
-        settl_inst_mode: opt SettlInstMode = SETTL_INST_MODE,
+        settl_inst_mode: opt Code<SettlInstMode> = SETTL_INST_MODE,
         /// NoMiscFees(136).
         misc_fees: group MiscFeesGrp = NO_MISC_FEES,
     }
@@ -551,7 +551,7 @@ turbojet::fix_group! {
         /// MiscFeeCurr(138).
         misc_fee_curr: opt CompactString = MISC_FEE_CURR,
         /// MiscFeeType(139).
-        misc_fee_type: opt MiscFeeType = MISC_FEE_TYPE,
+        misc_fee_type: opt Code<MiscFeeType> = MISC_FEE_TYPE,
     }
 }
 
@@ -571,7 +571,7 @@ turbojet::fix_group! {
         /// CumQty(14).
         cum_qty: req Decimal = CUM_QTY,
         /// OrdStatus(39).
-        ord_status: req OrdStatus = ORD_STATUS,
+        ord_status: req Code<OrdStatus> = ORD_STATUS,
         /// LeavesQty(151).
         leaves_qty: req Decimal = LEAVES_QTY,
         /// CxlQty(84).
@@ -579,7 +579,7 @@ turbojet::fix_group! {
         /// AvgPx(6).
         avg_px: req Decimal = AVG_PX,
         /// OrdRejReason(103).
-        ord_rej_reason: opt OrdRejReason = ORD_REJ_REASON,
+        ord_rej_reason: opt Code<OrdRejReason> = ORD_REJ_REASON,
         /// Text(58).
         text: opt CompactString = TEXT,
         /// EncodedText(355).
@@ -593,7 +593,7 @@ impl OrdListStatGrp {
     pub fn new(
         cl_ord_id: impl Into<CompactString>,
         cum_qty: Decimal,
-        ord_status: OrdStatus,
+        ord_status: impl Into<Code<OrdStatus>>,
         leaves_qty: Decimal,
         cxl_qty: Decimal,
         avg_px: Decimal,
@@ -601,7 +601,7 @@ impl OrdListStatGrp {
         Self {
             cl_ord_id: cl_ord_id.into(),
             cum_qty,
-            ord_status,
+            ord_status: ord_status.into(),
             leaves_qty,
             cxl_qty,
             avg_px,
@@ -622,15 +622,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -652,17 +652,17 @@ turbojet::fix_group! {
         /// PrevClosePx(140).
         prev_close_px: opt Decimal = PREV_CLOSE_PX,
         /// QuoteRequestType(303).
-        quote_request_type: opt QuoteRequestType = QUOTE_REQUEST_TYPE,
+        quote_request_type: opt Code<QuoteRequestType> = QUOTE_REQUEST_TYPE,
         /// TradingSessionID(336).
         trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// OrderQty(38).
         order_qty: opt Decimal = ORDER_QTY,
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// FutSettDate2(193).
         fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
         /// OrderQty2(192).
@@ -718,15 +718,15 @@ turbojet::fix_group! {
     /// An entry of NoMDEntryTypes(267).
     MDReqGrp / MDReqGrpRef {
         /// MDEntryType(269).
-        md_entry_type: req MDEntryType = MD_ENTRY_TYPE,
+        md_entry_type: req Code<MDEntryType> = MD_ENTRY_TYPE,
     }
 }
 
 impl MDReqGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(md_entry_type: MDEntryType) -> Self {
-        Self { md_entry_type }
+    pub fn new(md_entry_type: impl Into<Code<MDEntryType>>) -> Self {
+        Self { md_entry_type: md_entry_type.into() }
     }
 }
 
@@ -740,15 +740,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -803,7 +803,7 @@ turbojet::fix_group! {
     /// An entry of NoMDEntries(268).
     MDFullGrp / MDFullGrpRef {
         /// MDEntryType(269).
-        md_entry_type: req MDEntryType = MD_ENTRY_TYPE,
+        md_entry_type: req Code<MDEntryType> = MD_ENTRY_TYPE,
         /// MDEntryPx(270).
         md_entry_px: req Decimal = MD_ENTRY_PX,
         /// Currency(15).
@@ -815,15 +815,15 @@ turbojet::fix_group! {
         /// MDEntryTime(273).
         md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
         /// TickDirection(274).
-        tick_direction: opt TickDirection = TICK_DIRECTION,
+        tick_direction: opt Code<TickDirection> = TICK_DIRECTION,
         /// MDMkt(275).
         md_mkt: opt CompactString = MD_MKT,
         /// TradingSessionID(336).
         trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// QuoteCondition(276).
-        quote_condition: opt Vec<QuoteCondition> = QUOTE_CONDITION,
+        quote_condition: opt Vec<Code<QuoteCondition>> = QUOTE_CONDITION,
         /// TradeCondition(277).
-        trade_condition: opt Vec<TradeCondition> = TRADE_CONDITION,
+        trade_condition: opt Vec<Code<TradeCondition>> = TRADE_CONDITION,
         /// MDEntryOriginator(282).
         md_entry_originator: opt CompactString = MD_ENTRY_ORIGINATOR,
         /// LocationID(283).
@@ -831,9 +831,9 @@ turbojet::fix_group! {
         /// DeskID(284).
         desk_id: opt CompactString = DESK_ID,
         /// OpenCloseSettleFlag(286).
-        open_close_settle_flag: opt OpenCloseSettleFlag = OPEN_CLOSE_SETTLE_FLAG,
+        open_close_settle_flag: opt Code<OpenCloseSettleFlag> = OPEN_CLOSE_SETTLE_FLAG,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// ExpireDate(432).
         expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
@@ -841,7 +841,7 @@ turbojet::fix_group! {
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// SellerDays(287).
         seller_days: opt i64 = SELLER_DAYS,
         /// OrderID(37).
@@ -866,9 +866,9 @@ turbojet::fix_group! {
 impl MDFullGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(md_entry_type: MDEntryType, md_entry_px: Decimal) -> Self {
+    pub fn new(md_entry_type: impl Into<Code<MDEntryType>>, md_entry_px: Decimal) -> Self {
         Self {
-            md_entry_type,
+            md_entry_type: md_entry_type.into(),
             md_entry_px,
             currency: None,
             md_entry_size: None,
@@ -905,11 +905,11 @@ turbojet::fix_group! {
     /// An entry of NoMDEntries(268).
     MDIncGrp / MDIncGrpRef {
         /// MDUpdateAction(279).
-        md_update_action: req MDUpdateAction = MD_UPDATE_ACTION,
+        md_update_action: req Code<MDUpdateAction> = MD_UPDATE_ACTION,
         /// DeleteReason(285).
-        delete_reason: opt DeleteReason = DELETE_REASON,
+        delete_reason: opt Code<DeleteReason> = DELETE_REASON,
         /// MDEntryType(269).
-        md_entry_type: opt MDEntryType = MD_ENTRY_TYPE,
+        md_entry_type: opt Code<MDEntryType> = MD_ENTRY_TYPE,
         /// MDEntryID(278).
         md_entry_id: opt CompactString = MD_ENTRY_ID,
         /// MDEntryRefID(280).
@@ -921,15 +921,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -949,9 +949,9 @@ turbojet::fix_group! {
         /// EncodedSecurityDesc(351).
         encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// FinancialStatus(291).
-        financial_status: opt FinancialStatus = FINANCIAL_STATUS,
+        financial_status: opt Code<FinancialStatus> = FINANCIAL_STATUS,
         /// CorporateAction(292).
-        corporate_action: opt CorporateAction = CORPORATE_ACTION,
+        corporate_action: opt Code<CorporateAction> = CORPORATE_ACTION,
         /// MDEntryPx(270).
         md_entry_px: opt Decimal = MD_ENTRY_PX,
         /// Currency(15).
@@ -963,15 +963,15 @@ turbojet::fix_group! {
         /// MDEntryTime(273).
         md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
         /// TickDirection(274).
-        tick_direction: opt TickDirection = TICK_DIRECTION,
+        tick_direction: opt Code<TickDirection> = TICK_DIRECTION,
         /// MDMkt(275).
         md_mkt: opt CompactString = MD_MKT,
         /// TradingSessionID(336).
         trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// QuoteCondition(276).
-        quote_condition: opt Vec<QuoteCondition> = QUOTE_CONDITION,
+        quote_condition: opt Vec<Code<QuoteCondition>> = QUOTE_CONDITION,
         /// TradeCondition(277).
-        trade_condition: opt Vec<TradeCondition> = TRADE_CONDITION,
+        trade_condition: opt Vec<Code<TradeCondition>> = TRADE_CONDITION,
         /// MDEntryOriginator(282).
         md_entry_originator: opt CompactString = MD_ENTRY_ORIGINATOR,
         /// LocationID(283).
@@ -979,9 +979,9 @@ turbojet::fix_group! {
         /// DeskID(284).
         desk_id: opt CompactString = DESK_ID,
         /// OpenCloseSettleFlag(286).
-        open_close_settle_flag: opt OpenCloseSettleFlag = OPEN_CLOSE_SETTLE_FLAG,
+        open_close_settle_flag: opt Code<OpenCloseSettleFlag> = OPEN_CLOSE_SETTLE_FLAG,
         /// TimeInForce(59).
-        time_in_force: opt TimeInForce = TIME_IN_FORCE,
+        time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
         /// ExpireDate(432).
         expire_date: opt NaiveDate = EXPIRE_DATE,
         /// ExpireTime(126).
@@ -989,7 +989,7 @@ turbojet::fix_group! {
         /// MinQty(110).
         min_qty: opt Decimal = MIN_QTY,
         /// ExecInst(18).
-        exec_inst: opt Vec<ExecInst> = EXEC_INST,
+        exec_inst: opt Vec<Code<ExecInst>> = EXEC_INST,
         /// SellerDays(287).
         seller_days: opt i64 = SELLER_DAYS,
         /// OrderID(37).
@@ -1016,9 +1016,9 @@ turbojet::fix_group! {
 impl MDIncGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(md_update_action: MDUpdateAction) -> Self {
+    pub fn new(md_update_action: impl Into<Code<MDUpdateAction>>) -> Self {
         Self {
-            md_update_action,
+            md_update_action: md_update_action.into(),
             delete_reason: None,
             md_entry_type: None,
             md_entry_id: None,
@@ -1085,15 +1085,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -1231,15 +1231,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -1259,7 +1259,7 @@ turbojet::fix_group! {
         /// EncodedSecurityDesc(351).
         encoded_security_desc: opt_data Vec<u8> = ENCODED_SECURITY_DESC_LEN => ENCODED_SECURITY_DESC,
         /// QuoteEntryRejectReason(368).
-        quote_entry_reject_reason: opt QuoteEntryRejectReason = QUOTE_ENTRY_REJECT_REASON,
+        quote_entry_reject_reason: opt Code<QuoteEntryRejectReason> = QUOTE_ENTRY_REJECT_REASON,
     }
 }
 
@@ -1331,7 +1331,7 @@ turbojet::fix_group! {
         /// RatioQty(319).
         ratio_qty: opt Decimal = RATIO_QTY,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// UnderlyingCurrency(318).
         underlying_currency: opt CompactString = UNDERLYING_CURRENCY,
     }
@@ -1461,15 +1461,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -1513,7 +1513,7 @@ turbojet::fix_group! {
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// OrdType(40).
-        ord_type: opt OrdType = ORD_TYPE,
+        ord_type: opt Code<OrdType> = ORD_TYPE,
         /// FutSettDate2(193).
         fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
         /// OrderQty2(192).
@@ -1570,11 +1570,11 @@ turbojet::fix_group! {
     /// An entry of NoBidDescriptors(398).
     BidDescReqGrp / BidDescReqGrpRef {
         /// BidDescriptorType(399).
-        bid_descriptor_type: req BidDescriptorType = BID_DESCRIPTOR_TYPE,
+        bid_descriptor_type: req Code<BidDescriptorType> = BID_DESCRIPTOR_TYPE,
         /// BidDescriptor(400).
         bid_descriptor: opt CompactString = BID_DESCRIPTOR,
         /// SideValueInd(401).
-        side_value_ind: opt SideValueInd = SIDE_VALUE_IND,
+        side_value_ind: opt Code<SideValueInd> = SIDE_VALUE_IND,
         /// LiquidityValue(404).
         liquidity_value: opt Decimal = LIQUIDITY_VALUE,
         /// LiquidityNumSecurities(441).
@@ -1597,9 +1597,9 @@ turbojet::fix_group! {
 impl BidDescReqGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(bid_descriptor_type: BidDescriptorType) -> Self {
+    pub fn new(bid_descriptor_type: impl Into<Code<BidDescriptorType>>) -> Self {
         Self {
-            bid_descriptor_type,
+            bid_descriptor_type: bid_descriptor_type.into(),
             bid_descriptor: None,
             side_value_ind: None,
             liquidity_value: None,
@@ -1620,13 +1620,13 @@ turbojet::fix_group! {
         /// ListID(66).
         list_id: req CompactString = LIST_ID,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// TradingSessionID(336).
         trading_session_id: opt CompactString = TRADING_SESSION_ID,
         /// NetGrossInd(430).
-        net_gross_ind: opt NetGrossInd = NET_GROSS_IND,
+        net_gross_ind: opt Code<NetGrossInd> = NET_GROSS_IND,
         /// SettlmntTyp(63).
-        settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
+        settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// Account(1).
@@ -1656,23 +1656,23 @@ turbojet::fix_group! {
         /// Commission(12).
         commission: req Decimal = COMMISSION,
         /// CommType(13).
-        comm_type: req CommType = COMM_TYPE,
+        comm_type: req Code<CommType> = COMM_TYPE,
         /// ListID(66).
         list_id: opt CompactString = LIST_ID,
         /// Country(421).
         country: opt CompactString = COUNTRY,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// Price(44).
         price: opt Decimal = PRICE,
         /// PriceType(423).
-        price_type: opt PriceType = PRICE_TYPE,
+        price_type: opt Code<PriceType> = PRICE_TYPE,
         /// FairValue(406).
         fair_value: opt Decimal = FAIR_VALUE,
         /// NetGrossInd(430).
-        net_gross_ind: opt NetGrossInd = NET_GROSS_IND,
+        net_gross_ind: opt Code<NetGrossInd> = NET_GROSS_IND,
         /// SettlmntTyp(63).
-        settlmnt_typ: opt SettlmntTyp = SETTLMNT_TYP,
+        settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
         /// FutSettDate(64).
         fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
         /// TradingSessionID(336).
@@ -1687,10 +1687,10 @@ turbojet::fix_group! {
 impl BidCompRspGrp {
     /// With the required fields and groups; optional ones empty.
     #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(commission: Decimal, comm_type: CommType) -> Self {
+    pub fn new(commission: Decimal, comm_type: impl Into<Code<CommType>>) -> Self {
         Self {
             commission,
-            comm_type,
+            comm_type: comm_type.into(),
             list_id: None,
             country: None,
             side: None,
@@ -1717,15 +1717,15 @@ turbojet::fix_group! {
         /// SecurityID(48).
         security_id: opt CompactString = SECURITY_ID,
         /// IDSource(22).
-        id_source: opt IDSource = ID_SOURCE,
+        id_source: opt Code<IDSource> = ID_SOURCE,
         /// SecurityType(167).
-        security_type: opt SecurityType = SECURITY_TYPE,
+        security_type: opt Code<SecurityType> = SECURITY_TYPE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MaturityDay(205).
         maturity_day: opt i64 = MATURITY_DAY,
         /// PutOrCall(201).
-        put_or_call: opt PutOrCall = PUT_OR_CALL,
+        put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
         /// StrikePrice(202).
         strike_price: opt Decimal = STRIKE_PRICE,
         /// OptAttribute(206).
@@ -1749,7 +1749,7 @@ turbojet::fix_group! {
         /// ClOrdID(11).
         cl_ord_id: opt CompactString = CL_ORD_ID,
         /// Side(54).
-        side: opt Side = SIDE,
+        side: opt Code<Side> = SIDE,
         /// Price(44).
         price: req Decimal = PRICE,
         /// Currency(15).

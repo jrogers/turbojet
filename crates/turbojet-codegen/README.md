@@ -35,10 +35,10 @@ checking in:
 turbojet-codegen OrchestraFIX42.xml --merge venue.xml --out src/generated
 ```
 
-Enumerated fields are strict: an unknown code fails the parse. `--lenient-enums` (or
-`Generator::lenient_enums`) types every enumerated field as `turbojet::fields::Code<E>` instead,
-which keeps a code the dictionary doesn't list as `Code::Unknown`; `--lenient-enum OrdType` does it
-for one field.
+Enumerated fields are typed `turbojet::fields::Code<E>`, which keeps a code the dictionary doesn't
+list as `Code::Unknown` rather than failing the parse, as QuickFIX's typed fields do.
+`--strict-enums` (or `Generator::strict_enums`) types them `E` instead, so an unknown code fails
+the parse; with it, `--lenient-enum OrdType` keeps one field a `Code`.
 
 `--optional Owner.Member` corrects a dictionary that marks something required that counterparties
 leave out, making a field, group or component optional in a message or component (see

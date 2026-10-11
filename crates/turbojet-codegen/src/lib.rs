@@ -32,12 +32,14 @@
 //! crate shipping code generated from the official Orchestra files should ship a `NOTICE`
 //! crediting them, like `turbojet-fix42`'s.
 //!
-//! Generated enums are strict: a code the dictionary doesn't list makes `parse` fail with an
-//! incorrect-value error. To accept a venue's extra values, merge its dictionary (`--merge
-//! venue.xml`, or [`Dictionary::merge_file`]) before generating. To accept whatever arrives, make
-//! fields lenient ([`Generator::lenient_enums`], [`Generator::lenient_enum`], or `--lenient-enums`
-//! and `--lenient-enum Field`): they're typed `turbojet::fields::Code<E>`, which keeps an unknown
-//! code as `Code::Unknown` instead of failing.
+//! Enumerated fields are lenient: they're typed `turbojet::fields::Code<E>`, which keeps a code
+//! the dictionary doesn't list as `Code::Unknown` rather than failing the parse, as QuickFIX's
+//! typed fields do. Rejecting unknown codes is left to the session's validation against a data
+//! dictionary. [`Generator::strict_enums`] (`--strict-enums`) types them `E` instead, so an
+//! unknown code makes `parse` fail with an incorrect-value error, and [`Generator::lenient_enum`]
+//! (`--lenient-enum Field`) keeps one field lenient among strict ones. To name a venue's extra
+//! values, merge its dictionary (`--merge venue.xml`, or [`Dictionary::merge_file`]) before
+//! generating.
 //!
 //! A dictionary that marks something required that counterparties leave out can be corrected
 //! before generating, with [`Dictionary::make_optional`] (`--optional Owner.Member` on the
@@ -121,7 +123,7 @@ impl<'a> Generator<'a> {
             dict,
             skip: vec!["BusinessMessageReject".to_string()],
             docs: false,
-            lenient_all: false,
+            lenient_all: true,
             lenient: Vec::new(),
         }
     }
@@ -135,19 +137,20 @@ impl<'a> Generator<'a> {
         self
     }
 
-    /// Whether every enumerated field is lenient: typed
-    /// [`Code<E>`](https://docs.rs/turbojet/latest/turbojet/fields/enum.Code.html) rather than
-    /// `E`, so a code the dictionary doesn't list is kept (`Code::Unknown`) instead of failing the
-    /// parse. Off by default.
+    /// Whether enumerated fields are strict: typed `E` rather than
+    /// [`Code<E>`](https://docs.rs/turbojet/latest/turbojet/fields/enum.Code.html), so a code the
+    /// dictionary doesn't list fails the parse instead of being kept (`Code::Unknown`). Off by
+    /// default. A counterparty doesn't resend a message it was rejected for, so a strict field
+    /// can lose a message over a code the application never reads.
     #[must_use]
-    pub fn lenient_enums(mut self, all: bool) -> Self {
-        self.lenient_all = all;
+    pub fn strict_enums(mut self, strict: bool) -> Self {
+        self.lenient_all = !strict;
         self
     }
 
-    /// Makes one enumerated field lenient, by its dictionary name (e.g. `OrdType`); see
-    /// [`lenient_enums`](Self::lenient_enums). Generating fails if it isn't an enumerated field of
-    /// the generated messages.
+    /// Keeps one enumerated field lenient when the rest are [strict](Self::strict_enums), by its
+    /// dictionary name (e.g. `OrdType`). Generating fails if it isn't an enumerated field of the
+    /// generated messages.
     #[must_use]
     pub fn lenient_enum(mut self, field: &str) -> Self {
         self.lenient.push(field.to_string());

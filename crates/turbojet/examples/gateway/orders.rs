@@ -1,7 +1,9 @@
 //! Order validation and booking for FIX 4.2 NewOrderSingle(D) and OrderCancelRequest(F).
 //!
 //! Requests arrive parsed, in their borrowed form, so malformed fields have been rejected already;
-//! a booked order copies what it keeps. What is left here is business validation. FIX 4.2 has no
+//! a booked order copies what it keeps. Enumerated fields keep codes the dictionary doesn't list,
+//! so the ones the book acts on are rejected here if they're unknown. What is left is business
+//! validation. FIX 4.2 has no
 //! specific reason code for most of it, so those rejections use the spec's "Broker option" with
 //! an explanatory Text: BrokerCredit, which is OrdRejReason 0 and CxlRejReason 2 (the FIX 4.2
 //! repository names both codes BrokerCredit).
@@ -12,7 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use tracing::info;
 use turbojet::MessageReject;
-use turbojet::fields::UtcTimestamp;
+use turbojet::fields::{CodeRef, FixEnum, UtcTimestamp};
 use turbojet::fields::{CompactString, Decimal, format_compact};
 use turbojet::message::tags;
 use turbojet_fix42::{
@@ -35,6 +37,12 @@ pub struct Order {
     pub price: Option<Decimal>,
     pub time_in_force: Option<TimeInForce>,
     pub status: OrdStatus,
+}
+
+/// An enumerated field's value, or a Reject naming the field if it's a code the dictionary
+/// doesn't list.
+fn known<E: FixEnum>(value: CodeRef<'_, E>, tag: u32) -> Result<E, MessageReject> {
+    value.known().ok_or_else(|| MessageReject::value_incorrect(tag, format!("Unsupported value {value}")))
 }
 
 #[derive(Default)]
@@ -82,11 +90,11 @@ impl OrderManager {
             cl_ord_id: request.cl_ord_id.into(),
             account: request.account.map(String::from),
             symbol: request.symbol.into(),
-            side: request.side,
-            ord_type: request.ord_type,
+            side: known(request.side, tags::SIDE)?,
+            ord_type: known(request.ord_type, tags::ORD_TYPE)?,
             qty,
             price: request.price,
-            time_in_force: request.time_in_force,
+            time_in_force: request.time_in_force.map(|tif| known(tif, tags::TIME_IN_FORCE)).transpose()?,
             status: OrdStatus::New,
         };
 
@@ -96,7 +104,7 @@ impl OrderManager {
             info!(owner, cl_ord_id = %order.cl_ord_id, %text, "order rejected");
             order.status = OrdStatus::Rejected;
             let mut report = self.execution_report(&order, ExecType::Rejected, None);
-            report.ord_rej_reason = Some(reason);
+            report.ord_rej_reason = Some(reason.into());
             report.text = Some(text.into());
             return Ok(report);
         }
@@ -135,7 +143,7 @@ impl OrderManager {
                 status,
                 CxlRejResponseTo::OrderCancelRequest,
             );
-            reject.cxl_rej_reason = Some(reason);
+            reject.cxl_rej_reason = Some(reason.into());
             reject.text = Some(text.into());
             reject
         };
@@ -199,7 +207,7 @@ impl OrderManager {
                 // OrderCancel.
                 CxlRejResponseTo::OrderCancel,
             );
-            reject.cxl_rej_reason = Some(reason);
+            reject.cxl_rej_reason = Some(reason.into());
             reject.text = Some(text.into());
             reject
         };
@@ -221,7 +229,7 @@ impl OrderManager {
             let text = "Order is not open".to_string();
             return Ok(Err(replace_reject(&order_id, order.status, CxlRejReason::TooLateToCancel, text)));
         }
-        if (request.symbol, request.side, request.ord_type) != (order.symbol.as_str(), order.side, order.ord_type) {
+        if request.symbol != order.symbol || request.side != order.side || request.ord_type != order.ord_type {
             let text = "Only OrderQty, Price and TimeInForce can be changed".to_string();
             return Ok(Err(replace_reject(&order_id, order.status, CxlRejReason::BrokerCredit, text)));
         }
@@ -229,7 +237,7 @@ impl OrderManager {
             cl_ord_id: request.cl_ord_id.into(),
             qty,
             price: request.price,
-            time_in_force: request.time_in_force,
+            time_in_force: request.time_in_force.map(|tif| known(tif, tags::TIME_IN_FORCE)).transpose()?,
             ..order.clone()
         };
         if let Some((_, text)) = rejection(&amended, false) {
@@ -241,7 +249,7 @@ impl OrderManager {
         book.cl_ord_ids.insert(new_key, order_id);
         info!(owner, order_id = %order.order_id, cl_ord_id = %request.cl_ord_id, orig_cl_ord_id = %request.orig_cl_ord_id, qty = %order.qty, price = ?order.price, "order replaced");
         let mut report = self.execution_report(&order, ExecType::Replaced, Some(request.orig_cl_ord_id));
-        report.ord_status = OrdStatus::Replaced;
+        report.ord_status = OrdStatus::Replaced.into();
         Ok(Ok(report))
     }
 
@@ -294,14 +302,14 @@ impl OrderManager {
                     cum_qty,
                     avg_px,
                 );
-                report.ord_rej_reason = Some(OrdRejReason::UnknownOrder);
+                report.ord_rej_reason = Some(OrdRejReason::UnknownOrder.into());
                 report.account = request.account.map(CompactString::from);
                 report.transact_time = Some(UtcTimestamp::now());
                 report.text = Some(format_compact!("Unknown order '{}'", request.cl_ord_id));
                 report
             }
         };
-        report.exec_trans_type = ExecTransType::Status;
+        report.exec_trans_type = ExecTransType::Status.into();
         report.exec_id = "0".into();
         report.cl_ord_id = Some(request.cl_ord_id.into());
         report
@@ -329,9 +337,9 @@ impl OrderManager {
         report.orig_cl_ord_id = orig_cl_ord_id.map(CompactString::from);
         report.account = order.account.as_deref().map(CompactString::from);
         report.order_qty = Some(order.qty);
-        report.ord_type = Some(order.ord_type);
+        report.ord_type = Some(order.ord_type.into());
         report.price = order.price;
-        report.time_in_force = order.time_in_force;
+        report.time_in_force = order.time_in_force.map(Into::into);
         report.transact_time = Some(UtcTimestamp::now());
         report
     }
@@ -369,6 +377,7 @@ fn rejection(order: &Order, duplicate: bool) -> Option<(OrdRejReason, String)> {
 mod tests {
     use super::*;
     use turbojet::FixMessage;
+    use turbojet::fields::Code;
     use turbojet_fix42::{
         HandlInst, NewOrderSingle, OrderCancelReplaceRequest, OrderCancelRequest, OrderStatusRequest,
     };
@@ -421,20 +430,29 @@ mod tests {
     }
 
     #[test]
+    fn unknown_side_is_session_reject() {
+        let om = OrderManager::new();
+        let order = NewOrderSingle { side: Code::Unknown("Z".into()), ..limit_order("A") };
+        let err = om.new_order("C1", order.to_message().parse().unwrap()).unwrap_err();
+        assert!(matches!(err, MessageReject::Session { ref_tag: Some(tags::SIDE), .. }), "{err:?}");
+        assert_eq!(om.order_count(), 0);
+    }
+
+    #[test]
     fn business_rule_violations_are_rejected_execution_reports() {
         let om = OrderManager::new();
         let cases = [
             NewOrderSingle { order_qty: Some(dec("0")), ..limit_order("A") },
             NewOrderSingle { price: None, ..limit_order("B") },
             NewOrderSingle { price: Some(dec("-1")), ..limit_order("C") },
-            NewOrderSingle { ord_type: OrdType::Stop, ..limit_order("D") },
-            NewOrderSingle { time_in_force: Some(TimeInForce::ImmediateOrCancel), ..limit_order("E") },
-            NewOrderSingle { side: Side::Cross, ..limit_order("F") },
+            NewOrderSingle { ord_type: OrdType::Stop.into(), ..limit_order("D") },
+            NewOrderSingle { time_in_force: Some(TimeInForce::ImmediateOrCancel.into()), ..limit_order("E") },
+            NewOrderSingle { side: Side::Cross.into(), ..limit_order("F") },
         ];
         for order in cases {
             let er = om.new_order("C1", order.to_message().parse().unwrap()).unwrap();
             assert_eq!(er.ord_status, OrdStatus::Rejected, "{order:?}");
-            assert_eq!(er.ord_rej_reason, Some(OrdRejReason::BrokerCredit), "{order:?}");
+            assert_eq!(er.ord_rej_reason, Some(OrdRejReason::BrokerCredit.into()), "{order:?}");
             assert_eq!(er.order_id, "NONE");
             assert!(er.text.is_some());
         }
@@ -446,7 +464,7 @@ mod tests {
         let om = OrderManager::new();
         om.new_order("C1", limit_order("A").to_message().parse().unwrap()).unwrap();
         let dup = om.new_order("C1", limit_order("A").to_message().parse().unwrap()).unwrap();
-        assert_eq!(dup.ord_rej_reason, Some(OrdRejReason::DuplicateOrder));
+        assert_eq!(dup.ord_rej_reason, Some(OrdRejReason::DuplicateOrder.into()));
         let other_owner = om.new_order("C2", limit_order("A").to_message().parse().unwrap()).unwrap();
         assert_eq!(other_owner.ord_status, OrdStatus::New);
     }
@@ -465,7 +483,7 @@ mod tests {
         assert_eq!(om.order(&er.order_id).unwrap().status, OrdStatus::Canceled);
 
         let again = om.cancel("C1", cancel("X2", "A").to_message().parse().unwrap()).unwrap_err();
-        assert_eq!(again.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel));
+        assert_eq!(again.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel.into()));
         assert_eq!(again.ord_status, OrdStatus::Canceled);
     }
 
@@ -475,7 +493,7 @@ mod tests {
         om.new_order("C1", limit_order("A").to_message().parse().unwrap()).unwrap();
         for (owner, orig) in [("C1", "missing"), ("C2", "A")] {
             let rej = om.cancel(owner, cancel("X", orig).to_message().parse().unwrap()).unwrap_err();
-            assert_eq!(rej.cxl_rej_reason, Some(CxlRejReason::UnknownOrder));
+            assert_eq!(rej.cxl_rej_reason, Some(CxlRejReason::UnknownOrder.into()));
             assert_eq!(rej.order_id, "NONE");
         }
     }
@@ -507,7 +525,7 @@ mod tests {
 
         let replaced =
             om.replace("C1", replace("A", "B", "250", "151.50").to_message().parse().unwrap()).unwrap().unwrap();
-        assert_eq!((replaced.exec_type, replaced.ord_status), (ExecType::Replaced, OrdStatus::Replaced));
+        assert_eq!((replaced.exec_type, replaced.ord_status), (ExecType::Replaced.into(), OrdStatus::Replaced.into()));
         assert_eq!(replaced.order_id, new.order_id, "same order");
         assert_eq!((replaced.cl_ord_id.as_deref(), replaced.orig_cl_ord_id.as_deref()), (Some("B"), Some("A")));
         assert_eq!((replaced.leaves_qty, replaced.price), (dec("250"), Some(dec("151.50"))));
@@ -531,19 +549,19 @@ mod tests {
             (replace("A", "A", "10", "1"), CxlRejReason::BrokerCredit), // ClOrdID already used
             (replace("A", "B", "0", "1"), CxlRejReason::BrokerCredit),  // invalid quantity
             (
-                OrderCancelReplaceRequest { side: Side::Sell, ..replace("A", "B", "10", "1") },
+                OrderCancelReplaceRequest { side: Side::Sell.into(), ..replace("A", "B", "10", "1") },
                 CxlRejReason::BrokerCredit,
             ),
         ];
         for (request, reason) in cases {
             let reject = om.replace("C1", request.to_message().parse().unwrap()).unwrap().unwrap_err();
-            assert_eq!(reject.cxl_rej_reason, Some(reason), "{request:?}");
+            assert_eq!(reject.cxl_rej_reason, Some(reason.into()), "{request:?}");
             assert_eq!(reject.cxl_rej_response_to, CxlRejResponseTo::OrderCancel);
         }
         om.cancel("C1", cancel("X", "A").to_message().parse().unwrap()).unwrap();
         let too_late =
             om.replace("C1", replace("A", "B", "10", "1").to_message().parse().unwrap()).unwrap().unwrap_err();
-        assert_eq!(too_late.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel));
+        assert_eq!(too_late.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel.into()));
         // Missing OrderQty is a business-level reject, as for new orders.
         assert!(
             om.replace(
@@ -564,19 +582,19 @@ mod tests {
         let open = om.status("C1", status("A").to_message().parse().unwrap());
         assert_eq!(
             (open.exec_trans_type, open.exec_type, open.ord_status),
-            (ExecTransType::Status, ExecType::New, OrdStatus::New)
+            (ExecTransType::Status.into(), ExecType::New.into(), OrdStatus::New.into())
         );
         assert_eq!((open.order_id.as_str(), open.exec_id.as_str()), (new.order_id.as_str(), "0"));
 
         om.cancel("C1", cancel("X", "A").to_message().parse().unwrap()).unwrap();
         let canceled = om.status("C1", status("X").to_message().parse().unwrap());
-        assert_eq!((canceled.exec_type, canceled.ord_status), (ExecType::Canceled, OrdStatus::Canceled));
+        assert_eq!((canceled.exec_type, canceled.ord_status), (ExecType::Canceled.into(), OrdStatus::Canceled.into()));
         assert_eq!(canceled.cl_ord_id.as_deref(), Some("X"));
 
         let unknown = om.status("C2", status("A").to_message().parse().unwrap());
         assert_eq!(
             (unknown.ord_status, unknown.ord_rej_reason),
-            (OrdStatus::Rejected, Some(OrdRejReason::UnknownOrder))
+            (OrdStatus::Rejected.into(), Some(OrdRejReason::UnknownOrder.into()))
         );
         assert_eq!(unknown.order_id, "NONE");
     }
@@ -586,7 +604,7 @@ mod tests {
         let om = OrderManager::new();
         om.new_order("C1", limit_order("A").to_message().parse().unwrap()).unwrap();
         let rej = om.cancel("C1", cancel("A", "A").to_message().parse().unwrap()).unwrap_err();
-        assert_eq!(rej.cxl_rej_reason, Some(CxlRejReason::BrokerCredit));
+        assert_eq!(rej.cxl_rej_reason, Some(CxlRejReason::BrokerCredit.into()));
         assert_eq!(rej.ord_status, OrdStatus::New);
     }
 }

@@ -296,13 +296,16 @@ symbols are parsed and sent without allocating. Build one with `.into()` from a 
 or `format_compact!` in place of `format!`. `String` works as a field type too.
 
 Tags are paths to `u32` constants and are matched as patterns, so a misspelt tag is a compile
-error. Parsing is strict: an unknown enum code is *value incorrect* (373=5), a malformed number or
-timestamp is *incorrect data format* (373=6), and a missing required field is *required tag
-missing* (373=1). Tags the message doesn't define are ignored; `msg.parse_strict()` refuses them
-instead, as *tag not defined for this message type* (373=2), for counterparties whose extra fields
-should be rejected. The raw `Message` stays available for anything not modelled. For
-counterparties that send values outside the spec, `turbojet-codegen --lenient-enums` generates
-enumerated fields as `fields::Code<E>`, which keeps an unknown code instead of failing.
+error. A malformed number or timestamp is *incorrect data format* (373=6), and a missing required
+field is *required tag missing* (373=1). The generated crates' enumerated fields are
+`fields::Code<E>`, which keeps a code the dictionary doesn't list as `Code::Unknown` rather than
+failing, as QuickFIX does: compare one with a value (`order.side == Side::Buy`), set one with
+`.into()`, and get the enum with `.known()`. Unknown codes are rejected by checking messages
+against a data dictionary (feature `validation`), or by fields typed as the enum itself
+(`turbojet-codegen --strict-enums`), where one is *value incorrect* (373=5). Tags the message
+doesn't define are ignored; `msg.parse_strict()` refuses them instead, as *tag not defined for
+this message type* (373=2), for counterparties whose extra fields should be rejected. The raw
+`Message` stays available for anything not modelled.
 
 ## Repeating groups
 
