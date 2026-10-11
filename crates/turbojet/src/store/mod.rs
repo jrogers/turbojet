@@ -189,7 +189,7 @@ pub trait SessionStorage: Send + Sync {
     }
 
     /// Whether what this store keeps survives the process ending: false for
-    /// [`MemoryStorage`](crate::MemoryStorage). A store that routes sessions to others is durable
+    /// [`MemoryStorage`]. A store that routes sessions to others is durable
     /// only if every store it can route to is. The default says it is.
     fn is_durable(&self) -> bool {
         true
