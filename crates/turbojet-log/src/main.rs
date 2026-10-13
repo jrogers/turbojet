@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use chrono::{DateTime, NaiveTime, Utc};
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::tags;
-use turbojet::{Direction, FileMessageLog, LogRecord, Message};
+use turbojet::{Direction, FileMessageLog, LogFilter, LogRecord, Message};
 use turbojet_dictionary::Dictionary;
 
 const USAGE: &str = "\
@@ -70,12 +70,11 @@ fn main() -> ExitCode {
 
 #[derive(Default)]
 struct Options {
-    sessions: Vec<String>,
-    direction: Option<Direction>,
-    types: Vec<String>,
-    tags: Vec<(u32, String)>,
-    since: Option<Time>,
-    until: Option<Time>,
+    /// The conditions, with `--since` and `--until` when they're instants.
+    filter: LogFilter,
+    /// `--since` and `--until` when they're times of day, on each record's own day.
+    since_of_day: Option<NaiveTime>,
+    until_of_day: Option<NaiveTime>,
     raw: bool,
     dictionary: Option<PathBuf>,
     paths: Vec<PathBuf>,
@@ -99,14 +98,6 @@ impl Time {
             .map(Time::OfDay)
             .map_err(|_| format!("{s:?} is neither RFC 3339 nor HH:MM[:SS]"))
     }
-
-    /// `time` as a value comparable with this bound.
-    fn cmp_with(self, time: DateTime<Utc>) -> std::cmp::Ordering {
-        match self {
-            Time::At(at) => time.cmp(&at),
-            Time::OfDay(of_day) => time.time().cmp(&of_day),
-        }
-    }
 }
 
 impl Options {
@@ -116,18 +107,24 @@ impl Options {
         while let Some(arg) = args.next() {
             let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
             match arg.as_str() {
-                "--session" => options.sessions.push(value()?),
-                "--in" => options.direction = Some(Direction::Inbound),
-                "--out" => options.direction = Some(Direction::Outbound),
-                "--type" => options.types.extend(value()?.split(',').map(str::to_owned)),
+                "--session" => options.filter.sessions.push(value()?),
+                "--in" => options.filter.direction = Some(Direction::Inbound),
+                "--out" => options.filter.direction = Some(Direction::Outbound),
+                "--type" => options.filter.msg_types.extend(value()?.split(',').map(str::to_owned)),
                 "--tag" => {
                     let tag = value()?;
                     let (t, v) = tag.split_once('=').ok_or_else(|| format!("--tag {tag:?} isn't TAG=VALUE"))?;
                     let t = t.parse().map_err(|_| format!("--tag {tag:?}: {t:?} isn't a tag number"))?;
-                    options.tags.push((t, v.to_owned()));
+                    options.filter.tags.push((t, vec![v.to_owned()]));
                 }
-                "--since" => options.since = Some(Time::parse(&value()?)?),
-                "--until" => options.until = Some(Time::parse(&value()?)?),
+                "--since" => match Time::parse(&value()?)? {
+                    Time::At(at) => (options.filter.since, options.since_of_day) = (Some(at), None),
+                    Time::OfDay(of_day) => (options.filter.since, options.since_of_day) = (None, Some(of_day)),
+                },
+                "--until" => match Time::parse(&value()?)? {
+                    Time::At(at) => (options.filter.until, options.until_of_day) = (Some(at), None),
+                    Time::OfDay(of_day) => (options.filter.until, options.until_of_day) = (None, Some(of_day)),
+                },
                 "--raw" => options.raw = true,
                 "--dictionary" => options.dictionary = Some(value()?.into()),
                 "-h" | "--help" => return Ok(None),
@@ -143,25 +140,9 @@ impl Options {
 
     /// Whether a record at `time` is in the time range.
     fn in_range(&self, time: DateTime<Utc>) -> bool {
-        self.since.is_none_or(|since| since.cmp_with(time).is_ge())
-            && self.until.is_none_or(|until| until.cmp_with(time).is_lt())
-    }
-
-    /// Whether a message passes the filters. FIXP frames, and FIX ones that don't decode, have
-    /// no MsgType or fields to match.
-    fn matches(&self, direction: Direction, session: Option<&str>, msg: Option<&Message>) -> bool {
-        if self.direction.is_some_and(|d| d != direction)
-            || (!self.sessions.is_empty() && !session.is_some_and(|s| self.sessions.iter().any(|want| want == s)))
-        {
-            return false;
-        }
-        if self.types.is_empty() && self.tags.is_empty() {
-            return true;
-        }
-        let Some(msg) = msg else { return false };
-        let msg_type = msg.get(tags::MSG_TYPE).unwrap_or_default();
-        (self.types.is_empty() || self.types.iter().any(|t| t == msg_type))
-            && self.tags.iter().all(|(tag, value)| msg.fields().any(|(t, v)| t == *tag && v == value))
+        self.filter.in_range(time)
+            && self.since_of_day.is_none_or(|since| time.time() >= since)
+            && self.until_of_day.is_none_or(|until| time.time() < until)
     }
 }
 
@@ -216,7 +197,7 @@ fn print_record(options: &Options, names: &mut Names, record: &LogRecord, out: &
         Some(Decoded::Message(msg, _)) => Some(msg),
         _ => None,
     };
-    if !options.matches(direction, session, msg) {
+    if !options.filter.matches_message(direction, session, msg) {
         return Ok(());
     }
     let arrow = if direction == Direction::Inbound { "in " } else { "out" };
