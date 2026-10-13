@@ -1,9 +1,9 @@
-//! Reading what a [`FileMessageLog`] wrote: [`FileMessageLog::files`] and
-//! [`FileMessageLog::read`].
+//! Reading what a [`FileMessageLog`] wrote: [`FileMessageLog::files`], [`FileMessageLog::read`]
+//! and [`FileMessageLog::read_from`].
 
 use std::fmt;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -89,7 +89,8 @@ impl FileMessageLog {
 
     /// The records in the log file at `path`, in the order they were written, decompressing a
     /// `.log.gz` file. It can be read while being written: the records end at the last whole one
-    /// written so far, and reading the file again, from the start, includes what's been written
+    /// written so far, and reading the file again, from the start or from
+    /// [`LogRecords::position`] with [`read_from`](Self::read_from), includes what's been written
     /// since.
     ///
     /// # Errors
@@ -99,11 +100,40 @@ impl FileMessageLog {
     /// ([`InvalidData`](io::ErrorKind::InvalidData)) if it isn't one the log writes, and the
     /// records end there.
     pub fn read(path: impl AsRef<Path>) -> io::Result<LogRecords> {
+        Self::read_from(path, 0)
+    }
+
+    /// The records in the log file at `path` from `position`, a [`LogRecords::position`] taken
+    /// from an earlier read of the same file, so a reader can carry on where it stopped without
+    /// reading the file again from the start. Otherwise as [`read`](Self::read).
+    ///
+    /// Positions count bytes of the file as written, before compression, so one taken while the
+    /// file was `.log` still holds once it's been compressed to `.log.gz`. A `.log` file seeks
+    /// straight to it; a `.log.gz` file is decompressed up to it, which takes time in proportion
+    /// to `position` but does no work per record.
+    ///
+    /// A position at the end of the file (all of it read so far) gives no records until more are
+    /// written. Pass only positions [`LogRecords::position`] gave: any other offset is likely to
+    /// be in the middle of a record, which reads as an [`InvalidData`](io::ErrorKind::InvalidData)
+    /// error (or, rarely, as a record that was never written).
+    ///
+    /// # Errors
+    ///
+    /// As [`read`](Self::read), and [`UnexpectedEof`](io::ErrorKind::UnexpectedEof) if `position`
+    /// is past the end of the file, as it is for a position from some other file.
+    pub fn read_from(path: impl AsRef<Path>, position: u64) -> io::Result<LogRecords> {
         let path = path.as_ref();
-        let file = File::open(path)?;
+        let mut file = File::open(path)?;
+        let past_end = || io::Error::new(io::ErrorKind::UnexpectedEof, format!("position {position} is past the end"));
         let reader: Box<dyn Read + Send> = match is_compressed(path) {
             #[cfg(feature = "gzip")]
-            true => Box::new(flate2::read::GzDecoder::new(file)),
+            true => {
+                let mut decoder = flate2::read::GzDecoder::new(file);
+                if io::copy(&mut (&mut decoder).take(position), &mut io::sink())? < position {
+                    return Err(past_end());
+                }
+                Box::new(decoder)
+            }
             #[cfg(not(feature = "gzip"))]
             true => {
                 return Err(io::Error::new(
@@ -111,9 +141,15 @@ impl FileMessageLog {
                     "reading a compressed message log file needs turbojet's gzip feature",
                 ));
             }
-            false => Box::new(file),
+            false => {
+                if file.metadata()?.len() < position {
+                    return Err(past_end());
+                }
+                file.seek(SeekFrom::Start(position))?;
+                Box::new(file)
+            }
         };
-        Ok(LogRecords { reader: BufReader::new(reader), header: Vec::new(), failed: false })
+        Ok(LogRecords { reader: BufReader::new(reader), header: Vec::new(), position, failed: false })
     }
 }
 
@@ -121,12 +157,17 @@ impl FileMessageLog {
 pub struct LogRecords {
     reader: BufReader<Box<dyn Read + Send>>,
     header: Vec<u8>,
+    /// Where the next record starts, in bytes of the file as written (decompressed).
+    position: u64,
     failed: bool,
 }
 
 impl fmt::Debug for LogRecords {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("LogRecords").field("failed", &self.failed).finish_non_exhaustive()
+        f.debug_struct("LogRecords")
+            .field("position", &self.position)
+            .field("failed", &self.failed)
+            .finish_non_exhaustive()
     }
 }
 
@@ -144,6 +185,15 @@ impl Iterator for LogRecords {
 }
 
 impl LogRecords {
+    /// Where the next record starts: the bytes of the file (as written, before any compression)
+    /// that the records returned so far took up, counting from the start of the file. Pass it to
+    /// [`FileMessageLog::read_from`] to carry on from here. A record still being written, or one
+    /// that's an error, doesn't move it.
+    #[must_use]
+    pub fn position(&self) -> u64 {
+        self.position
+    }
+
     /// The next record, `None` at the end of what's whole, or why the next isn't a record.
     fn read_record(&mut self) -> io::Result<Option<LogRecord>> {
         self.header.clear();
@@ -166,6 +216,7 @@ impl LogRecords {
                     .next()
                     .and_then(|c| c.parse().ok())
                     .ok_or_else(|| invalid(&format!("bad count in {header:?}")))?;
+                self.position += read as u64;
                 return Ok(Some(LogRecord::Dropped { time, count }));
             }
             "in" => Direction::Inbound,
@@ -192,6 +243,7 @@ impl LogRecords {
         if frame.pop() != Some(b'\n') {
             return Err(invalid(&format!("the message after {header:?} isn't {length} bytes")));
         }
+        self.position += (read + length + 1) as u64;
         Ok(Some(LogRecord::Message { time, direction, session, frame }))
     }
 }
@@ -299,5 +351,87 @@ mod tests {
             assert_eq!(records.len(), 1, "{:?}", String::from_utf8_lossy(bad));
             assert_eq!(records[0].as_ref().unwrap_err().kind(), io::ErrorKind::InvalidData);
         }
+    }
+
+    /// Three records, one a dropped count, and each record's position: where it starts.
+    fn three_records() -> (Vec<u8>, Vec<u64>) {
+        let records: [&[u8]; 3] = [
+            b"20261008-12:00:00.000000 in 5 -\nab\ncd\n",
+            b"20261008-12:00:00.000000 dropped 3\n",
+            b"20261008-12:00:00.000000 out 2 FIX.4.4:US->THEM\nxy\n",
+        ];
+        let mut positions = vec![0];
+        for record in records {
+            positions.push(positions.last().unwrap() + record.len() as u64);
+        }
+        (records.concat(), positions)
+    }
+
+    /// After each record, the position is the bytes read so far; a partial record after them
+    /// doesn't move it.
+    #[test]
+    fn position_counts_the_bytes_of_whole_records() {
+        let (bytes, positions) = three_records();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("messages-20261008-000000.log");
+        fs::write(&path, [&bytes[..], b"20261008-12:00:00.000000 in 9 -\nab"].concat()).unwrap();
+        let mut records = FileMessageLog::read(&path).unwrap();
+        assert_eq!(records.position(), 0);
+        for position in &positions[1..] {
+            records.next().unwrap().unwrap();
+            assert_eq!(records.position(), *position);
+        }
+        assert!(records.next().is_none());
+        assert_eq!(records.position(), bytes.len() as u64);
+    }
+
+    /// Reading from each record's position gives the records from there on, the same as reading
+    /// from the start and skipping those before.
+    fn check_read_from_each_position(path: &Path, positions: &[u64]) {
+        let all: Vec<_> = FileMessageLog::read(path).unwrap().map(Result::unwrap).collect();
+        for (skip, position) in positions.iter().enumerate() {
+            let mut records = FileMessageLog::read_from(path, *position).unwrap();
+            assert_eq!(records.position(), *position);
+            let rest: Vec<_> = records.by_ref().map(Result::unwrap).collect();
+            assert_eq!(rest, all[skip..], "from {position}");
+            assert_eq!(records.position(), *positions.last().unwrap());
+        }
+        let past = positions.last().unwrap() + 1;
+        let err = FileMessageLog::read_from(path, past).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof, "from {past}");
+    }
+
+    #[test]
+    fn read_from_carries_on_at_a_position() {
+        let (bytes, positions) = three_records();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("messages-20261008-000000.log");
+        fs::write(&path, bytes).unwrap();
+        check_read_from_each_position(&path, &positions);
+    }
+
+    /// Positions are in the file as written, so they hold once the log has compressed it.
+    #[cfg(feature = "gzip")]
+    #[test]
+    fn read_from_a_compressed_file_takes_positions_from_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = FileLogOptions { clock: Clock::from_fn(at_noon), ..FileLogOptions::default() };
+        let log = FileMessageLog::open(dir.path(), options).unwrap();
+        log.inbound(None, b"8=FIX.4.4\x0135=A\x01");
+        log.outbound(Some(&SessionId::new("FIX.4.4", "US", "THEM")), b"\x00\n\x01binary\n");
+        log.inbound(None, b"8=FIX.4.4\x0135=0\x01");
+        drop(log);
+        let plain = &FileMessageLog::files(dir.path()).unwrap()[0].path;
+        let mut records = FileMessageLog::read(plain).unwrap();
+        let mut positions = vec![records.position()];
+        while records.next().is_some() {
+            positions.push(records.position());
+        }
+
+        let options = FileLogOptions { clock: Clock::from_fn(at_noon), compress: true, ..FileLogOptions::default() };
+        drop(FileMessageLog::open(dir.path(), options).unwrap());
+        let files = FileMessageLog::files(dir.path()).unwrap();
+        assert!(files[0].compressed, "{files:?}");
+        check_read_from_each_position(&files[0].path, &positions);
     }
 }
