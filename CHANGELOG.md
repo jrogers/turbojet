@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `LogFilter` chooses a `FileMessageLog`'s records by session, direction, MsgType, field values
+  (each tag matching any of several values) and a UTC time range, as `turbojet-log` does;
+  `covers_day` says whether a log file's day can hold a match, so it can be skipped unread.
 - `SessionStorage::is_durable` says whether a store's sessions survive the process ending: false
   for `MemoryStorage`, true by default, and for `StorageByCounterparty` only if every store it
   routes to is.
