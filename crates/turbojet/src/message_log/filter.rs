@@ -16,15 +16,14 @@ use crate::message::tags;
 /// use turbojet::{Direction, LogFilter};
 ///
 /// // What we received of three orders, from 08:00 UTC on 8 October.
-/// let filter = LogFilter {
-///     direction: Some(Direction::Inbound),
-///     tags: vec![(11, vec!["A".into(), "B".into(), "C".into()])],
-///     since: Some(Utc.with_ymd_and_hms(2026, 10, 8, 8, 0, 0).unwrap()),
-///     ..LogFilter::default()
-/// };
+/// let mut filter = LogFilter::default();
+/// filter.direction = Some(Direction::Inbound);
+/// filter.tags = vec![(11, vec!["A".into(), "B".into(), "C".into()])];
+/// filter.since = Some(Utc.with_ymd_and_hms(2026, 10, 8, 8, 0, 0).unwrap());
 /// assert!(!filter.covers_day(Utc.with_ymd_and_hms(2026, 10, 7, 0, 0, 0).unwrap().date_naive()));
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct LogFilter {
     /// Only these sessions, as [`SessionId`](crate::SessionId) displays them
     /// (`FIX.4.4:US->THEM`). A message whose session wasn't known yet has none to match.
