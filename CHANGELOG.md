@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `FileMessageLog::read_from` reads a log file from a `LogRecords::position`, where an earlier
+  read stopped, without reading from the start again: a `.log` file seeks to it, a `.log.gz` file
+  is decompressed up to it. Positions count the uncompressed bytes, so one taken from a `.log`
+  file holds after it's compressed. A position past the end is an `UnexpectedEof` error.
 - `LogFilter` chooses a `FileMessageLog`'s records by session, direction, MsgType, field values
   (each tag matching any of several values) and a UTC time range, as `turbojet-log` does;
   `covers_day` says whether a log file's day can hold a match, so it can be skipped unread.

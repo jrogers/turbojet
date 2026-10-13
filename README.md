@@ -476,7 +476,9 @@ for file in FileMessageLog::files("/var/log/fix")? {
   expects `from` again and asks for it, so the resends arrive in sequence and are delivered, with
   PossDupFlag=Y. It needs the session logged on with no resend of its own under way.
 - `FileMessageLog::read` can read a file while it's being written: the records end at the last
-  whole one.
+  whole one. `LogRecords::position()` says where the next record starts, and
+  `FileMessageLog::read_from(path, position)` carries on from there, in the same file or in it
+  once it's been compressed.
 
 ## Logon credentials and NextExpectedMsgSeqNum
 
