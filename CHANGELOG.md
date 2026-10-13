@@ -225,6 +225,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `Initiators::subscribe` gives the events of every initiator's session, those a reload starts
+  later included.
 - `SessionsFile::acceptor_store` is the store the acceptor keeps its sessions in, durable only
   while every store a counterparty can log on to is.
 - `SessionsFile::counterparty_config` gives the `SessionConfig` the acceptor would give a

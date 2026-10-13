@@ -4,9 +4,10 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
-use turbojet::{Application, Endpoint, Initiator, SessionHandle, SessionId, SessionRegistry};
+use turbojet::{Application, Endpoint, Initiator, SessionEvent, SessionHandle, SessionId, SessionRegistry};
 
 use crate::Error;
 use crate::load::{Loaded, ResolvedInitiator};
@@ -43,6 +44,12 @@ impl Initiators {
     /// The initiators running, by section name, in order.
     pub fn names(&self) -> Vec<String> {
         self.running().keys().cloned().collect()
+    }
+
+    /// Events for every initiator's session from now on, including those a reload starts later:
+    /// see [`SessionRegistry::subscribe`].
+    pub fn subscribe(&self) -> broadcast::Receiver<SessionEvent> {
+        self.registry.subscribe()
     }
 
     /// The session initiator `name` logs on to, if it's running.
