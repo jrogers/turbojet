@@ -6,10 +6,12 @@ use crate::SessionId;
 use crate::message::DataFields;
 
 mod file;
+mod filter;
 mod read;
 mod replay;
 
 pub use file::{DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, FileLogOptions, FileMessageLog, FinishedHook};
+pub use filter::LogFilter;
 pub use read::{Direction, LogFile, LogRecord, LogRecords};
 pub use replay::{Replayed, replay};
 
