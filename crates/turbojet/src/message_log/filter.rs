@@ -101,12 +101,15 @@ impl LogFilter {
         self.since.is_none_or(|since| time >= since) && self.until.is_none_or(|until| time < until)
     }
 
-    /// Whether the time range covers any of the UTC `day`, so a log file of that day
-    /// ([`LogFile::day`](crate::LogFile::day)) can be skipped unread if not.
+    /// Whether a log file of the UTC `day` ([`LogFile::day`](crate::LogFile::day)) may hold
+    /// records in the time range, so it can be skipped unread if not. A file may hold the end of
+    /// the day before as well as its own: a record is stamped as it's logged, but its file is
+    /// chosen as it's written, a moment later. So the file of day D covers D-1 00:00 up to D+1
+    /// 00:00, never a later day.
     #[must_use]
     pub fn covers_day(&self, day: NaiveDate) -> bool {
-        let start = day.and_time(chrono::NaiveTime::MIN).and_utc();
-        let end = start + chrono::TimeDelta::days(1);
+        let end = (day + chrono::TimeDelta::days(1)).and_time(chrono::NaiveTime::MIN).and_utc();
+        let start = end - chrono::TimeDelta::days(2);
         self.since.is_none_or(|since| since < end) && self.until.is_none_or(|until| until > start)
     }
 }
@@ -195,17 +198,19 @@ mod tests {
         (6..=10).filter(|&day| filter.covers_day(at(day, 0, 0).date_naive())).collect()
     }
 
+    /// The files a range may be in: the days it touches, and the day after each, whose file may
+    /// hold the end of the day before.
     #[test]
-    fn covers_the_days_a_range_touches() {
+    fn covers_the_days_a_range_touches_and_the_next() {
         // Inside one day.
-        assert_eq!(days_covered(Some(at(8, 9, 0)), Some(at(8, 17, 0))), [8]);
+        assert_eq!(days_covered(Some(at(8, 9, 0)), Some(at(8, 17, 0))), [8, 9]);
         // Across midnight.
-        assert_eq!(days_covered(Some(at(7, 23, 0)), Some(at(8, 1, 0))), [7, 8]);
-        // Until midnight exactly: the next day's first instant isn't in range.
-        assert_eq!(days_covered(Some(at(7, 9, 0)), Some(at(8, 0, 0))), [7]);
+        assert_eq!(days_covered(Some(at(7, 23, 0)), Some(at(8, 1, 0))), [7, 8, 9]);
+        // Until midnight exactly: the 8th's file may still hold the end of the 7th.
+        assert_eq!(days_covered(Some(at(7, 9, 0)), Some(at(8, 0, 0))), [7, 8]);
         // Open-ended, either way or both.
         assert_eq!(days_covered(Some(at(8, 9, 0)), None), [8, 9, 10]);
-        assert_eq!(days_covered(None, Some(at(8, 9, 0))), [6, 7, 8]);
+        assert_eq!(days_covered(None, Some(at(8, 9, 0))), [6, 7, 8, 9]);
         assert_eq!(days_covered(None, None), [6, 7, 8, 9, 10]);
     }
 }
