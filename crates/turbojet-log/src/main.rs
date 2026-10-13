@@ -184,7 +184,8 @@ fn print(options: &Options, names: &mut Names, out: &mut impl Write) -> io::Resu
 fn print_record(options: &Options, names: &mut Names, record: &LogRecord, out: &mut impl Write) -> io::Result<()> {
     let (time, direction, session, frame) = match record {
         LogRecord::Message { time, direction, session, frame } => (time, *direction, session.as_deref(), frame),
-        // Always shown, so a gap in what's printed is explained.
+        // Always shown, so a gap in what's printed is explained: deliberately not the filter's `matches`,
+        // which keeps it only in range.
         LogRecord::Dropped { time, count } => return writeln!(out, "{} dropped {count} messages", stamp(*time)),
         _ => return Ok(()),
     };

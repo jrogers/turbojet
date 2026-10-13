@@ -46,7 +46,8 @@ running.
 
 [`turbojet-log`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-log) is a command
 that prints a message log's files with FIX field names, filtered by session, direction, MsgType, a
-field's value or a time range.
+field's value or a time range. The same filter is `turbojet::LogFilter`, to search the logs from
+code.
 
 CI runs Turbojet's sessions against QuickFIX/J and QuickFIX/n, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
