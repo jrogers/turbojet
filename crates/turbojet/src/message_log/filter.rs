@@ -50,15 +50,18 @@ impl LogFilter {
     pub fn matches(&self, record: &LogRecord) -> bool {
         match record {
             LogRecord::Message { time, direction, session, frame } => {
-                if !self.in_range(*time) {
+                if !self.in_range(*time) || !self.matches_header(*direction, session.as_deref()) {
                     return false;
                 }
-                let decoded = if self.needs_message() && frame.starts_with(b"8=") { Some(decode(frame)) } else { None };
+                if !self.needs_message() {
+                    return true;
+                }
+                let decoded = if frame.starts_with(b"8=") { Some(decode(frame)) } else { None };
                 let msg = match &decoded {
                     Some(Decoded::Message(msg, _)) => Some(msg),
                     _ => None,
                 };
-                self.matches_message(*direction, session.as_deref(), msg)
+                self.matches_fields(msg)
             }
             LogRecord::Dropped { time, .. } => self.in_range(*time),
         }
@@ -70,21 +73,7 @@ impl LogFilter {
     /// message anyway; `msg` is only read if [`needs_message`](Self::needs_message).
     #[must_use]
     pub fn matches_message(&self, direction: Direction, session: Option<&str>, msg: Option<&Message>) -> bool {
-        if self.direction.is_some_and(|d| d != direction)
-            || (!self.sessions.is_empty() && !session.is_some_and(|s| self.sessions.iter().any(|want| want == s)))
-        {
-            return false;
-        }
-        if !self.needs_message() {
-            return true;
-        }
-        let Some(msg) = msg else { return false };
-        let msg_type = msg.get(tags::MSG_TYPE).unwrap_or_default();
-        (self.msg_types.is_empty() || self.msg_types.iter().any(|t| t == msg_type))
-            && self
-                .tags
-                .iter()
-                .all(|(tag, values)| msg.fields().any(|(t, v)| t == *tag && values.iter().any(|w| w == v)))
+        self.matches_header(direction, session) && self.matches_fields(msg)
     }
 
     /// Whether matching needs the message decoded: a MsgType or tag condition is set.
@@ -110,6 +99,26 @@ impl LogFilter {
         let end = (day + chrono::TimeDelta::days(1)).and_time(chrono::NaiveTime::MIN).and_utc();
         let start = end - chrono::TimeDelta::days(2);
         self.since.is_none_or(|since| since < end) && self.until.is_none_or(|until| until > start)
+    }
+
+    /// The direction and session conditions, which need no decoding.
+    fn matches_header(&self, direction: Direction, session: Option<&str>) -> bool {
+        self.direction.is_none_or(|d| d == direction)
+            && (self.sessions.is_empty() || session.is_some_and(|s| self.sessions.iter().any(|want| want == s)))
+    }
+
+    /// The MsgType and tag conditions.
+    fn matches_fields(&self, msg: Option<&Message>) -> bool {
+        if !self.needs_message() {
+            return true;
+        }
+        let Some(msg) = msg else { return false };
+        let msg_type = msg.get(tags::MSG_TYPE).unwrap_or_default();
+        (self.msg_types.is_empty() || self.msg_types.iter().any(|t| t == msg_type))
+            && self
+                .tags
+                .iter()
+                .all(|(tag, values)| msg.fields().any(|(t, v)| t == *tag && values.iter().any(|w| w == v)))
     }
 }
 
@@ -180,6 +189,17 @@ mod tests {
         assert!(tags(&[(11, &["A", "B"]), (55, &["IBM"])]).matches(&order));
         assert!(!tags(&[(11, &["A", "B"]), (55, &["MSFT"])]).matches(&order));
         assert!(!tags(&[(58, &["B"])]).matches(&order));
+    }
+
+    /// A field in a repeating group counts: the second PartyID(448) of two matches.
+    #[test]
+    fn a_field_in_a_repeating_group_counts() {
+        let fields = [(8, "FIX.4.4"), (35, "D"), (11, "B"), (453, "2"), (448, "X"), (447, "D"), (448, "Y"), (447, "D")];
+        let parties = record(Direction::Inbound, None, &crate::codec::encode(&Message::from_fields(fields)).unwrap());
+        let filter = LogFilter { tags: vec![(448, vec!["Y".into()])], ..LogFilter::default() };
+        assert!(filter.matches(&parties));
+        let filter = LogFilter { tags: vec![(448, vec!["Z".into()])], ..LogFilter::default() };
+        assert!(!filter.matches(&parties));
     }
 
     #[test]
