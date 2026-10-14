@@ -2,7 +2,10 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.3.0 (2026-10-14)
+
+A new crate: `turbojet-log`, a command that prints message log files. The other crates have
+breaking changes, marked below.
 
 ### `turbojet`
 
