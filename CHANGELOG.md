@@ -190,7 +190,9 @@ Notable changes to the published crates.
   which FIX sessions ignore): a match on it from outside needs a wildcard arm.
 - `Command`, `CommandSender`, `CommandReceiver`, `SessionRegistry`, `SessionHandle` and `SendError`
   take the type of what's sent, defaulting to `Message`, so existing code is unchanged;
-  `SessionRegistry::with_storage` builds a registry of any kind.
+  `SessionRegistry::with_storage` builds a registry of any kind. Breaking: `command_queues` takes
+  it as a type parameter, which a caller names (`command_queues::<Message>`) where it can't be
+  inferred.
 - `ValidationOptions::reject_invalid` (on by default): off, a message that fails validation is
   logged and delivered rather than rejected, as QuickFIX's RejectInvalidMessage=N.
 - `SessionConfig::check_empty_values` (on by default): off, a field without a value is delivered
