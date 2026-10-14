@@ -61,6 +61,7 @@ use turbojet::store::{Job, Opened, SessionId, SessionStorage};
 
 /// How a [`SqlStorage`] keeps sessions.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SqlConfig {
     /// How long a session's lease lasts from opening its log or its last commit, after which
     /// another gateway may take the session over. Longer than the longest heartbeat interval,

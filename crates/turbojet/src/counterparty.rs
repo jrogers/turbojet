@@ -39,6 +39,7 @@ pub trait Counterparties: Send + Sync {
 
 /// One counterparty's settings: see [`Counterparties`].
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Counterparty {
     /// The session's configuration. It must keep the acceptor's `begin_string`,
     /// `sender_comp_id`, `clock` (or a clone of it), `logon_timeout` and `send_queue`, which

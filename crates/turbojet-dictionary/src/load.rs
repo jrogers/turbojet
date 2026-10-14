@@ -11,6 +11,7 @@ use crate::orchestra;
 
 /// Why a dictionary couldn't be loaded or merged.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Error {
     /// The file, when loaded from one.
     pub path: Option<PathBuf>,

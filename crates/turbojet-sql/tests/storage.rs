@@ -34,7 +34,8 @@ impl Database {
 
     /// A store over the database, as one gateway, `holder`.
     async fn store(&self, holder: &str, adjust: impl FnOnce(&mut SqlConfig)) -> SqlStorage {
-        let mut config = SqlConfig { holder: holder.into(), ..SqlConfig::default() };
+        let mut config = SqlConfig::default();
+        config.holder = holder.into();
         adjust(&mut config);
         let storage = SqlStorage::connect(&self.url, config).await.unwrap();
         storage.migrate().await.unwrap();

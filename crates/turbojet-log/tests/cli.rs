@@ -18,10 +18,8 @@ fn frame(begin_string: &str, body: &str) -> Vec<u8> {
 /// Writes a log at 12:00 UTC: an order in and its execution report out on one session, a
 /// Heartbeat on another, and a FIXP frame.
 fn write_log(dir: &Path) {
-    let options = FileLogOptions {
-        clock: Clock::from_fn(|| Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap()),
-        ..FileLogOptions::default()
-    };
+    let mut options = FileLogOptions::default();
+    options.clock = Clock::from_fn(|| Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap());
     let log = FileMessageLog::open(dir, options).unwrap();
     let us = SessionId::new("FIX.4.4", "US", "THEM");
     let other = SessionId::new("FIX.4.2", "US", "OTHER");

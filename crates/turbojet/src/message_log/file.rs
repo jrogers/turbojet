@@ -35,6 +35,7 @@ pub type FinishedHook = Arc<dyn Fn(&Path) + Send + Sync>;
 
 /// How a [`FileMessageLog`] rotates, retains, buffers and finishes its files.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct FileLogOptions {
     /// A new file is started once the current one reaches this size (and at each UTC midnight).
     pub file_bytes_max: u64,
@@ -116,7 +117,8 @@ impl Default for FileLogOptions {
 ///
 /// use turbojet::{FileLogOptions, FileMessageLog, SessionConfig};
 ///
-/// let options = FileLogOptions { retention: Some(Duration::from_secs(7 * 365 * 86_400)), ..Default::default() };
+/// let mut options = FileLogOptions::default();
+/// options.retention = Some(Duration::from_secs(7 * 365 * 86_400));
 /// let log = FileMessageLog::open("/var/log/fix", options)?;
 /// let mut config = SessionConfig::new("FIX.4.4", "ME");
 /// config.message_log = Some(Arc::new(log));

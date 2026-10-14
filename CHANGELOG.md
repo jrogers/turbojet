@@ -114,7 +114,9 @@ Notable changes to the published crates.
   with their constructors (new: `SessionId::new`, `CancelOnDisconnect::new`) and set fields
   afterwards, rather than with struct literals. The error enums, `MessageReject`,
   `InboundLimit` and `CancelTrigger` are `#[non_exhaustive]` too: a match on one from outside
-  needs a wildcard arm.
+  needs a wildcard arm. So are `FileLogOptions` and `Counterparty` (build them with `default()`
+  and `new`), `ScheduleTimeZone`, whose `Named` variant comes and goes with the `tz` feature,
+  and `validation::Invalid`.
 - Every public type implements `Debug`, among them `Acceptor`, `Initiator`, `Session`,
   `SessionRegistry` and the stores.
 - The builder methods that return the value they change are `#[must_use]`, so
@@ -217,6 +219,7 @@ Notable changes to the published crates.
   typed fields do. `--strict-enums` (`Generator::strict_enums`) generates `E`, as before, and
   replaces `--lenient-enums` (`Generator::lenient_enums`); `--lenient-enum Field` keeps one field
   a `Code` among strict ones, as does a dictionary's `allowOtherValues="Y"`.
+- Breaking: `Modules` is `#[non_exhaustive]`.
 
 ### `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` and `turbojet-fix50sp2`
 
@@ -231,6 +234,7 @@ Notable changes to the published crates.
 
 - `Field::allow_other_values`: a QuickFIX dictionary's `allowOtherValues="Y"`, which a merged
   venue dictionary can set.
+- Breaking: `Error` is `#[non_exhaustive]`.
 
 ### `turbojet-config`
 
@@ -279,12 +283,14 @@ Notable changes to the published crates.
   ValidateFieldsHaveValues, RejectInvalidMessage, ValidateUserDefinedFields,
   AllowUnknownMsgFields and ValidateIncomingMessage, and accepts ValidateSequenceNumbers,
   ValidateChecksum and RejectGarbledMessage at their defaults.
+- Breaking: `ConvertError` is `#[non_exhaustive]`.
 
 ### `turbojet-sql`
 
 - Sessions are keyed on their SubIDs, LocationIDs and qualifier too, in a new `extra` column.
   `SqlStorage::migrate` adds it to a database made by 0.2 (PostgreSQL alters the table, SQLite
   rebuilds it), keeping existing sessions as they were.
+- Breaking: `SqlConfig` is `#[non_exhaustive]`: build it with `default()` and set fields afterwards.
 
 ### `turbojet-log`
 

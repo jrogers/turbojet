@@ -1062,7 +1062,8 @@ shows the gap. The example gateway writes one with `--message-log DIR` (and
 `--message-log-days N`, `--message-log-gzip`).
 
 ```rust
-let options = FileLogOptions { retention: Some(Duration::from_secs(7 * 365 * 86_400)), ..Default::default() };
+let mut options = FileLogOptions::default();
+options.retention = Some(Duration::from_secs(7 * 365 * 86_400));
 config.message_log = Some(Arc::new(FileMessageLog::open("/var/log/fix", options)?));
 ```
 
@@ -1086,7 +1087,9 @@ for them. `FileMessageLog::files` and `read` list and read compressed files too 
 let archive: FinishedHook = Arc::new(|path: &Path| {
     // Copy `path` to long-term storage, then delete it.
 });
-let options = FileLogOptions { compress: true, on_finished: Some(archive), ..Default::default() };
+let mut options = FileLogOptions::default();
+options.compress = true;
+options.on_finished = Some(archive);
 ```
 
 **Reading the log.** `turbojet-log` (`cargo install turbojet-log`) prints a log's records, oldest

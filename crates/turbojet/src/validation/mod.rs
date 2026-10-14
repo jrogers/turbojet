@@ -114,6 +114,7 @@ impl Default for ValidationOptions {
 
 /// Why a message failed validation: what to put in the Reject.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Invalid {
     /// RefTagID(371): the offending tag, if there is one.
     pub tag: Option<u32>,

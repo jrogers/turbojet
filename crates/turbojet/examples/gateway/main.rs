@@ -335,7 +335,9 @@ const SESSION_OPTIONS: &[&str] = &[
 /// Opens `--message-log DIR`, deleting files older than `retention` and compressing finished
 /// ones if `compress`.
 fn open_message_log(dir: &Path, retention: Option<Duration>, compress: bool) -> Result<Arc<dyn MessageLog>, String> {
-    let options = FileLogOptions { retention, compress, ..FileLogOptions::default() };
+    let mut options = FileLogOptions::default();
+    options.retention = retention;
+    options.compress = compress;
     let log =
         FileMessageLog::open(dir, options).map_err(|e| format!("cannot open message log {}: {e}", dir.display()))?;
     info!(dir = %dir.display(), retention_days = retention.map(|r| r.as_secs() / 86_400), compress, "logging messages to files");

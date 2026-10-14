@@ -47,6 +47,7 @@ pub fn convert(cfg: &str) -> Result<String, ConvertError> {
 /// Why a QuickFIX settings file couldn't be converted: every problem found, each naming its
 /// session and key.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ConvertError {
     pub problems: Vec<String>,
 }

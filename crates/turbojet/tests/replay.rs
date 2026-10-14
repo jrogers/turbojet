@@ -51,7 +51,8 @@ impl Log {
         let dir = tempfile::tempdir().unwrap();
         let now = Arc::new(Mutex::new(noon()));
         let clock = now.clone();
-        let options = FileLogOptions { clock: Clock::from_fn(move || *clock.lock().unwrap()), ..Default::default() };
+        let mut options = FileLogOptions::default();
+        options.clock = Clock::from_fn(move || *clock.lock().unwrap());
         Self { log: FileMessageLog::open(dir.path(), options).unwrap(), now, dir }
     }
 

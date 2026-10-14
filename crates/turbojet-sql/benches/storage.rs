@@ -22,7 +22,9 @@ const STEP: u64 = 256;
 fn stores(runtime: &Runtime, dir: &std::path::Path) -> Vec<(&'static str, Arc<dyn SessionStorage>)> {
     let sqlite = |name: &str, sync: bool| {
         let url = format!("sqlite://{}?mode=rwc", dir.join(format!("{name}.db")).display());
-        let storage = runtime.block_on(SqlStorage::connect(&url, SqlConfig { sync, ..SqlConfig::default() })).unwrap();
+        let mut config = SqlConfig::default();
+        config.sync = sync;
+        let storage = runtime.block_on(SqlStorage::connect(&url, config)).unwrap();
         runtime.block_on(storage.migrate()).unwrap();
         Arc::new(storage) as Arc<dyn SessionStorage>
     };

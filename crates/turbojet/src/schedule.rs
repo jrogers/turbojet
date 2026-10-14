@@ -83,6 +83,7 @@ impl fmt::Debug for Clock {
 
 /// The time zone a schedule's times are in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ScheduleTimeZone {
     /// UTC.
     Utc,
