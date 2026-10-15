@@ -426,6 +426,10 @@ impl ToFix for Scaled {
         let zeros = |out: &mut String, n: usize| out.extend(std::iter::repeat_n('0', n));
         if self.exponent >= 0 {
             digits.write_fix(out);
+            if digits == 0 {
+                // Zero, however it's scaled: not "000".
+                return;
+            }
             zeros(out, usize::try_from(self.exponent).expect("non-negative"));
             return;
         }
@@ -815,7 +819,8 @@ mod tests {
 
     #[test]
     fn decimals_are_written_with_their_scale() {
-        let cases = [(0, 0, "0"), (3, 12, "12000"), (-2, 5, "0.05"), (-2, -12345, "-123.45"), (-3, 0, "0.000")];
+        let cases =
+            [(0, 0, "0"), (3, 12, "12000"), (-2, 5, "0.05"), (-2, -12345, "-123.45"), (-3, 0, "0.000"), (37, 0, "0")];
         for (exponent, mantissa, text) in cases {
             assert_eq!(Scaled { exponent, mantissa }.to_fix(), text);
         }
