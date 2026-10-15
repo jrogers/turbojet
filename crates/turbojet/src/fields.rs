@@ -383,6 +383,31 @@ impl ToFix for bool {
 impl FromFix for Decimal {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
         let digits = s.strip_prefix('-').unwrap_or(s);
+        // Up to 19 digits fit a u64, so a typical price or quantity is parsed in one pass;
+        // longer values take rust_decimal's parser, which also rounds what doesn't fit. As
+        // there, a negative zero is zero.
+        if digits.len() <= 19 {
+            let mut mantissa = 0u64;
+            let mut scale = None;
+            let mut any_digit = false;
+            for (i, b) in digits.bytes().enumerate() {
+                match b {
+                    b'0'..=b'9' => {
+                        mantissa = mantissa * 10 + u64::from(b - b'0');
+                        any_digit = true;
+                    }
+                    b'.' if scale.is_none() => scale = Some(digits.len() - i - 1),
+                    _ => return Err(ValueError::Format),
+                }
+            }
+            if !any_digit {
+                return Err(ValueError::Format);
+            }
+            let scale = u32::try_from(scale.unwrap_or(0)).map_err(|_| ValueError::Format)?;
+            let mut value = Decimal::from_i128_with_scale(i128::from(mantissa), scale);
+            value.set_sign_negative(mantissa != 0 && digits.len() < s.len());
+            return Ok(value);
+        }
         let well_formed = digits.bytes().any(|b| b.is_ascii_digit())
             && digits.bytes().all(|b| b.is_ascii_digit() || b == b'.')
             && digits.bytes().filter(|&b| b == b'.').count() <= 1;
@@ -785,6 +810,59 @@ mod tests {
         assert_eq!(Decimal::from_fix("150.250").unwrap().to_fix(), "150.250");
         for bad in ["1e3", "1_000", "+1", "", "-", ".", "1.2.3", "abc"] {
             assert_eq!(Decimal::from_fix(bad), Err(ValueError::Format), "{bad}");
+        }
+    }
+
+    #[test]
+    fn decimals_parse_as_rust_decimal_does() {
+        let cases = [
+            "0",
+            "-0",
+            "0.0",
+            "-0.00",
+            "007.50",
+            ".5",
+            "5.",
+            "-.5",
+            "150.25",
+            "-150.250",
+            "1.000000000000000000",
+            "9999999999999999999",
+            "999999999.999999999",
+            "18446744073709551615",
+            "1234567890.1234567890",
+            "0.0000000000000000000000000001",
+            "79228162514264337593543950335",
+            "1.00000000000000000000000000001",
+        ];
+        for s in cases {
+            // Equal down to sign, scale and mantissa, not just in value.
+            let expected = Decimal::from_str(s).unwrap().serialize();
+            assert_eq!(Decimal::from_fix(s).unwrap().serialize(), expected, "{s}");
+        }
+    }
+
+    #[test]
+    fn decimals_accept_what_the_validating_parser_did() {
+        // The parser before the one-pass one: validate, then rust_decimal's.
+        fn reference(s: &str) -> Result<[u8; 16], ValueError> {
+            let digits = s.strip_prefix('-').unwrap_or(s);
+            let well_formed = digits.bytes().any(|b| b.is_ascii_digit())
+                && digits.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                && digits.bytes().filter(|&b| b == b'.').count() <= 1;
+            if !well_formed {
+                return Err(ValueError::Format);
+            }
+            Decimal::from_str(s).map(|d| d.serialize()).map_err(|_| ValueError::Format)
+        }
+        // Every string of up to 6 of these characters.
+        let alphabet = ['0', '7', '.', '-', 'x'];
+        let mut level = vec![String::new()];
+        for _ in 0..=6 {
+            for s in &level {
+                assert_eq!(Decimal::from_fix(s).map(|d| d.serialize()), reference(s), "{s}");
+            }
+            level = level.iter().flat_map(|s| alphabet.iter().map(move |c| format!("{s}{c}"))).collect();
         }
     }
 
