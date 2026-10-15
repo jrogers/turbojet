@@ -371,9 +371,11 @@ impl Message {
         self.push(tags::MSG_TYPE, msg_type);
     }
 
-    /// Empties the message entirely, MsgType(35) included, keeping its allocations. Only for a
-    /// message kept to be [reset](Self::reset) later: one without MsgType isn't sent.
-    pub(crate) fn clear(&mut self) {
+    /// Empties the message entirely, MsgType(35) included, keeping its allocations: for building
+    /// a message field by field into one reused, MsgType among them. One without MsgType isn't
+    /// sent; [`reset`](Self::reset) adds it, but takes a [`MsgType`] by value, which for one
+    /// without a variant of its own means a copy of its code.
+    pub fn clear(&mut self) {
         self.buf.clear();
         self.fields.clear();
         self.rare = None;

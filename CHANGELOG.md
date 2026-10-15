@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `Message::clear` is public: it empties a message, MsgType(35) included, keeping its
+  allocations, for building one field by field into a reused message without copying a
+  `MsgType` that has no variant of its own.
 - Decimal fields parse faster: up to 19 digits are read in one pass rather than checked and then
   parsed again. A FIX 4.2 NewOrderSingle parses about 7% faster borrowed, an ExecutionReport about
   9%. Values parse exactly as before.
