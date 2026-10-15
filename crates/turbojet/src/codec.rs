@@ -1,6 +1,6 @@
 //! Tag=value wire encoding: framing via BodyLength(9) and validation via CheckSum(10).
 
-use crate::message::{DataFields, FieldError, FieldErrorKind, Message, SOH, tags};
+use crate::message::{DataFields, FieldError, FieldErrorKind, Message, SOH, digits, tags};
 
 /// Upper bound on BodyLength(9) from the counterparty, to stop a bad length from buffering
 /// unbounded input. Messages Turbojet stored itself aren't held to it (see [`frame_stored`]).
@@ -105,7 +105,7 @@ pub fn decode_text(text: &str, data: &DataFields) -> Result<Message, ParseMessag
     let mut frame = b"8=".to_vec();
     frame.extend_from_slice(begin_string);
     frame.extend_from_slice(b"\x019=");
-    let body_len = body.iter().map(|(tag, value)| digit_count(*tag) + value.len() + 2).sum();
+    let body_len = body.iter().map(|(tag, value)| digits(*tag) + value.len() + 2).sum();
     check_given(tags::BODY_LENGTH, body_len_given, body_len)?;
     push_digits(&mut frame, body_len);
     frame.push(SOH);
@@ -184,11 +184,6 @@ fn check_given(tag: u32, given: Option<&[u8]>, computed: usize) -> Result<(), Pa
 
 fn text_error(tag: Option<u32>, reason: String) -> ParseMessageError {
     ParseMessageError { tag, reason }
-}
-
-/// The number of decimal digits in `n`.
-fn digit_count(n: u32) -> usize {
-    usize::try_from(n.checked_ilog10().unwrap_or(0) + 1).expect("at most 10 digits")
 }
 
 /// The result of [`decode_into`]: [`Decoded`] without the message, which is in the one passed in.

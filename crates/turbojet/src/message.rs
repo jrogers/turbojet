@@ -881,7 +881,7 @@ impl Message {
 }
 
 /// The number of decimal digits in `n`.
-fn digits(n: u32) -> usize {
+pub(crate) fn digits(n: u32) -> usize {
     n.checked_ilog10().map_or(1, |log| log as usize + 1)
 }
 
