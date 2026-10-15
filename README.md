@@ -518,8 +518,10 @@ for file in FileMessageLog::files("/var/log/fix")? {
 - `statuses()` is also on the `SessionRegistry` an acceptor and initiators can share, and
   `SessionHandle::status()` gives one session's. A session's `activity` is read as it left it,
   each value on its own. Its `resets` counts the times its sequence numbers started again since
-  it bound, so two reads tell a counterparty's ResetSeqNumFlag(141) mid-session, which leaves no
-  other sign: `next_outgoing` may since have passed where it was. A FIXP session's negotiating and establishing count as logging on,
+  it bound, so two reads with the same `since` tell a counterparty's ResetSeqNumFlag(141)
+  mid-session, which leaves no other sign: `next_outgoing` may since have passed where it was.
+  A read may show a reset's numbers before its count, so treat `next_outgoing` going down as a
+  reset too. A FIXP session's negotiating and establishing count as logging on,
   established as logged on, terminating as logging out, and a RetransmitRequest as a resend;
   `FixpAcceptor` and `FixpInitiator` have `statuses` and `subscribe` too.
 - Events are broadcast as they happen and never wait for a subscriber: one that falls more than

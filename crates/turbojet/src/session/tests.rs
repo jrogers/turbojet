@@ -1080,7 +1080,7 @@ fn a_reset_at_logon_counts_in_the_activity() {
     s.connect(h.t0); // our Logon, at 1 with ResetSeqNumFlag=Y
     let handle = h.registry.handle(s.session_id().unwrap().clone());
     assert_eq!(handle.status().unwrap().activity.unwrap().resets, 1);
-    drop(s);
+    drop(s); // Frees the binding, so the acceptor half can bind the same session.
 
     let mut s = h.session();
     s.recv(reset_logon(), h.t0);
@@ -3390,6 +3390,8 @@ mod schedule_tests {
         let mut s = h.session();
         assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"));
         assert!(s.is_logged_on());
+        // Reset as it bound, before it published any numbers: not counted.
+        assert_eq!(h.registry.handle(client_id()).status().unwrap().activity.unwrap().resets, 0);
     }
 
     #[test]
@@ -3552,6 +3554,11 @@ mod operator_tests {
         // Our next message carries 100.
         let out = s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
         assert_eq!(sent(&out)[0].get(tags::MSG_SEQ_NUM), Some("100"));
+        assert_eq!(
+            h.registry.handle(client_id()).status().unwrap().activity.unwrap().resets,
+            0,
+            "a skip isn't a reset"
+        );
     }
 
     /// The other end of a skip: a gap-fill SequenceReset that arrives while a gap is open waits its

@@ -260,7 +260,8 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   A count of store resets since the bind is added to in `reset_store` (a reset at logon or the
   counterparty's mid-session, not a new schedule period's as the session binds), stored `Release`
   after the reset numbers and read `Acquire` before them, so a reader that sees a new count sees
-  the new numbering rather than taking the old numbers for it.
+  the new numbering rather than taking the old numbers for it. Only that way round: a read may
+  show the new numbers before the count. Each binding's count starts at 0.
 - **Observability**: structured logging and Prometheus-compatible metrics, with opt-in latency
   histograms (handling each inbound message, store commits, and reading input to its replies
   being ready to write), and an optional `MessageLog` that sees every message's bytes.

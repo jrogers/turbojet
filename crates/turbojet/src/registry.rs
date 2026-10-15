@@ -536,9 +536,9 @@ impl LiveStatus {
     }
 
     /// The store was reset, and its numbers since published. `Release`, after them, so a reader
-    /// that sees the new count (`Acquire`, before reading them) sees the reset numbers too, not
-    /// the old ones: otherwise it might take old numbers as the new numbering's. Only on a reset,
-    /// so the fence costs nothing that matters.
+    /// that sees the new count (`Acquire`, before reading them) sees that reset's numbers or later
+    /// ones, never the old: otherwise it might take old numbers as the new numbering's. The other
+    /// way isn't ordered: a read may show the reset's numbers before its count.
     pub(crate) fn reset(&self) {
         self.resets.fetch_add(1, Ordering::Release);
     }
@@ -658,15 +658,19 @@ pub struct Activity {
     pub last_received: DateTime<Utc>,
     /// When it last sent one (or bound, if it hasn't since).
     pub last_sent: DateTime<Utc>,
-    /// How many times its sequence numbers have started again since it bound: the counterparty's
-    /// ResetSeqNumFlag(141)=Y while logged on, and a reset at logon (`reset_on_logon`, or the
-    /// counterparty's flag on its Logon), which comes after the bind publishes the stored numbers.
-    /// A reset for a new schedule period, made as the session binds and before it publishes them,
-    /// isn't counted. A FIXP session's stays 0: its numbers start again only on a new connection.
+    /// How many times its sequence numbers have started again since it bound (at `since`): the
+    /// counterparty's ResetSeqNumFlag(141)=Y while logged on, and a reset at logon
+    /// (`reset_on_logon`, or the counterparty's flag on its Logon), which comes after the bind
+    /// publishes the stored numbers. A reset for a new schedule period, made as the session binds
+    /// and before it publishes them, isn't counted. A FIXP session's stays 0: its numbers start
+    /// again only on a new connection.
     ///
-    /// Compare two reads to tell the numbers started again between them: `next_outgoing` alone
-    /// can't, as a reset session may since have sent more than it had before. A read that sees a
-    /// count sees the numbers from that reset or later.
+    /// Compare two reads of one binding (the same [`SessionStatus::since`]) to tell the numbers
+    /// started again between them: `next_outgoing` alone can't, as a reset session may since have
+    /// sent more than it had before. Each binding counts from 0; a new one is a new logon anyway,
+    /// which [`Application::on_logon`] marks. A read that sees a count sees that reset's numbers or
+    /// later ones, but a read may show a reset's numbers before its count; a later read shows the
+    /// count. So treat `next_outgoing` going down as a reset too.
     pub resets: u64,
 }
 
