@@ -1323,7 +1323,7 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
   segments (up to 1 GiB by default) there.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
-- FIXP sessions run over TCP without TLS, and only standard FIXP: not yet a venue's dialect.
+- FIXP sessions run standard FIXP only: not yet a venue's dialect.
 - FAST is a codec only, for FAST 1.1; receiving a feed is the application's.
 
 ## Releases and security
