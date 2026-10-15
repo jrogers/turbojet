@@ -333,6 +333,48 @@ FIX sessions keep); after a store failure a session kept recording, delivering a
 at finalization a session could send after answering FinishedReceiving, or ignore what came before
 the answer while terminating.
 
+## FAST
+
+FAST 1.1 is a codec in a crate of its own, `turbojet-fast`: a feed's template XML loaded at runtime
+and each message decoded into a `Message`, so the typed FIX messages read FAST market data, rather
+than codecs generated per feed. It leaves receiving a feed (multicast, line arbitration, gap
+recovery) to the application, and FAST 1.2's extensions until a feed needs them.
+
+Loading compiles each template into a list of field instructions with its operator, initial value
+and presence-map use worked out, and each previous value's dictionary and key resolved to a slot
+in a flat array, so decoding never hashes a name. Static template references are expanded where
+they're used, in the referenced template's dictionary context, as section 6.4 says. The decoder
+reads presence maps a bit at a time, past their end as zeros, and nests a segment's map for groups,
+sequence elements and dynamic references. Values go into a scratch buffer or their slot, and the
+message is built with `Message::clear` and pushes, so a decoder that has decoded a message once
+allocates nothing for the next (an exact test checks it). The encoder shares the slots' code, so
+its previous values change exactly as a decoder's will, and leaves a field out wherever its
+operator lets the decoder work it out; string deltas take the shorter of a front or back edit.
+
+What a message can make the decoder do is bounded: nesting, in templates and through dynamic
+references in the stream, stops at 16 levels, and a message holds at most 100,000 sequence
+entries in all, since an entry can take no bytes. Errors carry the specification's codes (S, D and
+R); reportable errors are always reported.
+
+Correctness comes from three sides. The specification's Appendix 3 examples are tests, though three
+of its examples have typos, followed by their own binary columns (-8193 is `0x7f 0x3f 0xff`, not
+`0x73`, twice; a mandatory mantissa of 942755 ends `0xa3`, not `0xa4`), and where the tail
+operator's section gives D6 and D7, Appendix 4 and the other operators give D5 and D6, which the
+code uses. Against `fastlib`, another Rust implementation, 20 streams of 1,000 random messages
+over templates using every operator decode alike in both, from either side's encoding. That found
+three `fastlib` bugs, which the generator avoids: it computes integer deltas in 64 bits, where a
+`uInt64`'s can need 65; its increment doesn't wrap; and for an optional field it writes a delta
+string's empty part as a nullable string (`0x00 0x80`, which reads as "\0"), where section 10.7.3
+makes only the subtraction length nullable. Fuzzing decodes arbitrary bytes and templates, and
+re-encodes each decoded message to check a second decoder reads it back the same; its first
+minute found a decimal zero with a positive exponent written as "000…".
+
+On an M3 (criterion, a loaded machine), a refresh following the previous message decodes in
+243 ns with one entry, 1.75 µs with 10 and 8.43 µs with 50: about 170 ns an entry of nine fields.
+Most of that is building the `Message`: a profile of the 50-entry decode puts 27% in Turbojet's
+integer formatting, for each value and each tag, and 13% in copying one to three digits at a
+time; FAST's own work (operators, slots, presence maps) is about a quarter.
+
 ## Safety and testing
 
 Following [STYLE.md](STYLE.md) (after TigerBeetle's Tiger Style): limits on everything, asserted

@@ -36,6 +36,10 @@ Binary Encoding) message schemas, the binary encoding venues such as B3 and CME 
 [SBE codecs](#sbe-codecs)), and `turbojet::fixp` runs FIXP sessions, the FIX Performance Session
 Layer, to carry them (see [FIXP sessions](#fixp-sessions)).
 
+[`turbojet-fast`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fast) decodes and
+encodes FAST 1.1, the compressed encoding some venues use for market data, into and from Turbojet
+messages, with the venue's templates loaded at runtime (see [FAST](#fast)).
+
 [`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) keeps session
 state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
 sessions.
@@ -399,6 +403,43 @@ specification a test (every flow, gaps both ways, each reject), over TCP and TLS
 fuzzed, and run through the deterministic simulator. A client fails over to backup endpoints
 (`FixpInitiator::with_failover`), and sessions record the same metrics as FIX ones. Not supported:
 multiplexed or multicast sessions, throttling, and venues' own dialects (B3's, CME's iLink 3).
+
+## FAST
+
+FAST (FIX Adapted for STreaming) is the compressed encoding some venues use for market data.
+`turbojet-fast` loads a feed's templates from their XML and decodes each message into a `Message`,
+each field's `id` its FIX tag, so typed messages read it like any other:
+
+```rust
+use std::sync::Arc;
+use turbojet_fast::{Decoder, Templates};
+
+let templates = Arc::new(Templates::from_xml(&std::fs::read_to_string("templates.xml")?)?);
+let mut decoder = Decoder::new(templates);
+let mut msg = Message::default();
+let mut rest = packet;
+while !rest.is_empty() {
+    let decoded = decoder.decode_into(rest, &mut msg)?;
+    let refresh: MarketDataIncrementalRefresh = msg.parse()?;
+    rest = decoded.rest;
+}
+decoder.reset(); // where the feed resets its dictionaries
+```
+
+A decoder keeps the stream's previous values, which the copy, increment, delta and tail
+operators work from, so use one per stream and call `reset` where the feed says its dictionaries
+reset: each packet, say, or on a reset message (`Decoded::template_id` says which template a
+message used). A sequence becomes a repeating group, its `<length>`'s `id` the NumInGroup tag; a
+group's fields, and a referenced template's, are written in its place; MsgType(35) is the
+template's constant field with `id` 35. A decoder that has decoded a message once allocates
+nothing for the next. Errors carry the FAST specification's error codes.
+
+`Encoder` does the reverse, from a message whose fields are in the template's order, as a decoder
+writes them: `encoder.encode(template_id, &msg, &mut out)`.
+
+It's a codec only: receiving the feed (multicast, line arbitration, gap recovery from a snapshot or
+replay channel) is the application's. FAST 1.1 is supported, not 1.2's extensions. Decoding is
+checked against the specification's examples and against another implementation, and fuzzed.
 
 ## Operating on sequence numbers
 
@@ -1175,6 +1216,7 @@ cargo bench -p turbojet --all-features            # everything (~3 minutes)
 cargo bench -p turbojet --bench codec             # one group: codec, session, roundtrip or fixp
 cargo bench -p turbojet --all-features -- --quick # fast smoke run
 cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
+cargo bench -p turbojet-fast                      # FAST decoding and encoding
 ```
 
 Apple M3, macOS 27, Rust 1.98.1; criterion medians. Benchmarks build with one
@@ -1200,6 +1242,8 @@ to partition the crate.
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL | 15.2 µs / 196 µs / 149 µs | |
 | SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 7.5 ns / 37 ns | |
 | SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 258 ns | |
+| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 243 ns / 1.75 µs / 8.43 µs | |
+| FAST: encode the same refreshes | 377 ns / 2.40 µs / 10.4 µs | |
 | FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 15.6 µs | 2.97M msg/s |
 | Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
 | Round trip over localhost TCP, one at a time, replying from `on_message` | 16.3 µs | 61.4k/s |
@@ -1217,7 +1261,8 @@ stores to `DiskStorage`. Most send each order from the benchmark's task through 
 the "replying from `on_message`" rows send the next order from the initiator's application, with
 no hop between tasks (see [Using the engine](#using-the-engine)). Of their 16.3 µs, about 13 µs is
 the operating system. The SBE rows use B3's Binary Entrypoint schema; the FIXP rows carry its
-orders under FIXP 1.0 with recoverable flows, each end storing in memory. The SQL rows used
+orders under FIXP 1.0 with recoverable flows, each end storing in memory. The FAST rows use the FAST
+specification's own incremental refresh template, each message following the one before. The SQL rows used
 PostgreSQL 14 on the same machine over TCP, and SQLite synced is `synchronous = FULL` with
 `fullfsync`, as `DiskStorage`'s fsync is. Rows were measured between 2026-09-27 and 2026-10-06 on
 the same machine; [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#measurement-history) says when, and what each was
@@ -1279,6 +1324,7 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
 - Typed messages come for FIX 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
 - FIXP sessions run over TCP without TLS, and only standard FIXP: not yet a venue's dialect.
+- FAST is a codec only, for FAST 1.1; receiving a feed is the application's.
 
 ## Releases and security
 

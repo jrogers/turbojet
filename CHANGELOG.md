@@ -4,6 +4,8 @@ Notable changes to the published crates.
 
 ## Unreleased
 
+A new crate: `turbojet-fast`, FAST market data decoded into Turbojet messages.
+
 ### `turbojet`
 
 - `Message::clear` is public: it empties a message, MsgType(35) included, keeping its
@@ -12,6 +14,14 @@ Notable changes to the published crates.
 - Decimal fields parse faster: up to 19 digits are read in one pass rather than checked and then
   parsed again. A FIX 4.2 NewOrderSingle parses about 7% faster borrowed, an ExecutionReport about
   9%. Values parse exactly as before.
+
+### `turbojet-fast`
+
+- A new crate: FAST (FIX Adapted for STreaming) 1.1. `Templates::from_xml` loads a feed's templates;
+  a `Decoder` decodes its messages into `Message`s, each field's `id` its FIX tag, keeping the
+  stream's previous values; an `Encoder` encodes messages back. Every field type, operator and
+  dictionary, sequences (as repeating groups), groups, and static and dynamic template references;
+  errors carry the specification's codes.
 
 ## 0.3.0 (2026-10-14)
 

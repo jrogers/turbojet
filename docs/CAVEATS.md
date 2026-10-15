@@ -3,6 +3,13 @@
 Behaviour that is deliberate or documented, but worth knowing about before you rely on Turbojet,
 and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 
+- FAST (`turbojet-fast`): reportable errors are always reported, so an encoder that writes an
+  overlong integer or presence map is refused rather than read; a delta string's part is read as
+  the specification has it, not nullable, so an encoder that writes it nullable, as `fastlib` does
+  for optional fields, gives a stray NUL character. A field without an `id` is decoded but left out
+  of the message. Encoding needs the message's fields
+  in the template's order, and doesn't encode dynamic template references. A decoder that hits an
+  error can't know the encoder's previous values any more: reset it where the feed next resets.
 - `SessionHandle::send` returning `Ok` means queued, not sent: its `Receipt` says whether the
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
