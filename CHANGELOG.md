@@ -2,6 +2,14 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- Decimal fields parse faster: up to 19 digits are read in one pass rather than checked and then
+  parsed again. A FIX 4.2 NewOrderSingle parses about 7% faster borrowed, an ExecutionReport about
+  9%. Values parse exactly as before.
+
 ## 0.3.0 (2026-10-14)
 
 A new crate: `turbojet-log`, a command that prints message log files. The other crates have

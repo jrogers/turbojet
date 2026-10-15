@@ -1186,9 +1186,9 @@ to partition the crate.
 | Decode NewOrderSingle (169 B): into a new message / a reused one | 197 ns / 164 ns | 817 / 985 MiB/s |
 | Encode NewOrderSingle (169 B) | 47 ns | 3.4 GiB/s |
 | Encode ExecutionReport (209 B) | 54 ns | 3.6 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 110 ns / 181 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 136 ns / 220 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 503 ns / 787 ns / 615 ns | |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 103 ns / 162 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 130 ns / 205 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 496 ns / 783 ns / 609 ns | |
 | Typed build ExecutionReport | 171 ns | |
 | Format a timestamp (same second / new second) | 11 ns / 33 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store) | 755 ns | 1.32M msg/s |

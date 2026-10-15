@@ -443,6 +443,23 @@ timestamps, ClOrdID, quantity and price, then BodyLength and CheckSum) takes at 
 template could save about 220 ns an order, 1.5 to 2% of a round trip over localhost (10.3 µs
 spinning, 16.3 µs replying from `on_message`). The session's numbering and storing stay either way.
 
+Typed parsing was profiled on 2026-10-15, for the borrowed FIX 4.2 NewOrderSingle (110 ns then).
+The generated parse loop took about 30%: setting each of the message's 68 field slots to empty,
+then one jump-table dispatch per field present. Reading each field's value took 18%, much of it
+the char-boundary checks of slicing a `&str`, which safe code can't skip. Decimals took 12%:
+validating in three passes, then a fourth by rust_decimal's parser. They are now read in one pass
+into a `u64` mantissa and a scale, up to 19 digits (any usual price or quantity), with longer
+values left to rust_decimal: 110 ns to 103 ns borrowed, 201 ns to 183 ns for an ExecutionReport.
+Copying the 1,184-byte result out of its `Result` in the caller took 10%; timestamps 7%.
+
+The struct's size matters less than it looks. Copying the whole of an owned FIX 4.2
+NewOrderSingle (1,376 bytes) takes 15 ns, and a FIX 4.4 one (3,080 bytes) 34 ns, but the
+compiler already builds most fields in the return slot. Building it in place with `MaybeUninit`
+isn't worth `unsafe`: Rust can't construct in the caller's slot, so it would only save the copy
+behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 16 (boxing
+`Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,
+rather than building a `MsgType` to compare, saved nothing: finding the field is the cost.
+
 ### Latency
 
 Researched 2026-10-04 on an Apple M3. A one-at-a-time round trip over localhost takes 26.5 µs when
@@ -514,6 +531,8 @@ was before:
   fields became `Code<E>`. With strict fields, the same day: 93 ns / 166 ns borrowed, 120 ns /
   199 ns owned, 468 ns / 769 ns / 551 ns with nested groups, and 155 ns to build. The table had
   98 / 173, 148 / 273, 448 / 722 / 692 and 156.
+- Typed parsing was re-measured 2026-10-15, after decimals were parsed in one pass: 110 / 181,
+  136 / 220 and 503 / 787 / 615 just before.
 - Session order → ack was re-measured 2026-10-03, after the application's replies were built in
   messages the session reuses: 945 ns and 1.20 µs just before.
 - Disk stores were measured 2026-10-02 with group commit: before it, storing 100 messages with

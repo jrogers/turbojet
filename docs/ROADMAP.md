@@ -59,19 +59,14 @@ What's left is more FIX versions and the rest of Orchestra.
 Each item needs a benchmark that shows the cost before the change is worth its complexity.
 
 - **Large generated messages** (M). Generated messages carry every field in the dictionary, so
-  a FIX 4.2 NewOrderSingle is 1,008 bytes against 200 for the old hand-written one (when it was
-  1,144 bytes, parsing it took about 237 ns against 202 ns). Lookup and conversion cost the same;
-  the gap is initialising, copying and dropping the larger struct, and it grows with FIX 4.4 and
-  5.0 (1,976 bytes for FIX 4.4's). The borrowed forms are about 15% smaller (840 and 1,680 bytes)
-  and allocate nothing: a FIX 4.2 NewOrderSingle parses in about 98 ns borrowed against 148 ns
-  owned, and a FIX 4.4 one with nested groups in 448 ns against 692 ns. They are still mostly
-  empty `Option`s. Options, cheapest first:
-  - Build the struct in place (`MaybeUninit`) instead of copying it into the return slot. No API
-    change; an estimated 15-35 ns, not yet measured. Needs `unsafe` in an exported macro, with
-    care over drops on the error path and when a conversion panics.
-  - Move rarely used fields into an `Option<Box<...>>` sub-struct per message, which brings
-    parsing and dropping close to the old numbers (about 35-55 ns saved). Changes the generated
-    API, and needs a rule, or per-venue configuration, for which fields are common.
+  a FIX 4.2 NewOrderSingle is 1,376 bytes owned and 1,184 borrowed, and a FIX 4.4 one 3,080 and
+  2,768, mostly empty `Option`s. Measured on 2026-10-15 (see DESIGN.md), size costs less than
+  it looks: copying a whole FIX 4.2 NewOrderSingle takes 15 ns of its 130 ns owned parse, and
+  the largest share of a borrowed parse is setting its 68 slots empty and dispatching each field.
+  Options, cheapest first:
+  - Move rarely used fields into an `Option<Box<...>>` sub-struct per message: fewer slots to
+    set, copy and drop. Probably 10-20 ns on a FIX 4.2 NewOrderSingle, not yet measured. Changes
+    the generated API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
 - **Kernel bypass, busy-polling and hardware timestamps** (L, research). Busy-polling is done where
