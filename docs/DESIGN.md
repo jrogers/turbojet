@@ -502,6 +502,13 @@ behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 1
 `Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,
 rather than building a `MsgType` to compare, saved nothing: finding the field is the cost.
 
+Text such as `8=FIX.4.4|35=0|…` (`codec::decode_text`, `Message`'s `FromStr`) is turned into a
+wire frame and parsed by the same code as one received: fields are split at SOH or `|`, a data
+field read by its Length field so its value may hold either, BodyLength(9) and CheckSum(10)
+computed and compared with any given, counting each `|` as the SOH it replaced. A parsed string is
+therefore the message `decode` gives for the same bytes. Only a malformed field differs: the
+session records it as a defect to reject, while text parsing fails with it.
+
 ### Latency
 
 Researched 2026-10-04 on an Apple M3. A one-at-a-time round trip over localhost takes 26.5 µs when

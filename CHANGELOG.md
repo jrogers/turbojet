@@ -8,6 +8,9 @@ A new crate: `turbojet-fast`, FAST market data decoded into Turbojet messages.
 
 ### `turbojet`
 
+- Messages parse from text: `"8=FIX.4.4|9=20|35=0|…".parse::<Message>()`, with SOH or `|`
+  between fields, as logs and `Display` show them. BodyLength(9) and CheckSum(10) are checked
+  when present and added when not; `codec::decode_text` takes a venue's own data fields.
 - `Message::clear` is public: it empties a message, MsgType(35) included, keeping its
   allocations, for building one field by field into a reused message without copying a
   `MsgType` that has no variant of its own.

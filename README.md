@@ -312,6 +312,18 @@ doesn't define are ignored; `msg.parse_strict()` refuses them instead, as *tag n
 this message type* (373=2), for counterparties whose extra fields should be rejected. The raw
 `Message` stays available for anything not modelled.
 
+A message prints as text with `|` between fields (`println!("{msg}")`, or `msg.redacted()` with
+passwords masked), and text in that form parses back into one, with SOH or `|` between fields:
+
+```rust
+let msg: Message = "8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=125|".parse()?;
+let msg: Message = "8=FIX.4.4|35=0|49=A|56=B|34=1".parse()?; // BodyLength and CheckSum added
+```
+
+BodyLength(9) and CheckSum(10) are checked when they're there, data fields such as RawData(96)
+are read by their Length fields, and the error names the field that's wrong. `codec::decode_text`
+takes a venue's own data fields.
+
 ## Repeating groups
 
 Groups are parsed from a `GroupSpec`: the group's fields in order, the first being the delimiter
