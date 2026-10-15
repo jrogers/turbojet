@@ -39,18 +39,22 @@
 //! When a feed resets its dictionaries (each packet, or on a reset message), call
 //! [`Decoder::reset`]: the specification leaves how a reset is signalled to the feed.
 //!
-//! Not supported yet: encoding.
+//! An [`Encoder`] does the reverse, from messages whose fields are in the template's order (as
+//! a decoder writes them), keeping previous values as the decoder will.
 
 #![warn(missing_docs)]
 
 mod convert;
 mod decode;
+mod dictionary;
+mod encode;
 mod templates;
 mod wire;
 
 use std::fmt;
 
 pub use decode::{Decoded, Decoder};
+pub use encode::Encoder;
 pub use templates::Templates;
 
 /// An error from the FAST specification (Appendix 4): static errors in templates (S), dynamic

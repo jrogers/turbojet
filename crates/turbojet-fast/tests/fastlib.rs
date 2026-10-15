@@ -257,3 +257,44 @@ fn decodes_what_fastlib_encodes_as_fastlib_decodes_it() {
         assert!(rest.is_empty(), "seed {seed}: every message decoded");
     }
 }
+
+#[test]
+fn fastlib_decodes_what_we_encode() {
+    const MESSAGES: usize = 1000;
+    for seed in 1..=20 {
+        // Messages to encode: fastlib's stream, decoded by us.
+        let mut stream = Stream::new(seed);
+        let mut theirs = fastlib::Encoder::new_from_xml(TEMPLATES).expect("fastlib loads the templates");
+        let mut bytes = Vec::new();
+        for _ in 0..MESSAGES {
+            let mut visitor = TextMessageVisitor::from_text(&stream.next_message()).expect("valid text");
+            bytes.extend(theirs.encode_vec(&mut visitor).expect("encodes"));
+        }
+        let templates = Arc::new(Templates::from_xml(TEMPLATES).expect("valid templates"));
+        let mut decoder = Decoder::new(Arc::clone(&templates));
+        let mut encoder = turbojet_fast::Encoder::new(templates);
+        let mut ours_encoded = Vec::new();
+        let mut expected = Vec::new();
+        let mut msg = Message::default();
+        let mut rest = bytes.as_slice();
+        while !rest.is_empty() {
+            let decoded = decoder.decode_into(rest, &mut msg).expect("decodes");
+            encoder.encode(decoded.template_id, &msg, &mut ours_encoded).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
+            expected.push(ours(&msg));
+            rest = decoded.rest;
+        }
+
+        let mut fastlib_decoder = fastlib::Decoder::new_from_xml(TEMPLATES).expect("fastlib loads the templates");
+        let mut rest = ours_encoded.as_slice();
+        for (i, expected) in expected.iter().enumerate() {
+            let mut got = Fields::default();
+            let read = fastlib_decoder
+                .decode_buffer(rest, &mut got)
+                .unwrap_or_else(|e| panic!("seed {seed}, message {i}: {e}"));
+            let got: Vec<_> = got.0.into_iter().filter(|(tag, _)| *tag != 35).collect();
+            assert_eq!(&got, expected, "seed {seed}, message {i}");
+            rest = &rest[usize::try_from(read).expect("a length")..];
+        }
+        assert!(rest.is_empty(), "seed {seed}: fastlib read every message");
+    }
+}

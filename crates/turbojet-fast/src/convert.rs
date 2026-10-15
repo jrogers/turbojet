@@ -27,7 +27,7 @@ pub(crate) fn exponent_in_range(value: &Value) -> bool {
 }
 
 /// Digits with a leading `-` if the type is signed, within the type's range.
-fn integer_value(s: &str, integer: IntegerType) -> Option<i128> {
+pub(crate) fn integer_value(s: &str, integer: IntegerType) -> Option<i128> {
     let digits = if integer.is_signed() { s.strip_prefix('-').unwrap_or(s) } else { s };
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -40,6 +40,28 @@ fn integer_value(s: &str, integer: IntegerType) -> Option<i128> {
 /// An integer part, a fractional part or both, as an exponent and mantissa, normalised so the
 /// mantissa has no trailing zero (zero is `0 * 10^0`).
 fn decimal(s: &str) -> Option<(i32, i64)> {
+    let (mut exponent, mut mantissa) = scaled(s)?;
+    if mantissa == 0 {
+        return Some((0, 0));
+    }
+    while mantissa % 10 == 0 {
+        mantissa /= 10;
+        exponent += 1;
+    }
+    let mantissa = i64::try_from(mantissa).ok()?;
+    EXPONENT_RANGE.contains(&exponent).then_some((exponent, mantissa))
+}
+
+/// A FIX decimal as written, its exponent the number of digits after the point: 9427.55 is
+/// `942755 * 10^-2`. For encoding, where the scale a value was given with is kept.
+pub(crate) fn decimal_as_written(s: &str) -> Option<(i32, i64)> {
+    let (exponent, mantissa) = scaled(s)?;
+    let mantissa = i64::try_from(mantissa).ok()?;
+    EXPONENT_RANGE.contains(&exponent).then_some((exponent, mantissa))
+}
+
+/// An optional `-`, digits, and at most one `.`, as an exponent and mantissa.
+fn scaled(s: &str) -> Option<(i32, i128)> {
     let unsigned = s.strip_prefix('-').unwrap_or(s);
     let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
     let digits = || whole.bytes().chain(fraction.bytes());
@@ -50,23 +72,14 @@ fn decimal(s: &str) -> Option<(i32, i64)> {
     for b in digits() {
         mantissa = mantissa.checked_mul(10)?.checked_add(i128::from(b - b'0'))?;
     }
-    let mut exponent = -i32::try_from(fraction.len()).ok()?;
-    if mantissa == 0 {
-        return Some((0, 0));
-    }
-    while mantissa % 10 == 0 {
-        mantissa /= 10;
-        exponent += 1;
-    }
     if unsigned.len() < s.len() {
         mantissa = -mantissa;
     }
-    let mantissa = i64::try_from(mantissa).ok()?;
-    EXPONENT_RANGE.contains(&exponent).then_some((exponent, mantissa))
+    Some((-i32::try_from(fraction.len()).ok()?, mantissa))
 }
 
 /// Pairs of hexadecimal digits, with any whitespace between them ignored (section 8.1.3).
-fn hex(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn hex(s: &str) -> Option<Vec<u8>> {
     let digits: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     if !digits.len().is_multiple_of(2) {
         return None;

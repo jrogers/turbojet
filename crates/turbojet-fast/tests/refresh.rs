@@ -88,3 +88,16 @@ fn the_specifications_template_decodes_into_a_typed_refresh() {
     assert_eq!(offer.md_entry_size.map(|size| size.to_string()).as_deref(), Some("5"));
     assert_eq!((bid.number_of_orders, offer.number_of_orders), (Some(3), Some(1)));
 }
+
+#[test]
+fn encoding_the_decoded_refresh_gives_the_same_bytes() {
+    let templates = Arc::new(Templates::from_xml(TEMPLATES).expect("valid templates"));
+    let mut decoder = Decoder::new(Arc::clone(&templates));
+    let mut msg = Message::default();
+    let input = message();
+    let decoded = decoder.decode_into(&input, &mut msg).expect("decodes");
+    let mut encoder = turbojet_fast::Encoder::new(templates);
+    let mut out = Vec::new();
+    encoder.encode(decoded.template_id, &msg, &mut out).expect("encodes");
+    assert_eq!(out, input);
+}

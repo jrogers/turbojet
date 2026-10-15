@@ -164,6 +164,99 @@ impl PresenceMap<'_> {
     }
 }
 
+/// Appends an unsigned integer, nullable or not: a nullable one is one more, leaving 0 for NULL
+/// (section 10.6.1). `None` is NULL.
+pub(crate) fn write_unsigned(out: &mut Vec<u8>, value: Option<u128>, nullable: bool) {
+    debug_assert!(nullable || value.is_some(), "only a nullable integer can be NULL");
+    let value = match value {
+        None => 0,
+        Some(value) => value + u128::from(nullable),
+    };
+    let start = out.len();
+    let mut rest = value;
+    loop {
+        out.push(u8::try_from(rest & 0x7f).expect("seven bits"));
+        rest >>= 7;
+        if rest == 0 {
+            break;
+        }
+    }
+    finish(out, start);
+}
+
+/// Appends a signed integer in as few seven-bit groups as keep its sign (section 10.6.1.1). A
+/// nullable one is one more if it isn't negative; `None` is NULL.
+pub(crate) fn write_signed(out: &mut Vec<u8>, value: Option<i128>, nullable: bool) {
+    debug_assert!(nullable || value.is_some(), "only a nullable integer can be NULL");
+    let value = match value {
+        None => 0,
+        Some(value) if nullable && value >= 0 => value + 1,
+        Some(value) => value,
+    };
+    let start = out.len();
+    let mut rest = value;
+    loop {
+        let group = u8::try_from(rest & 0x7f).expect("seven bits");
+        out.push(group);
+        rest >>= 7;
+        let sign_kept = if rest == 0 { group & 0x40 == 0 } else { rest == -1 && group & 0x40 != 0 };
+        if sign_kept {
+            break;
+        }
+    }
+    finish(out, start);
+}
+
+/// Puts the groups pushed since `start`, least significant first, in order, with the stop bit.
+fn finish(out: &mut [u8], start: usize) {
+    out[start..].reverse();
+    *out.last_mut().expect("at least one group") |= STOP;
+}
+
+/// Appends an ASCII string, with the zero preambles of section 10.6.3; `None` is NULL.
+pub(crate) fn write_ascii(out: &mut Vec<u8>, value: Option<&[u8]>, nullable: bool) {
+    debug_assert!(nullable || value.is_some(), "only a nullable string can be NULL");
+    debug_assert!(value.is_none_or(|chars| chars.iter().all(u8::is_ascii)), "ASCII characters only");
+    let Some(chars) = value else {
+        out.push(STOP);
+        return;
+    };
+    if nullable && (chars.is_empty() || chars[0] == 0) {
+        out.push(0);
+    }
+    if chars.is_empty() {
+        out.push(STOP);
+        return;
+    }
+    if chars[0] == 0 {
+        out.push(0);
+    }
+    out.extend_from_slice(chars);
+    *out.last_mut().expect("not empty") |= STOP;
+}
+
+/// Appends a byte vector: its length, then its bytes; `None` is NULL.
+pub(crate) fn write_bytes(out: &mut Vec<u8>, value: Option<&[u8]>, nullable: bool) {
+    let length = value.map(|bytes| u128::try_from(bytes.len()).expect("a length fits"));
+    write_unsigned(out, length, nullable);
+    out.extend_from_slice(value.unwrap_or_default());
+}
+
+/// Appends a presence map of `bits`, without the trailing zero bytes that would make it overlong.
+pub(crate) fn write_presence_map(out: &mut Vec<u8>, bits: &[bool]) {
+    let start = out.len();
+    for chunk in bits.chunks(7) {
+        out.push(chunk.iter().enumerate().fold(0, |byte, (i, &bit)| byte | (u8::from(bit) << (6 - i))));
+    }
+    while out.len() > start + 1 && out.last() == Some(&0) {
+        out.pop();
+    }
+    if out.len() == start {
+        out.push(0);
+    }
+    *out.last_mut().expect("at least one byte") |= STOP;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,6 +368,64 @@ mod tests {
         assert_eq!(bits, expected);
         assert_eq!(map.len_bits(), 14);
         assert_eq!(Reader::new(&[0x40, 0x80]).presence_map().err(), Some(Error::spec(Code::R7)));
+    }
+
+    #[test]
+    fn integers_written_are_read_back_in_the_fewest_bytes() {
+        // The specification's examples, written.
+        let mut out = Vec::new();
+        write_signed(&mut out, Some(8193), false);
+        assert_eq!(out, [0x00, 0x40, 0x81]);
+        out.clear();
+        write_signed(&mut out, Some(-8193), false);
+        assert_eq!(out, [0x7f, 0x3f, 0xff]);
+        out.clear();
+        write_unsigned(&mut out, Some(942_755), true);
+        assert_eq!(out, [0x39, 0x45, 0xa4]);
+        for nullable in [false, true] {
+            for value in
+                [0, 1, 63, 64, 127, 128, 8191, 8192, -1, -64, -65, -8193, i128::from(i64::MIN), i128::from(i64::MAX)]
+            {
+                let mut out = Vec::new();
+                write_signed(&mut out, Some(value), nullable);
+                assert_eq!(Reader::new(&out).signed_wide(nullable), Ok(Some(value)), "{value} {nullable}");
+            }
+            for value in [0, 1, 127, 128, u128::from(u32::MAX), u128::from(u64::MAX)] {
+                let mut out = Vec::new();
+                write_unsigned(&mut out, Some(value), nullable);
+                let read = Reader::new(&out).unsigned(nullable).map(|v| v.map(u128::from));
+                assert_eq!(read, Ok(Some(value)), "{value} {nullable}");
+            }
+        }
+    }
+
+    #[test]
+    fn strings_written_are_read_back() {
+        for nullable in [false, true] {
+            for value in [&b""[..], b"A", b"ABC", b"\0", b"\0\0", b"\0A"] {
+                let mut out = Vec::new();
+                write_ascii(&mut out, Some(value), nullable);
+                assert_eq!(ascii(&out, nullable), Ok(Some(value.to_vec())), "{value:?} {nullable}");
+            }
+        }
+        let mut out = Vec::new();
+        write_ascii(&mut out, None, true);
+        assert_eq!(ascii(&out, true), Ok(None));
+    }
+
+    #[test]
+    fn presence_maps_written_are_read_back_without_trailing_zeros() {
+        let mut out = Vec::new();
+        write_presence_map(&mut out, &[true, false, true, false, false, false, false, false, false]);
+        assert_eq!(out, [0xd0]);
+        out.clear();
+        write_presence_map(&mut out, &[]);
+        assert_eq!(out, [0x80]);
+        out.clear();
+        let bits = [false, false, false, false, false, false, false, true];
+        write_presence_map(&mut out, &bits);
+        let mut map = Reader::new(&out).presence_map().expect("well formed");
+        assert_eq!((0..8).map(|_| map.next_bit()).collect::<Vec<_>>(), bits);
     }
 
     #[test]
