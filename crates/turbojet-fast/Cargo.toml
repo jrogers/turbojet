@@ -1,0 +1,19 @@
+[package]
+name = "turbojet-fast"
+description = "FAST (FIX Adapted for STreaming) 1.1 decoding into Turbojet messages, from templates loaded at runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["fix", "fast", "trading", "finance", "market-data"]
+categories = ["encoding", "finance"]
+# Not published until it encodes as well as decodes, and handles sequences and groups.
+publish = false
+
+[dependencies]
+roxmltree.workspace = true
+turbojet.workspace = true
+
+[lints]
+workspace = true

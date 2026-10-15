@@ -3236,6 +3236,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbojet-fast"
+version = "0.3.0"
+dependencies = [
+ "roxmltree",
+ "turbojet",
+]
+
+[[package]]
 name = "turbojet-fix42"
 version = "0.3.0"
 dependencies = [
