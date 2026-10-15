@@ -3257,6 +3257,7 @@ dependencies = [
 name = "turbojet-fast"
 version = "0.3.0"
 dependencies = [
+ "criterion",
  "fastlib",
  "roxmltree",
  "turbojet",

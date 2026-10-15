@@ -79,7 +79,9 @@ impl Decoder {
         };
         decoding.presence = decoding.reader.presence_map()?;
         let (template_id, template) = decoding.identified_template()?;
-        msg.reset(template.msg_type.clone());
+        // Not `reset`: a MsgType without a variant of its own would be copied each message.
+        msg.clear();
+        msg.push(MSG_TYPE, &template.msg_type);
         decoding.fields(&template.body.fields, msg).map_err(|e| e.with_template(&template.name))?;
         Ok(Decoded { template_id, rest: decoding.reader.rest() })
     }

@@ -19,6 +19,15 @@ turbojet.workspace = true
 workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 # Another implementation, to check decoding against (tests/fastlib.rs).
 fastlib = { version = "0.3", default-features = false }
 turbojet-fix44.workspace = true
+
+# Benchmarks use criterion; keep the libtest bench harness out of `cargo bench`.
+[lib]
+bench = false
+
+[[bench]]
+name = "fast"
+harness = false
