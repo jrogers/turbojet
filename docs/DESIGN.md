@@ -476,6 +476,14 @@ ExecutionReport encodes in 54 ns against 122 ns. Building a typed message spent 
 its time appending digits a character at a time; integers and decimals are now appended up to
 three digits at a time from a table, 164 ns to 156 ns for an ExecutionReport.
 
+Writing an integer's digits into a stack buffer and appending them in one go, to save the copy
+per group that FAST's profile shows, is slower (2026-10-15, an M3, criterion medians, the same code
+rerun within 5% of its first run). Against 172 ns to build an ExecutionReport and 1.75 µs to
+decode a 10-entry FAST refresh, appending the buffer a byte at a time took 226 ns and 1.88 µs;
+with one `push_str` after `str::from_utf8`, 277 ns and 2.28 µs; and one `push_str` for values
+under 1000 with the buffer only for larger ones, 235 ns and 2.12 µs. Without `unsafe`, a `String`
+takes digits fastest as the table's own `&str` slices.
+
 Sends don't keep a message encoded and patch only the fields that change: it would save too little.
 Measured 2026-10-09 on an M3, criterion medians for a FIX 4.2 NewOrderSingle of about 150 bytes:
 the application builds the typed order in 84 ns, turning it into a `Message` for
