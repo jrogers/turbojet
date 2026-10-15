@@ -161,6 +161,94 @@ impl Slot {
         }
     }
 
+    /// The field's value when its presence map bit is clear, for copy, increment and tail
+    /// (sections 6.3.5, 6.3.6 and 6.3.8).
+    fn unchanged<'s>(
+        &'s mut self,
+        kind: OperatorKind,
+        ty: Type,
+        initial: Option<Got<'_>>,
+        optional: bool,
+    ) -> Result<Option<Got<'s>>, Error> {
+        match (self.state, initial) {
+            (State::Assigned, _) if self.ty != Some(ty) => return Err(Error::spec(Code::D4)),
+            (State::Assigned, _) if kind == OperatorKind::Increment => {
+                let Type::Integer(integer) = ty else { unreachable!("increment is only for integers") };
+                let (min, max) = integer.range();
+                self.number = if self.number == max { min } else { self.number + 1 };
+            }
+            (State::Assigned, _) => {}
+            (State::Undefined, Some(initial)) => self.assign(ty, initial),
+            (State::Undefined, None) if optional => {
+                self.state = State::Empty;
+                return Ok(None);
+            }
+            // The tail operator's section gives D6 and D7 for these two; Appendix 4, and copy
+            // and increment, give D5 and D6.
+            (State::Undefined, None) => return Err(Error::spec(Code::D5)),
+            (State::Empty, _) if optional => return Ok(None),
+            (State::Empty, _) => return Err(Error::spec(Code::D6)),
+        }
+        Ok(Some(self.value()))
+    }
+
+    /// Makes the slot hold the base value a delta or tail combines with: the previous value if
+    /// assigned, else the initial value, else the type's default (zero, or empty). An empty
+    /// previous value is a delta's error [ERR D6] but a tail's base like an undefined one.
+    fn base(&mut self, ty: Type, initial: Option<Got<'_>>, empty_is_error: bool) -> Result<(), Error> {
+        match (self.state, initial) {
+            (State::Assigned, _) if self.ty != Some(ty) => Err(Error::spec(Code::D4)),
+            (State::Assigned, _) => Ok(()),
+            (State::Empty, _) if empty_is_error => Err(Error::spec(Code::D6)),
+            (_, Some(initial)) => {
+                self.assign(ty, initial);
+                Ok(())
+            }
+            (_, None) => {
+                self.state = State::Assigned;
+                self.ty = Some(ty);
+                self.number = 0;
+                self.exponent = 0;
+                self.bytes.clear();
+                Ok(())
+            }
+        }
+    }
+
+    /// A tail (section 6.3.8): replaces as many bytes at the end as it has, or all of them.
+    fn tail(&mut self, tail: &[u8]) {
+        let keep = self.bytes.len().saturating_sub(tail.len());
+        self.bytes.truncate(keep);
+        self.bytes.extend_from_slice(tail);
+    }
+
+    /// A string or byte vector delta (sections 6.3.7.3 to 6.3.7.5): removes `subtraction` bytes
+    /// from the back, or from the front if it's negative (less one: -1 removes none), and adds
+    /// `part` at the same end.
+    fn splice(&mut self, subtraction: i32, part: &[u8]) -> Result<(), Error> {
+        let front = subtraction < 0;
+        let remove = if front { (subtraction + 1).unsigned_abs() } else { subtraction.unsigned_abs() };
+        let remove = usize::try_from(remove).map_err(|_| Error::spec(Code::D7))?;
+        if remove > self.bytes.len() {
+            return Err(Error::spec(Code::D7));
+        }
+        if front {
+            self.bytes.splice(..remove, part.iter().copied());
+        } else {
+            self.bytes.truncate(self.bytes.len() - remove);
+            self.bytes.extend_from_slice(part);
+        }
+        Ok(())
+    }
+
+    /// [ERR R2]: a Unicode string a delta or tail made isn't UTF-8.
+    fn check_utf8(&self, ty: Type) -> Result<(), Error> {
+        if ty == Type::Unicode && std::str::from_utf8(&self.bytes).is_err() {
+            return Err(Error::spec(Code::R2));
+        }
+        Ok(())
+    }
+
     fn value(&self) -> Got<'_> {
         match self.ty {
             Some(Type::Integer(_)) | None => Got::Integer(self.number),
@@ -235,8 +323,8 @@ impl<'a> Decoding<'_, 'a> {
         Ok(Some(Got::Decimal { exponent, mantissa }))
     }
 
-    /// Applies `operator` (sections 6.3.3 to 6.3.5 and 10.5.1), reading the value from the stream
-    /// with `read` where the operator says it's there. `None` is an absent value.
+    /// Applies `operator` (sections 6.3 and 10.5.1), reading the value from the stream with `read`
+    /// where the operator says it's there. `None` is an absent value.
     fn operate<'s>(
         &'s mut self,
         operator: &'s Operator,
@@ -251,35 +339,74 @@ impl<'a> Decoding<'_, 'a> {
             OperatorKind::Constant => Ok(initial),
             OperatorKind::Default if self.presence.next_bit() => read(self.reader, self.scratch),
             OperatorKind::Default => Ok(initial),
-            OperatorKind::Copy => {
-                let slot = &mut self.slots[operator.slot.expect("a copy has a slot")];
-                if self.presence.next_bit() {
-                    match read(self.reader, self.scratch)? {
-                        Some(value) => slot.assign(ty, value),
-                        None => {
-                            slot.state = State::Empty;
-                            return Ok(None);
-                        }
-                    }
-                    return Ok(Some(slot.value()));
+            OperatorKind::Delta => self.delta(operator, optional, ty),
+            OperatorKind::Copy | OperatorKind::Increment | OperatorKind::Tail => {
+                let slot = &mut self.slots[operator.slot.expect("the operator keeps a previous value")];
+                if !self.presence.next_bit() {
+                    return slot.unchanged(operator.kind, ty, initial, optional);
                 }
-                match (slot.state, initial) {
-                    (State::Assigned, _) if slot.ty != Some(ty) => Err(Error::spec(Code::D4)),
-                    (State::Assigned, _) => Ok(Some(slot.value())),
-                    (State::Undefined, Some(initial)) => {
-                        slot.assign(ty, initial);
-                        Ok(Some(slot.value()))
+                let Some(value) = read(self.reader, self.scratch)? else {
+                    slot.state = State::Empty;
+                    return Ok(None);
+                };
+                match (operator.kind, value) {
+                    (OperatorKind::Tail, Got::Bytes(tail)) => {
+                        slot.base(ty, initial, false)?;
+                        slot.tail(tail);
+                        slot.check_utf8(ty)?;
                     }
-                    (State::Undefined, None) if optional => {
-                        slot.state = State::Empty;
-                        Ok(None)
-                    }
-                    (State::Undefined, None) => Err(Error::spec(Code::D5)),
-                    (State::Empty, _) if optional => Ok(None),
-                    (State::Empty, _) => Err(Error::spec(Code::D6)),
+                    _ => slot.assign(ty, value),
                 }
+                Ok(Some(slot.value()))
             }
         }
+    }
+
+    /// The delta operator (section 6.3.7): a difference from the previous value in the stream,
+    /// always, with no presence map bit.
+    fn delta<'s>(&'s mut self, operator: &'s Operator, optional: bool, ty: Type) -> Result<Option<Got<'s>>, Error> {
+        let initial = operator.initial.as_ref().map(Got::from);
+        let slot = &mut self.slots[operator.slot.expect("a delta keeps a previous value")];
+        // A NULL delta leaves the previous value as it was.
+        let Some(delta) = self.reader.signed_wide(optional)? else { return Ok(None) };
+        match ty {
+            Type::Integer(integer) => {
+                slot.base(ty, initial, true)?;
+                let (min, max) = integer.range();
+                let combined = slot.number + delta;
+                if !(min..=max).contains(&combined) {
+                    return Err(Error::spec(Code::R4));
+                }
+                slot.number = combined;
+            }
+            Type::Decimal => {
+                let mantissa = self.reader.signed_wide(false)?.expect("a mandatory integer isn't NULL");
+                slot.base(ty, initial, true)?;
+                let exponent =
+                    i32::try_from(i128::from(slot.exponent) + delta).ok().filter(|e| EXPONENT_RANGE.contains(e));
+                let mantissa = slot.number + mantissa;
+                let (Some(exponent), true) = (exponent, i64::try_from(mantissa).is_ok()) else {
+                    return Err(Error::spec(Code::R1));
+                };
+                slot.exponent = exponent;
+                slot.number = mantissa;
+            }
+            Type::Ascii | Type::Unicode | Type::Bytes => {
+                let subtraction = i32::try_from(delta).map_err(|_| Error::spec(Code::D7))?;
+                let part = if ty == Type::Ascii {
+                    let chars = self.reader.ascii(false)?.expect("a mandatory string isn't NULL");
+                    self.scratch.clear();
+                    push_ascii(chars, self.scratch);
+                    self.scratch.as_slice()
+                } else {
+                    self.reader.bytes(false)?.expect("a mandatory byte vector isn't NULL")
+                };
+                slot.base(ty, initial, true)?;
+                slot.splice(subtraction, part)?;
+                slot.check_utf8(ty)?;
+            }
+        }
+        Ok(Some(slot.value()))
     }
 }
 
@@ -480,6 +607,109 @@ mod tests {
         assert_eq!(value(&mut optional, &message(&[true], &[0x80])), Ok(None));
         assert_eq!(value(&mut optional, &message(&[false], &[])), Ok(None));
         assert_eq!(value(&mut optional, &message(&[true], &[0x43, 0x4d, 0xc5])), ok("CME"));
+    }
+
+    #[test]
+    fn increments_as_in_appendix_3_2_4() {
+        let mut decoder = decoder(r#"<uInt32 id="1" name="Flag"><increment value="1"/></uInt32>"#);
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), ok("1"));
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), ok("2"));
+        assert_eq!(value(&mut decoder, &message(&[true], &[0x84])), ok("4"));
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), ok("5"));
+    }
+
+    #[test]
+    fn increments_wrap_at_the_types_maximum() {
+        let mut decoder = decoder(r#"<int32 id="1" name="A"><increment value="2147483647"/></int32>"#);
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), ok("2147483647"));
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), ok("-2147483648"));
+    }
+
+    #[test]
+    fn integer_deltas_as_in_appendix_3_2_5() {
+        let mut decoder = decoder(r#"<int32 id="1" name="Price"><delta/></int32>"#);
+        assert_eq!(value(&mut decoder, &message(&[], &[0x39, 0x45, 0xa3])), ok("942755"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0xfb])), ok("942750"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0xfb])), ok("942745"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0x80])), ok("942745"));
+    }
+
+    #[test]
+    fn decimal_deltas_as_in_appendix_3_2_5() {
+        let mut plain = decoder(r#"<decimal id="1" name="Price"><delta/></decimal>"#);
+        assert_eq!(value(&mut plain, &message(&[], &[0xfe, 0x39, 0x45, 0xa3])), ok("9427.55"));
+        assert_eq!(value(&mut plain, &message(&[], &[0x80, 0xfc])), ok("9427.51"));
+        assert_eq!(value(&mut plain, &message(&[], &[0x80, 0xfb])), ok("9427.46"));
+        // From an initial value, normalised to 12 * 10^3.
+        let mut with_initial = decoder(r#"<decimal id="1" name="Price"><delta value="12000"/></decimal>"#);
+        assert_eq!(value(&mut with_initial, &message(&[], &[0xfe, 0x09, 0xae])), ok("12100"));
+        assert_eq!(value(&mut with_initial, &message(&[], &[0x80, 0x85])), ok("12150"));
+        assert_eq!(value(&mut with_initial, &message(&[], &[0x80, 0x85])), ok("12200"));
+    }
+
+    #[test]
+    fn string_deltas_as_in_appendix_3_2_5() {
+        let mut decoder = decoder(r#"<string id="1" name="Security"><delta/></string>"#);
+        assert_eq!(value(&mut decoder, &message(&[], &[0x80, 0x47, 0x45, 0x48, 0xb6])), ok("GEH6"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0x82, 0x4d, 0xb6])), ok("GEM6"));
+        // Negative lengths remove from the front, less one: -3 removes two, -1 (-0) none.
+        assert_eq!(value(&mut decoder, &message(&[], &[0xfd, 0x45, 0xd3])), ok("ESM6"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0xff, 0x52, 0xd3])), ok("RSESM6"));
+    }
+
+    #[test]
+    fn delta_errors() {
+        let mut d = decoder(r#"<string id="1" name="A"><delta value="AB"/></string>"#);
+        let code = |d: &mut Decoder, body: &[u8]| value(d, &message(&[], body)).unwrap_err().code();
+        // Removing three from a base of two.
+        assert_eq!(code(&mut d, &[0x83, 0x80]), Some(Code::D7));
+        let mut d = decoder(r#"<uInt32 id="1" name="A"><delta/></uInt32>"#);
+        assert_eq!(code(&mut d, &[0xff]), Some(Code::R4));
+        let mut d = decoder(r#"<decimal id="1" name="A"><delta/></decimal>"#);
+        assert_eq!(code(&mut d, &[0x00, 0xc0, 0x81]), Some(Code::R1));
+        let mut d = decoder(r#"<string id="1" name="A" charset="unicode"><delta/></string>"#);
+        assert_eq!(code(&mut d, &[0x80, 0x81, 0xc3]), Some(Code::R2));
+    }
+
+    #[test]
+    fn a_null_delta_is_absent_and_leaves_the_previous_value() {
+        let mut decoder = decoder(r#"<uInt32 id="1" presence="optional" name="A"><delta/></uInt32>"#);
+        assert_eq!(value(&mut decoder, &message(&[], &[0x86])), ok("5"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0x80])), Ok(None));
+        assert_eq!(value(&mut decoder, &message(&[], &[0x82])), ok("6"));
+    }
+
+    #[test]
+    fn a_delta_from_an_empty_previous_value_is_an_error() {
+        let mut decoder = decoder(
+            r#"<uInt32 id="1" presence="optional" name="A"><copy key="k"/></uInt32>
+               <uInt32 id="2" name="B"><delta key="k"/></uInt32>"#,
+        );
+        let error = value(&mut decoder, &message(&[true], &[0x80, 0x81])).unwrap_err();
+        assert_eq!(error.code(), Some(Code::D6));
+    }
+
+    #[test]
+    fn tails_replace_the_end_of_the_previous_value() {
+        let mut decoder = decoder(r#"<string id="1" presence="optional" name="A"><tail value="ABCD"/></string>"#);
+        // From the initial value, then from each previous one.
+        assert_eq!(value(&mut decoder, &message(&[true], &[0x58, 0xd9])), ok("ABXY"));
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), ok("ABXY"));
+        assert_eq!(value(&mut decoder, &message(&[true], &[0xda])), ok("ABXZ"));
+        // A tail longer than the base replaces it.
+        assert_eq!(value(&mut decoder, &message(&[true], &[0x31, 0x32, 0x33, 0x34, 0xb5])), ok("12345"));
+        // NULL: absent, and the previous value empty, so the next tail starts from the initial value.
+        assert_eq!(value(&mut decoder, &message(&[true], &[0x80])), Ok(None));
+        assert_eq!(value(&mut decoder, &message(&[false], &[])), Ok(None));
+        assert_eq!(value(&mut decoder, &message(&[true], &[0xda])), ok("ABCZ"));
+    }
+
+    #[test]
+    fn mandatory_tails_without_a_previous_value_are_errors() {
+        let mut decoder = decoder(r#"<byteVector id="1" name="A"><tail/></byteVector>"#);
+        let error = value(&mut decoder, &message(&[false], &[])).unwrap_err();
+        assert_eq!(error.code(), Some(Code::D5));
+        assert_eq!(value(&mut decoder, &message(&[true], &[0x81, 0xab])), ok("ab"));
     }
 
     #[test]

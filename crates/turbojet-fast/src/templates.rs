@@ -105,6 +105,9 @@ pub(crate) enum OperatorKind {
     Constant,
     Default,
     Copy,
+    Increment,
+    Delta,
+    Tail,
 }
 
 /// A value from a template: an initial value.
@@ -127,8 +130,8 @@ impl Templates {
     /// # Errors
     ///
     /// A static error (S1-S5) if the XML isn't a valid definition, with the template and field;
-    /// and an error for what this version doesn't handle yet: sequences, groups, template
-    /// references and the increment, delta and tail operators.
+    /// and an error for what this version doesn't handle yet: sequences, groups and template
+    /// references.
     pub fn from_xml(xml: &str) -> Result<Self, Error> {
         let document = Document::parse(xml).map_err(|e| Error::spec(Code::S1).with_detail(e.to_string()))?;
         let root = document.root_element();
@@ -359,18 +362,28 @@ impl Scope<'_, '_> {
             Some("constant") => OperatorKind::Constant,
             Some("default") => OperatorKind::Default,
             Some("copy") => OperatorKind::Copy,
-            Some(other @ ("increment" | "delta" | "tail")) => {
-                return Err(Error::unsupported(format!("the {other} operator isn't supported yet")));
-            }
+            Some("increment") => OperatorKind::Increment,
+            Some("delta") => OperatorKind::Delta,
+            Some("tail") => OperatorKind::Tail,
             _ => unreachable!("operator_node finds only operators"),
         };
+        // Section 6.3: increment is for integers, tail for strings and byte vectors.
+        let applicable = match kind {
+            OperatorKind::Increment => matches!(ty, Type::Integer(_)),
+            OperatorKind::Tail => matches!(ty, Type::Ascii | Type::Unicode | Type::Bytes),
+            _ => true,
+        };
+        if !applicable {
+            return Err(Error::spec(Code::S2));
+        }
         let initial = op.attribute("value").map(|value| convert::initial(value, ty)).transpose()?;
         match kind {
             OperatorKind::Constant if initial.is_none() => return Err(Error::spec(Code::S4)),
             OperatorKind::Default if initial.is_none() && !self.optional => return Err(Error::spec(Code::S5)),
             _ => {}
         }
-        let slot = (kind == OperatorKind::Copy).then(|| {
+        let keeps_previous = !matches!(kind, OperatorKind::None | OperatorKind::Constant | OperatorKind::Default);
+        let slot = keeps_previous.then(|| {
             let context = self.context.inherit(op);
             let key = SlotKey {
                 dictionary: self.dictionary(&context),
@@ -399,7 +412,8 @@ impl Field {
         let bits = |operator: &Operator, optional: bool| match operator.kind {
             OperatorKind::None => 0,
             OperatorKind::Constant => usize::from(optional),
-            OperatorKind::Default | OperatorKind::Copy => 1,
+            OperatorKind::Default | OperatorKind::Copy | OperatorKind::Increment | OperatorKind::Tail => 1,
+            OperatorKind::Delta => 0,
         };
         match &self.kind {
             Kind::Integer(_, operator)
@@ -506,6 +520,11 @@ mod tests {
         assert_eq!(code(r#"<int32 name="A"><copy value="2147483648"/></int32>"#), Some(Code::S3));
         assert_eq!(code(r#"<uInt32 name="A"><copy/><default value="1"/></uInt32>"#), Some(Code::S1));
         assert_eq!(code(r#"<uInt32 name="A" presence="maybe"/>"#), Some(Code::S1));
+        assert_eq!(code(r#"<string name="A"><increment/></string>"#), Some(Code::S2));
+        assert_eq!(code(r#"<decimal name="A"><increment/></decimal>"#), Some(Code::S2));
+        assert_eq!(code(r#"<uInt32 name="A"><tail/></uInt32>"#), Some(Code::S2));
+        assert_eq!(code(r#"<decimal name="A"><mantissa><tail/></mantissa></decimal>"#), Some(Code::S2));
+        assert!(load(r#"<decimal name="A"><mantissa><increment/></mantissa></decimal>"#).is_ok());
         assert!(load(r#"<uInt32 name="A" presence="optional"><default/></uInt32>"#).is_ok());
     }
 
@@ -517,11 +536,7 @@ mod tests {
 
     #[test]
     fn what_later_stages_add_is_refused_for_now() {
-        for fields in [
-            r#"<sequence name="S"><uInt32 name="A"/></sequence>"#,
-            r#"<uInt32 name="A"><increment/></uInt32>"#,
-            r#"<string name="A"><tail/></string>"#,
-        ] {
+        for fields in [r#"<sequence name="S"><uInt32 name="A"/></sequence>"#, r#"<templateRef name="X"/>"#] {
             assert_eq!(load(fields).unwrap_err().code(), None, "{fields}");
         }
     }

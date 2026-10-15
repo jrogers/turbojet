@@ -61,6 +61,13 @@ impl<'a> Reader<'a> {
 
     /// A signed integer, or `None` for a nullable integer's NULL.
     pub(crate) fn signed(&mut self, nullable: bool) -> Result<Option<i64>, Error> {
+        let value = self.signed_wide(nullable)?;
+        value.map(i64::try_from).transpose().map_err(|_| Error::spec(Code::D2))
+    }
+
+    /// A signed integer of up to 70 bits, or `None` for NULL: a delta can need more bits than
+    /// its field's type (section 6.3.7.1's note).
+    pub(crate) fn signed_wide(&mut self, nullable: bool) -> Result<Option<i128>, Error> {
         let bytes = self.entity(MAX_INTEGER_BYTES)?;
         // Overlong if the first byte only repeats the sign the next one already carries.
         if let [first, second, ..] = bytes {
@@ -72,12 +79,11 @@ impl<'a> Reader<'a> {
         let negative = bytes[0] & 0x40 != 0;
         let start: i128 = if negative { -1 } else { 0 };
         let value = bytes.iter().fold(start, |value, b| (value << 7) | i128::from(b & !STOP));
-        let value = match (nullable, value) {
-            (true, 0) => return Ok(None),
-            (true, value) if value > 0 => value - 1,
-            (_, value) => value,
-        };
-        i64::try_from(value).map(Some).map_err(|_| Error::spec(Code::D2))
+        Ok(match (nullable, value) {
+            (true, 0) => None,
+            (true, value) if value > 0 => Some(value - 1),
+            (_, value) => Some(value),
+        })
     }
 
     /// An ASCII string's characters, or `None` for a nullable string's NULL, with the zero

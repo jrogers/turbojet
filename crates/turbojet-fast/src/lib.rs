@@ -37,8 +37,7 @@
 //! When a feed resets its dictionaries (each packet, or on a reset message), call
 //! [`Decoder::reset`]: the specification leaves how a reset is signalled to the feed.
 //!
-//! Not supported yet: sequences, groups, template references, the increment, delta and tail
-//! operators, and encoding.
+//! Not supported yet: sequences, groups, template references and encoding.
 
 #![warn(missing_docs)]
 
