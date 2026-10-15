@@ -51,6 +51,146 @@ pub fn decode_with(buf: &[u8], data: &DataFields) -> Decoded {
     parse_framed(buf, total, data)
 }
 
+/// A message [`decode_text`] couldn't read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseMessageError {
+    /// The field at fault, when its tag is known.
+    pub tag: Option<u32>,
+    /// What was wrong.
+    pub reason: String,
+}
+
+impl std::fmt::Display for ParseMessageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for ParseMessageError {}
+
+/// Parses a message from text as logs and tools show it, such as
+/// `8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=125|`: fields separated by SOH or `|`, a separator after
+/// the last field optional. A data field in `data` that follows its Length field is read by that
+/// length, so its value may contain either separator. BodyLength(9) and CheckSum(10) are checked
+/// when they're there, counting each separator as the SOH it stands for, and added when they
+/// aren't, so the message is the one [`decode_with`] gives for the same message on the wire; a
+/// message's [`Display`](std::fmt::Display) form parses back to it unless it has a data value
+/// that isn't UTF-8. Unlike decoding, a malformed field is an error, not a defect for the session
+/// to reject.
+///
+/// [`Message`]'s `FromStr` is this with [`DataFields::standard`]: `text.parse::<Message>()`.
+///
+/// # Errors
+///
+/// A field that isn't `tag=value`, BeginString(8) not first or MsgType(35) not after it (and
+/// BodyLength(9), if that's there), a BodyLength(9) or CheckSum(10) that doesn't match the message,
+/// or a Length field that doesn't give its data field's length.
+pub fn decode_text(text: &str, data: &DataFields) -> Result<Message, ParseMessageError> {
+    let fields = split_text(text.as_bytes(), data)?;
+    let Some(((tags::BEGIN_STRING, begin_string), rest)) = fields.split_first() else {
+        return Err(text_error(Some(tags::BEGIN_STRING), "BeginString(8) is not the first field".into()));
+    };
+    let (body_len_given, rest) = match rest {
+        [(tags::BODY_LENGTH, value), rest @ ..] => (Some(*value), rest),
+        _ => (None, rest),
+    };
+    let (checksum_given, body) = match rest {
+        [body @ .., (tags::CHECK_SUM, value)] => (Some(*value), body),
+        _ => (None, rest),
+    };
+    if !matches!(body.first(), Some((tags::MSG_TYPE, _))) {
+        return Err(text_error(Some(tags::MSG_TYPE), "MsgType(35) does not follow BeginString(8)".into()));
+    }
+
+    let mut frame = b"8=".to_vec();
+    frame.extend_from_slice(begin_string);
+    frame.extend_from_slice(b"\x019=");
+    let body_len = body.iter().map(|(tag, value)| digit_count(*tag) + value.len() + 2).sum();
+    check_given(tags::BODY_LENGTH, body_len_given, body_len)?;
+    push_digits(&mut frame, body_len);
+    frame.push(SOH);
+    for (tag, value) in body {
+        push_digits(&mut frame, usize::try_from(*tag).expect("a u32 fits a usize"));
+        frame.push(b'=');
+        frame.extend_from_slice(value);
+        frame.push(SOH);
+    }
+    check_given(tags::CHECK_SUM, checksum_given, usize::from(checksum(&frame)))?;
+    push_trailer(&mut frame, 0);
+    debug_assert_eq!(frame_stored(&frame), Ok(frame.len()), "the text becomes a frame the codec accepts");
+
+    let msg = Message::from_frame(&frame, data).map_err(|reason| text_error(None, reason))?;
+    match msg.defect() {
+        Some(defect) => Err(text_error(defect.tag, defect.text.clone())),
+        None => Ok(msg),
+    }
+}
+
+/// Parses a message from text with the standard data fields; see [`decode_text`].
+impl std::str::FromStr for Message {
+    type Err = ParseMessageError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        decode_text(text, &DataFields::standard())
+    }
+}
+
+/// `text`'s fields as `(tag, value)`, split at SOH or `|`, data fields read by their lengths.
+fn split_text<'a>(text: &'a [u8], data: &DataFields) -> Result<Vec<(u32, &'a [u8])>, ParseMessageError> {
+    let is_separator = |b: &u8| *b == SOH || *b == b'|';
+    let mut fields: Vec<(u32, &[u8])> = Vec::new();
+    let mut start = 0;
+    // Each field moves `start` on by at least one byte, so this ends within the text.
+    while start < text.len() {
+        let segment_end = text[start..].iter().position(is_separator).map_or(text.len(), |p| start + p);
+        let segment = &text[start..segment_end];
+        let eq = segment.iter().position(|&b| b == b'=');
+        let tag = eq.and_then(|eq| parse_digits(&segment[..eq])).and_then(|tag| u32::try_from(tag).ok());
+        let (Some(eq), Some(tag @ 1..)) = (eq, tag) else {
+            let field = String::from_utf8_lossy(segment);
+            return Err(text_error(None, format!("'{field}' is not a tag=value field")));
+        };
+        let value_start = start + eq + 1;
+        let end = match fields.last() {
+            Some(&(length_tag, length)) if data.length_tag(tag) == Some(length_tag) => {
+                let end = parse_digits(length).map(|length| value_start + length);
+                match end.filter(|&end| end == text.len() || text.get(end).is_some_and(is_separator)) {
+                    Some(end) => end,
+                    None => {
+                        let reason = format!("Tag {length_tag} does not give the length of data field {tag}");
+                        return Err(text_error(Some(length_tag), reason));
+                    }
+                }
+            }
+            _ => segment_end,
+        };
+        debug_assert!(value_start <= end && end <= text.len());
+        fields.push((tag, &text[value_start..end]));
+        start = end + 1;
+    }
+    Ok(fields)
+}
+
+/// Checks that a BodyLength(9) or CheckSum(10) `given` in text is the `computed` one.
+fn check_given(tag: u32, given: Option<&[u8]>, computed: usize) -> Result<(), ParseMessageError> {
+    match given {
+        Some(value) if parse_digits(value) != Some(computed) => {
+            let value = String::from_utf8_lossy(value);
+            Err(text_error(Some(tag), format!("Tag {tag} is {value}, but the message gives {computed}")))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn text_error(tag: Option<u32>, reason: String) -> ParseMessageError {
+    ParseMessageError { tag, reason }
+}
+
+/// The number of decimal digits in `n`.
+fn digit_count(n: u32) -> usize {
+    usize::try_from(n.checked_ilog10().unwrap_or(0) + 1).expect("at most 10 digits")
+}
+
 /// The result of [`decode_into`]: [`Decoded`] without the message, which is in the one passed in.
 #[derive(Debug, PartialEq)]
 pub enum DecodedInto {
@@ -483,5 +623,50 @@ mod tests {
         let Decoded::Message(decoded, _) = decode(&wire) else { panic!("did not decode") };
         assert_eq!(decoded.get(5001), Some("a"));
         assert!(decoded.defect().is_some());
+    }
+
+    fn decoded(msg: &Message) -> Message {
+        let Decoded::Message(msg, _) = decode(&encode(msg).unwrap()) else { panic!("did not decode") };
+        msg
+    }
+
+    #[test]
+    fn text_parses_to_the_message_decoding_gives() {
+        let expected = decoded(&sample());
+        // As written, without its trailing separator, with SOH, and without BodyLength and CheckSum.
+        for text in [
+            "8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=125|",
+            "8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=125",
+            "8=FIX.4.4\x019=20\x0135=0|49=A|56=B|34=1|10=125\x01",
+            "8=FIX.4.4|35=0|49=A|56=B|34=1|",
+        ] {
+            assert_eq!(text.parse::<Message>(), Ok(expected.clone()), "{text}");
+        }
+    }
+
+    #[test]
+    fn display_parses_back_with_separators_inside_data_values() {
+        let msg =
+            decoded(&sample().with_data(tags::RAW_DATA_LENGTH, tags::RAW_DATA, b"a|b\x01c|").with(tags::TEXT, "x"));
+        assert_eq!(msg.to_string().parse::<Message>(), Ok(msg));
+    }
+
+    #[test]
+    fn text_errors_name_the_field() {
+        let cases: [(&str, Option<u32>); 8] = [
+            ("8=FIX.4.4|9=21|35=0|49=A|56=B|34=1|10=125|", Some(9)),
+            ("8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=126|", Some(10)),
+            ("8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=12x|", Some(10)),
+            ("35=0|8=FIX.4.4|49=A|", Some(8)),
+            ("8=FIX.4.4|49=A|35=0|", Some(35)),
+            ("8=FIX.4.4|35=0|x5=A|", None),
+            ("8=FIX.4.4|35=0||49=A", None),
+            ("8=FIX.4.4|35=0|95=5|96=abc|58=x|", Some(95)),
+        ];
+        for (text, tag) in cases {
+            let error = text.parse::<Message>().expect_err(text);
+            assert_eq!(error.tag, tag, "{text}: {error}");
+        }
+        assert_eq!("".parse::<Message>().map_err(|e| e.tag), Err(Some(8)));
     }
 }
