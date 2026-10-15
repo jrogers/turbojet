@@ -3184,7 +3184,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "turbojet"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3213,7 +3213,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-acceptance"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "turbojet",
@@ -3222,7 +3222,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-codegen"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "pulldown-cmark",
  "roxmltree",
@@ -3233,7 +3233,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-config"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "p12-keystore",
  "rcgen",
@@ -3248,14 +3248,14 @@ dependencies = [
 
 [[package]]
 name = "turbojet-dictionary"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "roxmltree",
 ]
 
 [[package]]
 name = "turbojet-fast"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "fastlib",
@@ -3266,35 +3266,35 @@ dependencies = [
 
 [[package]]
 name = "turbojet-fix42"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-fix43"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-fix44"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-fix50sp2"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-interop"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "p12-keystore",
  "rcgen",
@@ -3306,7 +3306,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-log"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "tempfile",
@@ -3316,7 +3316,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-sim"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "tempfile",
@@ -3325,7 +3325,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-sql"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "criterion",
  "sqlx",

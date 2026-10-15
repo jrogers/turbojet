@@ -2,7 +2,7 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.3.1 (2026-10-15)
 
 A new crate: `turbojet-fast`, FAST market data decoded into Turbojet messages.
 
