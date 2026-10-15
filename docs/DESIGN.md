@@ -257,6 +257,10 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   an initiator's run loop waits on a `Notify` while paused. An operator's resend rewinds the
   expected number before asking, because resends below it would be ignored as duplicates, and
   reuses the gap machinery by treating the next new message as the one that revealed the gap.
+  A count of store resets since the bind is added to in `reset_store` (a reset at logon or the
+  counterparty's mid-session, not a new schedule period's as the session binds), stored `Release`
+  after the reset numbers and read `Acquire` before them, so a reader that sees a new count sees
+  the new numbering rather than taking the old numbers for it.
 - **Observability**: structured logging and Prometheus-compatible metrics, with opt-in latency
   histograms (handling each inbound message, store commits, and reading input to its replies
   being ready to write), and an optional `MessageLog` that sees every message's bytes.

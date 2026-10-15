@@ -17,6 +17,10 @@ A new crate: `turbojet-fast`, FAST market data decoded into Turbojet messages.
 - Decimal fields parse faster: up to 19 digits are read in one pass rather than checked and then
   parsed again. A FIX 4.2 NewOrderSingle parses about 7% faster borrowed, an ExecutionReport about
   9%. Values parse exactly as before.
+- `Activity::resets` counts the store's resets since the session bound, so an application can
+  tell its sequence numbers started again between two reads of `status()`: a counterparty's
+  ResetSeqNumFlag(141) mid-session leaves no other sign, and `next_outgoing` may since have
+  passed where it was.
 
 ### `turbojet-fast`
 
