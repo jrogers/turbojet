@@ -48,6 +48,14 @@ What's left is more FIX versions and the rest of Orchestra.
 
 ## 3. Encoding and data types
 
+- **FAST 1.1** (L). FAST (FIX Adapted for STreaming) is the compressed encoding some venues still
+  use for market data. A codec only, in a crate of its own (`turbojet-fast`): the venue's template
+  XML loaded at runtime, and a decoder that keeps the stream's dictionary state and decodes each
+  message into a `Message`, so the typed FIX messages read it; an encoder mirroring it. Feed
+  handling (multicast, line arbitration, gap recovery) is left to the application. Checked
+  against the specification's examples and another implementation, fuzzed, and measured
+  against tag=value and SBE decoding.
+
 - **Non-UTF-8 text** (S). Text in another encoding (MessageEncoding 347) belongs in the Encoded*
   data fields, which carry it intact but only as bytes: nothing decodes it. Decoding by
   MessageEncoding (Shift_JIS, say) would need an encoding crate. Outside data fields, a value
@@ -134,7 +142,7 @@ The gateway exists to exercise Turbojet; these matter only if it becomes more th
 
 Listed so the decisions are explicit; any of these could be built on Turbojet separately.
 
-- **Other encodings**. FIXML and FAST.
+- **FIXML**. FIX's XML encoding.
 - **Routing and translation between counterparties**. A hub that routes messages between
   sessions and maps one counterparty's dialect to another's with rules (like FIX Antenna's
   FIXEdge). Routing fields are in scope; the hub is an application.
