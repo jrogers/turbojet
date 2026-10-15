@@ -5,6 +5,8 @@
 //! with a [`Decoder`], which keeps the stream's previous values (its dictionaries) from one
 //! message to the next. Each field's `id` in the templates is its FIX tag, so a decoded message
 //! reads like any other: with [`Message::get`](turbojet::Message::get), or as a typed message.
+//! A sequence becomes a repeating group, its `<length>`'s `id` the NumInGroup tag; a group's
+//! fields, and those of a referenced template, are written in its place.
 //!
 //! ```
 //! use std::sync::Arc;
@@ -37,7 +39,7 @@
 //! When a feed resets its dictionaries (each packet, or on a reset message), call
 //! [`Decoder::reset`]: the specification leaves how a reset is signalled to the feed.
 //!
-//! Not supported yet: sequences, groups, template references and encoding.
+//! Not supported yet: encoding.
 
 #![warn(missing_docs)]
 
@@ -107,6 +109,9 @@ pub enum ErrorKind {
     InvalidValue,
     /// Something this version doesn't handle yet.
     Unsupported,
+    /// More nesting or sequence entries than a decoder allows, so a message can't make it do
+    /// unbounded work.
+    Limit,
 }
 
 impl Error {
@@ -145,6 +150,10 @@ impl Error {
         Self { kind: ErrorKind::InvalidValue, template: None, field: None, detail: Some(detail.to_string()) }
     }
 
+    pub(crate) fn limit(detail: impl Into<String>) -> Self {
+        Self { kind: ErrorKind::Limit, template: None, field: None, detail: Some(detail.into()) }
+    }
+
     pub(crate) fn unsupported(detail: impl Into<String>) -> Self {
         Self { kind: ErrorKind::Unsupported, template: None, field: None, detail: Some(detail.into()) }
     }
@@ -177,6 +186,7 @@ impl fmt::Display for Error {
             ErrorKind::Truncated => f.write_str("the message is truncated")?,
             ErrorKind::InvalidValue => f.write_str("invalid value")?,
             ErrorKind::Unsupported => f.write_str("not supported")?,
+            ErrorKind::Limit => f.write_str("over a limit")?,
         }
         if let Some(template) = &self.template {
             write!(f, " in template {template}")?;

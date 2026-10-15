@@ -18,6 +18,11 @@ const DRAFT_NAMESPACE: &str = "http://www.fixprotocol.org/ns/template-definition
 /// MsgType(35), which a template sets with a constant.
 const MSG_TYPE: u32 = 35;
 
+/// How deeply sequences, groups and template references may nest, in templates and, through
+/// dynamic template references, in the stream. Feeds nest two or three deep; the limit stops a
+/// reference cycle in templates, and recursion that input controls.
+pub(crate) const MAX_NESTING: usize = 16;
+
 /// A set of FAST templates, loaded once and shared by the decoders using them.
 #[derive(Debug)]
 pub struct Templates {
@@ -32,9 +37,24 @@ pub(crate) struct Template {
     pub(crate) name: Box<str>,
     /// MsgType(35), from the template's constant; empty if it has none.
     pub(crate) msg_type: MsgType,
+    /// Its fields; the presence map bits they use come after the template identifier's.
+    pub(crate) body: Group,
+}
+
+/// The fields of a template, group or sequence element: a segment with a presence map of its own
+/// if any of them uses a bit (sections 6.2.5, 6.2.6 and 10).
+#[derive(Debug)]
+pub(crate) struct Group {
     pub(crate) fields: Vec<Field>,
-    /// The most presence map bits the fields can use, after the template identifier's.
+    /// The most presence map bits the fields can use.
     pub(crate) presence_bits: usize,
+}
+
+impl Group {
+    fn new(fields: Vec<Field>) -> Self {
+        let presence_bits = fields.iter().map(Field::presence_bits).sum();
+        Self { fields, presence_bits }
+    }
 }
 
 /// A field instruction.
@@ -65,6 +85,16 @@ pub(crate) enum Kind {
         operator: Operator,
         length_tag: Option<u32>,
     },
+    /// A group, whose fields are written into the message in its place. Optional, it takes a bit.
+    Group(Group),
+    /// A sequence: a FIX repeating group, its length the NumInGroup field `length_tag`.
+    Sequence {
+        length: Operator,
+        length_tag: u32,
+        element: Group,
+    },
+    /// A dynamic template reference: a segment of its own, of the template it identifies.
+    TemplateRef,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,23 +160,30 @@ impl Templates {
     /// # Errors
     ///
     /// A static error (S1-S5) if the XML isn't a valid definition, with the template and field;
-    /// and an error for what this version doesn't handle yet: sequences, groups and template
-    /// references.
+    /// D8 for a static reference to a template that isn't there; and an error for a template
+    /// this crate can't map to FIX: a field `id` that isn't a number, a sequence without a
+    /// `<length>` `id`, a MsgType(35) that isn't a constant, or references nested more than 16
+    /// deep (a cycle, say).
     pub fn from_xml(xml: &str) -> Result<Self, Error> {
         let document = Document::parse(xml).map_err(|e| Error::spec(Code::S1).with_detail(e.to_string()))?;
         let root = document.root_element();
-        let mut loader = Loader { slots: HashMap::new() };
-        let mut by_id = HashMap::new();
         let inherited = Context::default().inherit(root);
         let templates: Vec<Node<'_, '_>> = match local_name(root) {
             Some("templates") => td_children(root).collect(),
             Some("template") => vec![root],
             _ => return Err(Error::spec(Code::S1).with_detail("the root isn't <templates> or <template>")),
         };
-        for node in templates {
+        let mut loader = Loader { slots: HashMap::new(), by_name: HashMap::new() };
+        for &node in &templates {
             if local_name(node) != Some("template") {
                 return Err(Error::spec(Code::S1).with_detail("<templates> holds only <template> elements"));
             }
+            let context = inherited.inherit(node);
+            let name = (context.template_ns.clone(), required_attribute(node, "name")?.to_string());
+            loader.by_name.insert(name, (node, context));
+        }
+        let mut by_id = HashMap::new();
+        for node in templates {
             let (id, template) = loader.template(node, &inherited)?;
             let name = template.name.clone();
             let Some(id) = id else { continue };
@@ -215,36 +252,92 @@ enum Part {
     Whole,
     Exponent,
     Mantissa,
+    /// A sequence's length, when it has no name of its own.
+    Length,
 }
 
-struct Loader {
+struct Loader<'d, 'i> {
     slots: HashMap<SlotKey, usize>,
+    /// Every template's element and what it inherits, by `templateNs` and name, for references.
+    by_name: HashMap<(String, String), (Node<'d, 'i>, Context)>,
 }
 
-impl Loader {
-    fn template(&mut self, node: Node<'_, '_>, inherited: &Context) -> Result<(Option<u32>, Template), Error> {
+impl<'d, 'i> Loader<'d, 'i> {
+    fn template(&mut self, node: Node<'d, 'i>, inherited: &Context) -> Result<(Option<u32>, Template), Error> {
         let name = required_attribute(node, "name")?;
-        let mut context = inherited.inherit(node);
+        let context = inherited.inherit(node);
         let id = node.attribute("id").map(|id| parse_id(id).map_err(|e| e.with_template(name))).transpose()?;
+        let fields = self.template_fields(node, &context, 0).map_err(|e| e.with_template(name))?;
+        let msg_type = msg_type(&fields).map_err(|e| e.with_template(name))?;
+        Ok((id, Template { name: name.into(), msg_type, body: Group::new(fields) }))
+    }
+
+    /// A template's instructions, compiled in its own context: a static reference to it from
+    /// another template makes it the current template (section 6.4).
+    fn template_fields(&mut self, node: Node<'d, 'i>, context: &Context, depth: usize) -> Result<Vec<Field>, Error> {
+        let name = required_attribute(node, "name")?;
         let template_key = format!("{}\u{1}{name}", context.template_ns);
+        self.instructions(node, context, &template_key, depth)
+    }
+
+    /// The instructions among `parent`'s children, static template references expanded.
+    fn instructions(
+        &mut self,
+        parent: Node<'d, 'i>,
+        inherited: &Context,
+        template_key: &str,
+        depth: usize,
+    ) -> Result<Vec<Field>, Error> {
+        if depth > MAX_NESTING {
+            return Err(Error::unsupported(format!("nesting deeper than {MAX_NESTING} (a reference cycle?)")));
+        }
+        let mut context = inherited.clone();
         let mut fields = Vec::new();
-        for child in td_children(node) {
-            let field = match local_name(child) {
+        for child in td_children(parent) {
+            match local_name(child) {
                 Some("typeRef") => {
                     let ns = child.attribute("ns").unwrap_or(&context.ns);
                     context.application_type = Some(format!("{ns}\u{1}{}", required_attribute(child, "name")?));
-                    continue;
                 }
-                _ => self.field(child, &context, &template_key),
-            };
-            fields.push(field.map_err(|e| e.with_template(name))?);
+                // A sequence's length, compiled with the sequence.
+                Some("length") if local_name(parent) == Some("sequence") => {}
+                Some("templateRef") => match child.attribute("name") {
+                    Some(name) => fields.extend(self.static_reference(child, name, &context, depth)?),
+                    None => fields.push(Field {
+                        name: "templateRef".into(),
+                        tag: None,
+                        optional: false,
+                        kind: Kind::TemplateRef,
+                    }),
+                },
+                _ => fields.push(self.field(child, &context, template_key, depth)?),
+            }
         }
-        let msg_type = msg_type(&fields).map_err(|e| e.with_template(name))?;
-        let presence_bits = fields.iter().map(Field::presence_bits).sum();
-        Ok((id, Template { name: name.into(), msg_type, fields, presence_bits }))
+        Ok(fields)
     }
 
-    fn field(&mut self, node: Node<'_, '_>, inherited: &Context, template_key: &str) -> Result<Field, Error> {
+    /// The instructions of the template a static reference names [ERR D8 if none].
+    fn static_reference(
+        &mut self,
+        node: Node<'d, 'i>,
+        name: &str,
+        context: &Context,
+        depth: usize,
+    ) -> Result<Vec<Field>, Error> {
+        let ns = node.attribute("templateNs").unwrap_or(&context.template_ns);
+        let Some((template, template_context)) = self.by_name.get(&(ns.to_string(), name.to_string())).cloned() else {
+            return Err(Error::spec(Code::D8).with_detail(format!("no template {name}")));
+        };
+        self.template_fields(template, &template_context, depth + 1)
+    }
+
+    fn field(
+        &mut self,
+        node: Node<'d, 'i>,
+        inherited: &Context,
+        template_key: &str,
+        depth: usize,
+    ) -> Result<Field, Error> {
         let name = required_attribute(node, "name")?;
         let tag = node.attribute("id").map(parse_id).transpose().map_err(|e| e.with_field(name))?;
         let optional = match node.attribute("presence") {
@@ -255,7 +348,7 @@ impl Loader {
             }
         };
         let context = inherited.inherit(node);
-        let scope = Scope { loader: self, context: &context, template_key, name, optional };
+        let scope = Scope { loader: self, context: &context, template_key, name, optional, depth };
         let kind = scope.kind(node).map_err(|e| e.with_field(name))?;
         Ok(Field { name: name.into(), tag, optional, kind })
     }
@@ -278,16 +371,17 @@ pub(crate) enum Type {
 }
 
 /// One field being compiled: what its operators need from around it.
-struct Scope<'l, 'c> {
-    loader: &'l mut Loader,
+struct Scope<'l, 'c, 'd, 'i> {
+    loader: &'l mut Loader<'d, 'i>,
     context: &'c Context,
     template_key: &'c str,
     name: &'c str,
     optional: bool,
+    depth: usize,
 }
 
-impl Scope<'_, '_> {
-    fn kind(mut self, node: Node<'_, '_>) -> Result<Kind, Error> {
+impl<'d, 'i> Scope<'_, '_, 'd, 'i> {
+    fn kind(mut self, node: Node<'d, 'i>) -> Result<Kind, Error> {
         let scope = &mut self;
         let element = local_name(node).unwrap_or_default();
         let kind = match element {
@@ -319,12 +413,34 @@ impl Scope<'_, '_> {
                     .transpose()?;
                 Kind::Bytes { operator: scope.operator(node, Type::Bytes, Part::Whole)?, length_tag }
             }
-            "sequence" | "group" | "templateRef" => {
-                return Err(Error::unsupported(format!("<{element}> isn't supported yet")));
+            "group" => {
+                let fields = scope.loader.instructions(node, scope.context, scope.template_key, scope.depth + 1)?;
+                Kind::Group(Group::new(fields))
             }
+            "sequence" => scope.sequence(node)?,
             _ => return Err(Error::spec(Code::S1).with_detail(format!("<{element}> isn't a field"))),
         };
         Ok(kind)
+    }
+
+    /// A sequence: its length field, a `uInt32` with an `id` for its NumInGroup tag, then the
+    /// element's instructions.
+    fn sequence(&mut self, node: Node<'d, 'i>) -> Result<Kind, Error> {
+        let length = td_children(node).find(|child| local_name(*child) == Some("length"));
+        let length_tag = length.and_then(|length| length.attribute("id")).map(parse_id).transpose()?;
+        let Some(length_tag) = length_tag else {
+            return Err(Error::unsupported("a sequence needs a <length> with an id, its NumInGroup tag"));
+        };
+        let length = length.expect("found with its id");
+        // The length's previous value is keyed by its name, or a name unique to the sequence's.
+        let (name, part) = match length.attribute("name") {
+            Some(name) => (name, Part::Whole),
+            None => (self.name, Part::Length),
+        };
+        let mut length_scope = Scope { loader: &mut *self.loader, name, ..*self };
+        let operator = length_scope.operator(length, Type::Integer(IntegerType::UInt32), part);
+        let fields = self.loader.instructions(node, self.context, self.template_key, self.depth + 1)?;
+        Ok(Kind::Sequence { length: operator?, length_tag, element: Group::new(fields) })
     }
 
     fn decimal(&mut self, node: Node<'_, '_>) -> Result<Kind, Error> {
@@ -422,6 +538,9 @@ impl Field {
             | Kind::Unicode(operator)
             | Kind::Bytes { operator, .. } => bits(operator, self.optional),
             Kind::DecimalParts { exponent, mantissa } => bits(exponent, self.optional) + bits(mantissa, false),
+            Kind::Group(_) => usize::from(self.optional),
+            Kind::Sequence { length, .. } => bits(length, self.optional),
+            Kind::TemplateRef => 0,
         }
     }
 }
@@ -504,9 +623,9 @@ mod tests {
         .expect("valid");
         let template = templates.get(7).expect("loaded by id");
         assert_eq!(template.msg_type.code(), "X");
-        assert_eq!(template.fields.len(), 3);
+        assert_eq!(template.body.fields.len(), 3);
         // Only the copy needs a bit.
-        assert_eq!(template.presence_bits, 1);
+        assert_eq!(template.body.presence_bits, 1);
         assert_eq!(templates.slots, 1);
     }
 
@@ -535,10 +654,46 @@ mod tests {
     }
 
     #[test]
-    fn what_later_stages_add_is_refused_for_now() {
-        for fields in [r#"<sequence name="S"><uInt32 name="A"/></sequence>"#, r#"<templateRef name="X"/>"#] {
-            assert_eq!(load(fields).unwrap_err().code(), None, "{fields}");
-        }
+    fn references_and_sequences_are_checked_as_they_load() {
+        // A static reference to an unknown template, a cycle, and a sequence without a NumInGroup.
+        assert_eq!(load(r#"<templateRef name="Missing"/>"#).unwrap_err().code(), Some(Code::D8));
+        let cycle = Templates::from_xml(
+            r#"<templates><template name="A"><templateRef name="B"/></template>
+                          <template name="B"><templateRef name="A"/></template></templates>"#,
+        );
+        assert_eq!(cycle.unwrap_err().kind(), crate::ErrorKind::Unsupported);
+        let error = load(r#"<sequence name="S"><uInt32 name="A"/></sequence>"#).unwrap_err();
+        assert_eq!(error.kind(), crate::ErrorKind::Unsupported);
+    }
+
+    #[test]
+    fn static_references_inline_the_template_and_count_its_bits() {
+        let templates = Templates::from_xml(
+            r#"<templates>
+                 <template name="Header"><uInt32 name="MsgSeqNum" id="34"><increment/></uInt32></template>
+                 <template name="Heartbeat" id="1"><templateRef name="Header"/><string name="Text" id="58"/></template>
+               </templates>"#,
+        )
+        .expect("valid");
+        let heartbeat = templates.get(1).expect("loaded");
+        assert_eq!(heartbeat.body.fields.len(), 2);
+        assert_eq!(heartbeat.body.presence_bits, 1);
+    }
+
+    #[test]
+    fn groups_and_sequences_count_their_own_bits() {
+        let templates = load(
+            r#"<group name="G" presence="optional"><uInt32 name="A"><copy/></uInt32></group>
+               <sequence name="S"><length name="N" id="9"><copy/></length><uInt32 name="B"/></sequence>"#,
+        )
+        .expect("valid");
+        let template = templates.get(1).expect("loaded");
+        // The optional group's bit and the length's copy; the group's own copy is in its own map.
+        assert_eq!(template.body.presence_bits, 2);
+        let Kind::Group(group) = &template.body.fields[0].kind else { panic!("a group") };
+        assert_eq!(group.presence_bits, 1);
+        let Kind::Sequence { element, length_tag, .. } = &template.body.fields[1].kind else { panic!("a sequence") };
+        assert_eq!((*length_tag, element.presence_bits), (9, 0));
     }
 
     #[test]
@@ -557,7 +712,7 @@ mod tests {
     #[test]
     fn foreign_elements_are_skipped() {
         let templates = load(r#"<x:note xmlns:x="urn:example"><x:anything/></x:note><uInt32 name="A"/>"#);
-        assert_eq!(templates.expect("valid").get(1).expect("loaded").fields.len(), 1);
+        assert_eq!(templates.expect("valid").get(1).expect("loaded").body.fields.len(), 1);
     }
 
     #[test]

@@ -17,3 +17,8 @@ turbojet.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# Another implementation, to check decoding against (tests/fastlib.rs).
+fastlib = { version = "0.3", default-features = false }
+turbojet-fix44.workspace = true

@@ -7,7 +7,7 @@ use turbojet::Message;
 use turbojet::fields::ToFix;
 
 use crate::convert::EXPONENT_RANGE;
-use crate::templates::{Field, IntegerType, Kind, Operator, OperatorKind, Template, Type, Value};
+use crate::templates::{Field, Group, IntegerType, Kind, MAX_NESTING, Operator, OperatorKind, Template, Type, Value};
 use crate::wire::{PresenceMap, Reader, push_ascii};
 use crate::{Code, Error, Templates};
 
@@ -66,38 +66,31 @@ impl Decoder {
     /// isn't UTF-8 or holds SOH. After an error, `msg` holds part of the message, and the
     /// previous values may no longer match the encoder's.
     pub fn decode_into<'a>(&mut self, input: &'a [u8], msg: &mut Message) -> Result<Decoded<'a>, Error> {
-        let mut reader = Reader::new(input);
-        let mut presence = reader.presence_map()?;
-        let template_id = if presence.next_bit() {
-            let id = reader.unsigned(false)?.expect("a mandatory integer isn't NULL");
-            let id = u32::try_from(id).map_err(|_| Error::spec(Code::D2))?;
-            self.template_id = Some(id);
-            id
-        } else {
-            self.template_id.ok_or_else(|| Error::spec(Code::D5).with_detail("no template identifier yet"))?
-        };
-        let template = self
-            .templates
-            .get(template_id)
-            .ok_or_else(|| Error::spec(Code::D9).with_detail(format!("template id {template_id}")))?;
-        check_presence_map_length(&presence, template).map_err(|e| e.with_template(&template.name))?;
-        msg.reset(template.msg_type.clone());
         let mut decoding = Decoding {
-            reader: &mut reader,
-            presence: &mut presence,
+            reader: Reader::new(input),
+            presence: PresenceMap::empty(),
+            templates: &self.templates,
+            template_id: &mut self.template_id,
             slots: &mut self.slots,
             scratch: &mut self.scratch,
+            depth: 0,
+            entries: 0,
         };
-        for field in &template.fields {
-            decoding.field(field, msg).map_err(|e| e.with_template(&template.name).with_field(&field.name))?;
-        }
-        Ok(Decoded { template_id, rest: reader.rest() })
+        decoding.presence = decoding.reader.presence_map()?;
+        let (template_id, template) = decoding.identified_template()?;
+        msg.reset(template.msg_type.clone());
+        decoding.fields(&template.body.fields, msg).map_err(|e| e.with_template(&template.name))?;
+        Ok(Decoded { template_id, rest: decoding.reader.rest() })
     }
 }
 
-/// [ERR R8]: more presence map bytes than the template's fields could use.
-fn check_presence_map_length(presence: &PresenceMap<'_>, template: &Template) -> Result<(), Error> {
-    let bits_needed = 1 + template.presence_bits;
+/// The most sequence entries one message may have, nested ones included. A market data message
+/// has tens; the limit bounds the work a short message can ask for, since an entry may take no
+/// bytes at all.
+const MAX_ENTRIES: usize = 100_000;
+
+/// [ERR R8]: more presence map bytes than a segment's fields could use.
+fn check_presence_map_length(presence: &PresenceMap<'_>, bits_needed: usize) -> Result<(), Error> {
     let bytes_needed = bits_needed.div_ceil(7).max(1);
     if presence.len_bits() / 7 > bytes_needed {
         return Err(Error::spec(Code::R8));
@@ -261,19 +254,126 @@ impl Slot {
     }
 }
 
-/// What decoding one message's fields works on.
-struct Decoding<'r, 'a> {
-    reader: &'r mut Reader<'a>,
-    presence: &'r mut PresenceMap<'a>,
+/// What decoding one message works on.
+struct Decoding<'r, 'a, 't> {
+    reader: Reader<'a>,
+    /// The presence map of the segment being decoded.
+    presence: PresenceMap<'a>,
+    templates: &'t Templates,
+    template_id: &'r mut Option<u32>,
     slots: &'r mut [Slot],
     scratch: &'r mut Vec<u8>,
+    /// How deeply groups, sequences and template references nest at this point.
+    depth: usize,
+    /// The sequence entries decoded so far.
+    entries: usize,
 }
 
-impl<'a> Decoding<'_, 'a> {
+impl<'a, 't> Decoding<'_, 'a, 't> {
+    /// The template a segment's identifier names (section 10.3): read if its presence map bit is
+    /// set, else the previous one, as if by a copy operator.
+    fn identified_template(&mut self) -> Result<(u32, &'t Template), Error> {
+        let id = if self.presence.next_bit() {
+            let id = self.reader.unsigned(false)?.expect("a mandatory integer isn't NULL");
+            let id = u32::try_from(id).map_err(|_| Error::spec(Code::D2))?;
+            *self.template_id = Some(id);
+            id
+        } else {
+            self.template_id.ok_or_else(|| Error::spec(Code::D5).with_detail("no template identifier yet"))?
+        };
+        let template =
+            self.templates.get(id).ok_or_else(|| Error::spec(Code::D9).with_detail(format!("template id {id}")))?;
+        check_presence_map_length(&self.presence, 1 + template.body.presence_bits)
+            .map_err(|e| e.with_template(&template.name))?;
+        Ok((id, template))
+    }
+
+    fn fields(&mut self, fields: &'t [Field], msg: &mut Message) -> Result<(), Error> {
+        for field in fields {
+            self.field(field, msg).map_err(|e| e.with_field(&field.name))?;
+        }
+        Ok(())
+    }
+
+    /// Runs `decode` one level deeper [up to MAX_NESTING].
+    fn nested(&mut self, decode: impl FnOnce(&mut Self) -> Result<(), Error>) -> Result<(), Error> {
+        if self.depth >= MAX_NESTING {
+            return Err(Error::limit(format!("nesting deeper than {MAX_NESTING}")));
+        }
+        self.depth += 1;
+        let result = decode(self);
+        self.depth -= 1;
+        result
+    }
+
+    /// A group's or sequence element's fields, under a presence map of their own if they use one.
+    fn segment(&mut self, group: &'t Group, msg: &mut Message) -> Result<(), Error> {
+        self.nested(|this| {
+            if group.presence_bits == 0 {
+                return this.fields(&group.fields, msg);
+            }
+            let presence = this.reader.presence_map()?;
+            check_presence_map_length(&presence, group.presence_bits)?;
+            let outer = std::mem::replace(&mut this.presence, presence);
+            let result = this.fields(&group.fields, msg);
+            this.presence = outer;
+            result
+        })
+    }
+
+    /// A sequence: its length, written as the NumInGroup field, then each element.
+    fn sequence(
+        &mut self,
+        field: &Field,
+        length: &Operator,
+        length_tag: u32,
+        element: &'t Group,
+        msg: &mut Message,
+    ) -> Result<(), Error> {
+        let uint32 = Type::Integer(IntegerType::UInt32);
+        let count = self.operate(length, field.optional, uint32, |reader, _| {
+            integer_value(reader, IntegerType::UInt32, field.optional)
+        })?;
+        let Some(Got::Integer(count)) = count else { return Ok(()) };
+        let count = u32::try_from(count).expect("a uInt32 is in range");
+        self.entries = self.entries.saturating_add(usize::try_from(count).unwrap_or(usize::MAX));
+        if self.entries > MAX_ENTRIES {
+            return Err(Error::limit(format!("more than {MAX_ENTRIES} sequence entries")));
+        }
+        msg.push(length_tag, count);
+        for _ in 0..count {
+            self.segment(element, msg)?;
+        }
+        Ok(())
+    }
+
+    /// A dynamic template reference (section 6.4): a segment of the template it identifies.
+    fn dynamic_reference(&mut self, msg: &mut Message) -> Result<(), Error> {
+        self.nested(|this| {
+            let presence = this.reader.presence_map()?;
+            let outer = std::mem::replace(&mut this.presence, presence);
+            let result = this.identified_template().and_then(|(_, template)| {
+                this.fields(&template.body.fields, msg).map_err(|e| e.with_template(&template.name))
+            });
+            this.presence = outer;
+            result
+        })
+    }
+
     /// Decodes one field and writes it into `msg`, unless it's absent or has no tag.
-    fn field(&mut self, field: &Field, msg: &mut Message) -> Result<(), Error> {
+    fn field(&mut self, field: &'t Field, msg: &mut Message) -> Result<(), Error> {
         let optional = field.optional;
         let value = match &field.kind {
+            Kind::Group(group) => {
+                if optional && !self.presence.next_bit() {
+                    return Ok(());
+                }
+                return self.segment(group, msg);
+            }
+            Kind::Sequence { length, length_tag, element } => {
+                return self.sequence(field, length, *length_tag, element, msg);
+            }
+            Kind::TemplateRef => return self.dynamic_reference(msg),
             Kind::Integer(integer, operator) => {
                 let ty = Type::Integer(*integer);
                 self.operate(operator, optional, ty, |reader, _| integer_value(reader, *integer, optional))?
@@ -334,10 +434,10 @@ impl<'a> Decoding<'_, 'a> {
     ) -> Result<Option<Got<'s>>, Error> {
         let initial = operator.initial.as_ref().map(Got::from);
         match operator.kind {
-            OperatorKind::None => read(self.reader, self.scratch),
+            OperatorKind::None => read(&mut self.reader, self.scratch),
             OperatorKind::Constant if optional && !self.presence.next_bit() => Ok(None),
             OperatorKind::Constant => Ok(initial),
-            OperatorKind::Default if self.presence.next_bit() => read(self.reader, self.scratch),
+            OperatorKind::Default if self.presence.next_bit() => read(&mut self.reader, self.scratch),
             OperatorKind::Default => Ok(initial),
             OperatorKind::Delta => self.delta(operator, optional, ty),
             OperatorKind::Copy | OperatorKind::Increment | OperatorKind::Tail => {
@@ -345,7 +445,7 @@ impl<'a> Decoding<'_, 'a> {
                 if !self.presence.next_bit() {
                     return slot.unchanged(operator.kind, ty, initial, optional);
                 }
-                let Some(value) = read(self.reader, self.scratch)? else {
+                let Some(value) = read(&mut self.reader, self.scratch)? else {
                     slot.state = State::Empty;
                     return Ok(None);
                 };
@@ -658,6 +758,25 @@ mod tests {
     }
 
     #[test]
+    fn an_optional_delta_strings_part_is_not_nullable() {
+        // Section 10.7.3: only the subtraction length is nullable. 0x82 (remove one, nullable)
+        // then 0x80, an empty string; 0x00 0x80 would be "\0".
+        let mut decoder = decoder(r#"<string id="1" presence="optional" name="A"><delta value="AB"/></string>"#);
+        assert_eq!(value(&mut decoder, &message(&[], &[0x82, 0x80])), ok("A"));
+        assert_eq!(value(&mut decoder, &message(&[], &[0x81, 0x00, 0x80])), ok("A\0"));
+    }
+
+    #[test]
+    fn integer_deltas_can_be_wider_than_their_field() {
+        // Section 6.3.7.1's note: a uInt64 going from 0 to its maximum and back needs 65 bits.
+        let mut decoder = decoder(r#"<uInt64 id="1" name="A"><delta/></uInt64>"#);
+        let up = [&[0x01][..], &[0x7f; 8], &[0xff]].concat();
+        assert_eq!(value(&mut decoder, &message(&[], &up)), ok("18446744073709551615"));
+        let down = [&[0x7e][..], &[0x00; 8], &[0x81]].concat();
+        assert_eq!(value(&mut decoder, &message(&[], &down)), ok("0"));
+    }
+
+    #[test]
     fn delta_errors() {
         let mut d = decoder(r#"<string id="1" name="A"><delta value="AB"/></string>"#);
         let code = |d: &mut Decoder, body: &[u8]| value(d, &message(&[], body)).unwrap_err().code();
@@ -710,6 +829,73 @@ mod tests {
         let error = value(&mut decoder, &message(&[false], &[])).unwrap_err();
         assert_eq!(error.code(), Some(Code::D5));
         assert_eq!(value(&mut decoder, &message(&[true], &[0x81, 0xab])), ok("ab"));
+    }
+
+    /// Decodes `input` against `xml`, returning every field written, as text.
+    fn decode_all(xml: &str, input: &[u8]) -> Result<Vec<(u32, String)>, Error> {
+        let mut decoder = Decoder::new(Arc::new(Templates::from_xml(xml).expect("valid templates")));
+        let mut msg = Message::default();
+        let decoded = decoder.decode_into(input, &mut msg)?;
+        assert!(decoded.rest.is_empty(), "the whole message is read");
+        Ok(msg.fields().map(|(tag, value)| (tag, value.to_string())).collect())
+    }
+
+    fn fields(pairs: &[(u32, &str)]) -> Vec<(u32, String)> {
+        pairs.iter().map(|&(tag, value)| (tag, value.to_string())).collect()
+    }
+
+    #[test]
+    fn optional_groups_take_a_bit_and_bring_their_own_presence_map() {
+        let xml = r#"<template name="T" id="1">
+                       <group name="G" presence="optional"><uInt32 id="2" name="A"><copy/></uInt32></group>
+                       <uInt32 id="3" name="B"/>
+                     </template>"#;
+        // Present: the group's bit, then its own map with A's bit.
+        assert_eq!(decode_all(xml, &[0xe0, 0x81, 0xc0, 0x85, 0x86]), Ok(fields(&[(35, ""), (2, "5"), (3, "6")])));
+        // Absent: no map of its own.
+        assert_eq!(decode_all(xml, &[0xc0, 0x81, 0x86]), Ok(fields(&[(35, ""), (3, "6")])));
+    }
+
+    #[test]
+    fn sequences_write_a_repeating_group() {
+        let xml = r#"<template name="T" id="1">
+                       <sequence name="S" presence="optional">
+                         <length name="N" id="9"/>
+                         <uInt32 id="2" name="A"><copy/></uInt32>
+                         <string id="3" name="B"/>
+                       </sequence>
+                     </template>"#;
+        // Two entries, each with its own map: A sent, then copied.
+        let input = [0xc0, 0x81, 0x83, 0xc0, 0x85, 0xd8, 0x80, 0xd9];
+        let expected = fields(&[(35, ""), (9, "2"), (2, "5"), (3, "X"), (2, "5"), (3, "Y")]);
+        assert_eq!(decode_all(xml, &input), Ok(expected));
+        // A NULL length: no group at all.
+        assert_eq!(decode_all(xml, &[0xc0, 0x81, 0x80]), Ok(fields(&[(35, "")])));
+    }
+
+    #[test]
+    fn dynamic_references_decode_the_template_they_name() {
+        let xml = r#"<templates>
+                       <template name="Outer" id="1"><uInt32 id="2" name="A"/><templateRef/></template>
+                       <template name="Inner" id="2"><uInt32 id="3" name="B"><copy/></uInt32></template>
+                     </templates>"#;
+        // Outer, A = 1, then a segment: map (identifier, B), identifier 2, B = 7.
+        let input = [0xc0, 0x81, 0x81, 0xe0, 0x82, 0x87];
+        assert_eq!(decode_all(xml, &input), Ok(fields(&[(35, ""), (2, "1"), (3, "7")])));
+    }
+
+    #[test]
+    fn work_a_message_can_ask_for_is_bounded() {
+        // Entries that take no bytes, as many as a length can say.
+        let xml = r#"<template name="T" id="1">
+                       <sequence name="S"><length name="N" id="9"/><uInt32 id="2" name="A"><constant value="1"/></uInt32></sequence>
+                     </template>"#;
+        let error = decode_all(xml, &[0xc0, 0x81, 0x0f, 0x7f, 0x7f, 0x7f, 0xff]).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Limit);
+        // A template that refers to itself, again and again.
+        let xml = r#"<template name="T" id="1"><templateRef/></template>"#;
+        let input: Vec<u8> = std::iter::repeat_n([0xc0, 0x81], MAX_NESTING + 2).flatten().collect();
+        assert_eq!(decode_all(xml, &input).unwrap_err().kind(), ErrorKind::Limit);
     }
 
     #[test]

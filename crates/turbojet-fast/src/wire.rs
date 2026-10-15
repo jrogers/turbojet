@@ -147,6 +147,11 @@ pub(crate) struct PresenceMap<'a> {
 }
 
 impl PresenceMap<'_> {
+    /// A map of no bits, all of them zero.
+    pub(crate) fn empty() -> Self {
+        Self { bytes: &[], next: 0 }
+    }
+
     pub(crate) fn next_bit(&mut self) -> bool {
         let (byte, bit) = (self.next / 7, self.next % 7);
         self.next += 1;
