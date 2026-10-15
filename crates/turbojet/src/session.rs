@@ -1939,6 +1939,9 @@ impl Session {
         self.window_end = None;
         self.holds.clear();
         self.update_sequence_gauges();
+        if let Some(live) = &self.live {
+            live.reset();
+        }
         Ok(())
     }
 

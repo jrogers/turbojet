@@ -1052,6 +1052,42 @@ fn a_reset_logon_ends_a_gap() {
     assert_eq!(h.app.received(), 1, "only B: the queued order belonged to the old numbering");
 }
 
+/// The operator's view counts each reset Logon, so an application can tell the numbers started
+/// again even once `next_outgoing` is back past where it was.
+#[test]
+fn a_reset_logon_while_logged_on_counts_in_the_activity() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    let activity = || h.registry.handle(client_id()).status().unwrap().activity.unwrap();
+    assert_eq!(activity().resets, 0);
+    s.recv(order(2, "A"), h.t0); // our 2: ExecutionReport
+    s.recv(reset_logon(), h.t0); // our Logon goes out at 1
+    assert_eq!((activity().resets, activity().next_outgoing), (1, 2));
+    for (seq, id) in [(2, "B"), (3, "C"), (4, "D")] {
+        s.recv(order(seq, id), h.t0);
+    }
+    assert_eq!(activity().next_outgoing, 5, "past where it was before the reset");
+    s.recv(reset_logon(), h.t0);
+    assert_eq!((activity().resets, activity().next_outgoing), (2, 2));
+}
+
+/// A reset at logon comes after the bind, which first publishes the stored numbers, so it counts
+/// too: on either side.
+#[test]
+fn a_reset_at_logon_counts_in_the_activity() {
+    let h = Harness::new();
+    let mut s = h.initiator(true);
+    s.connect(h.t0); // our Logon, at 1 with ResetSeqNumFlag=Y
+    let handle = h.registry.handle(s.session_id().unwrap().clone());
+    assert_eq!(handle.status().unwrap().activity.unwrap().resets, 1);
+    drop(s);
+
+    let mut s = h.session();
+    s.recv(reset_logon(), h.t0);
+    let activity = h.registry.handle(client_id()).status().unwrap().activity.unwrap();
+    assert_eq!((activity.resets, activity.next_outgoing), (1, 2));
+}
+
 /// A reset Logon must be MsgSeqNum 1; otherwise a Logon while logged on is refused as before.
 #[test]
 fn a_reset_logon_at_another_number_is_refused() {

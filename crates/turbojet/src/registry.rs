@@ -508,6 +508,9 @@ pub(crate) struct LiveStatus {
     /// Nanoseconds from `origin`.
     last_received: AtomicU64,
     last_sent: AtomicU64,
+    /// Stored `Release` after the reset numbers, and loaded `Acquire` before them: see
+    /// [`reset`](Self::reset).
+    resets: AtomicU64,
 }
 
 impl LiveStatus {
@@ -520,6 +523,7 @@ impl LiveStatus {
             resending: AtomicBool::new(false),
             last_received: AtomicU64::new(0),
             last_sent: AtomicU64::new(0),
+            resets: AtomicU64::new(0),
         }
     }
 
@@ -529,6 +533,14 @@ impl LiveStatus {
 
     pub(crate) fn set_next_outgoing(&self, seq: u64) {
         self.next_outgoing.store(seq, Ordering::Relaxed);
+    }
+
+    /// The store was reset, and its numbers since published. `Release`, after them, so a reader
+    /// that sees the new count (`Acquire`, before reading them) sees the reset numbers too, not
+    /// the old ones: otherwise it might take old numbers as the new numbering's. Only on a reset,
+    /// so the fence costs nothing that matters.
+    pub(crate) fn reset(&self) {
+        self.resets.fetch_add(1, Ordering::Release);
     }
 
     /// Whether it changed.
@@ -564,7 +576,10 @@ impl LiveStatus {
             1 => SessionState::LoggedOn,
             _ => SessionState::LoggingOut,
         };
+        // Before the numbers: see `reset`.
+        let resets = self.resets.load(Ordering::Acquire);
         Activity {
+            resets,
             state,
             resending: self.resending.load(Ordering::Relaxed),
             next_incoming: self.next_incoming.load(Ordering::Relaxed),
@@ -643,6 +658,16 @@ pub struct Activity {
     pub last_received: DateTime<Utc>,
     /// When it last sent one (or bound, if it hasn't since).
     pub last_sent: DateTime<Utc>,
+    /// How many times its sequence numbers have started again since it bound: the counterparty's
+    /// ResetSeqNumFlag(141)=Y while logged on, and a reset at logon (`reset_on_logon`, or the
+    /// counterparty's flag on its Logon), which comes after the bind publishes the stored numbers.
+    /// A reset for a new schedule period, made as the session binds and before it publishes them,
+    /// isn't counted. A FIXP session's stays 0: its numbers start again only on a new connection.
+    ///
+    /// Compare two reads to tell the numbers started again between them: `next_outgoing` alone
+    /// can't, as a reset session may since have sent more than it had before. A read that sees a
+    /// count sees the numbers from that reset or later.
+    pub resets: u64,
 }
 
 /// A connected session, for an operator: see [`SessionRegistry::statuses`] and
