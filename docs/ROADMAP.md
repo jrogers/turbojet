@@ -48,6 +48,13 @@ What's left is more FIX versions and the rest of Orchestra.
 
 ## 3. Encoding and data types
 
+- **Parse a FIX message from a string** (S). `codec::decode` reads wire bytes as a connection
+  receives them: SOH delimiters, a correct BodyLength and CheckSum, and an answer shaped for a
+  stream (`Incomplete`, `Garbled`). Tools, tests and services that handle FIX outside a session
+  want `"8=FIX.4.4|9=…|35=D|…".parse::<Message>()`: SOH or `|` between fields, BodyLength and
+  CheckSum checked when they're there and optional when they aren't, data fields read by their
+  Length fields, and an error saying which field is wrong. From there `msg.parse()` gives the
+  typed message, and the reverse, a `Message` written with `|` for display, belongs with it.
 - **Non-UTF-8 text** (S). Text in another encoding (MessageEncoding 347) belongs in the Encoded*
   data fields, which carry it intact but only as bytes: nothing decodes it. Decoding by
   MessageEncoding (Shift_JIS, say) would need an encoding crate. Outside data fields, a value
