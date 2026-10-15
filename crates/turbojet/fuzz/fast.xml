@@ -1,0 +1,51 @@
+<!-- Templates for the FAST fuzz targets: every field type, operator and structure. -->
+<templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
+  <template name="Header">
+    <uInt32 name="MsgSeqNum" id="34"><increment/></uInt32>
+  </template>
+  <template name="Quote" id="1">
+    <templateRef name="Header"/>
+    <string name="MsgType" id="35"><constant value="X"/></string>
+    <uInt64 name="SendingTime" id="52"><delta/></uInt64>
+    <string name="Symbol" id="55"><copy/></string>
+    <string name="Text" id="58" presence="optional"><default/></string>
+    <int32 name="I32" id="1001" presence="optional"><copy/></int32>
+    <int64 name="I64" id="1002"><delta/></int64>
+    <uInt32 name="U32" id="1003" presence="optional"><increment/></uInt32>
+    <decimal name="Px" id="1004"><delta/></decimal>
+    <decimal name="Qty" id="1005" presence="optional"><copy/></decimal>
+    <decimal name="Parts" id="1006" presence="optional">
+      <exponent><copy value="-2"/></exponent><mantissa><delta/></mantissa>
+    </decimal>
+    <decimal name="Fixed" id="1012"><exponent><constant value="-4"/></exponent><mantissa><increment/></mantissa></decimal>
+    <string name="Account" id="1007"><tail value="ACCT0000"/></string>
+    <string name="Desc" id="1008" charset="unicode" presence="optional"><delta/></string>
+    <string name="Venue" id="1009" presence="optional"><delta/></string>
+    <byteVector name="Raw" id="96" presence="optional"><length name="RawLength" id="95"/><tail/></byteVector>
+    <byteVector name="Hex" id="1013"><copy dictionary="template"/></byteVector>
+    <group name="Extra" presence="optional">
+      <uInt32 name="E1" id="1010"><copy/></uInt32>
+      <string name="E2" id="1011"/>
+    </group>
+    <sequence name="Entries">
+      <length name="NoMDEntries" id="268"><copy/></length>
+      <uInt32 name="Action" id="279"><copy/></uInt32>
+      <decimal name="EntryPx" id="270"><delta/></decimal>
+      <int32 name="Level" id="1023" presence="optional"><default value="1"/></int32>
+      <string name="Cond" id="276"><delta/></string>
+      <sequence name="Inner" presence="optional">
+        <length name="NoInner" id="1030"/>
+        <uInt64 name="InnerId" id="1031"/>
+      </sequence>
+    </sequence>
+  </template>
+  <template name="Status" id="2">
+    <uInt32 name="MsgSeqNum" id="34"><increment/></uInt32>
+    <string name="Status" id="326"><copy dictionary="type"/></string>
+  </template>
+  <template name="Wrapper" id="3">
+    <string name="MsgType" id="35"><constant value="B"/></string>
+    <uInt32 name="Count" id="1040"/>
+    <templateRef/>
+  </template>
+</templates>

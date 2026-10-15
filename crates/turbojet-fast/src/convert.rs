@@ -60,7 +60,9 @@ pub(crate) fn decimal_as_written(s: &str) -> Option<(i32, i64)> {
     EXPONENT_RANGE.contains(&exponent).then_some((exponent, mantissa))
 }
 
-/// An optional `-`, digits, and at most one `.`, as an exponent and mantissa.
+/// An optional `-`, digits, and at most one `.`, as an exponent and mantissa. Trailing zeros
+/// stay in the mantissa as far as it fits an `i64`, and go into the exponent past that: a decoded
+/// `1 * 10^63` is written with 63 zeros.
 fn scaled(s: &str) -> Option<(i32, i128)> {
     let unsigned = s.strip_prefix('-').unwrap_or(s);
     let (whole, fraction) = unsigned.split_once('.').unwrap_or((unsigned, ""));
@@ -68,14 +70,26 @@ fn scaled(s: &str) -> Option<(i32, i128)> {
     if digits().next().is_none() || !digits().all(|b| b.is_ascii_digit()) {
         return None;
     }
+    let count = whole.len() + fraction.len();
+    let zeros = digits().rev().take_while(|&b| b == b'0').count();
     let mut mantissa: i128 = 0;
-    for b in digits() {
+    for b in digits().take(count - zeros) {
         mantissa = mantissa.checked_mul(10)?.checked_add(i128::from(b - b'0'))?;
+    }
+    let mut exponent = -i32::try_from(fraction.len()).ok()? + i32::try_from(zeros).ok()?;
+    for _ in 0..zeros {
+        match mantissa.checked_mul(10).filter(|m| i64::try_from(*m).is_ok()) {
+            Some(longer) => {
+                mantissa = longer;
+                exponent -= 1;
+            }
+            None => break,
+        }
     }
     if unsigned.len() < s.len() {
         mantissa = -mantissa;
     }
-    Some((-i32::try_from(fraction.len()).ok()?, mantissa))
+    Some((exponent, mantissa))
 }
 
 /// Pairs of hexadecimal digits, with any whitespace between them ignored (section 8.1.3).
@@ -111,6 +125,8 @@ mod tests {
         for bad in ["", ".", "-", "1e3", "1.2.3", "+1", "99999999999999999999"] {
             assert_eq!(decimal(bad), None, "{bad}");
         }
+        assert_eq!(decimal_as_written("9427.50"), Some((-2, 942_750)));
+        assert_eq!(decimal_as_written(&format!("1{}", "0".repeat(63))), Some((45, 1_000_000_000_000_000_000)));
     }
 
     #[test]

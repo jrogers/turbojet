@@ -504,6 +504,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "rust_decimal"
 version = "1.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -741,6 +750,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbojet-fast"
+version = "0.3.0"
+dependencies = [
+ "roxmltree",
+ "turbojet",
+]
+
+[[package]]
 name = "turbojet-fix42"
 version = "0.3.0"
 dependencies = [
@@ -776,6 +793,7 @@ dependencies = [
  "libfuzzer-sys",
  "tokio",
  "turbojet",
+ "turbojet-fast",
  "turbojet-fix42",
  "turbojet-fix43",
  "turbojet-fix44",

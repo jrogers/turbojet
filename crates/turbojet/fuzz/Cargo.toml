@@ -23,6 +23,7 @@ turbojet-fix42 = { path = "../../turbojet-fix42" }
 turbojet-fix43 = { path = "../../turbojet-fix43" }
 turbojet-fix44 = { path = "../../turbojet-fix44" }
 turbojet-fix50sp2 = { path = "../../turbojet-fix50sp2" }
+turbojet-fast = { path = "../../turbojet-fast" }
 
 # Symbols in stack traces.
 [profile.release]
@@ -66,6 +67,27 @@ bench = false
 [[bin]]
 name = "fixp_session"
 path = "fuzz_targets/fixp_session.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fast_decode"
+path = "fuzz_targets/fast_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fast_templates"
+path = "fuzz_targets/fast_templates.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fast_round_trip"
+path = "fuzz_targets/fast_round_trip.rs"
 test = false
 doc = false
 bench = false
