@@ -1,0 +1,4014 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<fixr:repository xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:fixr="http://fixprotocol.io/2020/orchestra/repository" specUrl="http://www.fixprotocol.org/specifications/fix4.1spec" name="FIX.4.1" version="FIX.4.1">
+   <fixr:metadata>
+      <dc:title>Orchestra</dc:title>
+      <dc:creator>unified2orchestra.xslt script</dc:creator>
+      <dc:publisher>FIX Trading Community</dc:publisher>
+      <dc:format>Orchestra schema</dc:format>
+      <dc:source>FIX Unified Repository</dc:source>
+      <dc:rights>Copyright (c) FIX Protocol Ltd. All Rights Reserved.</dc:rights>
+   </fixr:metadata>
+   <fixr:codeSets>
+      <fixr:codeSet name="AdvSideCodeSet" id="4" type="char">
+         <fixr:code name="Buy" id="4001" value="B" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Sell" id="4002" value="S" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Trade" id="4003" value="T" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Cross" id="4004" value="X" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="AdvTransTypeCodeSet" id="5" type="char">
+         <fixr:code name="Cancel" id="5001" value="C" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="New" id="5002" value="N" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Replace" id="5003" value="R" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="CommTypeCodeSet" id="13" type="char">
+         <fixr:code name="PerUnit" id="13001" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Percent" id="13002" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Absolute" id="13003" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ExecInstCodeSet" id="18" type="MultipleValueString">
+         <fixr:code name="StayOnOfferSide" id="18001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NotHeld" id="18002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Work" id="18003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="GoAlong" id="18004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OverTheDay" id="18005" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Held" id="18006" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ParticipateDoNotInitiate" id="18007" value="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StrictScale" id="18008" value="7" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TryToScale" id="18009" value="8" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StayOnBidSide" id="18010" value="9" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NoCross" id="18011" value="A" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OKToCross" id="18012" value="B" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CallFirst" id="18013" value="C" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PercentOfVolume" id="18014" value="D" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DoNotIncrease" id="18015" value="E" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DoNotReduce" id="18016" value="F" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AllOrNone" id="18017" value="G" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="InstitutionsOnly" id="18018" value="I" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="LastPeg" id="18019" value="L" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MidPricePeg" id="18020" value="M" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NonNegotiable" id="18021" value="N" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OpeningPeg" id="18022" value="O" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MarketPeg" id="18023" value="P" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PrimaryPeg" id="18024" value="R" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Suspend" id="18025" value="S" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CustomerDisplayInstruction" id="18026" value="U" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Netting" id="18027" value="V" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ExecTransTypeCodeSet" id="20" type="char">
+         <fixr:code name="New" id="20001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Cancel" id="20002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Correct" id="20003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Status" id="20004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="HandlInstCodeSet" id="21" type="char">
+         <fixr:code name="AutomatedExecutionNoIntervention" id="21001" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AutomatedExecutionInterventionOK" id="21002" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ManualOrder" id="21003" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IDSourceCodeSet" id="22" type="char">
+         <fixr:code name="CUSIP" id="22001" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SEDOL" id="22002" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="QUIK" id="22003" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ISINNumber" id="22004" value="4" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="RICCode" id="22005" value="5" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ISOCurrencyCode" id="22006" value="6" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ISOCountryCode" id="22007" value="7" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IOIOthSvcCodeSet" id="24" type="char">
+         <fixr:code name="Autex" id="24001" value="A" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Bridge" id="24002" value="B" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IOIQltyIndCodeSet" id="25" type="char">
+         <fixr:code name="High" id="25001" value="H" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Low" id="25002" value="L" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Medium" id="25003" value="M" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IOISharesCodeSet" id="27" type="char">
+         <fixr:code name="Large" id="27001" value="L" added="FIX.4.4" addedEP="25">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Medium" id="27002" value="M" added="FIX.4.4" addedEP="25">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Small" id="27003" value="S" added="FIX.4.4" addedEP="25">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IOITransTypeCodeSet" id="28" type="char">
+         <fixr:code name="Cancel" id="28001" value="C" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="New" id="28002" value="N" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Replace" id="28003" value="R" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="LastCapacityCodeSet" id="29" type="char">
+         <fixr:code name="Agent" id="29001" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CrossAsAgent" id="29002" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CrossAsPrincipal" id="29003" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Principal" id="29004" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="MsgTypeCodeSet" id="35" type="char">
+         <fixr:code name="Heartbeat" id="35001" value="0" sort="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TestRequest" id="35002" value="1" sort="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ResendRequest" id="35003" value="2" sort="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Reject" id="35004" value="3" sort="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SequenceReset" id="35005" value="4" sort="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Logout" id="35006" value="5" sort="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="IOI" id="35007" value="6" sort="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Advertisement" id="35008" value="7" sort="7" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ExecutionReport" id="35009" value="8" sort="8" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OrderCancelReject" id="35010" value="9" sort="9" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Logon" id="35011" value="A" sort="10" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="News" id="35012" value="B" sort="11" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Email" id="35013" value="C" sort="12" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NewOrderSingle" id="35014" value="D" sort="13" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NewOrderList" id="35015" value="E" sort="14" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OrderCancelRequest" id="35016" value="F" sort="15" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OrderCancelReplaceRequest" id="35017" value="G" sort="16" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OrderStatusRequest" id="35018" value="H" sort="17" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AllocationInstruction" id="35019" value="J" sort="18" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ListCancelRequest" id="35020" value="K" sort="19" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ListExecute" id="35021" value="L" sort="20" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ListStatusRequest" id="35022" value="M" sort="21" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ListStatus" id="35023" value="N" sort="22" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AllocationInstructionAck" id="35024" value="P" sort="23" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DontKnowTrade" id="35025" value="Q" sort="24" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="QuoteRequest" id="35026" value="R" sort="25" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Quote" id="35027" value="S" sort="26" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SettlementInstructions" id="35028" value="T" sort="27" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="OrdStatusCodeSet" id="39" type="char">
+         <fixr:code name="New" id="39001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PartiallyFilled" id="39002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Filled" id="39003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DoneForDay" id="39004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Canceled" id="39005" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Replaced" id="39006" value="5" added="FIX.4.4" addedEP="35">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PendingCancel" id="39007" value="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Stopped" id="39008" value="7" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Rejected" id="39009" value="8" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Suspended" id="39010" value="9" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PendingNew" id="39011" value="A" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Calculated" id="39012" value="B" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Expired" id="39013" value="C" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="OrdTypeCodeSet" id="40" type="char">
+         <fixr:code name="Market" id="40001" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Limit" id="40002" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Stop" id="40003" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StopLimit" id="40004" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MarketOnClose" id="40005" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="WithOrWithout" id="40006" value="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="LimitOrBetter" id="40007" value="7" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="LimitWithOrWithout" id="40008" value="8" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OnBasis" id="40009" value="9" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OnClose" id="40010" value="A" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="LimitOnClose" id="40011" value="B" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ForexMarket" id="40012" value="C" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PreviouslyQuoted" id="40013" value="D" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PreviouslyIndicated" id="40014" value="E" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ForexLimit" id="40015" value="F" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ForexSwap" id="40016" value="G" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ForexPreviouslyQuoted" id="40017" value="H" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Pegged" id="40018" value="P" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="PossDupFlagCodeSet" id="43" type="char">
+         <fixr:code name="OriginalTransmission" id="43001" value="N" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PossibleDuplicate" id="43002" value="Y" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="Rule80ACodeSet" id="47" type="char">
+         <fixr:code name="AgencySingleOrder" id="47001" value="A" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionAType" id="47002" value="B" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ProprietaryNonAlgo" id="47003" value="C" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ProgramOrderMember" id="47004" value="D" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionForPrincipal" id="47005" value="E" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionWType" id="47006" value="F" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionIType" id="47007" value="H" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="IndividualInvestor" id="47008" value="I" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ProprietaryAlgo" id="47009" value="J" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AgencyAlgo" id="47010" value="K" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionMemberAffliated" id="47011" value="L" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ProgramOrderOtherMember" id="47012" value="M" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AgentForOtherMember" id="47013" value="N" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ProprietaryTransactionAffiliated" id="47014" value="O" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Principal" id="47015" value="P" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TransactionNonMember" id="47016" value="R" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SpecialistTrades" id="47017" value="S" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TransactionUnaffiliatedMember" id="47018" value="T" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AgencyIndexArb" id="47019" value="U" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AllOtherOrdersAsAgentForOtherMember" id="47020" value="W" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionMemberNotAffliated" id="47021" value="X" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AgencyNonAlgo" id="47022" value="Y" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ShortExemptTransactionNonMember" id="47023" value="Z" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SideCodeSet" id="54" type="char">
+         <fixr:code name="Buy" id="54001" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Sell" id="54002" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="BuyMinus" id="54003" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SellPlus" id="54004" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SellShort" id="54005" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SellShortExempt" id="54006" value="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Undisclosed" id="54007" value="7" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Cross" id="54008" value="8" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="TimeInForceCodeSet" id="59" type="char">
+         <fixr:code name="Day" id="59001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="GoodTillCancel" id="59002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AtTheOpening" id="59003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ImmediateOrCancel" id="59004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="FillOrKill" id="59005" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="GoodTillCrossing" id="59006" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="GoodTillDate" id="59007" value="6" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="UrgencyCodeSet" id="61" type="char">
+         <fixr:code name="Normal" id="61001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Flash" id="61002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Background" id="61003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SettlmntTypCodeSet" id="63" type="char">
+         <fixr:code name="Regular" id="63001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Cash" id="63002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NextDay" id="63003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TPlus2" id="63004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TPlus3" id="63005" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TPlus4" id="63006" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Future" id="63007" value="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="WhenAndIfIssued" id="63008" value="7" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SellersOption" id="63009" value="8" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TPlus5" id="63010" value="9" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="AllocTransTypeCodeSet" id="71" type="char">
+         <fixr:code name="New" id="71001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Replace" id="71002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Cancel" id="71003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Preliminary" id="71004" value="3" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Calculated" id="71005" value="4" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="OpenCloseCodeSet" id="77" type="char">
+         <fixr:code name="Close" id="77001" value="C" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Open" id="77002" value="O" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ProcessCodeCodeSet" id="81" type="char">
+         <fixr:code name="Regular" id="81001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SoftDollar" id="81002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StepIn" id="81003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StepOut" id="81004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SoftDollarStepIn" id="81005" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SoftDollarStepOut" id="81006" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PlanSponsor" id="81007" value="6" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="AllocStatusCodeSet" id="87" type="int">
+         <fixr:code name="Accepted" id="87001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="BlockLevelReject" id="87002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AccountLevelReject" id="87003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Received" id="87004" value="3" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="AllocRejCodeCodeSet" id="88" type="int">
+         <fixr:code name="UnknownAccount" id="88001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="IncorrectQuantity" id="88002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="IncorrectAveragegPrice" id="88003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="UnknownExecutingBrokerMnemonic" id="88004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CommissionDifference" id="88005" value="4" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="UnknownOrderID" id="88006" value="5" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="UnknownListID" id="88007" value="6" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OtherSeeText" id="88008" value="7" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="EmailTypeCodeSet" id="94" type="char">
+         <fixr:code name="New" id="94001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Reply" id="94002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AdminReply" id="94003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="PossResendCodeSet" id="97" type="char">
+         <fixr:code name="OriginalTransmission" id="97001" value="N" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PossibleResend" id="97002" value="Y" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="EncryptMethodCodeSet" id="98" type="int">
+         <fixr:code name="None" id="98001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PKCS" id="98002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DES" id="98003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PKCSDES" id="98004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PGPDES" id="98005" value="4" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PGPDESMD5" id="98006" value="5" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PEM" id="98007" value="6" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="CxlRejReasonCodeSet" id="102" type="int">
+         <fixr:code name="TooLateToCancel" id="102001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="UnknownOrder" id="102002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="OrdRejReasonCodeSet" id="103" type="int">
+         <fixr:code name="BrokerCredit" id="103001" value="0" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="UnknownSymbol" id="103002" value="1" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ExchangeClosed" id="103003" value="2" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="OrderExceedsLimit" id="103004" value="3" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TooLateToEnter" id="103005" value="4" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="UnknownOrder" id="103006" value="5" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DuplicateOrder" id="103007" value="6" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IOIQualifierCodeSet" id="104" type="char">
+         <fixr:code name="AllOrNone" id="104001" value="A" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AtTheClose" id="104002" value="C" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="InTouchWith" id="104003" value="I" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Limit" id="104004" value="L" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MoreBehind" id="104005" value="M" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AtTheOpen" id="104006" value="O" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TakingAPosition" id="104007" value="P" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AtTheMarket" id="104008" value="Q" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PortfolioShown" id="104009" value="S" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ThroughTheDay" id="104010" value="T" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Versus" id="104011" value="V" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Indication" id="104012" value="W" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CrossingOpportunity" id="104013" value="X" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AtTheMidpoint" id="104014" value="Y" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PreOpen" id="104015" value="Z" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ReportToExchCodeSet" id="113" type="char">
+         <fixr:code name="SenderReports" id="113001" value="N" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ReceiverReports" id="113002" value="Y" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="LocateReqdCodeSet" id="114" type="char">
+         <fixr:code name="No" id="114001" value="N" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Yes" id="114002" value="Y" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ForexReqCodeSet" id="121" type="char">
+         <fixr:code name="DoNotExecuteForexAfterSecurityTrade" id="121001" value="N" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ExecuteForexAfterSecurityTrade" id="121002" value="Y" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="GapFillFlagCodeSet" id="123" type="char">
+         <fixr:code name="SequenceReset" id="123001" value="N" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="GapFillMessage" id="123002" value="Y" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="DKReasonCodeSet" id="127" type="char">
+         <fixr:code name="UnknownSymbol" id="127001" value="A" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="WrongSide" id="127002" value="B" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="QuantityExceedsOrder" id="127003" value="C" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NoMatchingOrder" id="127004" value="D" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PriceExceedsLimit" id="127005" value="E" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Other" id="127006" value="Z" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="IOINaturalFlagCodeSet" id="130" type="char">
+         <fixr:code name="NotNatural" id="130001" value="N" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Natural" id="130002" value="Y" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="MiscFeeTypeCodeSet" id="139" type="char">
+         <fixr:code name="Regulatory" id="139001" value="1" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Tax" id="139002" value="2" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="LocalCommission" id="139003" value="3" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ExchangeFees" id="139004" value="4" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Stamp" id="139005" value="5" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Levy" id="139006" value="6" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Other" id="139007" value="7" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Markup" id="139008" value="8" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ResetSeqNumFlagCodeSet" id="141" type="char">
+         <fixr:code name="No" id="141001" value="N" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Yes" id="141002" value="Y" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="ExecTypeCodeSet" id="150" type="char">
+         <fixr:code name="New" id="150001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PartialFill" id="150002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Fill" id="150003" value="2" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DoneForDay" id="150004" value="3" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Canceled" id="150005" value="4" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Replaced" id="150006" value="5" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PendingCancel" id="150007" value="6" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Stopped" id="150008" value="7" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Rejected" id="150009" value="8" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Suspended" id="150010" value="9" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PendingNew" id="150011" value="A" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Calculated" id="150012" value="B" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Expired" id="150013" value="C" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SettlInstModeCodeSet" id="160" type="char">
+         <fixr:code name="Default" id="160001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StandingInstructionsProvided" id="160002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SpecificAllocationAccountOverriding" id="160003" value="2" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="SpecificAllocationAccountStanding" id="160004" value="3" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SettlInstTransTypeCodeSet" id="163" type="char">
+         <fixr:code name="Cancel" id="163001" value="C" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="New" id="163002" value="N" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Replace" id="163003" value="R" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SettlInstSourceCodeSet" id="165" type="char">
+         <fixr:code name="BrokerCredit" id="165001" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Institution" id="165002" value="2" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SettlLocationCodeSet" id="166" type="String">
+         <fixr:code name="CEDEL" id="166001" value="CED" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DepositoryTrustCompany" id="166002" value="DTC" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="EuroClear" id="166003" value="EUR" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="FederalBookEntry" id="166004" value="FED" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="LocalMarketSettleLocation" id="166005" value="ISO Country Code" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Physical" id="166006" value="PNY" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ParticipantTrustCompany" id="166007" value="PTC" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="SecurityTypeCodeSet" id="167" type="String">
+         <fixr:code name="BankersAcceptance" id="167001" value="BA" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CertificateOfDeposit" id="167002" value="CD" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CollateralizedMortgageObligation" id="167003" value="CMO" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CorporateBond" id="167004" value="CORP" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CommercialPaper" id="167005" value="CP" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CorporatePrivatePlacement" id="167006" value="CPP" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CommonStock" id="167007" value="CS" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="FederalHousingAuthority" id="167008" value="FHA" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="FederalHomeLoan" id="167009" value="FHL" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="FederalNationalMortgageAssociation" id="167010" value="FN" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ForeignExchangeContract" id="167011" value="FOR" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Future" id="167012" value="FUT" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="GovernmentNationalMortgageAssociation" id="167013" value="GN" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TreasuriesAgencyDebenture" id="167014" value="GOVT" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MutualFund" id="167015" value="MF" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MortgageInterestOnly" id="167016" value="MIO" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MortgagePrincipalOnly" id="167017" value="MPO" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MortgagePrivatePlacement" id="167018" value="MPP" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MiscellaneousPassThrough" id="167019" value="MPT" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="MunicipalBond" id="167020" value="MUNI" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="NoSecurityType" id="167021" value="NONE" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Option" id="167022" value="OPT" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="PreferredStock" id="167023" value="PS" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="RepurchaseAgreement" id="167024" value="RP" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ReverseRepurchaseAgreement" id="167025" value="RVRP" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="StudentLoanMarketingAssociation" id="167026" value="SL" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="TimeDeposit" id="167027" value="TD" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="USTreasuryBillOld" id="167028" value="USTB" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Warrant" id="167029" value="WAR" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="CatsTigersAndLions" id="167030" value="ZOO" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="StandInstDbTypeCodeSet" id="169" type="int">
+         <fixr:code name="Other" id="169001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DTCSID" id="169002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ThomsonALERT" id="169003" value="2" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="AGlobalCustodian" id="169004" value="3" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="AllocLinkTypeCodeSet" id="197" type="int">
+         <fixr:code name="FXNetting" id="197001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="FXSwap" id="197002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="PutOrCallCodeSet" id="201" type="int">
+         <fixr:code name="Put" id="201001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Call" id="201002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="CoveredOrUncoveredCodeSet" id="203" type="int">
+         <fixr:code name="Covered" id="203001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Uncovered" id="203002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="CustomerOrFirmCodeSet" id="204" type="int">
+         <fixr:code name="Customer" id="204001" value="0" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Firm" id="204002" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="NotifyBrokerOfCreditCodeSet" id="208" type="char">
+         <fixr:code name="DetailsShouldNotBeCommunicated" id="208001" value="N" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="DetailsShouldBeCommunicated" id="208002" value="Y" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+      <fixr:codeSet name="AllocHandlInstCodeSet" id="209" type="int">
+         <fixr:code name="Match" id="209001" value="1" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="Forward" id="209002" value="2" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:code name="ForwardAndMatch" id="209003" value="3" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:code>
+         <fixr:annotation />
+         <fixr:annotation />
+      </fixr:codeSet>
+   </fixr:codeSets>
+   <fixr:datatypes>
+      <fixr:datatype name="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="float" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="char" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="UTCTimestamp" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="LocalMktDate" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="data" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="MonthYear" baseType="char" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:datatype>
+      <fixr:datatype name="DayOfMonth" baseType="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:datatype>
+   <fixr:datatype name="String" /></fixr:datatypes>
+   <fixr:fields>
+      <fixr:field id="1" name="Account" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="2" name="AdvId" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="3" name="AdvRefID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="4" name="AdvSide" type="AdvSideCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="5" name="AdvTransType" type="AdvTransTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="6" name="AvgPx" type="float" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="7" name="BeginSeqNo" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="8" name="BeginString" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="9" name="BodyLength" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="10" name="CheckSum" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="11" name="ClOrdID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="12" name="Commission" type="float" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="13" name="CommType" type="CommTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="14" name="CumQty" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="15" name="Currency" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="16" name="EndSeqNo" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="17" name="ExecID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="18" name="ExecInst" type="ExecInstCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="19" name="ExecRefID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="20" name="ExecTransType" type="ExecTransTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="21" name="HandlInst" type="HandlInstCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="22" name="IDSource" type="IDSourceCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="23" name="IOIid" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="24" name="IOIOthSvc" type="IOIOthSvcCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="25" name="IOIQltyInd" type="IOIQltyIndCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="26" name="IOIRefID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="27" name="IOIShares" type="IOISharesCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="28" name="IOITransType" type="IOITransTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="29" name="LastCapacity" type="LastCapacityCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="30" name="LastMkt" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="31" name="LastPx" type="float" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="32" name="LastShares" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="33" name="LinesOfText" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="34" name="MsgSeqNum" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="35" name="MsgType" type="MsgTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="36" name="NewSeqNo" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="37" name="OrderID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="38" name="OrderQty" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="39" name="OrdStatus" type="OrdStatusCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="40" name="OrdType" type="OrdTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="41" name="OrigClOrdID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="42" name="OrigTime" type="UTCTimestamp" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="43" name="PossDupFlag" type="PossDupFlagCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="44" name="Price" type="float" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="45" name="RefSeqNum" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="46" name="RelatdSym" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="47" name="Rule80A" type="Rule80ACodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="48" name="SecurityID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="49" name="SenderCompID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="50" name="SenderSubID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="52" name="SendingTime" type="UTCTimestamp" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="53" name="Shares" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="54" name="Side" type="SideCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="55" name="Symbol" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="56" name="TargetCompID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="57" name="TargetSubID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="58" name="Text" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="59" name="TimeInForce" type="TimeInForceCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="60" name="TransactTime" type="UTCTimestamp" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="61" name="Urgency" type="UrgencyCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="62" name="ValidUntilTime" type="UTCTimestamp" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="63" name="SettlmntTyp" type="SettlmntTypCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="64" name="FutSettDate" type="LocalMktDate" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="65" name="SymbolSfx" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="66" name="ListID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="67" name="ListSeqNo" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="68" name="ListNoOrds" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="69" name="ListExecInst" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="70" name="AllocID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="71" name="AllocTransType" type="AllocTransTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="72" name="RefAllocID" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="73" name="NoOrders" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="74" name="AvgPrxPrecision" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="75" name="TradeDate" type="LocalMktDate" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="76" name="ExecBroker" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="77" name="OpenClose" type="OpenCloseCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="78" name="NoAllocs" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="79" name="AllocAccount" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="80" name="AllocShares" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="81" name="ProcessCode" type="ProcessCodeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="82" name="NoRpts" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="83" name="RptSeq" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="84" name="CxlQty" type="int" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="87" name="AllocStatus" type="AllocStatusCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="88" name="AllocRejCode" type="AllocRejCodeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="89" name="Signature" type="data" added="FIX.2.7" lengthId="93">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="90" name="SecureDataLen" type="Length" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="91" name="SecureData" type="data" added="FIX.2.7" lengthId="90">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="92" name="BrokerOfCredit" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="93" name="SignatureLength" type="Length" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="94" name="EmailType" type="EmailTypeCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="95" name="RawDataLength" type="Length" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="96" name="RawData" type="data" added="FIX.2.7" lengthId="95">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="97" name="PossResend" type="PossResendCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="98" name="EncryptMethod" type="EncryptMethodCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="99" name="StopPx" type="float" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="100" name="ExDestination" type="String" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="102" name="CxlRejReason" type="CxlRejReasonCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="103" name="OrdRejReason" type="OrdRejReasonCodeSet" added="FIX.2.7">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="104" name="IOIQualifier" type="IOIQualifierCodeSet" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="105" name="WaveNo" type="String" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="106" name="Issuer" type="String" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="107" name="SecurityDesc" type="String" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="108" name="HeartBtInt" type="int" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="109" name="ClientID" type="String" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="110" name="MinQty" type="int" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="111" name="MaxFloor" type="int" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="112" name="TestReqID" type="String" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="113" name="ReportToExch" type="ReportToExchCodeSet" added="FIX.3.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="114" name="LocateReqd" type="LocateReqdCodeSet" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="115" name="OnBehalfOfCompID" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="116" name="OnBehalfOfSubID" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="117" name="QuoteID" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="118" name="NetMoney" type="float" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="119" name="SettlCurrAmt" type="float" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="120" name="SettlCurrency" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="121" name="ForexReq" type="ForexReqCodeSet" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="122" name="OrigSendingTime" type="UTCTimestamp" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="123" name="GapFillFlag" type="GapFillFlagCodeSet" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="124" name="NoExecs" type="int" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="126" name="ExpireTime" type="UTCTimestamp" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="127" name="DKReason" type="DKReasonCodeSet" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="128" name="DeliverToCompID" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="129" name="DeliverToSubID" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="130" name="IOINaturalFlag" type="IOINaturalFlagCodeSet" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="131" name="QuoteReqID" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="132" name="BidPx" type="float" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="133" name="OfferPx" type="float" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="134" name="BidSize" type="int" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="135" name="OfferSize" type="int" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="136" name="NoMiscFees" type="int" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="137" name="MiscFeeAmt" type="float" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="138" name="MiscFeeCurr" type="String" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="139" name="MiscFeeType" type="MiscFeeTypeCodeSet" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="140" name="PrevClosePx" type="float" added="FIX.4.0">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="141" name="ResetSeqNumFlag" type="ResetSeqNumFlagCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="142" name="SenderLocationID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="143" name="TargetLocationID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="144" name="OnBehalfOfLocationID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="145" name="DeliverToLocationID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="146" name="NoRelatedSym" type="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="147" name="Subject" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="148" name="Headline" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="149" name="URLLink" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="150" name="ExecType" type="ExecTypeCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="151" name="LeavesQty" type="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="152" name="CashOrderQty" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="153" name="AllocAvgPx" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="154" name="AllocNetMoney" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="155" name="SettlCurrFxRate" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="156" name="SettlCurrFxRateCalc" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="157" name="NumDaysInterest" type="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="158" name="AccruedInterestRate" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="159" name="AccruedInterestAmt" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="160" name="SettlInstMode" type="SettlInstModeCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="161" name="AllocText" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="162" name="SettlInstID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="163" name="SettlInstTransType" type="SettlInstTransTypeCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="164" name="EmailThreadID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="165" name="SettlInstSource" type="SettlInstSourceCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="166" name="SettlLocation" type="SettlLocationCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="167" name="SecurityType" type="SecurityTypeCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="168" name="EffectiveTime" type="UTCTimestamp" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="169" name="StandInstDbType" type="StandInstDbTypeCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="170" name="StandInstDbName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="171" name="StandInstDbID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="172" name="SettlDeliveryType" type="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="173" name="SettlDepositoryCode" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="174" name="SettlBrkrCode" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="175" name="SettlInstCode" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="176" name="SecuritySettlAgentName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="177" name="SecuritySettlAgentCode" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="178" name="SecuritySettlAgentAcctNum" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="179" name="SecuritySettlAgentAcctName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="180" name="SecuritySettlAgentContactName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="181" name="SecuritySettlAgentContactPhone" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="182" name="CashSettlAgentName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="183" name="CashSettlAgentCode" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="184" name="CashSettlAgentAcctNum" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="185" name="CashSettlAgentAcctName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="186" name="CashSettlAgentContactName" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="187" name="CashSettlAgentContactPhone" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="188" name="BidSpotRate" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="189" name="BidForwardPoints" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="190" name="OfferSpotRate" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="191" name="OfferForwardPoints" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="192" name="OrderQty2" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="193" name="FutSettDate2" type="LocalMktDate" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="194" name="LastSpotRate" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="195" name="LastForwardPoints" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="196" name="AllocLinkID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="197" name="AllocLinkType" type="AllocLinkTypeCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="198" name="SecondaryOrderID" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="199" name="NoIOIQualifiers" type="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="200" name="MaturityMonthYear" type="MonthYear" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="201" name="PutOrCall" type="PutOrCallCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="202" name="StrikePrice" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="203" name="CoveredOrUncovered" type="CoveredOrUncoveredCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="204" name="CustomerOrFirm" type="CustomerOrFirmCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="205" name="MaturityDay" type="DayOfMonth" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="206" name="OptAttribute" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="207" name="SecurityExchange" type="String" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="208" name="NotifyBrokerOfCredit" type="NotifyBrokerOfCreditCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="209" name="AllocHandlInst" type="AllocHandlInstCodeSet" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="210" name="MaxShow" type="int" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+      <fixr:field id="211" name="PegDifference" type="float" added="FIX.4.1">
+         <fixr:annotation />
+      </fixr:field>
+   </fixr:fields>
+   <fixr:components>
+      <fixr:component name="StandardHeader" id="1001" category="Session" added="FIX.4.0">
+         <fixr:fieldRef id="8" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="9" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="35" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="49" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="56" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="115" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="128" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="90" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="91" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="34" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="50" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="142" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="57" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="143" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="116" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="144" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="129" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="145" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="43" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="97" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="52" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="122" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:component>
+      <fixr:component name="StandardTrailer" id="1002" category="Session" added="FIX.4.0">
+         <fixr:fieldRef id="93" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="89" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="10" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:component>
+   </fixr:components>
+   <fixr:groups>
+      <fixr:group id="2024" added="FIX.4.1" name="IOIQualGrp" category="Indication" abbrName="Qual">
+         <fixr:numInGroup id="199">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="104" added="FIX.3.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:group>
+      <fixr:group id="2151" added="FIX.4.1" name="StrmAsgnRptInstrmtGrp" category="MarketData" abbrName="Instrmts">
+         <fixr:numInGroup id="146">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="46" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="65" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="48" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="22" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="167" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="200" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="205" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="201" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="202" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="206" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="207" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="106" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="107" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:group>
+      <fixr:group id="2029" added="FIX.4.1" name="LinesOfTextGrp" category="Common" abbrName="TxtLn">
+         <fixr:numInGroup id="33">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="58" presence="required" added="FIX.2.7">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:group>
+      <fixr:group id="2037" added="FIX.2.7" name="OrdListStatGrp" category="ProgramTrading" abbrName="ListStat">
+         <fixr:numInGroup id="73">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="11" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="14" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="151" presence="required" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="84" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="6" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:group>
+      <fixr:group id="2015" added="FIX.4.0" name="ExecCollGrp" category="CollateralManagement" abbrName="CollExc">
+         <fixr:numInGroup id="124">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="32" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="17" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="31" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="29" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:group>
+      <fixr:group id="2060" added="FIX.2.7" name="TrdAllocGrp" category="TradeCapture" abbrName="Alloc">
+         <fixr:numInGroup id="78">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="79" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="80" presence="required" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="81" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="92" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="208" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="209" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="161" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="76" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="109" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="12" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="13" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="153" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="154" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="119" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="120" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="155" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="156" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="159" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="160" added="FIX.4.1">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:groupRef added="FIX.4.0" id="2035">
+            <fixr:annotation />
+         </fixr:groupRef>
+         <fixr:annotation />
+      </fixr:group>
+      <fixr:group id="2035" added="FIX.4.0" name="MiscFeesGrp" category="Common" abbrName="MiscFees">
+         <fixr:numInGroup id="136">
+            <fixr:annotation />
+         </fixr:numInGroup>
+         <fixr:fieldRef id="137" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="138" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:fieldRef id="139" added="FIX.4.0">
+            <fixr:annotation />
+         </fixr:fieldRef>
+         <fixr:annotation />
+      </fixr:group>
+   </fixr:groups>
+   <fixr:messages>
+      <fixr:message name="Heartbeat" id="1" msgType="0" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="112" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="TestRequest" id="2" msgType="1" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="112" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="ResendRequest" id="3" msgType="2" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="7" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="16" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Reject" id="4" msgType="3" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="45" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="SequenceReset" id="5" msgType="4" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="123" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="36" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Logout" id="6" msgType="5" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="IOI" id="7" msgType="6" category="Indication" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="23" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="28" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="26" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="27" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="44" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="62" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="25" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="24" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="130" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef added="FIX.4.1" id="2024">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="149" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Advertisement" id="8" msgType="7" category="Indication" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="2" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="5" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="3" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="4" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="53" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="44" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="75" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="149" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="30" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="ExecutionReport" id="9" msgType="8" category="SingleGeneralOrderHandling" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="37" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="198" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="41" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="66" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="17" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="20" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="19" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="150" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="39" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="103" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="1" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="63" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="40" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="44" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="99" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="211" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="59" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="126" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="18" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="47" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="32" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="31" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="194" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="195" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="30" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="29" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="151" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="14" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="6" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="75" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="113" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="12" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="13" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="119" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="120" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="155" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="156" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="OrderCancelReject" id="10" msgType="9" category="SingleGeneralOrderHandling" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="37" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="198" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="41" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="39" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="66" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="102" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Logon" id="11" msgType="A" category="Session" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="98" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="108" presence="required" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="95" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="96" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="141" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="News" id="12" msgType="B" category="EventCommunication" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="42" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="61" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="148" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef added="FIX.4.1" id="2151">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:groupRef presence="required" added="FIX.4.1" id="2029">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:fieldRef id="149" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="95" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="96" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Email" id="13" msgType="C" category="EventCommunication" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="164" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="94" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="42" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="147" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef added="FIX.4.1" id="2151">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:fieldRef id="37" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef presence="required" added="FIX.4.1" id="2029">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:fieldRef id="95" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="96" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="OrderSingle" id="14" msgType="D" category="SingleGeneralOrderHandling" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="11" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="1" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="63" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="21" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="18" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="110" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="111" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="100" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="81" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="140" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="114" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="152" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="40" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="44" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="99" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="23" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="117" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="59" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="126" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="12" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="13" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="47" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="121" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="120" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="193" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="192" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="77" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="203" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="204" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="210" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="211" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="OrderList" id="15" msgType="E" category="ProgramTrading" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="66" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="105" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="67" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="68" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="69" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="1" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="63" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="21" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="18" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="110" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="111" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="100" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="81" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="140" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="114" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="40" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="44" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="99" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="211" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="59" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="126" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="12" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="13" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="47" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="121" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="120" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="193" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="192" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="77" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="203" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="204" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="210" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="OrderCancelRequest" id="16" msgType="F" category="SingleGeneralOrderHandling" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="41" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="37" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="66" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="152" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="OrderCancelReplaceRequest" id="17" msgType="G" category="SingleGeneralOrderHandling" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="37" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="41" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="66" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="1" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="63" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="21" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="18" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="110" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="111" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="100" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="152" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="40" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="44" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="99" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="211" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="59" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="126" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="12" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="13" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="47" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="121" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="120" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="193" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="192" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="77" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="203" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="204" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="210" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="114" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="OrderStatusRequest" id="18" msgType="H" category="SingleGeneralOrderHandling" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="37" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="11" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Allocation" id="19" msgType="J" category="Allocation" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="70" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="71" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="72" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="196" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="197" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef added="FIX.2.7" id="2037">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:groupRef added="FIX.4.0" id="2015">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="53" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="30" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="6" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="15" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="74" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="75" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="63" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="118" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="77" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="157" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="158" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef added="FIX.2.7" id="2060">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="ListCancelRequest" id="20" msgType="K" category="ProgramTrading" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="66" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="105" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="ListExecute" id="21" msgType="L" category="ProgramTrading" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="66" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="105" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="ListStatusRequest" id="22" msgType="M" category="ProgramTrading" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="66" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="105" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="ListStatus" id="23" msgType="N" category="ProgramTrading" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="66" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="105" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="82" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="83" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:groupRef presence="required" added="FIX.2.7" id="2037">
+               <fixr:annotation />
+            </fixr:groupRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="AllocationInstructionAck" id="24" msgType="P" category="Allocation" added="FIX.2.7">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="109" added="FIX.3.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="70" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="75" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="87" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="88" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.2.7">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="DontKnowTrade" id="25" msgType="Q" category="SingleGeneralOrderHandling" added="FIX.4.0">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="37" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="17" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="127" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="152" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="32" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="31" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="58" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="QuoteRequest" id="26" msgType="R" category="QuotationNegotiation" added="FIX.4.0">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="131" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="140" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="38" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="40" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="193" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="192" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="Quote" id="27" msgType="S" category="QuotationNegotiation" added="FIX.4.0">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="131" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="117" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="55" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="65" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="48" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="22" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="200" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="205" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="201" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="202" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="206" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="207" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="106" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="107" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="132" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="133" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="134" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="135" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="62" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="188" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="190" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="189" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="191" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="64" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="40" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="193" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="192" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.4.0">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+      <fixr:message name="SettlementInstructions" id="28" msgType="T" category="SettlementInstruction" added="FIX.4.1">
+         <fixr:structure>
+            <fixr:componentRef id="1001" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:componentRef>
+            <fixr:fieldRef id="162" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="163" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="160" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="165" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="79" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="166" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="75" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="70" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="30" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="54" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="167" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="168" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="60" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="109" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="76" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="169" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="170" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="171" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="172" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="173" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="174" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="175" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="176" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="177" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="178" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="179" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="180" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="181" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="182" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="183" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="184" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="185" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="186" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:fieldRef id="187" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:fieldRef>
+            <fixr:componentRef id="1002" presence="required" added="FIX.4.1">
+               <fixr:annotation />
+            </fixr:componentRef>
+         </fixr:structure>
+         <fixr:annotation />
+      </fixr:message>
+   </fixr:messages>
+</fixr:repository>

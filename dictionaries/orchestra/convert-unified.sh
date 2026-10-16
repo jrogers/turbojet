@@ -1,13 +1,13 @@
 #!/bin/sh
-# Builds an Orchestra file for a FIX version the orchestrations repository doesn't publish (FIX 4.3,
-# FIX 5.0 SP2) from the FIX Unified Repository (2010 Edition), which the FIX Trading Community
+# Builds an Orchestra file for a FIX version the orchestrations repository doesn't publish (FIX 4.0,
+# 4.1, 4.3, 5.0 SP2) from the FIX Unified Repository (2010 Edition), which the FIX Trading Community
 # publishes on fixtrading.org (sign-in needed). Uses the Community's own converter,
 # unified2orchestra.xslt from fix-orchestra, with an empty phrases file so no documentation text is
-# carried over, then repairs groups declared inline in components, as FIX 4.3 does (see
-# fix-inline-groups.py). Needs Java, Python 3 and network access.
+# carried over, then repairs what the converter gets wrong: FIX 4.0 and 4.1's datatype names, and groups
+# declared inline in components, as FIX 4.3 does (see repair-unified.py). Needs Java, Python 3 and network access.
 #
-# Usage: ./convert-unified.sh path/to/fix_repository_2010_edition_20200402.zip FIX.4.3|FIX.5.0SP2
-# writes OrchestraFIX43.xml or OrchestraFIX50SP2.xml.
+# Usage: ./convert-unified.sh path/to/fix_repository_2010_edition_20200402.zip FIX.4.0|FIX.4.1|FIX.4.3|FIX.5.0SP2
+# writes OrchestraFIX40.xml, OrchestraFIX41.xml, OrchestraFIX43.xml or OrchestraFIX50SP2.xml.
 set -eu
 ZIP=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 VERSION=$2
@@ -28,5 +28,5 @@ printf '<?xml version="1.0" encoding="UTF-8"?>\n<phrases version="%s"/>\n' "$VER
 
 java -jar "$WORK/saxon.jar" -s:"$REPO/Unified/FixRepository.xml" -xsl:"$WORK/unified2orchestra.xslt" \
     -o:"$WORK/converted.xml" phrases-file="file://$WORK/no-phrases.xml" name="$VERSION" new-version="$VERSION"
-python3 fix-inline-groups.py "$WORK/converted.xml" "$REPO/$VERSION/Base/MsgContents.xml" \
+python3 repair-unified.py "$WORK/converted.xml" "$REPO/$VERSION/Base/MsgContents.xml" \
     OrchestraFIX44.xml "$HERE/$OUT"

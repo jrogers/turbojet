@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Repairs an Orchestra file converted from the FIX Unified Repository (2010 Edition).
 
+FIX 4.0 and 4.1 name their datatypes as those versions' specifications do: `char` is a free-format
+string, `time` a UTC timestamp (YYYYMMDD-HH:MM:SS) and `date` a date (YYYYMMDD). The stylesheet
+copies the names, but in Orchestra `char` is a single character and the others don't exist, so
+fields get the later names (String, UTCTimestamp, LocalMktDate). A `char` code set keeps `char`
+unless a code is longer than one character, and ExecInst, whose instructions may be several,
+space-delimited, becomes a MultipleValueString as in later versions.
+
 FIX 4.3's repository defines a repeating group inside a component inline: its NumInGroup field,
 followed by its members indented one level (Instrument's NoSecurityAltID, for example). The
 FIX Trading Community's unified2orchestra.xslt expects each group to have its own component ID,
@@ -11,7 +18,7 @@ after the group with the same NumInGroup field in a later Orchestra file (FIX 4.
 the groupRef at it. It also drops the conversion time the stylesheet records (dc:date), so the
 output depends only on its inputs.
 
-Usage: fix-inline-groups.py <converted.xml> <MsgContents.xml> <names-from.xml> <output.xml>
+Usage: repair-unified.py <converted.xml> <MsgContents.xml> <names-from.xml> <output.xml>
 """
 import sys
 import xml.etree.ElementTree as ET
@@ -29,6 +36,7 @@ def main(converted, contents, names_from, output):
     metadata = root.find(N + "metadata")
     for date in metadata.findall("{http://purl.org/dc/elements/1.1/}date"):
         metadata.remove(date)
+    modernise_types(root)
     groups = root.find(N + "groups")
     later = {}
     for group in ET.parse(names_from).getroot().find(N + "groups"):
@@ -64,6 +72,27 @@ def main(converted, contents, names_from, output):
             defined.add(gid)
             print(f"{component.get('name')}: defined {name} ({gid}), counted by {count}")
     tree.write(output, encoding="UTF-8", xml_declaration=True)
+
+
+OLD_TYPES = {"char": "String", "time": "UTCTimestamp", "date": "LocalMktDate"}
+
+
+def modernise_types(root):
+    """Gives a FIX 4.0 or 4.1 repository (one with a `time` datatype) the later datatype names."""
+    datatypes = root.find(N + "datatypes")
+    if not any(d.get("name") == "time" for d in datatypes):
+        return
+    for datatype in datatypes:
+        if datatype.get("name") in ("time", "date"):
+            datatype.set("name", OLD_TYPES[datatype.get("name")])
+    ET.SubElement(datatypes, N + "datatype", {"name": "String"})
+    for field in root.find(N + "fields"):
+        field.set("type", OLD_TYPES.get(field.get("type"), field.get("type")))
+    for code_set in root.find(N + "codeSets"):
+        if code_set.get("name") == "ExecInstCodeSet":
+            code_set.set("type", "MultipleValueString")
+        elif code_set.get("type") == "char" and any(len(c.get("value")) != 1 for c in code_set.findall(N + "code")):
+            code_set.set("type", "String")
 
 
 def inline_groups(rows):
