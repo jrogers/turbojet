@@ -3,6 +3,8 @@
 # dictionaries/orchestra. CI fails if the output differs from what's committed.
 set -eu
 cd "$(dirname "$0")/.."
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX40.xml --out crates/turbojet-fix40/src/generated
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX41.xml --out crates/turbojet-fix41/src/generated
 # FIX 4.2 corrections (see crates/turbojet-fix42/README.md): QuoteCancel's NoQuoteEntries is
 # required in the file, but a cancel-all request has no entries; FIX 4.4 made it optional.
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX42.xml \

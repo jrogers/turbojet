@@ -61,6 +61,8 @@ tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 # The gateway example's --config.
 turbojet-config = { workspace = true, features = ["tls", "tz", "metrics"] }
+turbojet-fix40.workspace = true
+turbojet-fix41.workspace = true
 turbojet-fix42.workspace = true
 turbojet-fix43.workspace = true
 turbojet-fix44.workspace = true

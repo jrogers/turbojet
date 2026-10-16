@@ -12,7 +12,8 @@
 //! # Getting started
 //!
 //! Typed application messages come from a separate crate for each FIX version:
-//! `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` or `turbojet-fix50sp2`. Add one alongside
+//! `turbojet-fix40`, `turbojet-fix41`, `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` or
+//! `turbojet-fix50sp2`. Add one alongside
 //! `turbojet`, with [tokio](https://docs.rs/tokio) and, for timestamps,
 //! [chrono](https://docs.rs/chrono):
 //!

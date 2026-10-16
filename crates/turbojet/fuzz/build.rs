@@ -5,6 +5,8 @@ use std::fmt::Write;
 use std::{env, fs};
 
 const VERSIONS: &[(&str, &str, &str)] = &[
+    ("FIX.4.0", "turbojet_fix40", "turbojet-fix40"),
+    ("FIX.4.1", "turbojet_fix41", "turbojet-fix41"),
     ("FIX.4.2", "turbojet_fix42", "turbojet-fix42"),
     ("FIX.4.3", "turbojet_fix43", "turbojet-fix43"),
     ("FIX.4.4", "turbojet_fix44", "turbojet-fix44"),

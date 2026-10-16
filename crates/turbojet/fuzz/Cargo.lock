@@ -758,6 +758,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbojet-fix40"
+version = "0.3.1"
+dependencies = [
+ "turbojet",
+]
+
+[[package]]
+name = "turbojet-fix41"
+version = "0.3.1"
+dependencies = [
+ "turbojet",
+]
+
+[[package]]
 name = "turbojet-fix42"
 version = "0.3.1"
 dependencies = [
@@ -794,6 +808,8 @@ dependencies = [
  "tokio",
  "turbojet",
  "turbojet-fast",
+ "turbojet-fix40",
+ "turbojet-fix41",
  "turbojet-fix42",
  "turbojet-fix43",
  "turbojet-fix44",

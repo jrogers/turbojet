@@ -1,4 +1,4 @@
-//! Messages built with the generated FIX 4.2 and 4.4 crates pass validation against the official
+//! Messages built with the generated FIX version crates pass validation against the official
 //! dictionaries they were generated from. Needs the repository's dictionaries/.
 #![cfg(feature = "validation")]
 
@@ -16,6 +16,50 @@ fn dictionary(name: &str) -> Dictionary {
 
 fn time() -> UtcTimestamp {
     UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap()
+}
+
+#[test]
+fn fix40_messages_pass() {
+    use turbojet_fix40::*;
+    let validator = Validator::new(&dictionary("OrchestraFIX40.xml"));
+    let mut order =
+        OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, 100, OrdType::Limit);
+    order.price = Some("12.34".parse().unwrap());
+    order.exec_inst = Some(vec![ExecInst::NotHeld.into(), ExecInst::Work.into()]);
+    validator.validate(&order.to_message()).unwrap();
+    let news = News::new(vec![LinesOfTextGrp::new("first"), LinesOfTextGrp::new("second")]);
+    validator.validate(&news.to_message()).unwrap();
+    // FIX 4.0 has no ResetSeqNumFlag(141), nor any tag above 140.
+    let err = validator.validate(&order.to_message().with(141, "Y")).unwrap_err();
+    assert_eq!(err.tag, Some(141));
+}
+
+#[test]
+fn fix41_messages_pass() {
+    use turbojet_fix41::*;
+    let validator = Validator::new(&dictionary("OrchestraFIX41.xml"));
+    let mut order =
+        OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, OrdType::Limit);
+    order.order_qty = Some(100);
+    order.price = Some("12.34".parse().unwrap());
+    validator.validate(&order.to_message()).unwrap();
+    let mut report = ExecutionReport::new(
+        "O1",
+        "E1",
+        ExecTransType::New,
+        ExecType::Fill,
+        OrdStatus::Filled,
+        "AAPL",
+        Side::Sell,
+        100,
+        100,
+        "12.34".parse().unwrap(),
+        0,
+        100,
+        "12.34".parse().unwrap(),
+    );
+    report.transact_time = Some(time());
+    validator.validate(&report.to_message()).unwrap();
 }
 
 #[test]
