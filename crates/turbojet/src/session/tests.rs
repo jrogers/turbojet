@@ -2699,6 +2699,25 @@ fn sending_time_is_written_at_the_configured_precision() {
     assert_eq!(resent.get(tags::SENDING_TIME).unwrap().len(), sending_time.len());
 }
 
+#[test]
+fn sending_time_is_whole_seconds_before_fix42() {
+    let mut h = Harness::new();
+    h.config.begin_string = "FIX.4.1".into();
+    let mut s = h.initiator(false);
+    let out = s.connect(h.t0);
+    let sending_time = sent(&out)[0].get(tags::SENDING_TIME).unwrap().to_string();
+    assert_eq!(sending_time.len(), "YYYYMMDD-HH:MM:SS".len(), "{sending_time}");
+}
+
+#[test]
+fn reset_on_logon_is_refused_for_fix40() {
+    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.0", "GATEWAY"), "CLIENT");
+    config.reset_on_logon = true;
+    assert!(config.check().unwrap_err().to_string().contains("ResetSeqNumFlag"));
+    config.session.begin_string = "FIX.4.1".into();
+    assert!(config.check().is_ok());
+}
+
 fn send_command(cl_ord_id: &str) -> Command {
     Command::send(Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, cl_ord_id))
 }

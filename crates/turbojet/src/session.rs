@@ -113,7 +113,8 @@ pub struct SessionConfig {
     /// validator, which passes it) as an empty value. A Logon is always checked.
     pub check_empty_values: bool,
     /// How SendingTime(52) is written, on resends and gap fills too: milliseconds by default.
-    /// A resend's OrigSendingTime(122) is copied as it was first sent.
+    /// A resend's OrigSendingTime(122) is copied as it was first sent. FIX 4.0 and 4.1 have no
+    /// fractions of a second, so their sessions always write whole seconds.
     pub timestamp_precision: Precision,
     /// The data fields: each is as long as the Length field before it says, and may contain SOH
     /// and bytes that aren't UTF-8. The standard ones by default; add a venue's own with
@@ -309,6 +310,17 @@ impl SessionConfig {
     /// Whether BeginString is FIXT (`FIXT.1.1`), whose sessions negotiate an application version.
     pub fn is_fixt(&self) -> bool {
         self.begin_string.starts_with("FIXT.")
+    }
+
+    /// Whether BeginString is FIX 4.0 or 4.1, which have no BusinessMessageReject, no Reject
+    /// fields beyond RefSeqNum(45) and Text(58), and ask for resends to 999999, not 0.
+    pub(crate) fn predates_fix42(&self) -> bool {
+        matches!(self.begin_string.as_str(), "FIX.4.0" | "FIX.4.1")
+    }
+
+    /// [`timestamp_precision`](Self::timestamp_precision), or whole seconds before FIX 4.2.
+    fn sending_time_precision(&self) -> Precision {
+        if self.predates_fix42() { Precision::Seconds } else { self.timestamp_precision }
     }
 
     /// Why this configuration can't run a session, if it can't.
@@ -2457,6 +2469,17 @@ impl Session {
         now: Instant,
     ) {
         self.peer().metrics.business_reject();
+        if self.config.predates_fix42() {
+            // No BusinessMessageReject before FIX 4.2: a session Reject carries the text.
+            let reject = Reject {
+                ref_seq_num: seq_num,
+                ref_tag_id: None,
+                ref_msg_type: None,
+                session_reject_reason: None,
+                text: Some(text.into()),
+            };
+            return self.send(Message::from(reject).with_reverse_route(msg), now);
+        }
         let reply = BusinessMessageReject {
             ref_seq_num: Some(seq_num),
             ref_msg_type: msg.msg_type(),
@@ -2580,7 +2603,8 @@ impl Session {
             Ok(originals) => originals,
             Err(e) => return self.storage_failed(e, now),
         };
-        let now_ts = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision).to_fix();
+        let now_ts =
+            UtcTimestamp::from(self.wall_clock()).with_precision(self.config.sending_time_precision()).to_fix();
         for (seq, original) in originals {
             // Declined: the gap fill before the next message resent covers it.
             if !self.app_resends(&original) {
@@ -2709,8 +2733,16 @@ impl Session {
     fn ask_resend(&mut self, from: u64, target: u64, now: Instant) -> Option<u64> {
         debug_assert!(from < target, "a gap lies before the message that revealed it");
         let through = self.config.resend_request_chunk.map(|chunk| from + chunk - 1).filter(|&last| last + 1 < target);
-        self.send(ResendRequest { begin_seq_no: from, end_seq_no: through.unwrap_or(0) }.into(), now);
+        self.send(
+            ResendRequest { begin_seq_no: from, end_seq_no: through.unwrap_or(self.resend_to_end()) }.into(),
+            now,
+        );
         through
+    }
+
+    /// The EndSeqNo(16) that asks for everything to the end: 999999 before FIX 4.2, 0 since.
+    fn resend_to_end(&self) -> u64 {
+        if self.config.predates_fix42() { 999_999 } else { 0 }
     }
 
     /// Asks for the next chunk of the gap once everything asked for has been received, `next`
@@ -2743,12 +2775,21 @@ impl Session {
         let reason =
             reason.filter(|r| self.config.begin_string != "FIX.4.2" || r.code().parse().is_ok_and(|n: u32| n <= 11));
         warn!(ref_seq_num, ?ref_tag, ?reason, text, "rejecting message");
-        let reject = Reject {
-            ref_seq_num,
-            ref_tag_id: ref_tag,
-            ref_msg_type: Some(msg.msg_type()),
-            session_reject_reason: reason,
-            text: Some(text.into()),
+        let reject = match self.config.predates_fix42() {
+            true => Reject {
+                ref_seq_num,
+                ref_tag_id: None,
+                ref_msg_type: None,
+                session_reject_reason: None,
+                text: Some(text.into()),
+            },
+            false => Reject {
+                ref_seq_num,
+                ref_tag_id: ref_tag,
+                ref_msg_type: Some(msg.msg_type()),
+                session_reject_reason: reason,
+                text: Some(text.into()),
+            },
         };
         self.peer().metrics.session_reject();
         let reject = self.with_ref_appl_version(Message::from(reject).with_reverse_route(msg), msg);
@@ -2913,7 +2954,7 @@ impl Session {
             )));
         }
         let seq = self.peer().log.next_outgoing();
-        let sending_time = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.timestamp_precision);
+        let sending_time = UtcTimestamp::from(self.wall_clock()).with_precision(self.config.sending_time_precision());
         // During a resend, new messages wait for the rest of it.
         let holding = self.replay.is_some();
         let mut output = std::mem::take(if holding { &mut self.held } else { &mut self.output });

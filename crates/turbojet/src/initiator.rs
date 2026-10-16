@@ -47,7 +47,8 @@ pub struct InitiatorConfig {
     /// HeartBtInt(108) to request: whole seconds from 1 to 3600, the range an acceptor accepts
     /// (see [`check`](Self::check)).
     pub heartbeat_interval: Duration,
-    /// Send ResetSeqNumFlag(141)=Y on every logon, starting both sides from 1.
+    /// Send ResetSeqNumFlag(141)=Y on every logon, starting both sides from 1. FIX 4.1 and later:
+    /// FIX 4.0 has no such field.
     pub reset_on_logon: bool,
     /// Send NextExpectedMsgSeqNum(789) in the Logon (FIX 4.4 and later): the counterparty then
     /// resends anything we missed straight after logon, and we resend what it missed, with no
@@ -133,6 +134,9 @@ impl InitiatorConfig {
         let interval = self.heartbeat_interval;
         if interval.subsec_nanos() != 0 || !(1..=3600).contains(&interval.as_secs()) {
             return Err(format!("heartbeat_interval must be whole seconds from 1 to 3600, not {interval:?}"));
+        }
+        if self.reset_on_logon && self.session.begin_string == "FIX.4.0" {
+            return Err("reset_on_logon needs ResetSeqNumFlag(141), which FIX 4.0 doesn't have".into());
         }
         Ok(())
     }
