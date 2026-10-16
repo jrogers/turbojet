@@ -138,6 +138,8 @@ pub(crate) struct Plan {
 pub(crate) struct Options<'a> {
     /// Messages to leave out.
     pub skip: &'a [String],
+    /// The only messages to generate, if any are named.
+    pub only: &'a [String],
     /// Copy the dictionary's documentation into doc comments.
     pub docs: bool,
     /// Make every enumerated field lenient (`Code<E>`), not just those in `lenient`.
@@ -150,7 +152,7 @@ pub(crate) struct Options<'a> {
 /// goes into doc comments after our own `Name(tag).` lines.
 pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error> {
     let tags = field_tags(dict)?;
-    let messages = app_messages(dict, options.skip)?;
+    let messages = app_messages(dict, options.skip, options.only)?;
     // Each message's borrowed twin is a type too.
     let message_refs: Vec<String> = messages.iter().map(|(m, _)| naming::ref_type(&m.name)).collect();
     let message_names = message_names(&messages, &message_refs)?;
@@ -192,12 +194,20 @@ fn field_tags(dict: &Dictionary) -> Result<Vec<(String, String, u32)>, Error> {
     Ok(tags)
 }
 
-/// The application messages to generate, but those to `skip`, each with its members flattened.
-fn app_messages<'a>(dict: &'a Dictionary, skip: &[String]) -> Result<Vec<(&'a Message, Vec<Flat>)>, Error> {
-    let messages: Vec<_> = dict
-        .messages()
-        .iter()
-        .filter(|m| m.category == Category::App && !skip.contains(&m.name))
+/// The application messages to generate, each with its members flattened: those named in `only`,
+/// or all of them if it's empty, but those to `skip`. A name in `only` that isn't an application
+/// message is an error.
+fn app_messages<'a>(
+    dict: &'a Dictionary,
+    skip: &[String],
+    only: &[String],
+) -> Result<Vec<(&'a Message, Vec<Flat>)>, Error> {
+    let app = || dict.messages().iter().filter(|m| m.category == Category::App);
+    if let Some(name) = only.iter().find(|name| !app().any(|m| &m.name == *name)) {
+        return Err(Error(format!("no application message {name} in the dictionary")));
+    }
+    let messages: Vec<_> = app()
+        .filter(|m| (only.is_empty() || only.contains(&m.name)) && !skip.contains(&m.name))
         .map(|m| {
             let mut flat = Vec::new();
             flatten(dict, &m.members, true, &mut flat);
@@ -693,6 +703,26 @@ mod tests {
     fn skips_admin_and_listed_messages() {
         let names: Vec<_> = plan().messages.iter().map(|m| m.def.name.clone()).collect();
         assert_eq!(names, ["NewOrderSingle", "AllocationInstruction", "TradeReport", "Schedule"]);
+    }
+
+    #[test]
+    fn generates_only_the_named_messages_and_what_they_use() {
+        let dict = Dictionary::from_xml(include_str!("../tests/fixtures/mini.xml")).unwrap();
+        let only = ["TradeReport".to_string()];
+        let plan = super::build(&dict, &Options { only: &only, ..Options::default() }).unwrap();
+        let names: Vec<_> = plan.messages.iter().map(|m| m.def.name.as_str()).collect();
+        assert_eq!(names, ["TradeReport"]);
+        let groups: Vec<_> = plan.groups.iter().map(|g| g.name.as_str()).collect();
+        assert_eq!(groups, ["SideEntry"], "not PartyID or the NoAllocs groups, which only other messages use");
+        let enums: Vec<_> = plan.enums.iter().map(|e| e.name.as_str()).collect();
+        assert!(!enums.contains(&"ExecInst"), "{enums:?}");
+        assert_eq!(plan.tags.len(), 29, "tag constants are cheap, so every field keeps one");
+
+        let only = ["NoSuchMessage".to_string()];
+        let Err(err) = super::build(&dict, &Options { only: &only, ..Options::default() }) else {
+            panic!("an unknown message is an error");
+        };
+        assert_eq!(err.to_string(), "no application message NoSuchMessage in the dictionary");
     }
 
     #[test]

@@ -7,13 +7,13 @@ use turbojet_codegen::{Generator, SbeGenerator};
 use turbojet_dictionary::Dictionary;
 
 const USAGE: &str = "usage: turbojet-codegen <dictionary.xml> [--transport FIXT11.xml] [--merge venue.xml]... \
-                     [--optional Owner.Member]... [--docs] [--strict-enums] [--lenient-enum Field]... \
+                     [--optional Owner.Member]... [--message Name]... [--docs] [--strict-enums] [--lenient-enum Field]... \
                      --out <dir>\n\n--docs copies the dictionary's documentation into the doc comments; \
                      the text is FIX Protocol Limited's, so check its licence first.\n--strict-enums types enumerated fields \
                      E rather than Code<E>, so a code the dictionary doesn't list fails the parse; --lenient-enum \
                      keeps one field a Code<E>.\n\
                      --optional QuoteCancel.NoQuoteEntries makes a field, group or component optional in a \
-                     message or component, correcting a dictionary.\n\n\
+                     message or component, correcting a dictionary.\n                     --message NewOrderSingle generates only the messages named, and the groups and enums they use.\n\n\
                      turbojet-codegen sbe <schema.xml> --out <file.rs>\n\nwrites a codec for an SBE message schema.";
 
 fn main() -> ExitCode {
@@ -33,7 +33,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return sbe(args);
     }
     let (mut dictionary, mut transport, mut merges, mut out, mut docs) = (None, None, Vec::new(), None, false);
-    let (mut strict, mut lenient, mut optional) = (false, Vec::new(), Vec::new());
+    let (mut strict, mut lenient, mut optional, mut only) = (false, Vec::new(), Vec::new(), Vec::new());
     while let Some(arg) = args.next() {
         let mut value = || args.next().map(PathBuf::from).ok_or_else(|| format!("{arg} needs a value\n{USAGE}"));
         match arg.as_str() {
@@ -48,6 +48,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             "--strict-enums" => strict = true,
             "--lenient-enum" => lenient.push(value()?),
             "--optional" => optional.push(value()?),
+            "--message" => only.push(value()?),
             _ if arg.starts_with('-') || dictionary.is_some() => {
                 return Err(format!("unexpected {arg}\n{USAGE}").into());
             }
@@ -74,6 +75,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut generator = Generator::new(&dict).with_docs(docs).strict_enums(strict);
     for field in &lenient {
         generator = generator.lenient_enum(&field.to_string_lossy());
+    }
+    for message in &only {
+        generator = generator.only_message(&message.to_string_lossy());
     }
     let files = generator.write_modules(&out)?;
     rustfmt(&files)

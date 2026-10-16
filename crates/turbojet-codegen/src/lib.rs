@@ -111,6 +111,7 @@ pub struct Modules {
 pub struct Generator<'a> {
     dict: &'a Dictionary,
     skip: Vec<String>,
+    only: Vec<String>,
     docs: bool,
     lenient_all: bool,
     lenient: Vec<String>,
@@ -123,6 +124,7 @@ impl<'a> Generator<'a> {
         Self {
             dict,
             skip: vec!["BusinessMessageReject".to_string()],
+            only: Vec::new(),
             docs: false,
             lenient_all: true,
             lenient: Vec::new(),
@@ -165,6 +167,17 @@ impl<'a> Generator<'a> {
         self
     }
 
+    /// Generates this message, by name, and leaves out those not named this way, once any is.
+    /// Groups and enums come only for what the named messages use, so a large dictionary such as
+    /// FIX Latest's builds in a fraction of the time when an application needs a few of its
+    /// messages. Generating fails if a name isn't one of the dictionary's application messages.
+    /// [`skip_message`](Self::skip_message) still applies.
+    #[must_use]
+    pub fn only_message(mut self, name: &str) -> Self {
+        self.only.push(name.to_string());
+        self
+    }
+
     /// The code as separate modules, as [`write_modules`](Self::write_modules) writes them.
     /// Fails if the dictionary can't be generated as Rust: a group that doesn't start with a
     /// field, names that clash, or an official name that can't be an identifier.
@@ -174,8 +187,13 @@ impl<'a> Generator<'a> {
     /// If the dictionary can't be generated as Rust: a group that doesn't start with a field, names
     /// that clash, or an official name that can't be an identifier.
     pub fn modules(&self) -> Result<Modules, Error> {
-        let options =
-            plan::Options { skip: &self.skip, docs: self.docs, lenient_all: self.lenient_all, lenient: &self.lenient };
+        let options = plan::Options {
+            skip: &self.skip,
+            only: &self.only,
+            docs: self.docs,
+            lenient_all: self.lenient_all,
+            lenient: &self.lenient,
+        };
         let plan = plan::build(self.dict, &options)?;
         Ok(Modules {
             root: render::root(self.dict),
