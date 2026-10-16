@@ -304,6 +304,9 @@ where
             return Ok(Ended::Abandoned);
         }
         let Some(step) = d.prepare(reader, writer, logged_on)? else { return Ok(Ended::Closed) };
+        if d.input_ended(&step) {
+            return Ok(Ended::Lost);
+        }
         let mut taken = false;
         for i in 0..SPIN_BRANCHES {
             match d.try_branch((first + i) % SPIN_BRANCHES, &step, reader, writer, &mut shutdown)? {
@@ -359,14 +362,20 @@ impl<P: Driven> Driver<P> {
                     }
                 }
             }
-            1 if input_held.is_none() && !held_back => match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
-                None => false,
-                Some(0) => return Ok(ControlFlow::Break(Ended::Lost)),
-                Some(read) => {
-                    self.on_read(read, closed, resending || committing);
-                    true
+            1 if input_held.is_none() && !held_back && !self.peer_closed => {
+                match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
+                    None => false,
+                    Some(0) if self.deferred => {
+                        self.peer_closed = true;
+                        true
+                    }
+                    Some(0) => return Ok(ControlFlow::Break(Ended::Lost)),
+                    Some(read) => {
+                        self.on_read(read, closed, resending || committing);
+                        true
+                    }
                 }
-            },
+            }
             2 if !closed && !committing => {
                 poll_once(self.commands.next_with(sends)).flatten().map(|next| self.on_next(next)).is_some()
             }
@@ -412,10 +421,14 @@ where
     tokio::pin!(timer);
     loop {
         let Some(step) = d.prepare(reader, writer, logged_on)? else { return Ok(Ended::Closed) };
+        if d.input_ended(&step) {
+            return Ok(Ended::Lost);
+        }
         if timer.deadline() != d.timer_at {
             timer.as_mut().reset(d.timer_at);
         }
         let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held, held_back } = step;
+        let reading = input_held.is_none() && !held_back && !d.peer_closed;
         let pending = &d.outbox[d.written..];
         // Borrowed apart from `d`, for a future that only runs `if committing`: select! makes
         // every branch's future, and an async block would borrow all of `d`.
@@ -434,8 +447,10 @@ where
                 }
             }
             // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
-            read = reader.read_buf(&mut d.buf), if input_held.is_none() && !held_back => {
+            // Input waiting for a resend or a commit is handled before a close behind it.
+            read = reader.read_buf(&mut d.buf), if reading => {
                 match read? {
+                    0 if d.deferred => d.peer_closed = true,
                     0 => return Ok(Ended::Lost),
                     read => d.on_read(read, closed, resending || committing),
                 }
@@ -503,6 +518,9 @@ struct Driver<P: Driven> {
     /// Input read during a resend or a commit, or held by an inbound Delay limit, waiting in `buf`
     /// until it ends.
     deferred: bool,
+    /// The counterparty closed its end while input was `deferred`: the connection ends as lost
+    /// once that input has been handled, as it would have been had the close come after it.
+    peer_closed: bool,
     /// The session's, for `feed`: a FIX session decodes every inbound frame into this one
     /// message, which keeps its allocations.
     scratch: P::Scratch,
@@ -536,6 +554,7 @@ impl<P: Driven> Driver<P> {
             commands,
             buf: Vec::with_capacity(READ_BUFFER_SIZE),
             deferred: false,
+            peer_closed: false,
             scratch: P::Scratch::default(),
             unattributed_bytes: 0,
             outbox: Vec::new(),
@@ -830,6 +849,12 @@ impl<P: Driven> Driver<P> {
             self.timings.read(&self.session, now);
             self.deferred = self.session.feed(&mut self.buf, &mut self.scratch, now.into_std());
         }
+    }
+
+    /// Whether the counterparty's close, noticed while input waited, is due now: that input has
+    /// been handled, and the session is still open.
+    fn input_ended(&self, step: &Step) -> bool {
+        self.peer_closed && !self.deferred && !step.closed
     }
 
     /// A command, or a send noticed waiting for the outbound window.
@@ -2070,6 +2095,52 @@ mod tests {
         let calls = calls.lock().unwrap().clone();
         let commits = calls.iter().filter(|c| *c == "commit").count();
         assert_eq!(commits, 3, "the Logon, then each order's batch: {calls:?}");
+    }
+
+    /// A peer that sends a Logout and closes while a commit is under way is noticed once the
+    /// Logout has been handled: the logout is answered and ends cleanly, rather than the
+    /// connection being lost with the Logout unread.
+    #[tokio::test]
+    async fn a_peer_that_logs_out_and_closes_during_a_commit_is_answered() {
+        let storage = crate::store::deferring::DeferringStorage::default();
+        let (permits, gate) = std::sync::mpsc::channel::<()>();
+        let gate = Arc::new(std::sync::Mutex::new(gate));
+        *storage.job.lock().unwrap() =
+            Arc::new(move || gate.lock().unwrap().recv().map_err(|_| io::Error::other("the test ended")));
+        let (ours, mut peer) = duplex(1 << 20);
+        let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+        let task = tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        permits.send(()).unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
+
+        // The order's commit waits, and the Logout and the close arrive behind it.
+        peer.write_all(&from_peer(2, order("A"))).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        peer.write_all(&from_peer(3, Message::new(MsgType::Logout))).await.unwrap();
+        peer.shutdown().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        for _ in 0..2 {
+            permits.send(()).unwrap(); // the order's batch, then the Logout reply's
+        }
+
+        let mut rest = Vec::new();
+        let closed = tokio::time::timeout(Duration::from_secs(5), peer.read_to_end(&mut rest)).await;
+        assert!(closed.expect("did not close").is_ok());
+        buf.extend(rest);
+        let mut sent = Vec::new();
+        let mut rest = buf.as_slice();
+        while let Decoded::Message(msg, len) = crate::codec::decode(rest) {
+            sent.push(msg.msg_type());
+            rest = &rest[len..];
+        }
+        assert_eq!(sent, [MsgType::ExecutionReport, MsgType::Logout]);
+        task.await.unwrap().unwrap();
     }
 
     /// A resend longer than one step goes out in order over a connection whose buffer holds only
