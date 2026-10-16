@@ -1466,7 +1466,7 @@
          </fixr:fieldRef>
          <fixr:annotation />
       </fixr:group>
-   </fixr:groups>
+   <fixr:group id="2029" name="LinesOfTextGrp" added="FIX.2.7"><fixr:numInGroup id="33" /><fixr:fieldRef id="58" presence="required" added="FIX.2.7" /></fixr:group></fixr:groups>
    <fixr:messages>
       <fixr:message name="Heartbeat" id="1" msgType="0" category="Session" added="FIX.2.7">
          <fixr:structure>
@@ -1900,12 +1900,7 @@
             <fixr:fieldRef id="46" added="FIX.2.7">
                <fixr:annotation />
             </fixr:fieldRef>
-            <fixr:fieldRef id="33" presence="required" added="FIX.2.7">
-               <fixr:annotation />
-            </fixr:fieldRef>
-            <fixr:fieldRef id="58" presence="required" added="FIX.2.7">
-               <fixr:annotation />
-            </fixr:fieldRef>
+            <fixr:groupRef id="2029" added="FIX.2.7" presence="required" />
             <fixr:fieldRef id="95" added="FIX.2.7">
                <fixr:annotation />
             </fixr:fieldRef>
@@ -1938,12 +1933,7 @@
             <fixr:fieldRef id="11" added="FIX.2.7">
                <fixr:annotation />
             </fixr:fieldRef>
-            <fixr:fieldRef id="33" presence="required" added="FIX.2.7">
-               <fixr:annotation />
-            </fixr:fieldRef>
-            <fixr:fieldRef id="58" presence="required" added="FIX.2.7">
-               <fixr:annotation />
-            </fixr:fieldRef>
+            <fixr:groupRef id="2029" added="FIX.2.7" presence="required" />
             <fixr:fieldRef id="95" added="FIX.2.7">
                <fixr:annotation />
             </fixr:fieldRef>

@@ -6,7 +6,9 @@ string, `time` a UTC timestamp (YYYYMMDD-HH:MM:SS) and `date` a date (YYYYMMDD).
 copies the names, but in Orchestra `char` is a single character and the others don't exist, so
 fields get the later names (String, UTCTimestamp, LocalMktDate). A `char` code set keeps `char`
 unless a code is longer than one character, and ExecInst, whose instructions may be several,
-space-delimited, becomes a MultipleValueString as in later versions.
+space-delimited, becomes a MultipleValueString as in later versions. FIX 4.0 gives a field's
+repetition in prose ("Repeating field, number of instances defined in LinesOfText"); such a field
+and its count become a group, named after the later group with the same count.
 
 FIX 4.3's repository defines a repeating group inside a component inline: its NumInGroup field,
 followed by its members indented one level (Instrument's NoSecurityAltID, for example). The
@@ -20,6 +22,7 @@ output depends only on its inputs.
 
 Usage: repair-unified.py <converted.xml> <MsgContents.xml> <names-from.xml> <output.xml>
 """
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -47,6 +50,7 @@ def main(converted, contents, names_from, output):
         rows.setdefault(row.findtext("ComponentID"), []).append(row)
 
     defined = {g.get("id") for g in groups}
+    prose_groups(root, rows, later, defined)
     for component in root.find(N + "components"):
         cid = component.get("id")
         broken = [r for r in component if r.tag == N + "groupRef" and r.get("id") == cid]
@@ -93,6 +97,37 @@ def modernise_types(root):
             code_set.set("type", "MultipleValueString")
         elif code_set.get("type") == "char" and any(len(c.get("value")) != 1 for c in code_set.findall(N + "code")):
             code_set.set("type", "String")
+
+
+def prose_groups(root, rows, later, defined):
+    """Makes each field a message's MsgContents says is repeated by a count field into a group."""
+    tags = {f.get("name"): f.get("id") for f in root.find(N + "fields")}
+    groups = root.find(N + "groups")
+    for message in root.find(N + "messages"):
+        for row in rows.get(message.get("id"), []):
+            said = re.search(r"number of instances defined in (\w+)", row.findtext("Description") or "")
+            if not said or row.findtext("Indent") != "0":
+                continue
+            count, member = tags[said.group(1)], row.findtext("TagText")
+            structure = message.find(N + "structure")
+            refs = list(structure)
+            at = next(i for i, ref in enumerate(refs) if ref.tag == N + "fieldRef" and ref.get("id") == count)
+            if refs[at + 1].get("id") != member:
+                sys.exit(f"{message.get('name')}: {member} doesn't follow its count {count}")
+            gid, name = later[count]
+            group_ref = ET.Element(N + "groupRef", {"id": gid, "added": refs[at].get("added")})
+            if refs[at].get("presence") == "required":
+                group_ref.set("presence", "required")
+            group_ref.tail = refs[at].tail
+            structure.remove(refs[at + 1])
+            structure.remove(refs[at])
+            structure.insert(at, group_ref)
+            if gid not in defined:
+                group = ET.SubElement(groups, N + "group", {"id": gid, "name": name, "added": refs[at].get("added")})
+                ET.SubElement(group, N + "numInGroup", {"id": count})
+                ET.SubElement(group, N + "fieldRef", {"id": member, "presence": "required", "added": refs[at].get("added")})
+                defined.add(gid)
+            print(f"{message.get('name')}: {name} ({gid}), counted by {count}")
 
 
 def inline_groups(rows):
