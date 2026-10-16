@@ -3,6 +3,12 @@
 Behaviour that is deliberate or documented, but worth knowing about before you rely on Turbojet,
 and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 
+- FIX 4.0 and 4.1 sessions always write SendingTime in whole seconds, ignoring
+  `timestamp_precision`; the typed crates' other timestamps are written as the application sets
+  them. Two FIX 4.0 repetitions have no count field that a dictionary could make a group of, so
+  validation rejects them as repeated tags and typed parsing keeps the first: News and Email's
+  RelatdSym(46), which may repeat, and Allocation's delivery instructions, BrokerOfCredit(92) and
+  DlvyInst(86) repeated NoDlvyInst(85) times inside each NoAllocs entry.
 - FAST (`turbojet-fast`): reportable errors are always reported, so an encoder that writes an
   overlong integer or presence map is refused rather than read; a delta string's part is read as
   the specification has it, not nullable, so an encoder that writes it nullable, as `fastlib` does

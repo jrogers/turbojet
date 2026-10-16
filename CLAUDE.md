@@ -28,7 +28,7 @@ on, so check with `--all-features` and `--no-default-features` at least.
 
 ## Things that bite
 
-- **Generated crates.** `crates/turbojet-fix{42,43,44,50sp2}/src/generated` come from
+- **Generated crates.** `crates/turbojet-fix{40,41,42,43,44,50sp2}/src/generated` come from
   `turbojet-codegen` and `dictionaries/orchestra`. Don't edit them by hand: change the generator or
   the `scripts/codegen.sh` arguments, rerun the script and commit its output. CI fails on a diff.
 - **The fuzz crate** (`crates/turbojet/fuzz`) is outside the workspace with its own `Cargo.lock`.

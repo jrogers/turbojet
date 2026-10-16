@@ -11,7 +11,7 @@ copies and zero allocations per message (see [The hot path](#the-hot-path)).
 ## The session layer
 
 A complete FIX session layer (logon, including credentials and FIX 4.4 NextExpectedMsgSeqNum;
-sequencing, gap detection and resend, heartbeats, logout) for FIX 4.2 and later, as a sans-IO state
+sequencing, gap detection and resend, heartbeats, logout) for FIX 4.0 and later, as a sans-IO state
 machine with an injected clock. It has:
 
 - FIXT.1.1 sessions for FIX 5.0 SP2: DefaultApplVerID(1137) configured and negotiated at logon (an
@@ -285,13 +285,25 @@ Parsing straight into the owned form, rather than through the borrowed one, doub
 crates' build time; that was accepted for the faster owned parse.
 
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
-(Apache-2.0, © FIX Protocol Limited), with FIX 4.3 and FIX 5.0 SP2 converted from the FIX Unified
-Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`); each version is
-generated into its own crate (`turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44`,
+(Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3 and 5.0 SP2 converted from the FIX
+Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then
+`repair-unified.py` for what the stylesheet gets wrong: FIX 4.0 and 4.1's datatype names, where
+`char` is a string, `time` a timestamp and `date` a date; repetition FIX 4.0 gives only in prose;
+FIX 4.3's inline groups); each version is generated into its own crate (`turbojet-fix40`,
+`turbojet-fix41`, `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44`,
 `turbojet-fix50sp2`, the last over FIXT 1.1's header), and CI checks they match. A dictionary's
 mistakes can be corrected before generating (`Dictionary::make_optional`, `--optional`;
 `turbojet-fix42` makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did). Sessions can also
 check inbound messages against a dictionary (feature `validation`, `SessionConfig::with_dictionary`).
+
+FIX 4.0 and 4.1 sessions differ from later ones in what the session sends, chosen by BeginString
+(`SessionConfig::predates_fix42`): a Reject carries only RefSeqNum(45) and Text(58), since
+RefTagID, RefMsgType and SessionRejectReason came with FIX 4.2; a session Reject stands in for
+BusinessMessageReject, also FIX 4.2; a ResendRequest asks for everything to the end with
+EndSeqNo(16)=999999, not 0; and SendingTime is whole seconds, whatever `timestamp_precision`
+says. FIX 4.0 has no ResetSeqNumFlag(141), so `reset_on_logon` is refused there, and no location
+IDs (144, 145), which `with_reverse_route` doesn't echo. QuickFIX's fix40 and fix41 acceptance
+scripts check this.
 
 Enumerated fields are generated as `fields::Code<E>`, which keeps a code the dictionary doesn't
 list as `Code::Unknown`. They were strict until 2026-10-11: an unknown code in any field, even one
@@ -416,9 +428,9 @@ invariants, and tests that look for bugs rather than confirm what already works.
   second late, since fixed. Against QuickFIX/n (v1.14.1, on .NET 10), every scenario runs too, the TLS ones with PKCS#12 bundles on both sides: as acceptor it leaves
   ResetSeqNumFlag out of its Logon reply, and as initiator it disconnects on a garbled message,
   recovering it by resend.
-- **QuickFIX's 235 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX
-  specification's session test cases, on every build. They found four deviations from the spec's
-  test cases, since fixed; 221 pass, and the 14 that fail are listed with their reasons in
+- **QuickFIX's 347 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX
+  specification's session test cases, on every build. They found five deviations from the spec's
+  test cases, since fixed; 329 pass, and the 18 that fail are listed with their reasons in
   `known_failures.txt`: two deliberate differences (keeping a valid message that follows a
   too-long BodyLength, and no RefTagID for a negative tag) and scripts that rely on QuickFIX's own
   behaviour or dictionaries.

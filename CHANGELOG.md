@@ -2,6 +2,24 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+Two new crates: `turbojet-fix40` and `turbojet-fix41`.
+
+### `turbojet`
+
+- FIX 4.0 and 4.1 sessions send what those versions define: a Reject with only RefSeqNum(45) and
+  Text(58), a session Reject in place of BusinessMessageReject, EndSeqNo(16)=999999 for a resend
+  to the end, and SendingTime in whole seconds. `InitiatorConfig::check` refuses `reset_on_logon`
+  on FIX 4.0, which has no ResetSeqNumFlag(141).
+- `Message::with_reverse_route` doesn't copy OnBehalfOfLocationID(144) or DeliverToLocationID(145)
+  from a FIX 4.0 message, which has no such fields.
+
+### `turbojet-fix40` and `turbojet-fix41`
+
+- New crates: every FIX 4.0 and FIX 4.1 application message, group and enum, generated from the
+  FIX Unified Repository, with its names (`OrderSingle` for NewOrderSingle(D), `OrderList`).
+
 ## 0.3.1 (2026-10-15)
 
 A new crate: `turbojet-fast`, FAST market data decoded into Turbojet messages.
