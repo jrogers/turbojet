@@ -659,8 +659,9 @@ impl Message {
     /// The same message routed back to where `received` came from: OnBehalfOfCompID(115),
     /// OnBehalfOfSubID(116) and OnBehalfOfLocationID(144) become DeliverToCompID(128),
     /// DeliverToSubID(129) and DeliverToLocationID(145), and the other way round. Empty ones
-    /// aren't copied. The session does this for its own Rejects; do it for replies that must go
-    /// back through a hub.
+    /// aren't copied, and neither are location IDs from a FIX 4.0 message, which has no such tags.
+    /// The session does this for its own Rejects; do it for replies that must go back through a
+    /// hub.
     #[must_use]
     pub fn with_reverse_route(mut self, received: &Message) -> Self {
         use tags::*;
@@ -672,7 +673,11 @@ impl Message {
             (DELIVER_TO_SUB_ID, ON_BEHALF_OF_SUB_ID),
             (DELIVER_TO_LOCATION_ID, ON_BEHALF_OF_LOCATION_ID),
         ];
+        let fix40 = received.get(BEGIN_STRING) == Some("FIX.4.0");
         for (from, to) in PAIRS {
+            if fix40 && matches!(from, ON_BEHALF_OF_LOCATION_ID | DELIVER_TO_LOCATION_ID) {
+                continue;
+            }
             if let Some(value) = received.get(from).filter(|v| !v.is_empty()) {
                 self.set(to, value);
             }
@@ -2014,6 +2019,17 @@ mod tests {
         assert_eq!(reply.get(tags::DELIVER_TO_LOCATION_ID), None, "an empty one isn't copied");
         assert_eq!(reply.get(tags::ON_BEHALF_OF_COMP_ID), Some("HUB"));
         assert_eq!(reply.get(tags::ON_BEHALF_OF_SUB_ID), None);
+    }
+
+    #[test]
+    fn reverse_route_skips_location_ids_fix40_lacks() {
+        let received = Message::new(MsgType::NewOrderSingle)
+            .with(tags::BEGIN_STRING, "FIX.4.0")
+            .with(tags::ON_BEHALF_OF_COMP_ID, "JCD")
+            .with(tags::ON_BEHALF_OF_LOCATION_ID, "CHI");
+        let reply = Message::new(MsgType::ExecutionReport).with_reverse_route(&received);
+        assert_eq!(reply.get(tags::DELIVER_TO_COMP_ID), Some("JCD"));
+        assert_eq!(reply.get(tags::DELIVER_TO_LOCATION_ID), None);
     }
 
     #[test]
