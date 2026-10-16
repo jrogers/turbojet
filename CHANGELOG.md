@@ -10,6 +10,11 @@ FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44
 
 ### `turbojet`
 
+- Generated messages build much faster in release when they're large: an owned parse keeps its
+  slots in one struct, so an early return drops one value rather than each slot. FIX Latest's
+  ExecutionReport (619 fields) builds in 36 s rather than 111 s, FIX 5.0 SP2 in 96 s rather than
+  113 s. Parsing is as fast as before.
+
 - FIX 4.0 and 4.1 sessions send what those versions define: a Reject with only RefSeqNum(45) and
   Text(58), a session Reject in place of BusinessMessageReject, EndSeqNo(16)=999999 for a resend
   to the end, and SendingTime in whole seconds. `InitiatorConfig::check` refuses `reset_on_logon`

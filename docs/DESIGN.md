@@ -284,6 +284,26 @@ from 75 s, and FIX 4.2 about 1.4 s and 2.6 s, for about 3% on the session benchm
 Parsing straight into the owned form, rather than through the borrowed one, doubled the generated
 crates' build time; that was accepted for the faster owned parse.
 
+An owned parse keeps its slots in one struct, not a local each (2026-10-16). Each early return
+from a parse (a group's error, a missing required field) has to drop every owned slot still
+live, so with a local per slot the code to do it grew with fields times returns, and LLVM's
+InstCombine spent most of a large message's build on it: an `-Z llvm-time-trace` of FIX
+Latest's ExecutionReport (619 fields) put 84 s of InstCombine, summed over threads, in its two
+owned parses, against 0.1 s for the borrowed ones, whose slots need no drop. As one struct, a
+return drops one value. Clean builds on an M3, alternating before and after:
+
+| | Before | After |
+|---|---|---|
+| FIX Latest's ExecutionReport alone, release | 111.5 s | 36.1 s |
+| FIX Latest's ExecutionReport alone, debug | 14.8 s | 15.1 s |
+| FIX 5.0 SP2, release | 112.6 s | 95.5 s |
+| FIX Latest, release | 23 minutes | 6.5 minutes |
+
+The typed parse benchmarks didn't move: over two rounds alternating before and after, each was
+within 1% (FIX 4.2 NewOrderSingle 131.0 ns before, 130.8 ns after; ExecutionReport 183.3 and
+183.3 ns; FIX 4.4 NewOrderSingle with nested groups 605.6 and 605.6 ns). Borrowed parses keep a local per slot:
+as one struct they were 7% slower (FIX 4.2 NewOrderSingleRef 103.7 to 111.4 ns).
+
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
 (Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 and 5.0 SP2 converted from the FIX
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then
@@ -306,8 +326,7 @@ The generator can also take a list of messages (`Generator::only_message`, `--me
 only those, and since groups and enums were already planned from what the generated messages
 reach, it leaves out the rest with no further pruning. For FIX Latest (EP312), whose whole
 dictionary builds in 104 s debug and 23 minutes release (clean, M3, 2026-10-16), five order
-messages build in 18 s and 279 s. Release time is nearly all LLVM, and about 45% of the IR of a
-large message is per enumerated field (see ROADMAP.md, "Generated code's build time").
+messages built in 18 s and 279 s before the owned-slot change above.
 `turbojet-fix`'s library builds once even under `--all-targets`, `cargo test` and `cargo bench`
 (`[lib] test = false, bench = false`, as it has no unit tests): compiled twice at once, as
 before, every version took about 7 GB each, and CI's runners were shut down mid-build at eight.
