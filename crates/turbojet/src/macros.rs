@@ -421,7 +421,7 @@ macro_rules! fix_message {
     // their owned form.
     (@parse $mode:ident $lt:lifetime, $fields:expr, $strict:expr, $( $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {{
         let fields: $crate::message::Fields<$lt> = $fields;
-        $( let mut $field = $crate::fix_message!(@slot $mode $lt, $presence $ty); )+
+        $crate::fix_message!(@slots $mode $lt, __slots, $( $field : $presence $ty ),+);
         #[allow(unused_mut)]
         let mut failed: ::std::option::Option<$crate::message::FieldError> = None;
         let mut undeclared: ::std::option::Option<u32> = None;
@@ -438,7 +438,7 @@ macro_rules! fix_message {
             index = match tag {
                 // A data field's Length field matches too, so it counts as declared.
                 $( $crate::fix_message!(@pattern $tags) =>
-                    $crate::fix_message!(@take $mode $lt, $presence $ty, $field, fields, index, tag, value, failed, __DECLARED_TAGS, $tags), )+
+                    $crate::fix_message!(@take $mode $lt, $presence $ty, $crate::fix_message!(@place $mode __slots $field), fields, index, tag, value, failed, __DECLARED_TAGS, $tags), )+
                 _ => {
                     if $strict && undeclared.is_none() && !$crate::message::is_header_or_trailer(tag) {
                         undeclared = Some(tag);
@@ -451,7 +451,7 @@ macro_rules! fix_message {
             let failed_at = $crate::message::declared_at(__DECLARED_TAGS, error.tag);
             let mut _at = 0usize;
             $(
-                if _at < failed_at && $crate::fix_message!(@missing $presence $field) {
+                if _at < failed_at && $crate::fix_message!(@missing $presence $crate::fix_message!(@place $mode __slots $field)) {
                     return Err($crate::message::FieldError {
                         tag: $crate::fix_message!(@key $tags),
                         kind: $crate::message::FieldErrorKind::Missing,
@@ -461,7 +461,7 @@ macro_rules! fix_message {
             )+
             return Err(error);
         }
-        let value = Self { $( $field: $crate::fix_message!(@finish $mode $presence $ty, $field, $tags), )+ };
+        let value = Self { $( $field: $crate::fix_message!(@finish $mode $presence $ty, $crate::fix_message!(@place $mode __slots $field), $tags), )+ };
         if let Some(tag) = undeclared {
             return Err($crate::message::FieldError { tag, kind: $crate::message::FieldErrorKind::NotDefined });
         }
@@ -499,66 +499,83 @@ macro_rules! fix_message {
     (@into_owned $lt:lifetime, req_group $ty:ty, $value:expr) => { $value.into_owned() };
     (@into_owned $lt:lifetime, data $ty:ty, $value:expr) => { $value.to_vec() };
     (@into_owned $lt:lifetime, opt_data $ty:ty, $value:expr) => { $value.map(<[u8]>::to_vec) };
-    // Each field's slot while parsing: its value, if found yet. A data field's holds the bytes
+    // The slots while parsing, and where each is. Owned, they're one value, not a local each, so
+    // an early return drops one thing: with a local per slot, every return dropped each owned
+    // slot itself, and a large message's owned parse grew with its fields times its returns, in
+    // LLVM's InstCombine (FIX Latest's ExecutionReport, 619 fields, built in 111 s in release
+    // rather than 36 s). Borrowed slots need no drop, and parse faster as locals.
+    (@slots owned $lt:lifetime, $slots:ident, $( $field:ident : $presence:ident $ty:ty ),+) => {
+        struct __Slots<'__s> {
+            $( $field: $crate::fix_message!(@slot owned '__s, $presence $ty), )+
+            _borrowed: ::core::marker::PhantomData<&'__s ()>,
+        }
+        let mut $slots = __Slots { $( $field: None, )+ _borrowed: ::core::marker::PhantomData };
+    };
+    (@slots borrowed $lt:lifetime, $slots:ident, $( $field:ident : $presence:ident $ty:ty ),+) => {
+        $( let mut $field: $crate::fix_message!(@slot borrowed $lt, $presence $ty) = None; )+
+    };
+    (@place owned $slots:ident $field:ident) => { $slots.$field };
+    (@place borrowed $slots:ident $field:ident) => { $field };
+    // Each field's slot type while parsing: its value, if found yet. A data field's holds the bytes
     // borrowed in either mode, copied once parsing has succeeded.
-    (@slot borrowed $lt:lifetime, req $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, req $ty)> };
-    (@slot borrowed $lt:lifetime, opt $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, req $ty)> };
-    (@slot borrowed $lt:lifetime, group $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, group $ty)> };
-    (@slot borrowed $lt:lifetime, req_group $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, group $ty)> };
-    (@slot owned $lt:lifetime, req $ty:ty) => { None::<$ty> };
-    (@slot owned $lt:lifetime, opt $ty:ty) => { None::<$ty> };
-    (@slot owned $lt:lifetime, group $ty:ty) => { None::<Vec<$ty>> };
-    (@slot owned $lt:lifetime, req_group $ty:ty) => { None::<Vec<$ty>> };
-    (@slot $mode:ident $lt:lifetime, data $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, data $ty)> };
-    (@slot $mode:ident $lt:lifetime, opt_data $ty:ty) => { None::<$crate::fix_message!(@reftype $lt, data $ty)> };
-    (@take $mode:ident $lt:lifetime, req $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+    (@slot borrowed $lt:lifetime, req $ty:ty) => { Option<$crate::fix_message!(@reftype $lt, req $ty)> };
+    (@slot borrowed $lt:lifetime, opt $ty:ty) => { Option<$crate::fix_message!(@reftype $lt, req $ty)> };
+    (@slot borrowed $lt:lifetime, group $ty:ty) => { Option<$crate::fix_message!(@reftype $lt, group $ty)> };
+    (@slot borrowed $lt:lifetime, req_group $ty:ty) => { Option<$crate::fix_message!(@reftype $lt, group $ty)> };
+    (@slot owned $lt:lifetime, req $ty:ty) => { Option<$ty> };
+    (@slot owned $lt:lifetime, opt $ty:ty) => { Option<$ty> };
+    (@slot owned $lt:lifetime, group $ty:ty) => { Option<Vec<$ty>> };
+    (@slot owned $lt:lifetime, req_group $ty:ty) => { Option<Vec<$ty>> };
+    (@slot $mode:ident $lt:lifetime, data $ty:ty) => { Option<$crate::fix_message!(@reftype $lt, data $ty)> };
+    (@slot $mode:ident $lt:lifetime, opt_data $ty:ty) => { Option<$crate::fix_message!(@reftype $lt, data $ty)> };
+    (@take $mode:ident $lt:lifetime, req $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::fix_message!(@take $mode $lt, opt $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take borrowed $lt:lifetime, opt $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+    (@take borrowed $lt:lifetime, opt $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
         $crate::message::take_value_ref::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
         $index + 1
     }};
-    (@take owned $lt:lifetime, opt $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+    (@take owned $lt:lifetime, opt $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
         $crate::message::take_value::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
         $index + 1
     }};
-    (@take $mode:ident $lt:lifetime, req_group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+    (@take $mode:ident $lt:lifetime, req_group $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::fix_message!(@take $mode $lt, group $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take borrowed $lt:lifetime, group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+    (@take borrowed $lt:lifetime, group $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
         $crate::message::take_group_ref::<<$ty as $crate::message::FixGroup>::Ref<$lt>>(&mut $slot, &$fields, $index, $tag)?
     }};
-    (@take owned $lt:lifetime, group $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
+    (@take owned $lt:lifetime, group $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
         $crate::message::take_group::<$ty>(&mut $slot, &$fields, $index, $tag)?
     }};
-    (@take $mode:ident $lt:lifetime, data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+    (@take $mode:ident $lt:lifetime, data $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::fix_message!(@take $mode $lt, opt_data $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
-    (@take $mode:ident $lt:lifetime, opt_data $ty:ty, $slot:ident, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
+    (@take $mode:ident $lt:lifetime, opt_data $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::message::take_data_ref(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
     };
     // Whether a field fails as missing, for the error path.
-    (@missing req $slot:ident) => { $slot.is_none() };
-    (@missing opt $slot:ident) => { false };
-    (@missing group $slot:ident) => { false };
-    (@missing req_group $slot:ident) => { $slot.as_ref().is_none_or(|entries| entries.is_empty()) };
-    (@missing data $slot:ident) => { $slot.is_none() };
-    (@missing opt_data $slot:ident) => { false };
-    (@finish $mode:ident req $ty:ty, $slot:ident, $tags:tt) => { $crate::message::required($crate::fix_message!(@key $tags), $slot)? };
-    (@finish $mode:ident opt $ty:ty, $slot:ident, $tags:tt) => { $slot };
-    (@finish $mode:ident group $ty:ty, $slot:ident, $tags:tt) => { $slot.unwrap_or_default() };
-    (@finish borrowed req_group $ty:ty, $slot:ident, $tags:tt) => {
+    (@missing req $slot:expr) => { $slot.is_none() };
+    (@missing opt $slot:expr) => { false };
+    (@missing group $slot:expr) => { false };
+    (@missing req_group $slot:expr) => { $slot.as_ref().is_none_or(|entries| entries.is_empty()) };
+    (@missing data $slot:expr) => { $slot.is_none() };
+    (@missing opt_data $slot:expr) => { false };
+    (@finish $mode:ident req $ty:ty, $slot:expr, $tags:tt) => { $crate::message::required($crate::fix_message!(@key $tags), $slot)? };
+    (@finish $mode:ident opt $ty:ty, $slot:expr, $tags:tt) => { $slot };
+    (@finish $mode:ident group $ty:ty, $slot:expr, $tags:tt) => { $slot.unwrap_or_default() };
+    (@finish borrowed req_group $ty:ty, $slot:expr, $tags:tt) => {
         $crate::message::required_group_ref($crate::fix_message!(@key $tags), $slot)?
     };
-    (@finish owned req_group $ty:ty, $slot:ident, $tags:tt) => {
+    (@finish owned req_group $ty:ty, $slot:expr, $tags:tt) => {
         $crate::message::required_group($crate::fix_message!(@key $tags), $slot)?
     };
-    (@finish borrowed data $ty:ty, $slot:ident, $tags:tt) => { $crate::fix_message!(@finish borrowed req $ty, $slot, $tags) };
-    (@finish owned data $ty:ty, $slot:ident, $tags:tt) => {
+    (@finish borrowed data $ty:ty, $slot:expr, $tags:tt) => { $crate::fix_message!(@finish borrowed req $ty, $slot, $tags) };
+    (@finish owned data $ty:ty, $slot:expr, $tags:tt) => {
         $crate::fix_message!(@finish owned req $ty, $slot, $tags).to_vec()
     };
-    (@finish borrowed opt_data $ty:ty, $slot:ident, $tags:tt) => { $slot };
-    (@finish owned opt_data $ty:ty, $slot:ident, $tags:tt) => { $slot.map(<[u8]>::to_vec) };
+    (@finish borrowed opt_data $ty:ty, $slot:expr, $tags:tt) => { $slot };
+    (@finish owned opt_data $ty:ty, $slot:expr, $tags:tt) => { $slot.map(<[u8]>::to_vec) };
     (@spec req $ty:ty) => { None };
     (@spec opt $ty:ty) => { None };
     (@spec group $ty:ty) => { Some(&<$ty as $crate::message::FixGroup>::SPEC) };
