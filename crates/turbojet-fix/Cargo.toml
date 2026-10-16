@@ -21,6 +21,13 @@ fix50 = []
 fix50sp1 = []
 fix50sp2 = []
 
+# The library has no unit tests or benchmarks. Without these, `--all-targets`, `cargo test` and
+# `cargo bench` compile all its versions a second time, at the same time, doubling the memory
+# they need (about 7 GB for each with every version).
+[lib]
+test = false
+bench = false
+
 [dependencies]
 turbojet.workspace = true
 
