@@ -198,6 +198,8 @@ enum Version {
     Fix42,
     Fix43,
     Fix44,
+    Fix50,
+    Fix50Sp1,
     Fix50Sp2,
 }
 
@@ -209,6 +211,8 @@ impl Version {
             Some("fix42") => Self::Fix42,
             Some("fix43") => Self::Fix43,
             Some("fix44") => Self::Fix44,
+            Some("fix50") => Self::Fix50,
+            Some("fix50sp1") => Self::Fix50Sp1,
             Some("fix50sp2") => Self::Fix50Sp2,
             _ => panic!("no FIX version for {script}"),
         }
@@ -222,6 +226,8 @@ impl Version {
             Self::Fix42 => "TW42",
             Self::Fix43 => "TW43",
             Self::Fix44 => "TW44",
+            Self::Fix50 => "TW50",
+            Self::Fix50Sp1 => "TW50SP1",
             Self::Fix50Sp2 => "TW50SP2",
         }
     }
@@ -229,25 +235,33 @@ impl Version {
     /// The engine's session configuration, validating against the official dictionary. Built
     /// once per version: compiling the dictionary takes a while.
     fn config(self) -> SessionConfig {
-        static CONFIGS: [OnceLock<SessionConfig>; 6] = [const { OnceLock::new() }; 6];
+        static CONFIGS: [OnceLock<SessionConfig>; 8] = [const { OnceLock::new() }; 8];
         CONFIGS[self as usize]
             .get_or_init(|| {
                 let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
                 let load = |name: &str| Dictionary::load(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
-                let (begin_string, dictionary) = match self {
-                    Self::Fix40 => ("FIX.4.0", load("OrchestraFIX40.xml")),
-                    Self::Fix41 => ("FIX.4.1", load("OrchestraFIX41.xml")),
-                    Self::Fix42 => ("FIX.4.2", load("OrchestraFIX42.xml")),
-                    Self::Fix43 => ("FIX.4.3", load("OrchestraFIX43.xml")),
-                    Self::Fix44 => ("FIX.4.4", load("OrchestraFIX44.xml")),
-                    Self::Fix50Sp2 => {
-                        let dictionary = load("OrchestraFIX50SP2.xml").with_transport(&load("FIXTSession.xml"));
-                        ("FIXT.1.1", dictionary.unwrap())
-                    }
+                let fixt = |name: &str, id| (load(name).with_transport(&load("FIXTSession.xml")).unwrap(), Some(id));
+                let (dictionary, appl_ver_id) = match self {
+                    Self::Fix40 => (load("OrchestraFIX40.xml"), None),
+                    Self::Fix41 => (load("OrchestraFIX41.xml"), None),
+                    Self::Fix42 => (load("OrchestraFIX42.xml"), None),
+                    Self::Fix43 => (load("OrchestraFIX43.xml"), None),
+                    Self::Fix44 => (load("OrchestraFIX44.xml"), None),
+                    Self::Fix50 => fixt("OrchestraFIX50.xml", ApplVerId::Fix50),
+                    Self::Fix50Sp1 => fixt("OrchestraFIX50SP1.xml", ApplVerId::Fix50Sp1),
+                    Self::Fix50Sp2 => fixt("OrchestraFIX50SP2.xml", ApplVerId::Fix50Sp2),
+                };
+                let begin_string = match self {
+                    Self::Fix40 => "FIX.4.0",
+                    Self::Fix41 => "FIX.4.1",
+                    Self::Fix42 => "FIX.4.2",
+                    Self::Fix43 => "FIX.4.3",
+                    Self::Fix44 => "FIX.4.4",
+                    Self::Fix50 | Self::Fix50Sp1 | Self::Fix50Sp2 => "FIXT.1.1",
                 };
                 let mut config = SessionConfig::new(begin_string, "ISLD");
-                if let Self::Fix50Sp2 = self {
-                    config = config.with_appl_ver_id(ApplVerId::Fix50Sp2);
+                if let Some(id) = appl_ver_id {
+                    config = config.with_appl_ver_id(id);
                 }
                 config.with_dictionary(&dictionary)
             })
