@@ -3,7 +3,7 @@
 use std::fmt::Write;
 use std::{env, fs};
 
-const VERSIONS: &[&str] = &["fix42", "fix43", "fix44", "fix50sp2"];
+const VERSIONS: &[&str] = &["fix40", "fix41", "fix42", "fix43", "fix44", "fix50sp2"];
 
 fn main() {
     println!("cargo::rerun-if-changed=definitions");

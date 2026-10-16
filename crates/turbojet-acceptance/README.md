@@ -1,7 +1,7 @@
 # turbojet-acceptance
 
 Session-level acceptance tests: the scripted scenarios QuickFIX checks its own session layer with,
-run against a Turbojet acceptor. There are 235: FIX 4.2, 4.3, 4.4 and FIXT.1.1 with FIX 5.0 SP2,
+run against a Turbojet acceptor. There are 347: FIX 4.0, 4.1, 4.2, 4.3, 4.4 and FIXT.1.1 with FIX 5.0 SP2,
 each covering the FIX specification's session test cases (logon, sequencing, gaps and resends,
 garbled and invalid messages, heartbeats, logout) and a few more. Each is its own test, named
 after its script, e.g. `fix42_2b_msg_seq_num_too_high`. The crate isn't published.

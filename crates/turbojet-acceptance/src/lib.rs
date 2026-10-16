@@ -193,6 +193,8 @@ fn printable(text: &str) -> String {
 
 #[derive(Debug, Clone, Copy)]
 enum Version {
+    Fix40,
+    Fix41,
     Fix42,
     Fix43,
     Fix44,
@@ -202,6 +204,8 @@ enum Version {
 impl Version {
     fn of(script: &str) -> Self {
         match script.split('/').next() {
+            Some("fix40") => Self::Fix40,
+            Some("fix41") => Self::Fix41,
             Some("fix42") => Self::Fix42,
             Some("fix43") => Self::Fix43,
             Some("fix44") => Self::Fix44,
@@ -213,6 +217,8 @@ impl Version {
     /// The counterparty QuickFIX's test server is configured for.
     fn counterparty(self) -> &'static str {
         match self {
+            Self::Fix40 => "TW40",
+            Self::Fix41 => "TW41",
             Self::Fix42 => "TW42",
             Self::Fix43 => "TW43",
             Self::Fix44 => "TW44",
@@ -223,12 +229,14 @@ impl Version {
     /// The engine's session configuration, validating against the official dictionary. Built
     /// once per version: compiling the dictionary takes a while.
     fn config(self) -> SessionConfig {
-        static CONFIGS: [OnceLock<SessionConfig>; 4] = [const { OnceLock::new() }; 4];
+        static CONFIGS: [OnceLock<SessionConfig>; 6] = [const { OnceLock::new() }; 6];
         CONFIGS[self as usize]
             .get_or_init(|| {
                 let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
                 let load = |name: &str| Dictionary::load(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
                 let (begin_string, dictionary) = match self {
+                    Self::Fix40 => ("FIX.4.0", load("OrchestraFIX40.xml")),
+                    Self::Fix41 => ("FIX.4.1", load("OrchestraFIX41.xml")),
                     Self::Fix42 => ("FIX.4.2", load("OrchestraFIX42.xml")),
                     Self::Fix43 => ("FIX.4.3", load("OrchestraFIX43.xml")),
                     Self::Fix44 => ("FIX.4.4", load("OrchestraFIX44.xml")),
