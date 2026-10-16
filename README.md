@@ -11,7 +11,7 @@
 
 > [!WARNING]
 > **Pre-1.0, and not yet proven in production.** Turbojet is tested against two other FIX engines,
-> QuickFIX/J and QuickFIX/n, in CI; passes 329 of QuickFIX's 347 scripted session acceptance scenarios (the rest
+> QuickFIX/J and QuickFIX/n, in CI; passes 440 of QuickFIX's 467 scripted session acceptance scenarios (the rest
 > are listed with their reasons); and has its parsers and session state machine fuzzed. It hasn't
 > been certified with any venue or run against a real counterparty, its APIs will change before
 > 1.0, and it has known gaps (see [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) and [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md)). Don't use it to trade real money or to
@@ -20,7 +20,7 @@
 
 **Turbojet** ([`crates/turbojet`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet)) is a FIX engine in Rust (tokio): codec,
 session layer, storage, `Acceptor` and `Initiator`, with typed messages for FIX 4.0, 4.1, 4.2, 4.3,
-4.4 and 5.0 SP2. Its examples are an order-entry gateway (an `Application` served by an `Acceptor`, in
+4.4, 5.0, 5.0 SP1 and 5.0 SP2. Its examples are an order-entry gateway (an `Application` served by an `Acceptor`, in
 [`examples/gateway`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet/examples/gateway)) and a client for it (an `Initiator`).
 The gateway needs the `tls`, `metrics`, `tz` and `gzip` features, the client `tls`.
 
@@ -28,8 +28,8 @@ Typed application messages are generated from FIX data dictionaries:
 [`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary) loads FIX Orchestra and QuickFIX-format XML
 and merges venue customisations onto it, [`turbojet-codegen`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-codegen) generates
 messages, groups and enums from it (from a `build.rs`, or as a command), and
-[`turbojet-fix`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix) has every FIX 4.0, 4.1, 4.2, 4.3, 4.4 and 5.0 SP2
-application message, one feature per version, generated from the FIX Trading
+[`turbojet-fix`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix) has every FIX 4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1 and
+5.0 SP2 application message, one feature per version, generated from the FIX Trading
 Community's official data and checked in. `turbojet-codegen sbe` generates codecs for SBE (Simple
 Binary Encoding) message schemas, the binary encoding venues such as B3 and CME publish (see
 [SBE codecs](#sbe-codecs)), and `turbojet::fixp` runs FIXP sessions, the FIX Performance Session
@@ -55,7 +55,7 @@ code.
 CI runs Turbojet's sessions against QuickFIX/J and QuickFIX/n, in both roles, on FIX 4.2, 4.3 and 4.4 and on
 FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
 loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
-over TLS and mutual TLS; and through QuickFIX's 347 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
+over TLS and mutual TLS; and through QuickFIX's 467 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
 
 ```sh
 cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --comp-id GATEWAY \
@@ -126,10 +126,10 @@ practice, and where Turbojet differs.
 Implement `Application` for your business logic; the engine owns the session layer (logon,
 sequence numbers, gap detection and resend, heartbeats/TestRequest, logout, persistence).
 Typed application messages come from `turbojet-fix`, with a feature per FIX version: add it
-alongside `turbojet` with the versions you use, `fix40`, `fix41`, `fix42`, `fix43`, `fix44` or
-`fix50sp2` (`turbojet-fix = { version = "0.3", features = ["fix44"] }`), and use
-`turbojet_fix::fix44::NewOrderSingle`. FIX 5.0 SP2 runs over the FIXT 1.1 session protocol: give the
-session BeginString `FIXT.1.1` and its application version,
+alongside `turbojet` with the versions you use, `fix40`, `fix41`, `fix42`, `fix43`, `fix44`,
+`fix50`, `fix50sp1` or `fix50sp2` (`turbojet-fix = { version = "0.3", features = ["fix44"] }`), and use
+`turbojet_fix::fix44::NewOrderSingle`. FIX 5.0, 5.0 SP1 and 5.0 SP2 run over the FIXT 1.1 session
+protocol: give the session BeginString `FIXT.1.1` and its application version,
 `SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerId::Fix50Sp2)`, and the engine
 negotiates DefaultApplVerID(1137) at logon (an acceptor may support several), and reports the
 agreed version through `SessionHandle::appl_ver_id()`. With more than one `with_appl_ver_id`, a
@@ -197,8 +197,8 @@ Layers, from the bottom up — each is public, so you can stop at any level:
   timestamps, `Y`/`N`, integers) and session-level enums (`MsgType`, `SessionRejectReason`,
   `ApplVerId`, …)
 - `admin` – typed session messages (Logon, Heartbeat, ResendRequest, Reject, …)
-- `turbojet-fix` (a separate crate) – every FIX 4.0, 4.1, 4.2, 4.3, 4.4 and 5.0 SP2 application
-  message, group and enum, generated from the official FIX data, a module and feature per version
+- `turbojet-fix` (a separate crate) – every FIX 4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1 and 5.0 SP2
+  application message, group and enum, generated from the official FIX data, a module and feature per version
   (`fix44`, …)
 - `fix_message!`, `fix_group!`, `fix_enum!` – define your own typed messages, groups and enums
 - `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`; with the
@@ -1337,7 +1337,7 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
   are acknowledged but not routed or matched.
 - Resends read the disk store on the connection task, and opening a session's store scans its
   segments (up to 1 GiB by default) there.
-- Typed messages come for FIX 4.0, 4.1, 4.2, 4.3, 4.4 and 5.0 SP2; other versions need `turbojet-codegen`,
+- Typed messages come for FIX 4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1 and 5.0 SP2; other versions need `turbojet-codegen`,
   or `fix_message!` for messages defined by hand.
 - FIXP sessions run standard FIXP only: not yet a venue's dialect.
 - FAST is a codec only, for FAST 1.1; receiving a feed is the application's.

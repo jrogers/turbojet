@@ -285,13 +285,13 @@ Parsing straight into the owned form, rather than through the borrowed one, doub
 crates' build time; that was accepted for the faster owned parse.
 
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
-(Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3 and 5.0 SP2 converted from the FIX
+(Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 and 5.0 SP2 converted from the FIX
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then
 `repair-unified.py` for what the stylesheet gets wrong: FIX 4.0 and 4.1's datatype names, where
 `char` is a string, `time` a timestamp and `date` a date; repetition FIX 4.0 gives only in prose;
 FIX 4.3's inline groups); each version is generated into its own module of `turbojet-fix` (`fix40`,
-`fix41`, `fix42`, `fix43`, `fix44`, `fix50sp2`, the last over FIXT 1.1's header), and CI checks
-they match. Each module is behind a feature of its name, none on by default, so an application
+`fix41`, `fix42`, `fix43`, `fix44`, `fix50`, `fix50sp1`, `fix50sp2`, the last three over FIXT
+1.1's header), and CI checks they match. Each module is behind a feature of its name, none on by default, so an application
 compiles only the versions it uses. They were six crates until 2026-10-16; one crate means one to
 publish and document, and a new version is a feature rather than a crate. Built alone, a version
 takes as long either way (clean debug builds on an 8-core M3: FIX 4.4 13.0 s as a crate and 12.9
@@ -434,9 +434,9 @@ invariants, and tests that look for bugs rather than confirm what already works.
   second late, since fixed. Against QuickFIX/n (v1.14.1, on .NET 10), every scenario runs too, the TLS ones with PKCS#12 bundles on both sides: as acceptor it leaves
   ResetSeqNumFlag out of its Logon reply, and as initiator it disconnects on a garbled message,
   recovering it by resend.
-- **QuickFIX's 347 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX
+- **QuickFIX's 467 scripted acceptance scenarios** (`turbojet-acceptance`), which cover the FIX
   specification's session test cases, on every build. They found five deviations from the spec's
-  test cases, since fixed; 329 pass, and the 18 that fail are listed with their reasons in
+  test cases, since fixed; 440 pass, and the 27 that fail are listed with their reasons in
   `known_failures.txt`: two deliberate differences (keeping a valid message that follows a
   too-long BodyLength, and no RefTagID for a negative tag) and scripts that rely on QuickFIX's own
   behaviour or dictionaries.

@@ -20,12 +20,15 @@ FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44
 ### `turbojet-fix`
 
 - A new crate replacing the four version crates: each version is a module behind a feature of its
-  name (`fix40`, `fix41`, `fix42`, `fix43`, `fix44`, `fix50sp2`), none on by default. To move,
+  name (`fix40`, `fix41`, `fix42`, `fix43`, `fix44`, `fix50`, `fix50sp1`, `fix50sp2`), none on
+  by default. To move,
   depend on `turbojet-fix = { version = "0.3", features = ["fix44"] }` in place of
   `turbojet-fix44`, and change `turbojet_fix44::` to `turbojet_fix::fix44::`. The messages are
   unchanged.
 - FIX 4.0 and 4.1: every application message, group and enum, generated from the FIX Unified
   Repository, with its names (`OrderSingle` for NewOrderSingle(D), `OrderList`).
+- FIX 5.0 and 5.0 SP1, over FIXT 1.1 as FIX 5.0 SP2 is (`ApplVerId::Fix50`, `Fix50Sp1`), generated
+  from the FIX Unified Repository.
 
 ## 0.3.1 (2026-10-15)
 
