@@ -12,7 +12,7 @@
 //! # Getting started
 //!
 //! Typed application messages come from `turbojet-fix`, with a feature per FIX version (`fix40`,
-//! `fix41`, `fix42`, `fix43`, `fix44`, `fix50sp2`). Add it alongside `turbojet`, with [tokio](https://docs.rs/tokio) and, for timestamps,
+//! `fix41`, `fix42`, `fix43`, `fix44`, `fix50`, `fix50sp1`, `fix50sp2`). Add it alongside `turbojet`, with [tokio](https://docs.rs/tokio) and, for timestamps,
 //! [chrono](https://docs.rs/chrono):
 //!
 //! ```toml

@@ -70,6 +70,36 @@ pub mod fix43;
 #[cfg(feature = "fix44")]
 pub mod fix44;
 
+/// FIX 5.0 (feature `fix50`), converted from the FIX Unified Repository. It runs over the FIXT
+/// 1.1 session protocol: give the session BeginString `FIXT.1.1` and `ApplVerId::Fix50`.
+///
+/// ```
+/// use turbojet::FixMessage;
+/// use turbojet::fields::{FromFix, UtcTimestamp};
+/// use turbojet_fix::fix50::{NewOrderSingle, OrdType, Side};
+///
+/// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
+/// let order = NewOrderSingle::new("ORD1", Side::Buy, now, OrdType::Market);
+/// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);
+/// ```
+#[cfg(feature = "fix50")]
+pub mod fix50;
+
+/// FIX 5.0 SP1 (feature `fix50sp1`), converted from the FIX Unified Repository. It runs over the
+/// FIXT 1.1 session protocol: give the session BeginString `FIXT.1.1` and `ApplVerId::Fix50Sp1`.
+///
+/// ```
+/// use turbojet::FixMessage;
+/// use turbojet::fields::{FromFix, UtcTimestamp};
+/// use turbojet_fix::fix50sp1::{NewOrderSingle, OrdType, Side};
+///
+/// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
+/// let order = NewOrderSingle::new("ORD1", Side::Buy, now, OrdType::Market);
+/// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);
+/// ```
+#[cfg(feature = "fix50sp1")]
+pub mod fix50sp1;
+
 /// FIX 5.0 SP2 (feature `fix50sp2`), converted from the FIX Unified Repository: the base SP2
 /// specification, as extension packs after it are in FIX Latest. It runs over the FIXT 1.1
 /// session protocol, whose official Orchestra file gives the header and trailer; give the session

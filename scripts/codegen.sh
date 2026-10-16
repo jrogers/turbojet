@@ -12,7 +12,13 @@ cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/Orchest
     --out crates/turbojet-fix/src/fix42
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX43.xml --out crates/turbojet-fix/src/fix43
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX44.xml --out crates/turbojet-fix/src/fix44
-# FIX 5.0 SP2 runs over FIXT 1.1, which supplies the header and trailer.
+# FIX 5.0, 5.0 SP1 and 5.0 SP2 run over FIXT 1.1, which supplies the header and trailer.
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX50.xml \
+    --transport dictionaries/orchestra/FIXTSession.xml \
+    --out crates/turbojet-fix/src/fix50
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX50SP1.xml \
+    --transport dictionaries/orchestra/FIXTSession.xml \
+    --out crates/turbojet-fix/src/fix50sp1
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX50SP2.xml \
     --transport dictionaries/orchestra/FIXTSession.xml \
     --out crates/turbojet-fix/src/fix50sp2

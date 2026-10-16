@@ -1,8 +1,8 @@
 # turbojet-fix
 
 FIX application messages for [Turbojet](https://github.com/jrogers/turbojet), one module per FIX
-version, each behind a feature of the same name: `fix40`, `fix41`, `fix42`, `fix43`, `fix44` and
-`fix50sp2`. None is on by default, so a build compiles only the versions it uses. Each module has
+version, each behind a feature of the same name: `fix40`, `fix41`, `fix42`, `fix43`, `fix44`,
+`fix50`, `fix50sp1` and `fix50sp2`. None is on by default, so a build compiles only the versions it uses. Each module has
 an enum per enumerated field, a struct per message and repeating-group entry, and a tag constant
 per field (in `tags`). Session-level messages are in `turbojet::admin`.
 

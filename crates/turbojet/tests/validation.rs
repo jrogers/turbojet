@@ -151,6 +151,32 @@ fn fix50sp2_messages_pass_over_fixt() {
 }
 
 #[test]
+fn fix50_messages_pass_over_fixt() {
+    use turbojet_fix::fix50::*;
+    let dict = dictionary("OrchestraFIX50.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
+    let validator = Validator::new(&dict);
+    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    order.symbol = Some("AAPL".into());
+    order.order_qty = Some(100.into());
+    order.party_ids.push(Parties::new("FIRM"));
+    // FIXT's header field ApplVerID(1128) is the transport's, not the body's.
+    validator.validate(&order.to_message().with(1128, "7")).unwrap();
+}
+
+#[test]
+fn fix50sp1_messages_pass_over_fixt() {
+    use turbojet_fix::fix50sp1::*;
+    let dict = dictionary("OrchestraFIX50SP1.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
+    let validator = Validator::new(&dict);
+    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    order.symbol = Some("AAPL".into());
+    order.order_qty = Some(100.into());
+    order.party_ids.push(Parties::new("FIRM"));
+    // FIXT's header field ApplVerID(1128) is the transport's, not the body's.
+    validator.validate(&order.to_message().with(1128, "8")).unwrap();
+}
+
+#[test]
 fn fix44_messages_pass() {
     use turbojet_fix::fix44::*;
     let validator = Validator::new(&dictionary("OrchestraFIX44.xml"));

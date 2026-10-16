@@ -11,6 +11,8 @@ const VERSIONS: &[(&str, &str)] = &[
     ("FIX.4.3", "fix43"),
     ("FIX.4.4", "fix44"),
     ("FIXT.1.1", "fix50sp2"),
+    ("FIXT.1.1", "fix50"),
+    ("FIXT.1.1", "fix50sp1"),
 ];
 
 fn main() {

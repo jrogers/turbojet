@@ -6,11 +6,12 @@ Protocol Limited (https://www.fixtrading.org), licensed under the Apache License
 - fix42 and fix44: OrchestraFIX42.xml and OrchestraFIX44.xml, from
   https://github.com/FIXTradingCommunity/orchestrations at commit
   cd24169a2abd8daba7c360987c7a46ca11873a12.
-- fix40, fix41, fix43 and fix50sp2: OrchestraFIX40.xml, OrchestraFIX41.xml, OrchestraFIX43.xml
-  and OrchestraFIX50SP2.xml, converted from the FIX Unified Repository, 2010 Edition
-  (https://www.fixtrading.org/standards/fix-repository/): extracts of the FIX 4.0, 4.1, 4.3 and
-  5.0 SP2 specifications, which the FIX Trading Community licenses under the Apache License,
+- fix40, fix41, fix43, fix50, fix50sp1 and fix50sp2: OrchestraFIX40.xml, OrchestraFIX41.xml,
+  OrchestraFIX43.xml, OrchestraFIX50.xml, OrchestraFIX50SP1.xml and OrchestraFIX50SP2.xml,
+  converted from the FIX Unified Repository, 2010 Edition
+  (https://www.fixtrading.org/standards/fix-repository/): extracts of the FIX 4.0, 4.1, 4.3, 5.0,
+  5.0 SP1 and 5.0 SP2 specifications, which the FIX Trading Community licenses under the Apache License,
   Version 2.0.
-- fix50sp2's header and trailer: FIXTSession.xml (FIXT 1.1), from the same orchestrations commit.
+- The FIX 5.0 versions' header and trailer: FIXTSession.xml (FIXT 1.1), from the same orchestrations commit.
 
 The files' and specifications' documentation is not reproduced.
