@@ -1,10 +1,11 @@
 //! FIX 4.2 messages parsed from and written to the wire: field order, value sets, field errors and
 //! repeating groups. Carried over from the hand-written `turbojet::fix42` module these types replace.
+#![cfg(feature = "fix42")]
 
 use turbojet::codec::{Decoded, decode, encode};
 use turbojet::fields::{Decimal, FromFix, MsgType, SessionRejectReason, UtcTimestamp};
 use turbojet::message::{FieldError, FieldErrorKind, FixMessage, Message};
-use turbojet_fix42::*;
+use turbojet_fix::fix42::*;
 
 fn wire(text: &str) -> Message {
     let msg = Message::from_fields(text.split('|').filter(|f| !f.is_empty()).map(|f| {

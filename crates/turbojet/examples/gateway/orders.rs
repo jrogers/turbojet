@@ -17,7 +17,7 @@ use turbojet::MessageReject;
 use turbojet::fields::{CodeRef, FixEnum, UtcTimestamp};
 use turbojet::fields::{CompactString, Decimal, format_compact};
 use turbojet::message::tags;
-use turbojet_fix42::{
+use turbojet_fix::fix42::{
     CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, NewOrderSingleRef, OrdRejReason,
     OrdStatus, OrdType, OrderCancelReject, OrderCancelReplaceRequestRef, OrderCancelRequestRef, OrderStatusRequestRef,
     Side, TimeInForce,
@@ -378,7 +378,7 @@ mod tests {
     use super::*;
     use turbojet::FixMessage;
     use turbojet::fields::Code;
-    use turbojet_fix42::{
+    use turbojet_fix::fix42::{
         HandlInst, NewOrderSingle, OrderCancelReplaceRequest, OrderCancelRequest, OrderStatusRequest,
     };
 

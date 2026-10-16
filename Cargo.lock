@@ -3204,12 +3204,7 @@ dependencies = [
  "tracing-subscriber",
  "turbojet-config",
  "turbojet-dictionary",
- "turbojet-fix40",
- "turbojet-fix41",
- "turbojet-fix42",
- "turbojet-fix43",
- "turbojet-fix44",
- "turbojet-fix50sp2",
+ "turbojet-fix",
  "x509-parser",
 ]
 
@@ -3263,46 +3258,11 @@ dependencies = [
  "fastlib",
  "roxmltree",
  "turbojet",
- "turbojet-fix44",
+ "turbojet-fix",
 ]
 
 [[package]]
-name = "turbojet-fix40"
-version = "0.3.1"
-dependencies = [
- "turbojet",
-]
-
-[[package]]
-name = "turbojet-fix41"
-version = "0.3.1"
-dependencies = [
- "turbojet",
-]
-
-[[package]]
-name = "turbojet-fix42"
-version = "0.3.1"
-dependencies = [
- "turbojet",
-]
-
-[[package]]
-name = "turbojet-fix43"
-version = "0.3.1"
-dependencies = [
- "turbojet",
-]
-
-[[package]]
-name = "turbojet-fix44"
-version = "0.3.1"
-dependencies = [
- "turbojet",
-]
-
-[[package]]
-name = "turbojet-fix50sp2"
+name = "turbojet-fix"
 version = "0.3.1"
 dependencies = [
  "turbojet",

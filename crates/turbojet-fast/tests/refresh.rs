@@ -6,7 +6,7 @@ use std::sync::Arc;
 use turbojet::Message;
 use turbojet::fields::Code;
 use turbojet_fast::{Decoder, Templates};
-use turbojet_fix44::{MDEntryType, MDUpdateAction, MarketDataIncrementalRefresh};
+use turbojet_fix::fix44::{MDEntryType, MDUpdateAction, MarketDataIncrementalRefresh};
 
 /// Section 1's example, with an `id` so the stream can name it.
 const TEMPLATES: &str = r#"

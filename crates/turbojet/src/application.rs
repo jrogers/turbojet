@@ -124,7 +124,7 @@ pub trait Application: Send + Sync + 'static {
     /// ```
     /// # use turbojet::{Context, FixMessageRef, Message, MessageReject, MsgType};
     /// # use turbojet::message::tags;
-    /// # use turbojet_fix44::messages::{NewOrderSingle, NewOrderSingleRef};
+    /// # use turbojet_fix::fix44::messages::{NewOrderSingle, NewOrderSingleRef};
     /// # fn book(_: NewOrderSingle) {}
     /// fn on_message(ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
     ///     if msg.msg_type() != MsgType::NewOrderSingle {

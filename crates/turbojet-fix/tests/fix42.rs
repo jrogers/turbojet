@@ -1,8 +1,9 @@
 //! Generated FIX 4.2 messages encode and decode.
+#![cfg(feature = "fix42")]
 
 use turbojet::fields::{FromFix, UtcTimestamp};
 use turbojet::message::FixMessage;
-use turbojet_fix42::*;
+use turbojet_fix::fix42::*;
 
 fn time() -> UtcTimestamp {
     UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap()

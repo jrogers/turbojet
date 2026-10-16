@@ -30,7 +30,7 @@
 //! and enum variants get their values' documentation. That text is © FIX Protocol Limited, so it's
 //! off by default: check its licence covers how you'll distribute the generated code first. A
 //! crate shipping code generated from the official Orchestra files should ship a `NOTICE`
-//! crediting them, like `turbojet-fix42`'s.
+//! crediting them, like `turbojet-fix`'s.
 //!
 //! Enumerated fields are lenient: they're typed `turbojet::fields::Code<E>`, which keeps a code
 //! the dictionary doesn't list as `Code::Unknown` rather than failing the parse, as QuickFIX's

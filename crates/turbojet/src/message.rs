@@ -1,6 +1,6 @@
 //! The raw FIX message (an ordered tag/value list), typed access to its fields, and the
 //! [`FixMessage`] trait implemented by the typed messages in [`crate::admin`] and the generated
-//! version crates, e.g. `turbojet-fix42`.
+//! `turbojet-fix` crate, e.g. `turbojet_fix::fix42`.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -16,7 +16,7 @@ pub use data::DataFields;
 pub const SOH: u8 = 0x01;
 
 /// Tag numbers of the fields this crate reads or writes itself. Each generated version crate
-/// has a `tags` module for every field in its dictionary, e.g. `turbojet_fix44::tags`.
+/// has a `tags` module for every field in its dictionary, e.g. `turbojet_fix::fix44::tags`.
 pub mod tags {
     /// Account(1).
     pub const ACCOUNT: u32 = 1;

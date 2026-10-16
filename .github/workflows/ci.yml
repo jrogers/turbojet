@@ -58,6 +58,12 @@ jobs:
       # turbojet-interop turns pkcs12 on in workspace builds; build turbojet with TLS but without it.
       - if: matrix.features == '--features tls'
         run: cargo clippy -p turbojet --all-targets --features tls --locked -- -D warnings
+      # turbojet turns every FIX version of turbojet-fix on in workspace builds; build it without
+      # them, and with one, as an application would.
+      - if: matrix.features == '--no-default-features'
+        run: |
+          cargo clippy -p turbojet-fix --all-targets --no-default-features --locked -- -D warnings
+          cargo test -p turbojet-fix --no-default-features --features fix42 --locked
       - run: cargo test --workspace ${{ matrix.skip }} ${{ matrix.features }} --locked
 
   # The minimum supported Rust version (workspace rust-version).

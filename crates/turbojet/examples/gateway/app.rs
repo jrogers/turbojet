@@ -7,7 +7,7 @@ use metrics::{Counter, counter, describe_counter};
 
 use tracing::{info, warn};
 use turbojet::{Application, ConnectionInfo, Context, Disconnect, Message, MessageReject, MsgType, SessionHandle};
-use turbojet_fix42::OrdStatus;
+use turbojet_fix::fix42::OrdStatus;
 
 use crate::orders::OrderManager;
 
@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn limit_order(cl_ord_id: &str) -> Message {
-        use turbojet_fix42::{HandlInst, NewOrderSingle, OrdType, Side};
+        use turbojet_fix::fix42::{HandlInst, NewOrderSingle, OrdType, Side};
         let mut order = NewOrderSingle::new(
             cl_ord_id,
             HandlInst::AutomatedExecutionNoIntervention,
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn cancel_on_disconnect_cancels_only_that_sessions_orders() {
         use turbojet::FixMessage;
-        use turbojet_fix42::{ExecType, ExecutionReport, OrderStatusRequest, Side};
+        use turbojet_fix::fix42::{ExecType, ExecutionReport, OrderStatusRequest, Side};
 
         let orders = Arc::new(OrderManager::new());
         let app = GatewayApp::new(orders.clone());
@@ -239,7 +239,7 @@ mod tests {
     fn order_outcomes_are_counted() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
         use turbojet::Context;
-        use turbojet_fix42::{HandlInst, NewOrderSingle, OrdType, OrderCancelRequest, Side};
+        use turbojet_fix::fix42::{HandlInst, NewOrderSingle, OrdType, OrderCancelRequest, Side};
 
         let recorder = DebuggingRecorder::new();
         metrics::with_local_recorder(&recorder, || {

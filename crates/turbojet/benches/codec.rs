@@ -14,7 +14,7 @@ use turbojet::Message;
 use turbojet::codec::{Decoded, DecodedInto, decode, decode_into, encode, encode_into};
 use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
 use turbojet::message::{DataFields, FixMessage, utc_timestamp};
-use turbojet_fix42::{ExecutionReport, NewOrderSingle, NewOrderSingleRef};
+use turbojet_fix::fix42::{ExecutionReport, NewOrderSingle, NewOrderSingleRef};
 
 fn codec(c: &mut Criterion) {
     let order = common::with_header("CLIENT", "GATEWAY", 42, common::new_order_single(1).into());
@@ -53,7 +53,7 @@ fn codec(c: &mut Criterion) {
     // With a three-entry NoAllocs group.
     let with_allocs: Message = {
         let alloc = |account: &str, shares: i64| {
-            let mut alloc = turbojet_fix42::PreAllocGrp::new(account);
+            let mut alloc = turbojet_fix::fix42::PreAllocGrp::new(account);
             alloc.alloc_shares = Some(turbojet::fields::Decimal::new(shares, 0));
             alloc
         };
@@ -94,7 +94,7 @@ fn codec(c: &mut Criterion) {
 fn fix44_nested_order() -> Message {
     use turbojet::fields::Decimal;
     use turbojet::message::tags;
-    use turbojet_fix44::{
+    use turbojet_fix::fix44::{
         NewOrderSingle, OrdType, Parties, PartyIDSource, PartyRole, PartySubIDType, PtysSubGrp, Side,
     };
     let party = |id: &str, role: PartyRole| {
@@ -143,15 +143,15 @@ fn nested_groups(c: &mut Criterion) {
     let nested = fix44_nested_order();
     let mut group = c.benchmark_group("typed");
     group.bench_function("parse FIX 4.4 NewOrderSingle with nested groups", |b| {
-        b.iter(|| black_box(&nested).parse::<turbojet_fix44::NewOrderSingle>().unwrap())
+        b.iter(|| black_box(&nested).parse::<turbojet_fix::fix44::NewOrderSingle>().unwrap())
     });
     group.bench_function("parse FIX 4.4 NewOrderSingleRef with nested groups", |b| {
-        b.iter(|| black_box(&nested).parse::<turbojet_fix44::NewOrderSingleRef>().unwrap())
+        b.iter(|| black_box(&nested).parse::<turbojet_fix::fix44::NewOrderSingleRef>().unwrap())
     });
     // Borrowed groups parse their entries as they are iterated: read them all.
     group.bench_function("parse FIX 4.4 NewOrderSingleRef with nested groups, read every entry", |b| {
         b.iter(|| {
-            let order = black_box(&nested).parse::<turbojet_fix44::NewOrderSingleRef>().unwrap();
+            let order = black_box(&nested).parse::<turbojet_fix::fix44::NewOrderSingleRef>().unwrap();
             for party in &order.party_ids {
                 black_box(party.party_id);
                 black_box(party.party_id_source);
@@ -182,8 +182,8 @@ fn nested_groups(c: &mut Criterion) {
          FIX 4.4 NewOrderSingle {} bytes, FIX 4.4 NewOrderSingleRef {} bytes",
         size_of::<NewOrderSingle>(),
         size_of::<NewOrderSingleRef>(),
-        size_of::<turbojet_fix44::NewOrderSingle>(),
-        size_of::<turbojet_fix44::NewOrderSingleRef>(),
+        size_of::<turbojet_fix::fix44::NewOrderSingle>(),
+        size_of::<turbojet_fix::fix44::NewOrderSingleRef>(),
     );
 }
 

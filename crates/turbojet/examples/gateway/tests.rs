@@ -14,7 +14,7 @@ use turbojet::fields::EncryptMethod;
 use turbojet::fields::UtcTimestamp;
 use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::{Acceptor, DiskStorage, MemoryStorage, MsgType, SessionConfig, SessionId, SessionStorage};
-use turbojet_fix42::{
+use turbojet_fix::fix42::{
     CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, OrdRejReason,
     OrdStatus, OrdType, OrderCancelReject, OrderCancelReplaceRequest, OrderCancelRequest, OrderStatusRequest,
     PreAllocGrp, Side,

@@ -27,7 +27,7 @@ use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{
     Application, Context, DiskStorage, MemoryStorage, Message, MessageLog, MessageReject, SessionConfig, SessionId,
 };
-use turbojet_fix42::{NewOrderSingle, NewOrderSingleRef, PreAllocGrp};
+use turbojet_fix::fix42::{NewOrderSingle, NewOrderSingleRef, PreAllocGrp};
 
 #[global_allocator]
 static ALLOCATOR: counting::Counting = counting::Counting;

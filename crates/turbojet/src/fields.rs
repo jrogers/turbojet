@@ -1,6 +1,6 @@
 //! Typed FIX field values: conversions for the FIX data types, and the enumerated fields used by
 //! the session layer. Enumerations whose value sets differ by FIX version live in the generated
-//! version crates, e.g. `turbojet-fix42`.
+//! `turbojet-fix` crate, e.g. `turbojet_fix::fix42`.
 
 use std::fmt;
 use std::str::FromStr;

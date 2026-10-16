@@ -3,19 +3,19 @@
 # dictionaries/orchestra. CI fails if the output differs from what's committed.
 set -eu
 cd "$(dirname "$0")/.."
-cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX40.xml --out crates/turbojet-fix40/src/generated
-cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX41.xml --out crates/turbojet-fix41/src/generated
-# FIX 4.2 corrections (see crates/turbojet-fix42/README.md): QuoteCancel's NoQuoteEntries is
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX40.xml --out crates/turbojet-fix/src/fix40
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX41.xml --out crates/turbojet-fix/src/fix41
+# FIX 4.2 corrections (see the fix42 module's docs in crates/turbojet-fix/src/lib.rs): QuoteCancel's NoQuoteEntries is
 # required in the file, but a cancel-all request has no entries; FIX 4.4 made it optional.
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX42.xml \
     --optional QuoteCancel.NoQuoteEntries \
-    --out crates/turbojet-fix42/src/generated
-cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX43.xml --out crates/turbojet-fix43/src/generated
-cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX44.xml --out crates/turbojet-fix44/src/generated
+    --out crates/turbojet-fix/src/fix42
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX43.xml --out crates/turbojet-fix/src/fix43
+cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX44.xml --out crates/turbojet-fix/src/fix44
 # FIX 5.0 SP2 runs over FIXT 1.1, which supplies the header and trailer.
 cargo run --quiet --locked -p turbojet-codegen -- dictionaries/orchestra/OrchestraFIX50SP2.xml \
     --transport dictionaries/orchestra/FIXTSession.xml \
-    --out crates/turbojet-fix50sp2/src/generated
+    --out crates/turbojet-fix/src/fix50sp2
 # SBE codecs for turbojet's tests and benchmarks: SBE's example schema, B3's Binary Entrypoint, and
 # a schema exercising sinceVersion and big-endian.
 cargo run --quiet --locked -p turbojet-codegen -- sbe dictionaries/sbe/example-schema.xml --out crates/turbojet/tests/sbe/car.rs

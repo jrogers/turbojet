@@ -13,7 +13,7 @@ use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::registry::CommandReceiver;
 use turbojet::store::{SessionLog, SessionStorage};
 use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
-use turbojet_fix42::{
+use turbojet_fix::fix42::{
     ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, NewOrderSingleRef, OrdStatus, OrdType, Side,
     TimeInForce,
 };

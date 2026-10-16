@@ -16,7 +16,7 @@ use turbojet::{
     SessionConfig, SessionHandle,
 };
 use turbojet_dictionary::Dictionary;
-use turbojet_fix50sp2::*;
+use turbojet_fix::fix50sp2::*;
 
 #[derive(Debug)]
 enum Event {

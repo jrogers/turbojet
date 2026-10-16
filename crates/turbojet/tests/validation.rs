@@ -20,7 +20,7 @@ fn time() -> UtcTimestamp {
 
 #[test]
 fn fix40_messages_pass() {
-    use turbojet_fix40::*;
+    use turbojet_fix::fix40::*;
     let validator = Validator::new(&dictionary("OrchestraFIX40.xml"));
     let mut order =
         OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, 100, OrdType::Limit);
@@ -36,7 +36,7 @@ fn fix40_messages_pass() {
 
 #[test]
 fn fix41_messages_pass() {
-    use turbojet_fix41::*;
+    use turbojet_fix::fix41::*;
     let validator = Validator::new(&dictionary("OrchestraFIX41.xml"));
     let mut order =
         OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, OrdType::Limit);
@@ -64,9 +64,9 @@ fn fix41_messages_pass() {
 
 #[test]
 fn fix42_messages_pass() {
-    use turbojet_fix42::*;
+    use turbojet_fix::fix42::*;
     let mut dict = dictionary("OrchestraFIX42.xml");
-    // turbojet-fix42 is generated with this correction.
+    // turbojet-fix's FIX 4.2 is generated with this correction.
     dict.make_optional("QuoteCancel", "NoQuoteEntries").unwrap();
     let validator = Validator::new(&dict);
 
@@ -111,7 +111,7 @@ fn fix42_messages_pass() {
 
 #[test]
 fn fix43_messages_pass() {
-    use turbojet_fix43::*;
+    use turbojet_fix::fix43::*;
     let validator = Validator::new(&dictionary("OrchestraFIX43.xml"));
 
     let mut order =
@@ -139,7 +139,7 @@ fn fix43_messages_pass() {
 
 #[test]
 fn fix50sp2_messages_pass_over_fixt() {
-    use turbojet_fix50sp2::*;
+    use turbojet_fix::fix50sp2::*;
     let dict = dictionary("OrchestraFIX50SP2.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
     let validator = Validator::new(&dict);
     let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
@@ -152,7 +152,7 @@ fn fix50sp2_messages_pass_over_fixt() {
 
 #[test]
 fn fix44_messages_pass() {
-    use turbojet_fix44::*;
+    use turbojet_fix::fix44::*;
     let validator = Validator::new(&dictionary("OrchestraFIX44.xml"));
 
     let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);

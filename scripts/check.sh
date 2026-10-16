@@ -42,6 +42,12 @@ for features in --no-default-features "--features tls" "--features metrics" "--f
     if [ "$features" = "--features tls" ]; then
         cargo clippy -p turbojet --all-targets --features tls --locked --quiet -- -D warnings
     fi
+    # turbojet turns every FIX version of turbojet-fix on in workspace builds; build it without
+    # them, and with one, as an application would.
+    if [ "$features" = --no-default-features ]; then
+        cargo clippy -p turbojet-fix --all-targets --no-default-features --locked --quiet -- -D warnings
+        cargo test -p turbojet-fix --no-default-features --features fix42 --locked --quiet
+    fi
     skip=--exclude=turbojet-sim
     [ "$features" = --all-features ] && skip=
     # shellcheck disable=SC2086
@@ -61,9 +67,9 @@ scripts/fuzz-regressions.sh
 
 step codegen
 # Compare against the working tree as it was, so uncommitted generator changes are checked too.
-before=$(git status --porcelain -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs)
+before=$(git status --porcelain -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs)
 scripts/codegen.sh
-after=$(git status --porcelain -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix*/src/generated crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs)
+after=$(git status --porcelain -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs)
 if [ "$before" != "$after" ]; then
     echo "codegen changed the generated crates; commit the output of scripts/codegen.sh" >&2
     exit 1

@@ -20,7 +20,7 @@ use turbojet::{
     Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
     SessionConfig, SessionHandle,
 };
-use turbojet_fix42::{
+use turbojet_fix::fix42::{
     ExecutionReportRef, HandlInst, NewOrderSingle, OrdType, OrderCancelRejectRef, OrderCancelRequest, Side, TimeInForce,
 };
 

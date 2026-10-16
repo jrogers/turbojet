@@ -11,16 +11,14 @@
 //!
 //! # Getting started
 //!
-//! Typed application messages come from a separate crate for each FIX version:
-//! `turbojet-fix40`, `turbojet-fix41`, `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` or
-//! `turbojet-fix50sp2`. Add one alongside
-//! `turbojet`, with [tokio](https://docs.rs/tokio) and, for timestamps,
+//! Typed application messages come from `turbojet-fix`, with a feature per FIX version (`fix40`,
+//! `fix41`, `fix42`, `fix43`, `fix44`, `fix50sp2`). Add it alongside `turbojet`, with [tokio](https://docs.rs/tokio) and, for timestamps,
 //! [chrono](https://docs.rs/chrono):
 //!
 //! ```toml
 //! [dependencies]
 //! turbojet = "0.2"
-//! turbojet-fix44 = "0.2"
+//! turbojet-fix = { version = "0.3", features = ["fix44"] }
 //! tokio = { version = "1", features = ["full"] }
 //! chrono = "0.4"
 //! ```
@@ -37,7 +35,7 @@
 //! ```
 //! use turbojet::fields::Decimal;
 //! use turbojet::{Application, Context, Message, MessageReject, MsgType};
-//! use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
+//! use turbojet_fix::fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 //!
 //! /// Acknowledges every order.
 //! struct OrderDesk;
@@ -85,7 +83,7 @@
 //! ```
 //! # use turbojet::fields::Decimal;
 //! # use turbojet::{Application, Context, Message, MessageReject, MsgType};
-//! # use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingle, NewOrderSingleRef, OrdStatus};
+//! # use turbojet_fix::fix44::{ExecType, ExecutionReport, NewOrderSingle, NewOrderSingleRef, OrdStatus};
 //! # struct OrderDesk;
 //! # impl Application for OrderDesk {
 //! #     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
@@ -104,7 +102,7 @@
 //! use tokio::net::TcpListener;
 //! use tokio::sync::mpsc;
 //! use turbojet::{Acceptor, Initiator, InitiatorConfig, MemoryStorage, SessionConfig, SessionHandle};
-//! use turbojet_fix44::{OrdType, Side};
+//! use turbojet_fix::fix44::{OrdType, Side};
 //!
 //! /// Passes the session handle and inbound messages on to `main`.
 //! struct Client {
