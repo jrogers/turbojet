@@ -302,6 +302,16 @@ mistakes can be corrected before generating (`Dictionary::make_optional`, `--opt
 FIX 4.2 makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did). Sessions can also
 check inbound messages against a dictionary (feature `validation`, `SessionConfig::with_dictionary`).
 
+The generator can also take a list of messages (`Generator::only_message`, `--message`): it plans
+only those, and since groups and enums were already planned from what the generated messages
+reach, it leaves out the rest with no further pruning. For FIX Latest (EP312), whose whole
+dictionary builds in 104 s debug and 23 minutes release (clean, M3, 2026-10-16), five order
+messages build in 18 s and 279 s. Release time is nearly all LLVM, and about 45% of the IR of a
+large message is per enumerated field (see ROADMAP.md, "Generated code's build time").
+`turbojet-fix`'s library builds once even under `--all-targets`, `cargo test` and `cargo bench`
+(`[lib] test = false, bench = false`, as it has no unit tests): compiled twice at once, as
+before, every version took about 7 GB each, and CI's runners were shut down mid-build at eight.
+
 FIX 4.0 and 4.1 sessions differ from later ones in what the session sends, chosen by BeginString
 (`SessionConfig::predates_fix42`): a Reject carries only RefSeqNum(45) and Text(58), since
 RefTagID, RefMsgType and SessionRejectReason came with FIX 4.2; a session Reject stands in for

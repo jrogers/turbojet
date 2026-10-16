@@ -45,6 +45,11 @@ leave out, making a field, group or component optional in a message or component
 `Dictionary::make_optional`); `turbojet-fix`'s FIX 4.2 is generated with
 `--optional QuoteCancel.NoQuoteEntries`.
 
+`--message NewOrderSingle --message ExecutionReport` (or `Generator::only_message`) generates only
+the messages named, with just the groups and enums they use. For a dictionary as large as FIX
+Latest's, whose 172 application messages take minutes to build in release, that's the difference
+between generating it all and generating what an application sends and receives.
+
 ## SBE codecs
 
 `turbojet-codegen sbe schema.xml --out codec.rs` (or `SbeGenerator::load(path)?.render()?` from a

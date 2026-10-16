@@ -17,6 +17,11 @@ FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44
 - `Message::with_reverse_route` doesn't copy OnBehalfOfLocationID(144) or DeliverToLocationID(145)
   from a FIX 4.0 message, which has no such fields.
 
+### `turbojet-codegen`
+
+- `--message Name` (`Generator::only_message`) generates only the messages named, with the groups
+  and enums they use, for a few messages of a large dictionary such as FIX Latest's.
+
 ### `turbojet-fix`
 
 - A new crate replacing the four version crates: each version is a module behind a feature of its
