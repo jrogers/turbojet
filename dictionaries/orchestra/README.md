@@ -8,9 +8,10 @@ downloaded by `fetch.sh` at the commit pinned there
 Pack 310, `OrchestraFIX44.xml` is FIX 4.4 as of Extension Pack 311, and `FIXTSession.xml` is the
 FIXT 1.1 session protocol (as of Extension Pack 247), which FIX 5.0 SP2 runs over.
 
-The orchestrations repository has no FIX 4.0, 4.1, 4.3 or 5.0 SP2 file, so `OrchestraFIX40.xml`,
-`OrchestraFIX41.xml`, `OrchestraFIX43.xml` and `OrchestraFIX50SP2.xml` (the base SP2
-specification; later extension packs are in FIX Latest) are
+The orchestrations repository has no FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 or 5.0 SP2 file, so
+`OrchestraFIX40.xml`, `OrchestraFIX41.xml`, `OrchestraFIX43.xml`, `OrchestraFIX50.xml`,
+`OrchestraFIX50SP1.xml` and `OrchestraFIX50SP2.xml` (the base SP2 specification; later extension
+packs are in FIX Latest) are
 converted from the FIX Unified Repository, 2010 Edition (a zip from
 [fixtrading.org](https://www.fixtrading.org/standards/fix-repository/), sign-in needed), by
 `convert-unified.sh`: the FIX Trading Community's own `unified2orchestra.xslt` (fix-orchestra
@@ -20,7 +21,7 @@ is a string, `time` a UTCTimestamp and `date` a LocalMktDate), defines the four 
 declares inline in components (the stylesheet doesn't handle them) under their FIX 4.4 names, and
 drops the conversion time.
 Regenerate them with `./convert-unified.sh path/to/fix_repository_2010_edition_20200402.zip
-FIX.4.3` (or `FIX.4.0`, `FIX.4.1`, `FIX.5.0SP2`); it needs Java and Python 3.
+FIX.4.3` (or `FIX.4.0`, `FIX.4.1`, `FIX.5.0`, `FIX.5.0SP1`, `FIX.5.0SP2`); it needs Java and Python 3.
 
 They are © FIX Protocol Limited and distributed under the Apache License, Version 2.0 (see
 `LICENSE` and `NOTICE`).
