@@ -9,7 +9,7 @@ official names. Each item's doc comment gives its FIX name and tag; with
 FIX Protocol Limited's, so it's off by default: check its licence covers how you'll distribute the
 generated code before turning it on. A crate shipping code generated from the official Orchestra
 files should ship a `NOTICE` crediting them, like
-[`turbojet-fix42`'s](https://github.com/jrogers/turbojet/blob/main/crates/turbojet-fix42/NOTICE).
+[`turbojet-fix`'s](https://github.com/jrogers/turbojet/blob/main/crates/turbojet-fix/NOTICE).
 
 From a `build.rs`:
 
@@ -42,7 +42,7 @@ the parse; with it, `--lenient-enum OrdType` keeps one field a `Code`.
 
 `--optional Owner.Member` corrects a dictionary that marks something required that counterparties
 leave out, making a field, group or component optional in a message or component (see
-`Dictionary::make_optional`); `turbojet-fix42` is generated with
+`Dictionary::make_optional`); `turbojet-fix`'s FIX 4.2 is generated with
 `--optional QuoteCancel.NoQuoteEntries`.
 
 ## SBE codecs

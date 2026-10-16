@@ -4,7 +4,9 @@ Notable changes to the published crates.
 
 ## Unreleased
 
-Two new crates: `turbojet-fix40` and `turbojet-fix41`.
+The typed messages are one crate now, `turbojet-fix`, with a feature per FIX version, and it adds
+FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` and
+`turbojet-fix50sp2`, which get no further releases.
 
 ### `turbojet`
 
@@ -15,10 +17,15 @@ Two new crates: `turbojet-fix40` and `turbojet-fix41`.
 - `Message::with_reverse_route` doesn't copy OnBehalfOfLocationID(144) or DeliverToLocationID(145)
   from a FIX 4.0 message, which has no such fields.
 
-### `turbojet-fix40` and `turbojet-fix41`
+### `turbojet-fix`
 
-- New crates: every FIX 4.0 and FIX 4.1 application message, group and enum, generated from the
-  FIX Unified Repository, with its names (`OrderSingle` for NewOrderSingle(D), `OrderList`).
+- A new crate replacing the four version crates: each version is a module behind a feature of its
+  name (`fix40`, `fix41`, `fix42`, `fix43`, `fix44`, `fix50sp2`), none on by default. To move,
+  depend on `turbojet-fix = { version = "0.3", features = ["fix44"] }` in place of
+  `turbojet-fix44`, and change `turbojet_fix44::` to `turbojet_fix::fix44::`. The messages are
+  unchanged.
+- FIX 4.0 and 4.1: every application message, group and enum, generated from the FIX Unified
+  Repository, with its names (`OrderSingle` for NewOrderSingle(D), `OrderList`).
 
 ## 0.3.1 (2026-10-15)
 

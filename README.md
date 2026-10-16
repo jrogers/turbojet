@@ -28,10 +28,8 @@ Typed application messages are generated from FIX data dictionaries:
 [`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary) loads FIX Orchestra and QuickFIX-format XML
 and merges venue customisations onto it, [`turbojet-codegen`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-codegen) generates
 messages, groups and enums from it (from a `build.rs`, or as a command), and
-[`turbojet-fix40`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix40), [`turbojet-fix41`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix41),
-[`turbojet-fix42`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix42), [`turbojet-fix43`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix43),
-[`turbojet-fix44`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix44) and [`turbojet-fix50sp2`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix50sp2) are
-every FIX 4.0, 4.1, 4.2, 4.3, 4.4 and 5.0 SP2 application message, generated from the FIX Trading
+[`turbojet-fix`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix) has every FIX 4.0, 4.1, 4.2, 4.3, 4.4 and 5.0 SP2
+application message, one feature per version, generated from the FIX Trading
 Community's official data and checked in. `turbojet-codegen sbe` generates codecs for SBE (Simple
 Binary Encoding) message schemas, the binary encoding venues such as B3 and CME publish (see
 [SBE codecs](#sbe-codecs)), and `turbojet::fixp` runs FIXP sessions, the FIX Performance Session
@@ -127,9 +125,10 @@ practice, and where Turbojet differs.
 
 Implement `Application` for your business logic; the engine owns the session layer (logon,
 sequence numbers, gap detection and resend, heartbeats/TestRequest, logout, persistence).
-Typed application messages come from a generated crate per FIX version: add `turbojet-fix40`
-(FIX 4.0), `turbojet-fix41` (FIX 4.1), `turbojet-fix42` (FIX 4.2), `turbojet-fix43` (FIX 4.3), `turbojet-fix44` (FIX 4.4) or `turbojet-fix50sp2`
-(FIX 5.0 SP2) alongside `turbojet`. FIX 5.0 SP2 runs over the FIXT 1.1 session protocol: give the
+Typed application messages come from `turbojet-fix`, with a feature per FIX version: add it
+alongside `turbojet` with the versions you use, `fix40`, `fix41`, `fix42`, `fix43`, `fix44` or
+`fix50sp2` (`turbojet-fix = { version = "0.3", features = ["fix44"] }`), and use
+`turbojet_fix::fix44::NewOrderSingle`. FIX 5.0 SP2 runs over the FIXT 1.1 session protocol: give the
 session BeginString `FIXT.1.1` and its application version,
 `SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerId::Fix50Sp2)`, and the engine
 negotiates DefaultApplVerID(1137) at logon (an acceptor may support several), and reports the
@@ -146,7 +145,7 @@ compiled and run as a test.
 ```rust
 use turbojet::*;
 use turbojet::fields::Decimal;
-use turbojet_fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
+use turbojet_fix::fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 
 struct MyApp;
 
@@ -198,9 +197,9 @@ Layers, from the bottom up — each is public, so you can stop at any level:
   timestamps, `Y`/`N`, integers) and session-level enums (`MsgType`, `SessionRejectReason`,
   `ApplVerId`, …)
 - `admin` – typed session messages (Logon, Heartbeat, ResendRequest, Reject, …)
-- `turbojet-fix40`, `turbojet-fix41`, `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44`,
-  `turbojet-fix50sp2` (separate crates) – every FIX 4.0, 4.1, 4.2, 4.3, 4.4 or 5.0 SP2 application message, group and enum, generated from the
-  official FIX data
+- `turbojet-fix` (a separate crate) – every FIX 4.0, 4.1, 4.2, 4.3, 4.4 and 5.0 SP2 application
+  message, group and enum, generated from the official FIX data, a module and feature per version
+  (`fix44`, …)
 - `fix_message!`, `fix_group!`, `fix_enum!` – define your own typed messages, groups and enums
 - `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`; with the
   `conformance` feature, the suite every store must pass

@@ -26,5 +26,4 @@ They are © FIX Protocol Limited and distributed under the Apache License, Versi
 `LICENSE` and `NOTICE`).
 
 To update them, set `COMMIT` in `fetch.sh` to the new commit, run `./fetch.sh`, and update the
-commit in this README, in `NOTICE`, and in `crates/turbojet-fix42/NOTICE` and
-`crates/turbojet-fix44/NOTICE`.
+commit in this README, in `NOTICE`, and in `crates/turbojet-fix/NOTICE`.

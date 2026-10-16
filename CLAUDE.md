@@ -28,7 +28,7 @@ on, so check with `--all-features` and `--no-default-features` at least.
 
 ## Things that bite
 
-- **Generated crates.** `crates/turbojet-fix{40,41,42,43,44,50sp2}/src/generated` come from
+- **Generated code.** `crates/turbojet-fix/src/fix*/` come from
   `turbojet-codegen` and `dictionaries/orchestra`. Don't edit them by hand: change the generator or
   the `scripts/codegen.sh` arguments, rerun the script and commit its output. CI fails on a diff.
 - **The fuzz crate** (`crates/turbojet/fuzz`) is outside the workspace with its own `Cargo.lock`.
@@ -37,7 +37,9 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - **Workspace builds unify features.** `turbojet`'s dev-dependency on `turbojet-config` (for the
   gateway) turns `tls` on everywhere, so `--no-default-features` across the workspace doesn't
   build `turbojet-config` without it. Check that crate alone: `cargo test -p turbojet-config
-  --no-default-features`.
+  --no-default-features`. Likewise `turbojet` turns on every FIX version of `turbojet-fix`, so
+  check its code for one version alone with `-p turbojet-fix --no-default-features --features
+  fix42`.
 - **The allocation budget** (`crates/turbojet/tests/allocations.rs`) is exact. It fails if any
   stage's count changes, up or down. When a change moves it on purpose, update the budget and the
   README table, say why in the commit, and add the old numbers to DESIGN.md's measurement history.

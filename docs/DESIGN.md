@@ -279,8 +279,8 @@ request), from an application's `build.rs` or as a command for checked-in crates
 
 The macros convert and write each field through out-of-line helpers, one copy per field type
 rather than one per field, which keeps whole versions quick to build: built alone (Apple M3, Rust
-1.98.1, 2026-09-28), `turbojet-fix44` (84 messages) takes about 6 s debug and 16 s release, down
-from 75 s, and `turbojet-fix42` about 1.4 s and 2.6 s, for about 3% on the session benchmarks.
+1.98.1, 2026-09-28), FIX 4.4 (84 messages) takes about 6 s debug and 16 s release, down
+from 75 s, and FIX 4.2 about 1.4 s and 2.6 s, for about 3% on the session benchmarks.
 Parsing straight into the owned form, rather than through the borrowed one, doubled the generated
 crates' build time; that was accepted for the faster owned parse.
 
@@ -289,11 +289,17 @@ The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then
 `repair-unified.py` for what the stylesheet gets wrong: FIX 4.0 and 4.1's datatype names, where
 `char` is a string, `time` a timestamp and `date` a date; repetition FIX 4.0 gives only in prose;
-FIX 4.3's inline groups); each version is generated into its own crate (`turbojet-fix40`,
-`turbojet-fix41`, `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44`,
-`turbojet-fix50sp2`, the last over FIXT 1.1's header), and CI checks they match. A dictionary's
+FIX 4.3's inline groups); each version is generated into its own module of `turbojet-fix` (`fix40`,
+`fix41`, `fix42`, `fix43`, `fix44`, `fix50sp2`, the last over FIXT 1.1's header), and CI checks
+they match. Each module is behind a feature of its name, none on by default, so an application
+compiles only the versions it uses. They were six crates until 2026-10-16; one crate means one to
+publish and document, and a new version is a feature rather than a crate. Built alone, a version
+takes as long either way (clean debug builds on an 8-core M3: FIX 4.4 13.0 s as a crate and 12.9
+s as a module, FIX 5.0 SP2 25.0 s and 25.1 s). All six together take longer as one crate, 47.9 s
+against 29.7 s, as six crates compile in parallel and one mostly doesn't; that falls on the
+workspace's own builds, which turn every version on. A dictionary's
 mistakes can be corrected before generating (`Dictionary::make_optional`, `--optional`;
-`turbojet-fix42` makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did). Sessions can also
+FIX 4.2 makes QuoteCancel's NoQuoteEntries optional, as FIX 4.4 did). Sessions can also
 check inbound messages against a dictionary (feature `validation`, `SessionConfig::with_dictionary`).
 
 FIX 4.0 and 4.1 sessions differ from later ones in what the session sends, chosen by BeginString
