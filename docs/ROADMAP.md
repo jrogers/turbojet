@@ -1,9 +1,10 @@
 # Roadmap
 
-What's left to do on Turbojet and the example gateway, in rough priority order. Each item says
-why it matters and roughly how big it is: **S** (a day or less), **M** (a few days), **L** (a week
-or more). What's built, and how, is in [DESIGN.md](DESIGN.md); behaviour worth knowing about is in
-[CAVEATS.md](CAVEATS.md).
+What's left to do on Turbojet, in rough priority order. Each item says why it matters and roughly
+how big it is: **S** (a day or less), **M** (a few days), **L** (a week or more). What's built, and
+how, is in [DESIGN.md](DESIGN.md); behaviour worth knowing about is in [CAVEATS.md](CAVEATS.md). A
+gateway's own work (routing, risk, high availability and the rest) is on [Turbojet
+Gateway](https://github.com/jrogers/turbojet-gateway)'s roadmap.
 
 Turbojet has been tested against two other FIX engines (QuickFIX/J and QuickFIX/n)
 and QuickFIX's scripted session scenarios, but not yet with any venue or real counterparty.
@@ -109,39 +110,19 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     the database's own clock would remove that requirement but differs between SQLite and
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
-- **High availability with replicated state** (L). A hot standby that receives every sequence
-  number change and stored message as it happens, and takes over a session on failover with no
-  gap and no resend storm. Replicate the session journal to the standby, with the exclusive-session
-  lease deciding which instance is active. Cluster coordination and replication would be a separate
-  project; Turbojet's part is what it needs from the engine.
+- **Replicated session state** (L). For a hot standby that takes over a session on failover
+  with no gap and no resend storm: replicate the session journal, every sequence number change
+  and stored message as it happens, to the standby, with the exclusive-session lease deciding
+  which instance is active. Failover itself, and the gateway's own state, are Turbojet Gateway's.
 - **More TLS revocation sources** (S each). Revocation is checked against CRLs the application
   gives; OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points
   aren't supported.
-
-## 6. The example gateway
-
-The gateway exists to exercise Turbojet; these matter only if it becomes more than an example.
-
-- **Matching or routing** (L). Orders are acknowledged and booked, but never filled or sent on.
-- **Persistent orders** (M). Orders live in memory and are lost on restart; session state
-  survives.
-- **Allocation checks** (S). Allocation quantities aren't checked against the order quantity.
-- **ClOrdID history** (S). After a replace, earlier ClOrdIDs still find the order; strict venues
-  reject them.
-- **Example client** (S). It doesn't demonstrate replace or status requests.
-- **Kill switch** (S). Cancel a session's resting orders, or all of them, on an operator command.
-  Almost every venue offers this alongside cancel on disconnect, which the gateway does.
-- **Pre-trade risk checks** (M). Order size limits, price bands against a reference price,
-  credit limits and self-trade prevention, rejected before booking.
 
 ## Out of scope for now
 
 Listed so the decisions are explicit; any of these could be built on Turbojet separately.
 
 - **FIXML**. FIX's XML encoding.
-- **Routing and translation between counterparties**. A hub that routes messages between
-  sessions and maps one counterparty's dialect to another's with rules (like FIX Antenna's
-  FIXEdge). Routing fields are in scope; the hub is an application.
 - **Ready-made venue dictionaries**. Pre-built, certified definitions for particular venues
   (CME iLink, ICE, LSE, Nasdaq). Dictionary support makes them straightforward to generate, but
   maintaining and certifying them is a separate effort.
