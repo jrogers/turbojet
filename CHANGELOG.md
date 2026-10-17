@@ -2,6 +2,15 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### Python bindings (`crates/turbojet-python`, not published)
+
+- FIX initiators from Python's asyncio, loaded from a `turbojet-config` sessions file: events for
+  logons, logouts and messages, application messages finished with `done()` so that delivery is at
+  least once, sending, rejects, sequence-number controls, pausing, reloading, and untyped messages
+  with repeating groups and tag names. Built with maturin.
+
 ## 0.4.0 (2026-10-17)
 
 The typed messages are one crate now, `turbojet-fix`, with a feature per FIX version, and it adds

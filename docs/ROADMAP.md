@@ -121,15 +121,11 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 6. Other languages
 
-- **Python bindings** (L). A `turbojet-python` crate built with PyO3 and maturin, published to
-  PyPI as wheels, so a Python application can run FIX sessions on the engine. Its own crate,
-  outside the engine's `unsafe_code = "deny"`, as PyO3's generated code needs `unsafe`. To
-  decide:
-  - how `Application`'s callbacks reach Python: each takes the GIL on the session's task, so a
-    slow handler stalls that session; a queue Python drains, or asyncio callbacks through
-    `pyo3-async-runtimes`, would decouple them;
-  - which messages to expose: the untyped `Message` (fields by tag) first, as the generated types
-    are per version and large; typed classes, if wanted, generated from the same dictionaries;
-  - what configuration takes: `turbojet-config`'s TOML covers sessions, storage and TLS, so
-    starting from a file avoids wrapping every builder;
-  - CI building wheels for Linux, macOS and Windows, released alongside the crates.
+- **Python bindings, next steps** (S to M each). `crates/turbojet-python` runs initiators from
+  asyncio (see DESIGN.md). Still to do:
+  - wheels for Linux, macOS and Windows built in CI, if it's to be published to PyPI;
+  - more round trips a second: an event already waiting could be returned without a hop through
+    the tokio runtime, and several taken at once;
+  - logging into Python's `logging`, once `pyo3-log` supports PyO3 0.30;
+  - acceptors, FIXP sessions, and typed message classes generated from the dictionaries, if
+    they're wanted.

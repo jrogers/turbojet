@@ -463,6 +463,49 @@ Most of that is building the `Message`: a profile of the 50-entry decode puts 27
 integer formatting, for each value and each tag, and 13% in copying one to three digits at a
 time; FAST's own work (operators, slots, presence maps) is about a quarter.
 
+## Python bindings
+
+`crates/turbojet-python` (PyO3, built with maturin) runs initiators from asyncio. It's outside
+the workspace, as the fuzz crate is: a PyO3 crate's `cargo test` links libpython, which a
+workspace build can't be relied on to find, so it's tested from pytest against the `gateway`
+example (`scripts/python.sh`).
+
+- **No GIL on the session's task.** The engine runs on `pyo3-async-runtimes`' tokio runtime. The
+  `Application` the bindings give it only pushes Rust values (`SessionHandle`, `Message`, a
+  `Hold`) into an unbounded channel; Python objects are made when asyncio takes an event from
+  `engine.events()`. The channel is bounded in effect by holds: a session stops reading 256
+  messages past the oldest one Python hasn't finished.
+- **At least once.** `on_message` holds every application message (`Context::hold`) and returns
+  at once; the event's `done()` releases the hold. Dropping the event doesn't: the bindings forget
+  the hold rather than release it with the object, since a release from garbage collection would
+  count an unfinished message received (lost on a restart), while a hold never released shows up
+  as a stalled session. Rejecting is something Python does later, so `Session.reject` builds the
+  BusinessMessageReject itself and sends it like any message.
+- **Sync hooks.** `verify_logon`, `to_admin` and `should_resend` answer before the session goes
+  on, so they're the exception: Python callables run with the GIL on the session's task, on
+  logons and resends only. An exception in one is treated as the engine treats a panic there.
+- **Untyped messages.** The generated types are per FIX version and large, so Python gets
+  `Message`. A repeating group is read with its member tags, as there's no version to find its
+  spec by; `turbojet.tags` is generated from FIX 5.0 SP2's by `scripts/codegen.sh`.
+
+Measured 2026-10-17 on an Apple M3, not idle (load average about 3 to 4.5): one session, open
+loop against the release `gateway`, NewOrderSingle to ExecutionReport, latency from each order's
+due time (`load` from Rust, `crates/turbojet-python/bench/load.py` from Python, release builds):
+
+| Orders/s | Rust p50 | Python p50 | Rust p99 | Python p99 |
+|---|---|---|---|---|
+| 1,000 | 95 µs | 559 µs (420 from sending) | 117 µs | 1,037 µs |
+| 10,000 | 32 µs | 86 µs (63 from sending) | 50 µs | 107 µs |
+| 15,000 | | 88 µs (58) | | 140 µs |
+| 20,000 | | 117 µs | | 11 ms |
+| 30,000 | 30 µs | answers queue for seconds | 71 µs | |
+
+Warm, Python adds about 30 µs a round trip, and handles up to about 15,000 a second on one
+asyncio loop; Rust's `load` keeps up at 60,000. Each event and each `send` crosses between the
+runtime's threads and the event loop (`call_soon_threadsafe` and a wake-up). At 1,000 a second,
+both are slower after each lull (see Latency), and Python's more, partly its sender:
+`asyncio.sleep` overshoots by up to milliseconds, where `load` spins for the last stretch.
+
 ## Safety and testing
 
 Following [STYLE.md](STYLE.md) (after TigerBeetle's Tiger Style): limits on everything, asserted
