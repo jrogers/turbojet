@@ -70,9 +70,9 @@ scripts/fuzz-regressions.sh
 
 step codegen
 # Compare against the working tree as it was, so uncommitted generator changes are checked too.
-before=$(git status --porcelain -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs)
+before=$(git status --porcelain -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs crates/turbojet-python/python/turbojet/tags.py)
 scripts/codegen.sh
-after=$(git status --porcelain -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs)
+after=$(git status --porcelain -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs; git diff -- crates/turbojet-fix/src crates/turbojet/tests/sbe/*.rs crates/turbojet/src/fixp/messages.rs crates/turbojet-python/python/turbojet/tags.py)
 if [ "$before" != "$after" ]; then
     echo "codegen changed the generated crates; commit the output of scripts/codegen.sh" >&2
     exit 1
