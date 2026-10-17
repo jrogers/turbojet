@@ -2,6 +2,7 @@
 //! the events they raise, drained from asyncio.
 
 use std::fmt;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -23,6 +24,7 @@ create_exception!(turbojet, ConfigError, Error, "The sessions file can't be used
 create_exception!(turbojet, NotConnected, Error, "No connection has the session.");
 create_exception!(turbojet, QueueFull, Error, "The session's send or control queue is full.");
 create_exception!(turbojet, Dropped, Error, "A queued message was never stored or sent.");
+create_exception!(turbojet, SequenceError, Error, "A change to sequence numbers was refused.");
 
 /// What a callback tells Python, on its way through the channel. Python objects are made only
 /// when Python takes it, so a session's task never needs the GIL.
@@ -238,6 +240,16 @@ impl Engine {
         })
     }
 
+    /// Reads the sessions file again and puts it in use: see turbojet-config's Reloading.
+    /// `ConfigError` if it doesn't load, or changes what's fixed until a restart; the file in use
+    /// stays in use.
+    fn reload(&self) -> PyResult<()> {
+        let initiators = lock(&self.initiators);
+        let initiators = initiators.as_ref().ok_or_else(|| Error::new_err("the engine isn't running"))?;
+        let _runtime = get_runtime().enter();
+        self.file.reload_all(None, initiators).map(drop).map_err(|e| ConfigError::new_err(e.to_string()))
+    }
+
     /// The initiators the file lists, by section name.
     fn sessions(&self) -> Vec<String> {
         self.file.initiator_names()
@@ -317,6 +329,53 @@ impl Session {
         })
     }
 
+    /// Logs the session out and keeps it out until `resume()`, with `text` as the Logout's Text.
+    #[pyo3(signature = (text = None))]
+    fn pause(&self, text: Option<&str>) {
+        self.0.pause(text);
+    }
+
+    /// Lets a paused session log on again.
+    fn resume(&self) {
+        self.0.resume();
+    }
+
+    /// Whether the session is paused.
+    #[getter]
+    fn paused(&self) -> bool {
+        self.0.is_paused()
+    }
+
+    /// The session's sequence numbers.
+    fn sequence_numbers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        sequence(py, async move { session.sequence_numbers().await })
+    }
+
+    /// Sets the MsgSeqNum expected next from the counterparty.
+    fn set_next_incoming<'py>(&self, py: Python<'py>, seq: u64) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        sequence(py, async move { session.set_next_incoming(seq).await })
+    }
+
+    /// Sets the MsgSeqNum of the next message sent.
+    fn set_next_outgoing<'py>(&self, py: Python<'py>, seq: u64) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        sequence(py, async move { session.set_next_outgoing(seq).await })
+    }
+
+    /// Asks the counterparty to send its messages again from MsgSeqNum `begin`.
+    fn request_resend<'py>(&self, py: Python<'py>, begin: u64) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        sequence(py, async move { session.request_resend(begin).await })
+    }
+
+    /// Resets both sequence numbers to 1.
+    fn reset_sequence_numbers<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        sequence(py, async move { session.reset_sequence_numbers().await })
+    }
+
     fn __repr__(&self) -> String {
         format!("Session({})", self.0.id())
     }
@@ -329,6 +388,39 @@ fn send(py: Python<'_>, session: SessionHandle, msg: Message) -> PyResult<Bound<
         let receipt = session.send_when_ready(msg).await.map_err(send_error)?;
         receipt.await.map_err(|dropped| Dropped::new_err(dropped.to_string()))
     })
+}
+
+/// Awaits an operator's change to sequence numbers, `change`.
+fn sequence<F>(py: Python<'_>, change: F) -> PyResult<Bound<'_, PyAny>>
+where
+    F: Future<Output = Result<turbojet::SequenceNumbers, turbojet::SequenceError>> + Send + 'static,
+{
+    future_into_py(py, async move {
+        let numbers = change.await.map_err(|e| SequenceError::new_err(e.to_string()))?;
+        Ok(SequenceNumbers { next_incoming: numbers.next_incoming, next_outgoing: numbers.next_outgoing })
+    })
+}
+
+/// A session's sequence numbers.
+#[pyclass(frozen, eq, get_all, module = "turbojet")]
+#[derive(PartialEq)]
+pub struct SequenceNumbers {
+    /// The MsgSeqNum expected on the next message from the counterparty.
+    next_incoming: u64,
+    /// The MsgSeqNum of the next message sent.
+    next_outgoing: u64,
+}
+
+#[pymethods]
+impl SequenceNumbers {
+    #[new]
+    fn new(next_incoming: u64, next_outgoing: u64) -> Self {
+        Self { next_incoming, next_outgoing }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("SequenceNumbers(next_incoming={}, next_outgoing={})", self.next_incoming, self.next_outgoing)
+    }
 }
 
 fn send_error(e: SendError) -> PyErr {
