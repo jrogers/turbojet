@@ -304,6 +304,25 @@ within 1% (FIX 4.2 NewOrderSingle 131.0 ns before, 130.8 ns after; ExecutionRepo
 183.3 ns; FIX 4.4 NewOrderSingle with nested groups 605.6 and 605.6 ns). Borrowed parses keep a local per slot:
 as one struct they were 7% slower (FIX 4.2 NewOrderSingleRef 103.7 to 111.4 ns).
 
+The generator spreads a version's groups and messages over up to 16 private modules of at least
+8 items each, re-exported (2026-10-17). rustc puts all of a module's code in one codegen unit,
+optimised on one thread, so with every message in one module a release build was mostly serial:
+an `-Z llvm-time-trace` of FIX 5.0 SP2 showed one thread busy for 51 s, on every message's parse,
+while the other 14 finished within 22 s, most within a few. Clean release builds on an M3,
+alternating before and after:
+
+| | Before | After |
+|---|---|---|
+| FIX 5.0 SP2 | 95.4 s | 47.8 s |
+| All eight versions | 189 s | 173 s |
+| FIX Latest | 6.5 minutes | 207 s |
+
+All eight together gain less, as their eight modules already kept the cores busy; they peak at
+10 GB, and FIX Latest at 9 GB. The benchmarks build with one codegen unit and fat LTO, so the split
+can't show there; under the default release profile the typed parse benchmarks stayed within
+1.5% (FIX 4.2 NewOrderSingle 157.0 and 156.5 ns, FIX 4.4 NewOrderSingle with nested groups 717.2
+and 706.6 ns).
+
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
 (Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 and 5.0 SP2 converted from the FIX
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then

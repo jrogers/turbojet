@@ -31,10 +31,10 @@ What's left is FIX Latest and the rest of Orchestra.
   (EP312, `OrchestraFIXLatest.xml` in the orchestrations commit already pinned), which generates
   and compiles cleanly with its own header (172 application messages, about 190,000 lines; 9 of
   its groups start with a nested group, whose NumInGroup delimits their entries) but isn't
-  vendored as a feature. Whole, it builds in 98 s debug and 6.5 minutes release, peaking at 10
-  GB (clean, Apple M3, 2026-10-16), against 25 s and 96 s for FIX 5.0 SP2: too much to add to the
-  workspace's builds of every version, which CI's runners already strain (see "Generated code's
-  build time" below). An application can generate just the messages it uses meanwhile
+  vendored as a feature. Whole, it builds in 98 s debug and 207 s release, peaking at 9 GB
+  (clean, Apple M3, 2026-10-17), against 25 s and 48 s for FIX 5.0 SP2; the workspace builds
+  every version, and all eight already take 173 s and 10 GB in release, which CI's runners
+  strain. An application can generate just the messages it uses meanwhile
   (`turbojet-codegen --message`). QuickFIX has no acceptance scripts for it.
 - **More of FIX Orchestra** (M). Loading covers what the standard FIX 4.2 and 4.4 files use.
   Still to do:
@@ -67,14 +67,12 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     the generated API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
-- **Generated code's build time** (M, research). Release builds of the generated versions are
-  still slow: FIX 5.0 SP2 takes 96 s alone (all eight versions took 7 minutes and 6 GB before
-  the fix below, not since measured), and FIX Latest 6.5 minutes (clean, M3, 2026-10-16), nearly all in LLVM. The worst of it, owned
-  parses whose drops grew with fields times returns, is fixed (see DESIGN.md). Next, take a new
-  `-Z llvm-time-trace` of FIX 5.0 SP2 to see what dominates now. Table-driven enums were tried
-  and made no difference in release while costing 18% in debug; per-enum code is a lot of IR, but
-  not where LLVM's time goes. `opt-level = 1` for the generated crate halves a large message's
-  build, at a cost to parse speed not yet measured.
+- **Generated code's build time** (S, research). Release builds of the generated versions take
+  48 s for FIX 5.0 SP2 alone, 173 s and 10 GB for all eight, and 207 s for FIX Latest (clean, M3,
+  2026-10-17), after the fixes in DESIGN.md. No single function dominates an LLVM time trace any
+  more. Table-driven enums were tried and made no difference in release while costing 18% in
+  debug. `opt-level = 1` for the generated crate halves a large message's build, at a cost to
+  parse speed not yet measured.
 - **Kernel bypass, busy-polling and hardware timestamps** (L, research). Busy-polling is done where
   it can be measured on macOS (`run_spinning`; see DESIGN.md). What remains needs a Linux machine
   with isolated cores, which hasn't been available:

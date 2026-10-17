@@ -26,6 +26,9 @@ FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44
 
 - `--message Name` (`Generator::only_message`) generates only the messages named, with the groups
   and enums they use, for a few messages of a large dictionary such as FIX Latest's.
+- Groups and messages are spread over up to 16 private modules, re-exported, so a release build
+  optimises them on every core: FIX 5.0 SP2 builds in 48 s rather than 95 s, FIX Latest in 207 s
+  rather than 6.5 minutes. Paths are unchanged.
 
 ### `turbojet-fix`
 
