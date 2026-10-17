@@ -6,9 +6,10 @@
 #   scripts/check.sh            # what most changes need
 #   scripts/check.sh --interop  # also the interop tests (needs a JDK 21+ and .NET 10)
 #   scripts/check.sh --msrv     # also the tests on the minimum supported Rust (rustup toolchain 1.89)
+#   scripts/check.sh --python   # also the Python bindings (needs uv)
 #   scripts/check.sh --postgres # also the SQL stores on PostgreSQL, at TURBOJET_POSTGRES_URL (a
 #                               # database the tests may clear)
-#   scripts/check.sh --all      # interop and msrv
+#   scripts/check.sh --all      # interop, msrv and python
 # cargo-deny and benchmark compilation are left to CI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,12 +17,14 @@ cd "$(dirname "$0")/.."
 interop=false
 msrv=false
 postgres=false
+python=false
 for arg in "$@"; do
     case $arg in
         --interop) interop=true ;;
         --msrv) msrv=true ;;
         --postgres) postgres=true ;;
-        --all) interop=true; msrv=true ;;
+        --python) python=true ;;
+        --all) interop=true; msrv=true; python=true ;;
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
 done
@@ -78,6 +81,10 @@ fi
 if $interop; then
     step interop
     scripts/interop.sh
+fi
+if $python; then
+    step python
+    scripts/python.sh
 fi
 if $postgres; then
     step postgres

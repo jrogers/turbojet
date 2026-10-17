@@ -171,6 +171,25 @@ jobs:
       - run: cargo clippy --manifest-path crates/turbojet/fuzz/Cargo.toml --all-targets --locked -- -D warnings
       - run: scripts/fuzz-regressions.sh
 
+  # The Python bindings (crates/turbojet-python), outside the workspace, built with maturin.
+  python:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/turbojet-python
+      - run: pipx install uv
+      - run: scripts/python.sh
+
   # Dependency licences, security advisories and sources (deny.toml).
   deny:
     runs-on: ubuntu-latest

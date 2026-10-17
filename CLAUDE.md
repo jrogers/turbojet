@@ -20,6 +20,7 @@ cargo test -p turbojet-acceptance                           # the QuickFIX scena
 scripts/interop.sh gap_fill_from_peer                       # one interop scenario (JDK 21+, .NET 10)
 cargo bench -p turbojet --all-features -- --quick           # benchmark smoke run
 scripts/fuzz.sh 60 session                                  # fuzz one target (nightly, cargo-fuzz)
+scripts/python.sh                                           # the Python bindings (uv)
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure
 ```
 
@@ -34,6 +35,9 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - **The fuzz crate** (`crates/turbojet/fuzz`) is outside the workspace with its own `Cargo.lock`.
   Workspace commands don't see it. A version bump or API change must also update it, or the
   `fuzz-build` job fails.
+- **The Python bindings** (`crates/turbojet-python`) are outside the workspace too, with their own
+  `Cargo.lock` and `uv.lock`: `cargo test` can't link libpython, so they're built with maturin and
+  tested with pytest (`scripts/python.sh`, `check.sh --python`). An API change must update them.
 - **Workspace builds unify features.** `turbojet`'s dev-dependency on `turbojet-config` (for the
   gateway) turns `tls` on everywhere, so `--no-default-features` across the workspace doesn't
   build `turbojet-config` without it. Check that crate alone: `cargo test -p turbojet-config
