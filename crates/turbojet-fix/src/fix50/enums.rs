@@ -55,24 +55,32 @@ turbojet::fix_enum! {
         InstitutionsOnly = "I",
         ReinstateOnTradingHalt = "J",
         CancelOnTradingHalt = "K",
+        /// Deprecated in the FIX standard.
         LastPeg = "L",
+        /// Deprecated in the FIX standard.
         MidPricePeg = "M",
         NonNegotiable = "N",
+        /// Deprecated in the FIX standard.
         OpeningPeg = "O",
+        /// Deprecated in the FIX standard.
         MarketPeg = "P",
         CancelOnSystemFailure = "Q",
+        /// Deprecated in the FIX standard.
         PrimaryPeg = "R",
         Suspend = "S",
         FixedPegToLocalBestBidOrOfferAtTimeOfOrder = "T",
         CustomerDisplayInstruction = "U",
         Netting = "V",
+        /// Deprecated in the FIX standard.
         PegToVWAP = "W",
         TradeAlong = "X",
         TryToStop = "Y",
         CancelIfNotBest = "Z",
+        /// Deprecated in the FIX standard.
         TrailingStopPeg = "a",
         StrictLimit = "b",
         IgnorePriceValidityChecks = "c",
+        /// Deprecated in the FIX standard.
         PegToLimitPrice = "d",
         WorkToTargetStrategy = "e",
         IntermarketSweep = "f",
@@ -166,6 +174,7 @@ turbojet::fix_enum! {
         Filled = "2",
         DoneForDay = "3",
         Canceled = "4",
+        /// Deprecated in the FIX standard.
         Replaced = "5",
         PendingCancel = "6",
         Stopped = "7",
@@ -186,18 +195,25 @@ turbojet::fix_enum! {
         Limit = "2",
         Stop = "3",
         StopLimit = "4",
+        /// Deprecated in the FIX standard.
         MarketOnClose = "5",
         WithOrWithout = "6",
+        /// Deprecated in the FIX standard.
         LimitOrBetter = "7",
         LimitWithOrWithout = "8",
         OnBasis = "9",
+        /// Deprecated in the FIX standard.
         OnClose = "A",
+        /// Deprecated in the FIX standard.
         LimitOnClose = "B",
+        /// Deprecated in the FIX standard.
         ForexMarket = "C",
         PreviouslyQuoted = "D",
         PreviouslyIndicated = "E",
+        /// Deprecated in the FIX standard.
         ForexLimit = "F",
         ForexSwap = "G",
+        /// Deprecated in the FIX standard.
         ForexPreviouslyQuoted = "H",
         Funari = "I",
         MarketIfTouched = "J",
@@ -286,8 +302,11 @@ turbojet::fix_enum! {
         New = "0",
         Replace = "1",
         Cancel = "2",
+        /// Deprecated in the FIX standard.
         Preliminary = "3",
+        /// Deprecated in the FIX standard.
         Calculated = "4",
+        /// Deprecated in the FIX standard.
         CalculatedWithoutPreliminary = "5",
         Reversal = "6",
     }
@@ -523,7 +542,9 @@ turbojet::fix_enum! {
 turbojet::fix_enum! {
     /// SecurityType(167).
     SecurityType {
+        /// Deprecated in the FIX standard.
         USTreasuryNoteOld = "UST",
+        /// Deprecated in the FIX standard.
         USTreasuryBillOld = "USTB",
         EuroSupranationalCoupons = "EUSUPRA",
         FederalAgencyCoupon = "FAC",
@@ -1195,7 +1216,9 @@ turbojet::fix_enum! {
 turbojet::fix_enum! {
     /// UnderlyingSecurityType(310).
     UnderlyingSecurityType {
+        /// Deprecated in the FIX standard.
         USTreasuryNoteOld = "UST",
+        /// Deprecated in the FIX standard.
         USTreasuryBillOld = "USTB",
         EuroSupranationalCoupons = "EUSUPRA",
         FederalAgencyCoupon = "FAC",
@@ -2579,7 +2602,9 @@ turbojet::fix_enum! {
 turbojet::fix_enum! {
     /// LegSecurityType(609).
     LegSecurityType {
+        /// Deprecated in the FIX standard.
         USTreasuryNoteOld = "UST",
+        /// Deprecated in the FIX standard.
         USTreasuryBillOld = "USTB",
         EuroSupranationalCoupons = "EUSUPRA",
         FederalAgencyCoupon = "FAC",
@@ -2708,9 +2733,12 @@ turbojet::fix_enum! {
     AllocType {
         Calculated = "1",
         Preliminary = "2",
+        /// Deprecated in the FIX standard.
         SellsideCalculatedUsingPreliminary = "3",
+        /// Deprecated in the FIX standard.
         SellsideCalculatedWithoutPreliminary = "4",
         ReadyToBook = "5",
+        /// Deprecated in the FIX standard.
         BuysideReadyToBook = "6",
         WarehouseInstruction = "7",
         RequestToIntermediary = "8",

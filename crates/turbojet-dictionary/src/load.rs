@@ -294,7 +294,7 @@ impl Parser<'_, '_> {
                     return Err(self.error(v, format!("field {name} has value {code} twice")));
                 }
                 let description = v.attribute("description").unwrap_or_default().to_string();
-                values.push(Value { code: code.to_string(), name: None, description, doc: None });
+                values.push(Value { code: code.to_string(), name: None, description, doc: None, deprecated: false });
             }
             let allow_other_values = el.attribute("allowOtherValues") == Some("Y");
             fields.push(Field { tag, name, ty, values, allow_other_values, doc: None, deprecated: false });

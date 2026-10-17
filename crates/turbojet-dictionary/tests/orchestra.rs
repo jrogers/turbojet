@@ -194,6 +194,20 @@ fn reads_field_docs_and_deprecation() {
 }
 
 #[test]
+fn reads_code_deprecation() {
+    let dict = load(
+        "<fixr:codeSets><fixr:codeSet id='1' name='PegPriceTypeCodeSet' type='char'>\
+         <fixr:code id='11' name='LastPeg' value='L' deprecated='FIX.5.0'/>\
+         <fixr:code id='12' name='MidPricePeg' value='M'/>\
+         </fixr:codeSet></fixr:codeSets>\
+         <fixr:fields><fixr:field id='211' name='PegPriceType' type='PegPriceTypeCodeSet'/></fixr:fields>",
+    );
+    let values = &dict.field("PegPriceType").unwrap().values;
+    let deprecated: Vec<_> = values.iter().map(|v| (v.code.as_str(), v.deprecated)).collect();
+    assert_eq!(deprecated, [("L", true), ("M", false)]);
+}
+
+#[test]
 fn keeps_line_breaks_in_docs() {
     // As in OrchestraFIX42.xml's MaturityMonthYear: each line is a hard break.
     let doc = synopsis(

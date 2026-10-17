@@ -531,12 +531,16 @@ fn is_multiple(ty: &FieldType) -> bool {
     matches!(ty, FieldType::MultipleCharValue | FieldType::MultipleStringValue | FieldType::MultipleValueString)
 }
 
+/// The line documenting a deprecated field or value.
+const DEPRECATED: &str = "Deprecated in the FIX standard.";
+
 /// `Name(tag).`, then whether the standard deprecates the field, then (with `docs`) its
 /// documentation.
 fn field_doc(field: &Field, docs: bool) -> String {
     let mut doc = format!("{}({}).", field.name, field.tag);
     if field.deprecated {
-        doc.push_str("\n\nDeprecated in the FIX standard.");
+        doc.push_str("\n\n");
+        doc.push_str(DEPRECATED);
     }
     with_doc(doc, field.doc.as_deref().filter(|_| docs))
 }
@@ -573,11 +577,13 @@ fn enum_def(field: &Field, docs: bool) -> Result<EnumDef, Error> {
             }
             name = format!("{with_code}{n}");
         }
-        variants.push(Variant {
-            name,
-            code: value.code.clone(),
-            doc: value.doc.as_deref().filter(|_| docs).map(docs::markdown).filter(|d| !d.is_empty()),
-        });
+        let text = value.doc.as_deref().filter(|_| docs);
+        let doc = if value.deprecated {
+            Some(with_doc(DEPRECATED.to_string(), text))
+        } else {
+            text.map(docs::markdown).filter(|d| !d.is_empty())
+        };
+        variants.push(Variant { name, code: value.code.clone(), doc });
     }
     Ok(EnumDef { name: field.name.clone(), doc: field_doc(field, docs), variants })
 }
@@ -953,8 +959,11 @@ mod tests {
         let dict = orchestra(
             &format!(
                 "<fixr:codeSet id='1' name='SideCodeSet' type='char'><fixr:code id='11' name='Buy' value='1'>{}\
-                 </fixr:code><fixr:code id='12' name='Sell' value='2'/></fixr:codeSet>",
-                synopsis("Buy [or cover].")
+                 </fixr:code><fixr:code id='12' name='Sell' value='2'/>\
+                 <fixr:code id='13' name='Cross' value='8' deprecated='FIX.5.0'>{}</fixr:code>\
+                 <fixr:code id='14' name='Opposite' value='C' deprecated='FIX.5.0'/></fixr:codeSet>",
+                synopsis("Buy [or cover]."),
+                synopsis("Cross.")
             ),
             &format!(
                 "<fixr:field id='54' name='Side' type='SideCodeSet'>{}</fixr:field>\
@@ -990,7 +999,9 @@ mod tests {
         // The enum has its field's docs, and each variant its value's.
         assert_eq!(plan.enums[0].doc, docs[0]);
         let variant_docs: Vec<_> = plan.enums[0].variants.iter().map(|v| v.doc.as_deref()).collect();
-        assert_eq!(variant_docs, [Some("Buy \\[or cover\\]."), None]);
+        let deprecated = "Deprecated in the FIX standard.";
+        let cross = format!("{deprecated}\n\nCross.");
+        assert_eq!(variant_docs, [Some("Buy \\[or cover\\]."), None, Some(cross.as_str()), Some(deprecated)]);
         // QuickFIX descriptions aren't docs.
         let quickfix: Vec<_> = self::plan().enums.iter().map(|e| e.doc.clone()).collect();
         assert_eq!(quickfix, ["Side(54).", "ExecInst(18).", "PartyRole(452)."]);
@@ -1010,7 +1021,8 @@ mod tests {
             ]
         );
         assert_eq!(plan.enums[0].doc, "Side(54).");
-        assert!(plan.enums[0].variants.iter().all(|v| v.doc.is_none()));
+        let variant_docs: Vec<_> = plan.enums[0].variants.iter().map(|v| v.doc.as_deref()).collect();
+        assert_eq!(variant_docs, [None, None, Some(deprecated), Some(deprecated)]);
     }
 
     /// A dictionary from its messages, components and fields.

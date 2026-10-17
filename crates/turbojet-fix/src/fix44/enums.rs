@@ -157,6 +157,7 @@ turbojet::fix_enum! {
         Filled = "2",
         DoneForDay = "3",
         Canceled = "4",
+        /// Deprecated in the FIX standard.
         Replaced = "5",
         PendingCancel = "6",
         Stopped = "7",

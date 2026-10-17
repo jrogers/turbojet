@@ -345,6 +345,7 @@ impl<'a, 'input> Parser<'a, 'input> {
                     name: Some(self.attr(code, "name")?.to_string()),
                     description: String::new(),
                     doc: synopsis(code),
+                    deprecated: code.attribute("deprecated").is_some(),
                 });
             }
             if code_sets.insert(name, (ty, values)).is_some() {

@@ -465,6 +465,7 @@ turbojet::fix_enum! {
         DepositoryTrustCompany = "DTC",
         EuroClear = "EUR",
         FederalBookEntry = "FED",
+        /// Deprecated in the FIX standard.
         LocalMarketSettleLocation = "ISO Country Code",
         Physical = "PNY",
         ParticipantTrustCompany = "PTC",

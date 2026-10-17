@@ -209,6 +209,7 @@ mod tests {
             name: name.map(Into::into),
             description: description.into(),
             doc: doc.map(Into::into),
+            deprecated: false,
         }
     }
 

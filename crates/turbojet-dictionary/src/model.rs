@@ -242,6 +242,9 @@ pub struct Value {
     pub description: String,
     /// The documentation (Orchestra's synopsis); `None` if there is none, as in QuickFIX.
     pub doc: Option<String>,
+    /// Whether the FIX standard deprecates the value (Orchestra only). It's still valid on the
+    /// wire.
+    pub deprecated: bool,
 }
 
 /// An entry in a message, component, group, header or trailer.
