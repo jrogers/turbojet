@@ -475,6 +475,13 @@ example (`scripts/python.sh`).
   `Hold`) into an unbounded channel; Python objects are made when asyncio takes an event from
   `engine.events()`. The channel is bounded in effect by holds: a session stops reading 256
   messages past the oldest one Python hasn't finished.
+- **Events already waiting skip the runtime.** Awaiting an event through the runtime costs an
+  asyncio future and its callback, two tokio tasks, the GIL taken on a worker and
+  `call_soon_threadsafe` to wake the loop. Under load an event is nearly always waiting already,
+  so `__anext__` takes it on the event loop's thread and returns an awaitable that's already
+  finished; only an empty channel goes through the runtime. A finished awaitable doesn't suspend,
+  so every 32nd yields to the event loop once first, as `asyncio.sleep(0)` does: a loop over
+  events that keep coming still lets other tasks run.
 - **At least once.** `on_message` holds every application message (`Context::hold`) and returns
   at once; the event's `done()` releases the hold. Dropping the event doesn't: the bindings forget
   the hold rather than release it with the object, since a release from garbage collection would
@@ -488,23 +495,24 @@ example (`scripts/python.sh`).
   `Message`. A repeating group is read with its member tags, as there's no version to find its
   spec by; `turbojet.tags` is generated from FIX 5.0 SP2's by `scripts/codegen.sh`.
 
-Measured 2026-10-17 on an Apple M3, not idle (load average about 3 to 4.5): one session, open
+Measured 2026-10-17 on an Apple M3, not idle (load average about 2 to 7): one session, open
 loop against the release `gateway`, NewOrderSingle to ExecutionReport, latency from each order's
-due time (`load` from Rust, `crates/turbojet-python/bench/load.py` from Python, release builds):
+due time (`load` from Rust, `crates/turbojet-python/bench/load.py` from Python, release builds,
+run one after the other):
 
 | Orders/s | Rust p50 | Python p50 | Rust p99 | Python p99 |
 |---|---|---|---|---|
-| 1,000 | 95 µs | 559 µs (420 from sending) | 117 µs | 1,037 µs |
-| 10,000 | 32 µs | 86 µs (63 from sending) | 50 µs | 107 µs |
-| 15,000 | | 88 µs (58) | | 140 µs |
-| 20,000 | | 117 µs | | 11 ms |
-| 30,000 | 30 µs | answers queue for seconds | 71 µs | |
+| 1,000 | 88 µs | 471 µs (329 from sending) | 117 µs | 649 µs |
+| 10,000 | 42 µs | 103 µs (73 from sending) | 85 µs | 131 µs |
+| 30,000 | 43 µs | 118 µs (90) | 110 µs | 235 µs |
+| 60,000 | 43 µs | 122 µs (97) | 69 µs | 254 µs |
 
-Warm, Python adds about 30 µs a round trip, and handles up to about 15,000 a second on one
-asyncio loop; Rust's `load` keeps up at 60,000. Each event and each `send` crosses between the
-runtime's threads and the event loop (`call_soon_threadsafe` and a wake-up). At 1,000 a second,
-both are slower after each lull (see Latency), and Python's more, partly its sender:
-`asyncio.sleep` overshoots by up to milliseconds, where `load` spins for the last stretch.
+Warm, Python adds 60 to 80 µs a round trip and keeps up with Rust's `load` to 60,000 a second on
+one asyncio loop; at 100,000 both fall behind on this machine, which runs both ends (Python kept up
+on one quieter run, at 148 µs / 319 µs). At 1,000 a second, both are slower after each lull (see
+Latency), and Python's more: an event then finds the channel empty and goes through the runtime,
+and the sender's `asyncio.sleep` overshoots by up to milliseconds, where `load` spins for the last
+stretch.
 
 ## Safety and testing
 
@@ -737,6 +745,10 @@ was before:
   16.45 µs without spinning in the same run.
 - SBE was measured 2026-10-05 and FIXP 2026-10-06; the FIX round trips in the FIXP run took
   16.2 µs and 0.81M msg/s.
+- The Python round trips were re-measured 2026-10-17, after events already waiting skipped the
+  runtime. Earlier that day, p50 / p99: 559 µs / 1,037 µs at 1,000 a second, 86 / 107 µs at
+  10,000, 88 / 140 µs at 15,000, 117 µs / 11 ms at 20,000, and answers queued for seconds at
+  30,000.
 - The allocation counts were taken 2026-09-30; the application's were re-counted 2026-10-03,
   before which the reply list and message cost 3 allocations more, and `String` fields in place
   of `CompactString`s cost 5.

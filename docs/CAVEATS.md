@@ -19,7 +19,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - Python bindings: an `AppMessage` that's never `done()` stays held, even once Python drops it,
   so its session stops reading 256 messages later. The hooks given to `turbojet.load` run with
   the GIL on the session's task, so a slow one, or Python busy elsewhere, holds the session up.
-  Initiators only: no acceptor and no FIXP sessions. One asyncio loop handles about 15,000 round
+  Initiators only: no acceptor and no FIXP sessions. One asyncio loop handles about 60,000 round
   trips a second (see DESIGN.md). `log_to_stderr` writes to stderr, not to Python's `logging`.
 - `SessionHandle::send` returning `Ok` means queued, not sent: its `Receipt` says whether the
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,

@@ -122,8 +122,7 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 - **Python bindings, next steps** (S to M each). `crates/turbojet-python` runs initiators from
   asyncio (see DESIGN.md). Still to do:
   - wheels for Linux, macOS and Windows built in CI, if it's to be published to PyPI;
-  - more round trips a second: an event already waiting could be returned without a hop through
-    the tokio runtime, and several taken at once;
+  - several events taken at once, under one hold of the GIL, for loops that work in batches;
   - logging into Python's `logging`, once `pyo3-log` supports PyO3 0.30;
   - acceptors, FIXP sessions, and typed message classes generated from the dictionaries, if
     they're wanted.
