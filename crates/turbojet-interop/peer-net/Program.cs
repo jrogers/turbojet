@@ -101,47 +101,63 @@ if (opts.TryGetValue("tls-ca", out var ca))
     }
 }
 
+SessionSettings Settings()
+{
+    var settings = new SessionSettings();
+    // QuickFIX/n reads these from the defaults, not the session's settings: the log path for the
+    // log of events outside a session, and an initiator's ReconnectInterval (30 s if it's not there).
+    var defaults = new SettingsDictionary();
+    defaults.SetString("FileLogPath", opts["log-dir"]);
+    defaults.SetString("ReconnectInterval", Get("reconnect", "1"));
+    settings.Set(defaults);
+    settings.Set(id, session);
+    return settings;
+}
+
+// QuickFIX/n can't report the port an acceptor bound (GetAcceptorAddresses isn't implemented), so
+// the acceptor takes a free one on loopback first. Another process can take it before the acceptor
+// binds it, as one did on CI; then it tries another.
+int FreePort()
+{
+    var probe = new TcpListener(IPAddress.Loopback, 0);
+    probe.Start();
+    var free = ((IPEndPoint)probe.LocalEndpoint).Port;
+    probe.Stop();
+    return free;
+}
+
+var app = new PeerApp();
+var store = new MemoryStoreFactory();
+IInitiator? initiator = null;
+IAcceptor? acceptor = null;
 int port;
 if (role == "acceptor")
 {
-    // QuickFIX/n can't report the port an acceptor bound (GetAcceptorAddresses isn't implemented),
-    // so take a free one on loopback first. Another process could take it in between; in a test
-    // run on one machine that's unlikely enough.
-    var probe = new TcpListener(IPAddress.Loopback, 0);
-    probe.Start();
-    port = ((IPEndPoint)probe.LocalEndpoint).Port;
-    probe.Stop();
     session.SetString("SocketAcceptHost", "127.0.0.1");
-    session.SetString("SocketAcceptPort", port.ToString());
+    for (var attempt = 1; ; attempt++)
+    {
+        port = FreePort();
+        session.SetString("SocketAcceptPort", port.ToString());
+        var settings = Settings();
+        acceptor = new ThreadedSocketAcceptor(app, store, settings, new EmittingLogFactory(new FileLogFactory(settings)));
+        try
+        {
+            acceptor.Start();
+            break;
+        }
+        catch (SocketException e) when (e.SocketErrorCode == SocketError.AddressAlreadyInUse && attempt < 5)
+        {
+            acceptor.Dispose();
+        }
+    }
 }
 else
 {
     port = int.Parse(opts["port"]);
     session.SetString("SocketConnectHost", "127.0.0.1");
     session.SetString("SocketConnectPort", port.ToString());
-}
-
-var settings = new SessionSettings();
-// QuickFIX/n reads these from the defaults, not the session's settings: the log path for the log
-// of events outside a session, and an initiator's ReconnectInterval (30 s if it's not there).
-var defaults = new SettingsDictionary();
-defaults.SetString("FileLogPath", opts["log-dir"]);
-defaults.SetString("ReconnectInterval", Get("reconnect", "1"));
-settings.Set(defaults);
-settings.Set(id, session);
-var app = new PeerApp();
-var store = new MemoryStoreFactory();
-var logs = new EmittingLogFactory(new FileLogFactory(settings));
-IInitiator? initiator = null;
-IAcceptor? acceptor = null;
-if (role == "acceptor")
-{
-    acceptor = new ThreadedSocketAcceptor(app, store, settings, logs);
-    acceptor.Start();
-}
-else
-{
-    initiator = new SocketInitiator(app, store, settings, logs);
+    var settings = Settings();
+    initiator = new SocketInitiator(app, store, settings, new EmittingLogFactory(new FileLogFactory(settings)));
     initiator.Start();
 }
 Events.Emit("ready", port.ToString());
