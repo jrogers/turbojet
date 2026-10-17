@@ -7,6 +7,7 @@ name = "turbojet"
 description = "FIX initiators on the Turbojet engine, driven from asyncio"
 dynamic = ["version"]
 requires-python = ">=3.10"
+readme = "README.md"
 license = "Apache-2.0"
 
 [dependency-groups]
