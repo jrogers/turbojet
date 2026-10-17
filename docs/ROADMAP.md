@@ -72,8 +72,9 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   48 s for FIX 5.0 SP2 alone, 173 s and 10 GB for all eight, and 207 s for FIX Latest (clean, M3,
   2026-10-17), after the fixes in DESIGN.md. No single function dominates an LLVM time trace any
   more. Table-driven enums were tried and made no difference in release while costing 18% in
-  debug. `opt-level = 1` for the generated crate halves a large message's build, at a cost to
-  parse speed not yet measured.
+  debug. `opt-level = 1` saves 13% and costs 6-16% in parse speed, so it isn't worth it. About
+  20 s of FIX 5.0 SP2's build is the front end (macro expansion and type checking take 5 s each),
+  which no optimisation level touches: shrinking what the macros expand to is what's left.
 - **Kernel bypass, busy-polling and hardware timestamps** (L, research). Busy-polling is done where
   it can be measured on macOS (`run_spinning`; see DESIGN.md). What remains needs a Linux machine
   with isolated cores, which hasn't been available:

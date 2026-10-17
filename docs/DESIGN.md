@@ -323,6 +323,23 @@ can't show there; under the default release profile the typed parse benchmarks s
 1.5% (FIX 4.2 NewOrderSingle 157.0 and 156.5 ns, FIX 4.4 NewOrderSingle with nested groups 717.2
 and 706.6 ns).
 
+Building the generated crate at `opt-level = 1` was measured and rejected (2026-10-17). Clean
+release builds on an M3 (Rust 1.99), alternating: FIX 5.0 SP2 took 46 and 47 s at `opt-level = 3`
+against 39 and 42 s at 1, and all eight versions 181 s against 158 s. At `opt-level = 0`, SP2
+still takes 21 s, most of it the front end (`-Z time-passes`: 4.9 s macro expansion, 5.4 s type
+checking), and level 1 only shortens the LLVM tail (21.0 to 15.8 s waiting on codegen units). The
+typed parse benchmarks under the default release profile, two rounds alternating, got 6-16%
+slower:
+
+| | `opt-level = 3` | `opt-level = 1` |
+|---|---|---|
+| FIX 4.2 NewOrderSingle | 158.5 ns | 176.4 ns |
+| FIX 4.2 NewOrderSingleRef | 125.2 ns | 144.7 ns |
+| FIX 4.2 ExecutionReport | 229.6 ns | 251.7 ns |
+| Build an ExecutionReport | 203.0 ns | 225.3 ns |
+| FIX 4.4 NewOrderSingle with nested groups | 717.2 ns | 772.0 ns |
+| FIX 4.4 NewOrderSingleRef with nested groups | 585.3 ns | 618.6 ns |
+
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
 (Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 and 5.0 SP2 converted from the FIX
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then
