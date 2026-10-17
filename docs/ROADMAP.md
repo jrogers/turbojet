@@ -118,12 +118,17 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   gives; OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points
   aren't supported.
 
-## Out of scope for now
+## 6. Other languages
 
-Listed so the decisions are explicit; any of these could be built on Turbojet separately.
-
-- **FIXML**. FIX's XML encoding.
-- **Ready-made venue dictionaries**. Pre-built, certified definitions for particular venues
-  (CME iLink, ICE, LSE, Nasdaq). Dictionary support makes them straightforward to generate, but
-  maintaining and certifying them is a separate effort.
-- **Bindings for other languages**. A C API or Python bindings. Turbojet is a Rust library.
+- **Python bindings** (L). A `turbojet-python` crate built with PyO3 and maturin, published to
+  PyPI as wheels, so a Python application can run FIX sessions on the engine. Its own crate,
+  outside the engine's `unsafe_code = "deny"`, as PyO3's generated code needs `unsafe`. To
+  decide:
+  - how `Application`'s callbacks reach Python: each takes the GIL on the session's task, so a
+    slow handler stalls that session; a queue Python drains, or asyncio callbacks through
+    `pyo3-async-runtimes`, would decouple them;
+  - which messages to expose: the untyped `Message` (fields by tag) first, as the generated types
+    are per version and large; typed classes, if wanted, generated from the same dictionaries;
+  - what configuration takes: `turbojet-config`'s TOML covers sessions, storage and TLS, so
+    starting from a file avoids wrapping every builder;
+  - CI building wheels for Linux, macOS and Windows, released alongside the crates.
