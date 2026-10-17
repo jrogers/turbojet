@@ -1,5 +1,6 @@
 """A counterparty for the tests: the engine's `gateway` example, a FIX 4.2 acceptor."""
 
+import asyncio
 import socket
 import subprocess
 import time
@@ -60,3 +61,15 @@ connect = ["127.0.0.1:{port}"]
 """
     )
     return path
+
+
+async def expect(events, kind, timeout=10):
+    """The next event of type `kind`, skipping others."""
+
+    async def find():
+        async for event in events:
+            if isinstance(event, kind):
+                return event
+        pytest.fail(f"events ended before a {kind.__name__}")
+
+    return await asyncio.wait_for(find(), timeout)

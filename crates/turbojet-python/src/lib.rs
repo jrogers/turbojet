@@ -17,6 +17,9 @@ fn _turbojet(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<engine::PyDisconnect>()?;
     m.add_class::<engine::Logon>()?;
     m.add_class::<engine::Logout>()?;
+    m.add_class::<engine::AdminMessage>()?;
+    m.add_class::<engine::AppMessage>()?;
+    m.add_class::<engine::CancelOnDisconnect>()?;
     let py = m.py();
     m.add("Error", py.get_type::<engine::Error>())?;
     m.add("ConfigError", py.get_type::<engine::ConfigError>())?;

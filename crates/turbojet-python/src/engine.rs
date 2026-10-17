@@ -6,11 +6,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyStopAsyncIteration};
+use pyo3::exceptions::{PyException, PyStopAsyncIteration, PyValueError};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::{future_into_py, get_runtime};
 use tokio::sync::{mpsc, watch};
-use turbojet::{Application, CommandError, SendError, SessionHandle, SessionId};
+use turbojet::peer::ConnectionInfo;
+use turbojet::{
+    Application, CommandError, Context, Hold, Message, MessageReject, MsgType, SendError, SessionHandle, SessionId,
+};
 use turbojet_config::{Initiators, SessionsFile};
 
 use crate::message::PyMessage;
@@ -26,37 +29,137 @@ create_exception!(turbojet, Dropped, Error, "A queued message was never stored o
 enum Event {
     Logon(SessionHandle),
     Logout(SessionHandle, turbojet::Disconnect),
+    Admin(SessionHandle, Message),
+    App { session: SessionHandle, msg: Message, maybe_redelivered: bool, hold: Hold },
+    CancelOnDisconnect(SessionHandle, turbojet::Disconnect),
 }
 
 impl Event {
     fn into_py(self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let session = |s| Py::new(py, Session(s));
+        let msg = |m| Py::new(py, PyMessage(m));
         Ok(match self {
-            Event::Logon(session) => Py::new(py, Logon { session: Py::new(py, Session(session))? })?.into_any(),
-            Event::Logout(session, ended) => {
-                Py::new(py, Logout { session: Py::new(py, Session(session))?, ended: ended.into() })?.into_any()
+            Event::Logon(s) => Py::new(py, Logon { session: session(s)? })?.into_any(),
+            Event::Logout(s, ended) => Py::new(py, Logout { session: session(s)?, ended: ended.into() })?.into_any(),
+            Event::Admin(s, m) => Py::new(py, AdminMessage { session: session(s)?, msg: msg(m)? })?.into_any(),
+            Event::App { session: s, msg: m, maybe_redelivered, hold } => {
+                let event =
+                    AppMessage { session: session(s)?, msg: msg(m)?, maybe_redelivered, hold: Mutex::new(Some(hold)) };
+                Py::new(py, event)?.into_any()
+            }
+            Event::CancelOnDisconnect(s, ended) => {
+                Py::new(py, CancelOnDisconnect { session: session(s)?, ended: ended.into() })?.into_any()
             }
         })
     }
 }
 
-/// The application the engine calls: it only passes events on. A closed channel means Python has
-/// stopped listening, and the event goes nowhere.
-struct Bridge(mpsc::UnboundedSender<Event>);
+/// The application the engine calls: it passes events on, and calls the sync hooks Python gave.
+/// A closed channel means Python has stopped listening, and the event goes nowhere.
+struct Bridge {
+    events: mpsc::UnboundedSender<Event>,
+    verify_logon: Option<Py<PyAny>>,
+    to_admin: Option<Py<PyAny>>,
+    should_resend: Option<Py<PyAny>>,
+}
 
 impl Application for Bridge {
+    fn verify_logon(
+        &self,
+        session: &SessionHandle,
+        logon: &Message,
+        connection: &ConnectionInfo,
+    ) -> Result<(), String> {
+        let Some(hook) = &self.verify_logon else { return Ok(()) };
+        Python::attach(|py| {
+            let args = (Session(session.clone()), PyMessage(logon.clone()), connection.addr.map(|a| a.to_string()));
+            match hook.call1(py, args).and_then(|refused| refused.extract::<Option<String>>(py)) {
+                Ok(None) => Ok(()),
+                Ok(Some(reason)) => Err(reason),
+                Err(e) => {
+                    e.display(py);
+                    Err(format!("verify_logon raised {e}"))
+                }
+            }
+        })
+    }
+
+    /// The hook changes a copy, which then replaces `msg`. An exception panics, which the engine
+    /// answers by disconnecting rather than send a message the hook may have half changed.
+    fn to_admin(&self, session: &SessionHandle, msg: &mut Message) {
+        let Some(hook) = &self.to_admin else { return };
+        Python::attach(|py| {
+            let changed = Py::new(py, PyMessage(msg.clone())).and_then(|changed| {
+                hook.call1(py, (Session(session.clone()), changed.clone_ref(py)))?;
+                Ok(changed)
+            });
+            match changed {
+                Ok(changed) => *msg = std::mem::take(&mut changed.borrow_mut(py).0),
+                Err(e) => {
+                    e.display(py);
+                    panic!("to_admin raised {e}");
+                }
+            }
+        });
+    }
+
+    /// An exception resends the message, as a panic would.
+    fn should_resend(&self, session: &SessionHandle, msg: &Message) -> bool {
+        let Some(hook) = &self.should_resend else { return true };
+        Python::attach(|py| {
+            match hook.call1(py, (Session(session.clone()), PyMessage(msg.clone()))).and_then(|r| r.is_truthy(py)) {
+                Ok(resend) => resend,
+                Err(e) => {
+                    e.display(py);
+                    true
+                }
+            }
+        })
+    }
+
+    fn on_admin_message(&self, session: &SessionHandle, msg: &Message) {
+        let _ = self.events.send(Event::Admin(session.clone(), msg.clone()));
+    }
+
     fn on_logon(&self, session: &SessionHandle) {
-        let _ = self.0.send(Event::Logon(session.clone()));
+        let _ = self.events.send(Event::Logon(session.clone()));
     }
 
     fn on_logout(&self, session: &SessionHandle, ended: turbojet::Disconnect) {
-        let _ = self.0.send(Event::Logout(session.clone(), ended));
+        let _ = self.events.send(Event::Logout(session.clone(), ended));
+    }
+
+    fn on_cancel_on_disconnect(&self, session: &SessionHandle, ended: turbojet::Disconnect) {
+        let _ = self.events.send(Event::CancelOnDisconnect(session.clone(), ended));
+    }
+
+    /// Holds the message until Python calls `done()`, so it counts as received only then.
+    fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        let event = Event::App {
+            session: ctx.session().clone(),
+            msg: msg.clone(),
+            maybe_redelivered: ctx.maybe_redelivered(),
+            hold: ctx.hold(),
+        };
+        let _ = self.events.send(event);
+        Ok(())
     }
 }
 
 /// Loads the sessions file at `path`: its initiators, run when the engine is entered with
-/// `async with`.
+/// `async with`. The hooks, if given, are called on the session's task with the GIL, so they must
+/// be quick: `verify_logon(session, logon, addr)` returns a reason to refuse the counterparty's
+/// Logon, or `None`; `to_admin(session, msg)` changes an outbound session-level message, such as
+/// adding credentials to Logon; `should_resend(session, msg)` returns whether to resend a message
+/// the counterparty asked for again, or gap-fill it.
 #[pyfunction]
-pub fn load(path: PathBuf) -> PyResult<Engine> {
+#[pyo3(signature = (path, *, verify_logon = None, to_admin = None, should_resend = None))]
+pub fn load(
+    path: PathBuf,
+    verify_logon: Option<Py<PyAny>>,
+    to_admin: Option<Py<PyAny>>,
+    should_resend: Option<Py<PyAny>>,
+) -> PyResult<Engine> {
     let file = SessionsFile::load(path).map_err(|e| ConfigError::new_err(e.to_string()))?;
     if file.listen().is_some() {
         return Err(ConfigError::new_err("the Python bindings run initiators only: remove [acceptor]"));
@@ -64,7 +167,7 @@ pub fn load(path: PathBuf) -> PyResult<Engine> {
     let (sender, events) = mpsc::unbounded_channel();
     Ok(Engine {
         file,
-        sender: Mutex::new(Some(sender)),
+        bridge: Mutex::new(Some(Bridge { events: sender, verify_logon, to_admin, should_resend })),
         initiators: Mutex::new(None),
         events: Arc::new(tokio::sync::Mutex::new(events)),
         closed: watch::Sender::new(false),
@@ -76,8 +179,8 @@ pub fn load(path: PathBuf) -> PyResult<Engine> {
 #[pyclass(frozen, module = "turbojet")]
 pub struct Engine {
     file: SessionsFile,
-    /// The bridge's end of the channel, until the engine starts.
-    sender: Mutex<Option<mpsc::UnboundedSender<Event>>>,
+    /// The application the engine calls, until it starts.
+    bridge: Mutex<Option<Bridge>>,
     initiators: Mutex<Option<Arc<Initiators>>>,
     events: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Event>>>,
     /// Set once the engine has shut down: events then end when the channel is empty.
@@ -88,10 +191,10 @@ pub struct Engine {
 impl Engine {
     fn __aenter__<'py>(slf: Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
         let this = slf.get();
-        let sender = lock(&this.sender).take().ok_or_else(|| Error::new_err("the engine has already started"))?;
+        let bridge = lock(&this.bridge).take().ok_or_else(|| Error::new_err("the engine has already started"))?;
         let initiators = {
             let _runtime = get_runtime().enter();
-            this.file.initiators(Arc::new(Bridge(sender))).map_err(|e| ConfigError::new_err(e.to_string()))?
+            this.file.initiators(Arc::new(bridge)).map_err(|e| ConfigError::new_err(e.to_string()))?
         };
         *lock(&this.initiators) = Some(Arc::new(initiators));
         let engine = slf.clone().unbind();
@@ -168,11 +271,35 @@ impl Session {
     /// Sends `msg`, waiting for room in the send queue, and returns the MsgSeqNum it was stored
     /// with.
     fn send<'py>(&self, py: Python<'py>, msg: PyRef<'py, PyMessage>) -> PyResult<Bound<'py, PyAny>> {
-        let (session, msg) = (self.0.clone(), msg.0.clone());
-        future_into_py(py, async move {
-            let receipt = session.send_when_ready(msg).await.map_err(send_error)?;
-            receipt.await.map_err(|dropped| Dropped::new_err(dropped.to_string()))
-        })
+        send(py, self.0.clone(), msg.0.clone())
+    }
+
+    /// Sends a BusinessMessageReject for `msg`, a message received on this session, with
+    /// BusinessRejectReason `reason` and Text `text`, as `send` does. Then call the event's
+    /// `done()`, as for any message.
+    #[pyo3(signature = (msg, reason, text = None))]
+    fn reject<'py>(
+        &self,
+        py: Python<'py>,
+        msg: PyRef<'py, PyMessage>,
+        reason: u32,
+        text: Option<&str>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let id = self.0.id();
+        if id.begin_string == "FIX.4.0" || id.begin_string == "FIX.4.1" {
+            return Err(Error::new_err(format!("{} has no BusinessMessageReject", id.begin_string)));
+        }
+        let received = &msg.0;
+        let seq_num =
+            received.get(34).ok_or_else(|| PyValueError::new_err("not a received message: no MsgSeqNum(34)"))?;
+        let mut reply = Message::new(MsgType::from_code("j")).with_reverse_route(received);
+        reply.push(45, seq_num);
+        reply.push(372, received.msg_type());
+        reply.push(380, reason);
+        if let Some(text) = text {
+            reply.push(58, text);
+        }
+        send(py, self.0.clone(), reply)
     }
 
     /// Queues `msg` without waiting: `QueueFull` if there's no room.
@@ -193,6 +320,15 @@ impl Session {
     fn __repr__(&self) -> String {
         format!("Session({})", self.0.id())
     }
+}
+
+/// Sends `msg` on `session`, waiting for room in the send queue, and returns the MsgSeqNum it was
+/// stored with.
+fn send(py: Python<'_>, session: SessionHandle, msg: Message) -> PyResult<Bound<'_, PyAny>> {
+    future_into_py(py, async move {
+        let receipt = session.send_when_ready(msg).await.map_err(send_error)?;
+        receipt.await.map_err(|dropped| Dropped::new_err(dropped.to_string()))
+    })
 }
 
 fn send_error(e: SendError) -> PyErr {
@@ -322,6 +458,89 @@ impl Logout {
 
     fn __repr__(&self) -> String {
         format!("Logout({}, Disconnect.{:?})", self.session.get().0.id(), self.ended)
+    }
+}
+
+/// A session-level message from the counterparty, other than a Logon: a Heartbeat, TestRequest,
+/// ResendRequest, Reject, SequenceReset or Logout. The session has handled it; this is to see it.
+#[pyclass(frozen, get_all, module = "turbojet")]
+pub struct AdminMessage {
+    session: Py<Session>,
+    msg: Py<PyMessage>,
+}
+
+#[pymethods]
+impl AdminMessage {
+    #[classattr]
+    fn __match_args__() -> (&'static str, &'static str) {
+        ("session", "msg")
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        format!("AdminMessage({}, {})", self.session.get().0.id(), self.msg.borrow(py).0.msg_type())
+    }
+}
+
+/// An application message from the counterparty, in sequence. It counts as received only once
+/// `done()` is called: until then, a restart has the counterparty send it again, with
+/// `maybe_redelivered` set. One never finished holds its session up: 256 messages later, the
+/// session reads nothing more until it's finished. Dropping the event doesn't finish it.
+#[pyclass(frozen, module = "turbojet")]
+pub struct AppMessage {
+    #[pyo3(get)]
+    session: Py<Session>,
+    #[pyo3(get)]
+    msg: Py<PyMessage>,
+    /// Whether this message may have been handled already, before a restart or a lost connection:
+    /// check (by ClOrdID, say) before acting on it again.
+    #[pyo3(get)]
+    maybe_redelivered: bool,
+    hold: Mutex<Option<Hold>>,
+}
+
+#[pymethods]
+impl AppMessage {
+    #[classattr]
+    fn __match_args__() -> (&'static str, &'static str) {
+        ("session", "msg")
+    }
+
+    /// The message is finished: it counts as received. Calling it again does nothing.
+    fn done(&self) {
+        lock(&self.hold).take();
+    }
+
+    fn __repr__(&self, py: Python<'_>) -> String {
+        format!("AppMessage({}, {})", self.session.get().0.id(), self.msg.borrow(py).0.msg_type())
+    }
+}
+
+impl Drop for AppMessage {
+    /// A hold dropped is released, but an event dropped unfinished, by an exception say, isn't
+    /// finished: keep the message held, so it's sent again after a restart.
+    fn drop(&mut self) {
+        let hold = self.hold.get_mut().unwrap_or_else(PoisonError::into_inner).take();
+        std::mem::forget(hold);
+    }
+}
+
+/// A session with cancel on disconnect ended, as `ended` says, and didn't log back on in time:
+/// cancel its resting orders.
+#[pyclass(frozen, get_all, module = "turbojet")]
+pub struct CancelOnDisconnect {
+    session: Py<Session>,
+    ended: PyDisconnect,
+}
+
+#[pymethods]
+impl CancelOnDisconnect {
+    #[classattr]
+    fn __match_args__() -> (&'static str, &'static str) {
+        ("session", "ended")
+    }
+
+    fn __repr__(&self) -> String {
+        format!("CancelOnDisconnect({}, Disconnect.{:?})", self.session.get().0.id(), self.ended)
     }
 }
 
