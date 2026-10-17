@@ -96,6 +96,9 @@ use super::enums::*;
 use super::tags::*;
 use turbojet::fields::{Code, CompactString, Decimal};
 
+mod part0 {
+    use super::*;
+
 turbojet::fix_group! {
     /// An entry of NoPartyIDs(453).
     PartyID / PartyIDRef {
@@ -172,6 +175,8 @@ impl SideEntry {
     }
 }
 }
+pub use part0::*;
+}
 
 pub mod messages {
 //! Application messages.
@@ -180,6 +185,9 @@ use super::enums::*;
 use super::groups::*;
 use super::tags::*;
 use turbojet::fields::{Code, CompactString, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
+
+mod part0 {
+    use super::*;
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
@@ -278,6 +286,8 @@ impl Schedule {
         Self { exec_inst, trade_date: None, maturity_month_year: None, md_entry_time: None, tz_transact_time: None, session_open: None, venue_flag: None, labels: None }
     }
 }
+}
+pub use part0::*;
 }
 
 #[allow(unused_imports)]

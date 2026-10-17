@@ -46,9 +46,9 @@ pub(crate) fn enums(plan: &Plan) -> String {
 pub(crate) fn groups(plan: &Plan) -> String {
     let mut out = String::from("//! Repeating-group entries.\n");
     out.push_str(&imports(plan, &plan.groups.iter().collect::<Vec<_>>(), false));
-    for group in &plan.groups {
-        write_struct(&mut out, "fix_group", &format!("{} / {}", group.name, group.ref_name), group);
-    }
+    in_parts(&mut out, &plan.groups, |out, group| {
+        write_struct(out, "fix_group", &format!("{} / {}", group.name, group.ref_name), group);
+    });
     out
 }
 
@@ -56,15 +56,26 @@ pub(crate) fn messages(plan: &Plan) -> String {
     let mut out = String::from("//! Application messages.\n");
     let defs: Vec<&Struct> = plan.messages.iter().map(|m| &m.def).collect();
     out.push_str(&imports(plan, &defs, true));
-    for m in &plan.messages {
-        write_struct(
-            &mut out,
-            "fix_message",
-            &format!("{} / {} = {:?}", m.def.name, m.def.ref_name, m.msg_type),
-            &m.def,
-        );
-    }
+    in_parts(&mut out, &plan.messages, |out, m| {
+        write_struct(out, "fix_message", &format!("{} / {} = {:?}", m.def.name, m.def.ref_name, m.msg_type), &m.def);
+    });
     out
+}
+
+/// How many modules a file's groups or messages are spread over. rustc puts a module's code in
+/// one codegen unit, optimised on one thread, so a version's messages in one module made a
+/// release build mostly serial: FIX 5.0 SP2's took 96 s, against 48 s split.
+const PARTS: usize = 16;
+
+/// Writes `items` into up to [`PARTS`] private modules of at least 8 items, each re-exported.
+fn in_parts<T>(out: &mut String, items: &[T], mut write: impl FnMut(&mut String, &T)) {
+    for (i, part) in items.chunks(items.len().div_ceil(PARTS).max(8)).enumerate() {
+        writeln!(out, "\nmod part{i} {{\n    use super::*;").expect(INFALLIBLE);
+        for item in part {
+            write(out, item);
+        }
+        writeln!(out, "}}\npub use part{i}::*;").expect(INFALLIBLE);
+    }
 }
 
 /// The `use` lines the structs need, and no more (unused imports would warn).

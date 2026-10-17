@@ -90,6 +90,9 @@ pub mod groups {
 use super::tags::*;
 use turbojet::fields::{CompactString, Decimal};
 
+mod part0 {
+    use super::*;
+
 turbojet::fix_group! {
     /// An entry of NoAllocs(78).
     PreAllocGrp / PreAllocGrpRef {
@@ -149,6 +152,8 @@ impl MiscFeesGrp {
     }
 }
 }
+pub use part0::*;
+}
 
 pub mod messages {
 //! Application messages.
@@ -157,6 +162,9 @@ use super::enums::*;
 use super::groups::*;
 use super::tags::*;
 use turbojet::fields::{Code, CompactString, Decimal, UtcTimestamp};
+
+mod part0 {
+    use super::*;
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
@@ -243,6 +251,8 @@ impl Allocation {
         Self { alloc_id: alloc_id.into(), side: side.into(), allocs, text: None }
     }
 }
+}
+pub use part0::*;
 }
 
 #[allow(unused_imports)]
