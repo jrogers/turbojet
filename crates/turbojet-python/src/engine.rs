@@ -4,10 +4,11 @@
 use std::fmt;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyStopAsyncIteration, PyValueError};
+use pyo3::exceptions::{PyException, PyStopAsyncIteration, PyStopIteration, PyValueError};
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::{future_into_py, get_runtime};
 use tokio::sync::{mpsc, watch};
@@ -173,6 +174,7 @@ pub fn load(
         initiators: Mutex::new(None),
         events: Arc::new(tokio::sync::Mutex::new(events)),
         closed: watch::Sender::new(false),
+        ready: AtomicU32::new(0),
     })
 }
 
@@ -187,7 +189,13 @@ pub struct Engine {
     events: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Event>>>,
     /// Set once the engine has shut down: events then end when the channel is empty.
     closed: watch::Sender<bool>,
+    /// Events returned ready, counted to yield to the event loop every `READY_YIELD`.
+    ready: AtomicU32,
 }
+
+/// How many events in a row are returned ready before one yields to the event loop first, so a
+/// loop over events that keep coming still lets other tasks run.
+const READY_YIELD: u32 = 32;
 
 #[pymethods]
 impl Engine {
@@ -225,7 +233,17 @@ impl Engine {
         slf
     }
 
+    /// An event already waiting is made here, on the event loop's thread, and returned ready:
+    /// going through the runtime would cost a task, an asyncio future and a wake-up for each.
+    /// Every `READY_YIELD`th yields to the event loop once first, as `asyncio.sleep(0)` does.
     fn __anext__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        if let Ok(mut events) = self.events.try_lock()
+            && let Ok(event) = events.try_recv()
+        {
+            let yields = self.ready.fetch_add(1, Ordering::Relaxed) % READY_YIELD == READY_YIELD - 1;
+            let ready = Ready { event: Mutex::new(Some(event.into_py(py)?)), yields: AtomicBool::new(yields) };
+            return Ok(Bound::new(py, ready)?.into_any());
+        }
         let events = self.events.clone();
         let mut closed = self.closed.subscribe();
         future_into_py(py, async move {
@@ -260,6 +278,30 @@ impl Engine {
         let initiators = lock(&self.initiators);
         let initiators = initiators.as_ref().ok_or_else(|| Error::new_err("the engine isn't running"))?;
         Ok(initiators.handle(name).map(Session))
+    }
+}
+
+/// An awaitable that's already finished, with `event`: awaiting it returns at once, or after
+/// yielding to the event loop once if `yields`.
+#[pyclass(frozen, module = "turbojet")]
+struct Ready {
+    event: Mutex<Option<Py<PyAny>>>,
+    yields: AtomicBool,
+}
+
+#[pymethods]
+impl Ready {
+    fn __await__(slf: Py<Self>) -> Py<Self> {
+        slf
+    }
+
+    /// A bare yield (`None`), which asyncio answers by running the task again on the loop's next
+    /// turn; then the event, as a coroutine returning it would.
+    fn __next__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        if self.yields.swap(false, Ordering::Relaxed) {
+            return Ok(py.None());
+        }
+        Err(PyStopIteration::new_err((lock(&self.event).take(),)))
     }
 }
 

@@ -123,3 +123,37 @@ async def test_hooks_that_accept(gateway, tmp_path):
     ) as engine:
         await expect(engine.events(), Logon)
     assert sent[0] == "A"
+
+
+async def test_events_waiting_let_other_tasks_run(gateway, tmp_path):
+    # Events already waiting are returned without a trip through the runtime, but a loop over
+    # them still yields to the event loop now and then.
+    async with turbojet.load(sessions_file(tmp_path, gateway)) as engine:
+        events = engine.events()
+        logon = await expect(events, Logon)
+        for k in range(200):
+            logon.session.send_nowait(order(f"order-{k}"))
+        await asyncio.sleep(0.5)
+        ticks = 0
+
+        async def tick():
+            nonlocal ticks
+            while True:
+                ticks += 1
+                await asyncio.sleep(0)
+
+        ticker = asyncio.create_task(tick())
+        await asyncio.sleep(0)
+        started = ticks
+
+        async def receive(count):
+            async for event in events:
+                if isinstance(event, AppMessage):
+                    event.done()
+                    count -= 1
+                    if count == 0:
+                        return
+
+        await asyncio.wait_for(receive(200), 10)
+        ticker.cancel()
+        assert ticks - started >= 5
