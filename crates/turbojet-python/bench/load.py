@@ -2,8 +2,8 @@
 reports how long each took to be answered with an ExecutionReport, from when it was due (open
 loop, as `load` explains), as Python sees it.
 
-Start the gateway with `cargo run --release --example gateway --all-features -- --allow-any`,
-build the bindings with `uvx maturin develop --release`, then run
+Start the `ack` acceptor with `cargo run --release --example ack`, build the bindings with
+`uvx maturin develop --release`, then run
 `uv run python bench/load.py [--addr ADDR] [--rate R] [--duration S] [--warmup S]`.
 """
 

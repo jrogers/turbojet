@@ -105,5 +105,9 @@ required-features = ["tls"]
 name = "load"
 test = true
 
+# Answers each order and keeps nothing: the acceptor `load` is measured against.
+[[example]]
+name = "ack"
+
 [lints]
 workspace = true

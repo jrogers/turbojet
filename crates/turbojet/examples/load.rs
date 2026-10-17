@@ -1,8 +1,10 @@
 //! A load generator: opens sessions to an acceptor, sends NewOrderSingles at a set rate across
 //! them, and reports how long each took to be answered with an ExecutionReport.
 //!
-//! Start the gateway with `cargo run --release --example gateway --all-features -- --allow-any`,
-//! then run `cargo run --release --example load -- [ADDR] [OPTIONS]` (see `--help`).
+//! Start the `ack` acceptor with `cargo run --release --example ack`, then run
+//! `cargo run --release --example load -- [ADDR] [OPTIONS]` (see `--help`). Against the gateway
+//! (`--example gateway --all-features -- --allow-any`) it measures the gateway's order book too,
+//! whose maps stall every session each time they grow.
 //!
 //! The load is open loop: order k is due at a fixed time, `start + k / rate`, whatever happened to
 //! the orders before it, and its latency runs from when it was due, not when it was sent. A stall
