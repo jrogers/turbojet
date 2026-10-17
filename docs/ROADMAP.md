@@ -41,9 +41,7 @@ What's left is FIX Latest and the rest of Orchestra.
   Still to do:
   - scenarios (per-workflow variants of a message) and `constant` and `forbidden` presence,
     which the loader rejects with an error for now;
-  - venue overlays in Orchestra format (`merge_xml` takes only QuickFIX format);
-  - deprecation of code set values: Orchestra marks codes deprecated as well as fields, but the
-    model records it only for fields, so a deprecated value's variant isn't marked as one.
+  - venue overlays in Orchestra format (`merge_xml` takes only QuickFIX format).
 
 ## 3. Encoding and data types
 

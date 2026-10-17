@@ -4,6 +4,16 @@ Notable changes to the published crates.
 
 ## Unreleased
 
+### `turbojet-dictionary`
+
+- `Value::deprecated`: whether the FIX standard deprecates a code, read from Orchestra's
+  `deprecated` attribute on each code, as `Field::deprecated` already was on fields.
+
+### `turbojet-codegen` and `turbojet-fix`
+
+- A deprecated code's enum variant says so in its docs, as a deprecated field's does: OrdStatus
+  Replaced in FIX 4.4, say, and the pegged ExecInst codes in FIX 5.0.
+
 ### Python bindings (`crates/turbojet-python`, not published)
 
 - FIX initiators from Python's asyncio, loaded from a `turbojet-config` sessions file: events for
