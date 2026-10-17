@@ -96,26 +96,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 5. Operations and deployment
 
-- **Structured logging** (S to M). Logging goes through `tracing`, with a `session` span and some
-  fields, but the events weren't designed as a schema: field names vary between events, an event
-  has no stable name to alert on, and the `turbojet::messages` events carry the whole message as
-  formatted text, so a log pipeline can't filter on MsgType, MsgSeqNum or the CompIDs without
-  parsing it. Settle a set of field names and event names, and document them as an interface;
-  log a message's MsgType, MsgSeqNum and PossDupFlag as fields beside the redacted text; and
-  move JSON output, now only in the gateway example (`--log-format json`), somewhere an
-  application can reuse it (`turbojet-config`, say). Measure that a disabled target still costs
-  nothing per message.
-- **OpenTelemetry** (M). An application can bridge `tracing` to OpenTelemetry itself
-  (`tracing-opentelemetry`), but gets the connection's span only. Still to do, behind a feature
-  so its dependencies stay optional:
-  - metrics over OTLP as well as Prometheus, by a `metrics` facade recorder that exports to
-    OpenTelemetry, with the same names and labels, checked against the Prometheus ones;
-  - a span per inbound message, from reading it to its replies being committed (what
-    `turbojet_read_to_write_seconds` times), sampled so the hot path pays for it only when it's
-    recorded, with its cost measured as the latency histograms' was;
-  - trace context across a FIX hop: FIX has no standard field for it, so a user-defined tag,
-    configured per session, that an outbound message carries and an inbound one is read from;
-  - the gateway example exporting all of it (`--otlp-endpoint`).
 - **Encrypting the message log** (S). `FileMessageLog` masks passwords and credentials, but the
   rest of every order and execution is in the clear. Encrypting finished files, alongside
   compressing them, would let the log be kept where fewer people may read it.
