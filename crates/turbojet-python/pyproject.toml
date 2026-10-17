@@ -1,0 +1,21 @@
+[build-system]
+requires = ["maturin>=1.9,<2"]
+build-backend = "maturin"
+
+[project]
+name = "turbojet"
+description = "FIX initiators on the Turbojet engine, driven from asyncio"
+dynamic = ["version"]
+requires-python = ">=3.10"
+license = "Apache-2.0"
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "turbojet._turbojet"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

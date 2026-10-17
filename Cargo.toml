@@ -1,5 +1,7 @@
 [workspace]
 members = ["crates/*"]
+# Built with maturin, outside the workspace: cargo test can't link libpython.
+exclude = ["crates/turbojet-python"]
 # Version 3 makes dependency resolution honour rust-version (prefers compatible releases).
 resolver = "3"
 
