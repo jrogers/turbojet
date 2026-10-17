@@ -127,7 +127,7 @@ Implement `Application` for your business logic; the engine owns the session lay
 sequence numbers, gap detection and resend, heartbeats/TestRequest, logout, persistence).
 Typed application messages come from `turbojet-fix`, with a feature per FIX version: add it
 alongside `turbojet` with the versions you use, `fix40`, `fix41`, `fix42`, `fix43`, `fix44`,
-`fix50`, `fix50sp1` or `fix50sp2` (`turbojet-fix = { version = "0.3", features = ["fix44"] }`), and use
+`fix50`, `fix50sp1` or `fix50sp2` (`turbojet-fix = { version = "0.4", features = ["fix44"] }`), and use
 `turbojet_fix::fix44::NewOrderSingle`. FIX 5.0, 5.0 SP1 and 5.0 SP2 run over the FIXT 1.1 session
 protocol: give the session BeginString `FIXT.1.1` and its application version,
 `SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerId::Fix50Sp2)`, and the engine

@@ -2,7 +2,7 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.4.0 (2026-10-17)
 
 The typed messages are one crate now, `turbojet-fix`, with a feature per FIX version, and it adds
 FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44` and
@@ -14,7 +14,6 @@ FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44
   slots in one struct, so an early return drops one value rather than each slot. FIX Latest's
   ExecutionReport (619 fields) builds in 36 s rather than 111 s, FIX 5.0 SP2 in 96 s rather than
   113 s. Parsing is as fast as before.
-
 - FIX 4.0 and 4.1 sessions send what those versions define: a Reject with only RefSeqNum(45) and
   Text(58), a session Reject in place of BusinessMessageReject, EndSeqNo(16)=999999 for a resend
   to the end, and SendingTime in whole seconds. `InitiatorConfig::check` refuses `reset_on_logon`
@@ -34,8 +33,7 @@ FIX 4.0 and 4.1. It replaces `turbojet-fix42`, `turbojet-fix43`, `turbojet-fix44
 
 - A new crate replacing the four version crates: each version is a module behind a feature of its
   name (`fix40`, `fix41`, `fix42`, `fix43`, `fix44`, `fix50`, `fix50sp1`, `fix50sp2`), none on
-  by default. To move,
-  depend on `turbojet-fix = { version = "0.3", features = ["fix44"] }` in place of
+  by default. To move, depend on `turbojet-fix = { version = "0.4", features = ["fix44"] }` in place of
   `turbojet-fix44`, and change `turbojet_fix44::` to `turbojet_fix::fix44::`. The messages are
   unchanged.
 - FIX 4.0 and 4.1: every application message, group and enum, generated from the FIX Unified
