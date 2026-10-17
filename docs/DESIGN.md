@@ -495,24 +495,26 @@ example (`scripts/python.sh`).
   `Message`. A repeating group is read with its member tags, as there's no version to find its
   spec by; `turbojet.tags` is generated from FIX 5.0 SP2's by `scripts/codegen.sh`.
 
-Measured 2026-10-17 on an Apple M3, not idle (load average about 2 to 7): one session, open
-loop against the release `gateway`, NewOrderSingle to ExecutionReport, latency from each order's
+Measured 2026-10-17 on an Apple M3, not idle (load average about 3): one session, open loop
+against the release `ack` example, NewOrderSingle to ExecutionReport, latency from each order's
 due time (`load` from Rust, `crates/turbojet-python/bench/load.py` from Python, release builds,
 run one after the other):
 
 | Orders/s | Rust p50 | Python p50 | Rust p99 | Python p99 |
 |---|---|---|---|---|
-| 1,000 | 88 µs | 471 µs (329 from sending) | 117 µs | 649 µs |
-| 10,000 | 42 µs | 103 µs (73 from sending) | 85 µs | 131 µs |
-| 30,000 | 43 µs | 118 µs (90) | 110 µs | 235 µs |
-| 60,000 | 43 µs | 122 µs (97) | 69 µs | 254 µs |
+| 1,000 | 86 µs | 421 µs (272 from sending) | 120 µs | 728 µs |
+| 10,000 | 30 µs | 85 µs (62 from sending) | 57 µs | 114 µs |
+| 30,000 | 30 µs | 102 µs (73) | 83 µs | 224 µs |
+| 60,000 | 32 µs | 111 µs (85) | 52 µs | 222 µs |
+| 100,000 | 34 µs | 127 µs (97) | 57 µs | 262 µs |
 
-Warm, Python adds 60 to 80 µs a round trip and keeps up with Rust's `load` to 60,000 a second on
-one asyncio loop; at 100,000 both fall behind on this machine, which runs both ends (Python kept up
-on one quieter run, at 148 µs / 319 µs). At 1,000 a second, both are slower after each lull (see
-Latency), and Python's more: an event then finds the channel empty and goes through the runtime,
-and the sender's `asyncio.sleep` overshoots by up to milliseconds, where `load` spins for the last
-stretch.
+Warm, Python adds 55 to 95 µs a round trip and keeps up with Rust's `load` to 100,000 a second on
+one asyncio loop. Its worst orders, about 3 to 4 ms at 100,000 a second, are mostly its sender's:
+`asyncio.sleep` overshoots by up to milliseconds, where `load` spins for the last stretch. At
+1,000 a second, both are slower after each lull (see Latency), and Python's more: an event then
+finds the channel empty and goes through the runtime. Once, on a machine loaded to 8 to 11, the
+event loop stopped for 2.6 s and the session's send queue filled; it didn't recur in eight runs
+after, with garbage collection on or off.
 
 ## Safety and testing
 
@@ -706,10 +708,15 @@ closed-loop tester, waiting for each answer, hides it: "coordinated omission"). 
 for all sessions, sleeping until 2 ms before each order and then spinning, since a sleep
 overshoots by up to a few milliseconds; the first sleep's overshoot falls in the warm-up, and the
 report gives the worst lag after it. Latencies are kept and sorted for exact percentiles, bounded
-at 20 M samples. Against the gateway on the same M3 over loopback (`RUST_LOG=warn`, 2026-10-09,
-on a busy machine, so tails not recorded): a median of about 33 to 40 µs from 10,000 to 50,000
-orders a second, with the sender within 20 to 50 µs of schedule on the quieter runs; 100,000 a
-second over 16 sessions saturates the machine running both ends.
+at 20 M samples. It runs against the `ack` example, which answers each order with a typed
+ExecutionReport and keeps nothing. Against the gateway it measures the gateway's order book too:
+two `HashMap`s that keep every order, so each time they grow the copy holds the book's lock and
+every session waits (29 ms and 92 ms p99 on a fresh gateway's first two runs of 600,000 orders,
+and up to a second once it held millions), and it logs every order at `info`. Against `ack` on
+the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 34 µs from
+10,000 to 100,000 orders a second on one session, p99 52 to 83 µs and the worst order 0.16 to
+1.1 ms; 100,000 a second over 4 or 16 sessions, 40 µs and p99 75 µs, with the sender within
+70 µs of schedule.
 
 ### Measurement history
 
@@ -745,6 +752,12 @@ was before:
   16.45 µs without spinning in the same run.
 - SBE was measured 2026-10-05 and FIXP 2026-10-06; the FIX round trips in the FIXP run took
   16.2 µs and 0.81M msg/s.
+- The `load` runs moved from the gateway to the `ack` example 2026-10-17. Against the gateway
+  (`RUST_LOG=warn`, 2026-10-09): a median of about 33 to 40 µs from 10,000 to 50,000 a second,
+  and 100,000 over 16 sessions saturated the machine. Python's, against the gateway at `info`
+  the same day, after events already waiting skipped the runtime, p50 / p99: 471 / 649 µs at
+  1,000 a second, 103 / 131 µs at 10,000, 118 / 235 µs at 30,000 and 122 / 254 µs at 60,000,
+  with Rust's 88 / 117, 42 / 85, 43 / 110 and 43 / 69.
 - The Python round trips were re-measured 2026-10-17, after events already waiting skipped the
   runtime. Earlier that day, p50 / p99: 559 µs / 1,037 µs at 1,000 a second, 86 / 107 µs at
   10,000, 88 / 140 µs at 15,000, 117 µs / 11 ms at 20,000, and answers queued for seconds at

@@ -14,6 +14,12 @@ Notable changes to the published crates.
 - A deprecated code's enum variant says so in its docs, as a deprecated field's does: OrdStatus
   Replaced in FIX 4.4, say, and the pegged ExecInst codes in FIX 5.0.
 
+### Examples
+
+- An `ack` example: a FIX 4.2 acceptor that answers each NewOrderSingle with an ExecutionReport
+  and keeps nothing, for `load` to measure the engine against rather than the gateway's order
+  book.
+
 ### Python bindings (`crates/turbojet-python`, not published)
 
 - FIX initiators from Python's asyncio, loaded from a `turbojet-config` sessions file: events for

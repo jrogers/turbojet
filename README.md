@@ -74,6 +74,7 @@ cargo run --example gateway --all-features -- --help   # every option, including
 cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
 cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
 cargo run --example client --features tls -- primary:9876 --failover backup:9876
+cargo run --release --example ack     # an acceptor that answers each order and keeps nothing, to load
 cargo run --release --example load -- [ADDR] --sessions 4 --rate 50000 --duration 10   # latency under load
 RUST_LOG=info,turbojet::messages=debug cargo run --example gateway --all-features -- --allow CLIENT1  # log messages
 cargo run --example gateway --all-features -- seqnums --store-dir ./store --session CLIENT1 [--reset] \
@@ -86,8 +87,10 @@ The `load` example sizes a deployment against any acceptor: it opens `--sessions
 the latency of their ExecutionReports at p50 to p99.99 and the max. Latency runs from when each
 order was due, not when it was sent, so a stall counts against everything queued behind it. The
 report also says how far the sender fell behind its schedule: when that's large, the generator's
-machine is the bottleneck, not the acceptor. Against the gateway, run it with `--allow-any` and
-`RUST_LOG=warn`, since it logs every order at `info`.
+machine is the bottleneck, not the acceptor. The `ack` example is an acceptor to measure the
+engine against: it answers each NewOrderSingle with an ExecutionReport and keeps nothing. The
+gateway keeps every order, in maps that stall all its sessions each time they grow, and logs
+each at `info`, so against it `load` measures its order book too.
 
 ## Motivation
 
