@@ -122,7 +122,9 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   another for the rest. Anything sent on a connection whose Logon is refused, or whose FIXP
   handshake is refused before the session's log is open, is logged with no `SessionId` too. An outbound message is logged as it's queued to be written, so one may be
   logged that a failing connection never writes, and the replies to a batch of input are logged
-  after the whole batch. Garbled input the codec skips isn't logged. The bytes are raw,
+  after the whole batch. Garbled input the codec skips is logged (`MessageLog::garbled`) only
+  if it framed as a message; bytes that don't frame, before a BeginString say, aren't, nor is a
+  garbled FIXP frame. The bytes are raw,
   Password(554), NewPassword(925) and FIXP credentials included (`FileMessageLog` masks them).
 - Masking (`mask_secrets`, and `FileMessageLog` by default) touches only FIX Logons and
   UserRequests and FIXP Negotiates, NegotiationResponses and Establishes. A password a venue

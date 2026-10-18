@@ -115,7 +115,12 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   and a session's output isn't final until its store commits, since a failed commit cuts it back
   and messages held behind a resend are added after the resend. So the log sees what goes out in
   wire order, and within one wake-up the replies to a batch of input after the whole batch, as
-  they cross the wire. For FIXP, `FixpSession::feed` makes the inbound call itself. The
+  they cross the wire. Input the codec ignores as garbled goes to `garbled` if it framed as a
+  message (BeginString, BodyLength, and CheckSum where BodyLength puts it), as QuickFIX writes
+  whatever it frames to its incoming log before checking it; the codec checks CheckSum and the
+  MsgType's place while framing, so without this a message failing either left no trace.
+  `codec::framed_len` re-reads only the framing, on that rare path, so the codec's results stay
+  as they were. For FIXP, `FixpSession::feed` makes the inbound call itself. The
   allocation stages set a log that does nothing and call it as the driver does, with every count
   unchanged. Measured 2026-10-07 on an M3 under a load average of 2.5 to 4.5, not idle, as
   criterion point estimates over three alternating runs: with no log the round trips are within

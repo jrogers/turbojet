@@ -16,6 +16,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `MessageLog::garbled`: input ignored as garbled that framed as a FIX message (a CheckSum that
+  doesn't match, say), with why, as QuickFIX logs it. It does nothing unless implemented;
+  `FileMessageLog` writes it as a `garbled` record, read back as `LogRecord::Garbled`, which
+  `LogFilter` keeps as inbound and `replay` counts as skipped.
 - **Changed:** with a dictionary set, a code it doesn't list in an application message no longer
   gets the message rejected, since a rejected message is never resent: an ExecutionReport carrying
   a fill was lost over a venue's own code. `ValidationOptions::application_values` rejects them,
@@ -30,6 +34,10 @@ Notable changes to the published crates.
 - `validation` takes `application_values`.
 - `refuse_expired_crl = true` in an initiator's `tls`, and `refuse_expired_client_crl = true` in
   `[acceptor.tls]`, refuse a CRL past its next update, failing the load or reload.
+
+### `turbojet-log`
+
+- Prints a message ignored as garbled with why, whatever MsgType is asked for.
 
 ### Examples
 

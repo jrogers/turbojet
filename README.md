@@ -1100,7 +1100,10 @@ something else writes out, as the trait's example does. Entries carry no timesta
 yourself. The bytes are raw: Password(554), NewPassword(925) and FIXP credentials are in them, and
 `turbojet::mask_secrets(&mut bytes)` overwrites them with `*`s in a copy before it's kept. An
 acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`) comes with no `SessionId`, to
-the acceptor's own log; a `Counterparty` config may set another log for the rest. docs/CAVEATS.md lists
+the acceptor's own log; a `Counterparty` config may set another log for the rest. A message the
+session ignored as garbled (a CheckSum that doesn't match, say) goes to `garbled`, with why, if it
+framed as a FIX message; it does nothing unless you implement it, and bytes that don't frame
+aren't seen. docs/CAVEATS.md lists
 the finer points.
 
 ```rust
@@ -1131,7 +1134,8 @@ it's known), then the message's bytes and a newline, so FIX messages read as the
 binary FIXP ones by their length. The calls copy each message into a buffer that a thread of the
 log's own writes out, so they don't wait for the disk. A message that would pass the buffer's
 limit (`buffer_bytes_max`, 16 MiB by default) is dropped, and a line `<time> dropped <count>`
-shows the gap. The example gateway writes one with `--message-log DIR` (and
+shows the gap. A message ignored as garbled is a record `<time> garbled <length> "<reason>"
+<session>`, read back as `LogRecord::Garbled`. The example gateway writes one with `--message-log DIR` (and
 `--message-log-days N`, `--message-log-gzip`).
 
 ```rust
