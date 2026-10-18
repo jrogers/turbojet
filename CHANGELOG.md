@@ -14,6 +14,18 @@ Notable changes to the published crates.
 - A deprecated code's enum variant says so in its docs, as a deprecated field's does: OrdStatus
   Replaced in FIX 4.4, say, and the pegged ExecInst codes in FIX 5.0.
 
+### `turbojet`
+
+- A CRL past its next update is logged as a warning when a `Trust` holding it is put in use and
+  at each handshake it covers; it's still used. `Trust::refuse_expired_crls` refuses one instead:
+  putting the trust in use is an `InvalidData` error, and one that expires in use fails each
+  handshake.
+
+### `turbojet-config`
+
+- `refuse_expired_crl = true` in an initiator's `tls`, and `refuse_expired_client_crl = true` in
+  `[acceptor.tls]`, refuse a CRL past its next update, failing the load or reload.
+
 ### Examples
 
 - An `ack` example: a FIX 4.2 acceptor that answers each NewOrderSingle with an ExecutionReport

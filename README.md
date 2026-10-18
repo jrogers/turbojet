@@ -954,9 +954,14 @@ server.set_client_trust(ClientTrust::Required(Trust::from_pem_files("ca.pem".as_
 
 With CRLs given, every certificate in the chain is checked, and one that no CRL covers is
 refused: give a CRL from each CA in the chain, intermediates included. Turbojet doesn't fetch
-CRLs, check OCSP, or refuse a CRL past its next update; refreshing them is up to you. In a
-sessions file, `client_crl` in `[acceptor.tls]` and `crl` in an initiator's `tls` name a PEM
-file of CRLs; the gateway takes `--tls-client-crl FILE`.
+CRLs or check OCSP; refreshing them is up to you. A CRL past its next update is still used, so a
+late refresh doesn't lock out your counterparties, but it's logged as a warning when it's put in
+use and at each handshake it covers, since a certificate revoked after it was issued gets in.
+`Trust::refuse_expired_crls()` refuses it instead: putting the trust in use is then an error, and
+a CRL that expires while in use fails each handshake until you give a current one. In a sessions
+file, `client_crl` in `[acceptor.tls]` and `crl` in an initiator's `tls` name a PEM file of
+CRLs, and `refuse_expired_client_crl = true` and `refuse_expired_crl = true` refuse expired ones;
+the gateway takes `--tls-client-crl FILE`.
 
 For other setups (system roots, custom verifiers, other protocol versions or cipher suites), build a
 `rustls::ServerConfig`/`ClientConfig` yourself and wrap it with `TlsAcceptor::from` /

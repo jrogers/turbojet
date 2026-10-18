@@ -69,7 +69,9 @@ machine with an injected clock. It has:
 add TCP, TLS with optional mutual authentication (certificates given from memory or files, as
 PEM or PKCS#12 bundles, and replaced while running) and optional revocation checks against CRLs the application gives
 (rustls checks them; with CRLs, a certificate none covers is refused, and a CRL past its next
-update is still used, so a late refresh doesn't lock every counterparty out), initiator failover from a chosen local address and through an HTTP or SOCKS5 proxy, and graceful shutdown
+update is still used, so a late refresh doesn't lock every counterparty out, but logged as a
+warning when it's put in use and at each handshake it covers; `Trust::refuse_expired_crls` fails
+closed instead), initiator failover from a chosen local address and through an HTTP or SOCKS5 proxy, and graceful shutdown
 (every session logged out, bounded by the logout timeout). Initiators reconnect with a
 configurable backoff (by default 1 s to 60 s, jittered), and acceptors limit connections overall
 and per IP address, accept them only from allowed addresses and ranges, and give each counterparty its own settings, decided at Logon, and its own
