@@ -763,6 +763,7 @@ fn validator(dictionary: &turbojet_dictionary::Dictionary, settings: &RawSetting
         set(&mut options.tags_not_in_message, raw.tags_not_in_message);
         set(&mut options.required_tags, raw.required_tags);
         set(&mut options.values, raw.values);
+        set(&mut options.application_values, raw.application_values);
         set(&mut options.formats, raw.formats);
         set(&mut options.repeated_tags, raw.repeated_tags);
         set(&mut options.groups, raw.groups);
@@ -1128,13 +1129,13 @@ mod tests {
         let orchestra = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
         let text = "[defaults]\nvalidation = { values = false, reject_invalid = false }\n\
                     [counterparty.A]\ndictionary = \"OrchestraFIX44.xml\"\n\
-                    [counterparty.B]\ndictionary = \"OrchestraFIX44.xml\"\nvalidation = { groups = false }";
+                    [counterparty.B]\ndictionary = \"OrchestraFIX44.xml\"\nvalidation = { groups = false, application_values = true }";
         let loaded = load_in(&orchestra, text).unwrap();
         let options = |name| loaded.acceptor().settings(name).counterparty.config.validator.as_ref().unwrap().options();
         let (a, b) = (options("A"), options("B"));
-        assert!(!a.values && !a.reject_invalid && a.groups && a.formats);
+        assert!(!a.values && !a.reject_invalid && a.groups && a.formats && !a.application_values);
         // A counterparty's table replaces the defaults' whole.
-        assert!(b.values && b.reject_invalid && !b.groups);
+        assert!(b.values && b.reject_invalid && !b.groups && b.application_values);
         assert!(error("[defaults]\nvalidation = { value = false }").contains("unknown field `value`"));
     }
 

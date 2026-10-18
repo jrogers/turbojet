@@ -60,7 +60,8 @@ type FastMap<K, V> = HashMap<K, V, Fast>;
 type FastSet<T> = HashSet<T, Fast>;
 
 /// Which checks a [`Validator`] makes, and what's done with a message that fails one. The
-/// defaults are QuickFIX's: every check on, user-defined tags checked, failures rejected.
+/// defaults are QuickFIX's (every check on, user-defined tags checked, failures rejected) but for
+/// one: an unknown code in an application message is let through ([`application_values`](Self::application_values)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ValidationOptions {
@@ -72,8 +73,15 @@ pub struct ValidationOptions {
     pub tags_not_in_message: bool,
     /// Reject a message missing a required tag, in its body or a group entry (1).
     pub required_tags: bool,
-    /// Reject a value that isn't one of an enumerated field's codes (5).
+    /// Reject a value that isn't one of an enumerated field's codes (5), in a session-level
+    /// message.
     pub values: bool,
+    /// Reject a value that isn't one of an enumerated field's codes (5) in an application
+    /// message, as the FIX session test cases (14e) and QuickFIX do. Off by default: a rejected
+    /// message is never resent, so an ExecutionReport carrying a fill would be lost over a code of
+    /// the venue's own in a field the application may never read (OrdRejReason, LastLiquidityInd).
+    /// Off, the application sees the code, and parsing keeps it (`Code::Unknown`).
+    pub application_values: bool,
     /// Reject a value not in its field's data format, e.g. letters in a Qty (6).
     pub formats: bool,
     /// Reject a tag that appears more than once outside a group (13).
@@ -102,6 +110,7 @@ impl Default for ValidationOptions {
             tags_not_in_message: true,
             required_tags: true,
             values: true,
+            application_values: false,
             formats: true,
             repeated_tags: true,
             groups: true,
@@ -267,6 +276,8 @@ impl Validator {
             .filter(|(tag, _)| !self.in_envelope(*tag))
             .map(|(tag, value)| (tag, std::str::from_utf8(value).unwrap_or_default()))
             .collect();
+        let codes =
+            if MsgType::from_code(msg_type).is_admin() { self.options.values } else { self.options.application_values };
         // Few enough tags that a list beats a set.
         let mut seen: Vec<u32> = Vec::with_capacity(fields.len());
         let mut i = 0;
@@ -284,9 +295,9 @@ impl Validator {
                 let text = format!("Tag {tag} appears more than once");
                 return Err(self.invalid(Some(tag), SessionRejectReason::TagAppearsMoreThanOnce, &text));
             }
-            self.check_value(tag, value)?;
+            self.check_value(tag, value, codes)?;
             i = match member {
-                Some(group) => self.check_group(&fields, i, group)?,
+                Some(group) => self.check_group(&fields, i, group, codes)?,
                 None => i + 1,
             };
         }
@@ -340,7 +351,8 @@ impl Validator {
     }
 
     /// Checks the group whose NumInGroup field is at `at`; returns the index after it.
-    fn check_group(&self, fields: &[(u32, &str)], at: usize, group: &Group) -> Result<usize, Invalid> {
+    /// `codes`: whether enumerated fields' codes are checked, as for [`check_value`](Self::check_value).
+    fn check_group(&self, fields: &[(u32, &str)], at: usize, group: &Group, codes: bool) -> Result<usize, Invalid> {
         debug_assert!(at < fields.len());
         let (count_tag, count) = fields[at];
         // A malformed count was reported by check_value when formats are checked.
@@ -370,9 +382,9 @@ impl Validator {
                 }
                 seen.push(tag);
                 first = false;
-                self.check_value(tag, value)?;
+                self.check_value(tag, value, codes)?;
                 i = match member {
-                    Some(nested) => self.check_group(fields, i, nested)?,
+                    Some(nested) => self.check_group(fields, i, nested, codes)?,
                     None => i + 1,
                 };
             }
@@ -410,14 +422,16 @@ impl Validator {
         }
     }
 
-    fn check_value(&self, tag: u32, value: &str) -> Result<(), Invalid> {
+    /// `codes`: whether an enumerated field's value must be one of its codes, as the message is
+    /// session-level or application.
+    fn check_value(&self, tag: u32, value: &str, codes_checked: bool) -> Result<(), Invalid> {
         // Only reaches here if the session lets empty values through.
         if value.is_empty() {
             return Ok(());
         }
         let Some(field) = self.fields.get(&tag) else { return Ok(()) };
         if let Some(codes) = &field.codes {
-            if !self.options.values {
+            if !codes_checked {
                 return Ok(());
             }
             let multiple = is_multiple(&field.ty);

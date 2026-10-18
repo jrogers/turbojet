@@ -13,6 +13,7 @@ use chrono::{DateTime, TimeDelta, Utc};
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
+use turbojet::validation::{ValidationOptions, Validator};
 use turbojet::{
     ApplVerId, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message, MessageReject, Session,
     SessionConfig, SessionHandle, SessionRegistry,
@@ -263,7 +264,10 @@ impl Version {
                 if let Some(id) = appl_ver_id {
                     config = config.with_appl_ver_id(id);
                 }
-                config.with_dictionary(&dictionary)
+                // The scripts expect unknown codes in application messages rejected (14e).
+                let mut options = ValidationOptions::default();
+                options.application_values = true;
+                config.with_validator(Validator::new(&dictionary).with_options(options))
             })
             .clone()
     }

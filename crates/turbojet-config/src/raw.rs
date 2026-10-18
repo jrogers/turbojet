@@ -285,6 +285,7 @@ pub(crate) struct RawValidation {
     pub tags_not_in_message: Option<bool>,
     pub required_tags: Option<bool>,
     pub values: Option<bool>,
+    pub application_values: Option<bool>,
     pub formats: Option<bool>,
     pub repeated_tags: Option<bool>,
     pub groups: Option<bool>,

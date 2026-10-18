@@ -5159,12 +5159,12 @@ mod validation {
     fn invalid_messages_are_rejected_and_not_delivered() {
         let h = harness();
         let mut s = h.logged_on();
-        let out = s.recv(order(2, "A").with(tags::SIDE, "9"), h.t0);
+        let out = s.recv(order(2, "A").with(tags::ORDER_QTY, "ten"), h.t0);
         assert_eq!(types(&out), ["Reject"]);
         let reject = sent(&out)[0];
         assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
-        assert_eq!(reject.get(tags::REF_TAG_ID), Some("54"));
-        assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("5"));
+        assert_eq!(reject.get(tags::REF_TAG_ID), Some("38"));
+        assert_eq!(reject.get(tags::SESSION_REJECT_REASON), Some("6"));
         assert_eq!(h.app.received(), 0);
 
         // It counted as received: the next message is 3, and a valid one is delivered.
@@ -5180,8 +5180,30 @@ mod validation {
         let options = ValidationOptions { reject_invalid: false, ..ValidationOptions::default() };
         h.config = h.config.clone().with_validator(Validator::new(&dict).with_options(options));
         let mut s = h.logged_on();
+        assert_eq!(types(&s.recv(order(2, "A").with(tags::ORDER_QTY, "ten"), h.t0)), ["ExecutionReport"]);
+        assert_eq!(h.app.received(), 1);
+    }
+
+    /// A code the dictionary doesn't list, in an application message, is delivered unless
+    /// `application_values` is on: rejected, the message would be lost.
+    #[test]
+    fn unknown_codes_are_delivered_unless_asked() {
+        let h = harness();
+        let mut s = h.logged_on();
         assert_eq!(types(&s.recv(order(2, "A").with(tags::SIDE, "9"), h.t0)), ["ExecutionReport"]);
         assert_eq!(h.app.received(), 1);
+
+        let mut h = Harness::new();
+        let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
+        let mut options = ValidationOptions::default();
+        options.application_values = true;
+        h.config = h.config.clone().with_validator(Validator::new(&dict).with_options(options));
+        let mut s = h.logged_on();
+        let out = s.recv(order(2, "A").with(tags::SIDE, "9"), h.t0);
+        assert_eq!(types(&out), ["Reject"]);
+        assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("54"));
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("5"));
+        assert_eq!(h.app.received(), 0);
     }
 
     #[test]
@@ -5220,20 +5242,20 @@ mod validation {
             .with_appl_ver_id(ApplVerId::Fix50Sp1)
             .with_dictionary(&dict)
             .with_appl_ver_id(ApplVerId::Fix50Sp2);
-        let bad = |seq| order(seq, "A").with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::SIDE, "9");
+        let bad = |seq| order(seq, "A").with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::ORDER_QTY, "ten");
 
         let mut sp1 = h.session();
         sp1.recv(fixt_logon(1, Some("8")).with(tags::SENDER_COMP_ID, "SP1"), h.t0);
         assert!(sp1.is_logged_on());
         let out = sp1.recv(bad(2).with(tags::SENDER_COMP_ID, "SP1"), h.t0);
-        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("5"));
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("6"));
 
         let mut sp2 = h.session();
         sp2.recv(fixt_logon(1, Some("9")), h.t0);
         assert_eq!(types(&sp2.recv(bad(2), h.t0)), ["ExecutionReport"]);
         // A message stating SP1 on the SP2 session is checked against SP1's dictionary.
         let out = sp2.recv(with_header(bad(3), &[(tags::APPL_VER_ID, "8")]), h.t0);
-        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("5"));
+        assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("6"));
     }
 }
 

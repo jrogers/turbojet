@@ -69,6 +69,13 @@ fn validator() -> Validator {
     Validator::new(&turbojet_dictionary::Dictionary::from_xml(DICT).unwrap())
 }
 
+/// As [`validator`], also checking enumerated fields' codes in application messages.
+fn checking_codes(v: Validator) -> Validator {
+    let mut options = v.options();
+    options.application_values = true;
+    v.with_options(options)
+}
+
 /// A message from `text` (`tag=value|...`), with a standard header.
 fn msg(body: &str) -> Message {
     let text = format!("8=FIX.4.4|35=D|49=CLIENT|34=2|{body}10=000|");
@@ -126,7 +133,7 @@ fn required_tags_including_components_and_group_entries() {
 
 #[test]
 fn values_and_formats() {
-    let v = validator();
+    let v = checking_codes(validator());
     assert_eq!(v.validate(&msg("11=A|54=1|75=20261231|200=202612w3|55=AAPL|")), Ok(()));
     assert_eq!(failure(&v, "11=A|54=9|55=AAPL|"), (Some(54), Some(SessionRejectReason::ValueIsIncorrect)));
     assert_eq!(failure(&v, "11=A|54=1|18=1 Z|55=AAPL|"), (Some(18), Some(SessionRejectReason::ValueIsIncorrect)));
@@ -160,6 +167,7 @@ fn each_check_can_be_turned_off() {
         tags_not_in_message: false,
         required_tags: false,
         values: false,
+        application_values: false,
         formats: false,
         repeated_tags: false,
         groups: false,
@@ -194,9 +202,33 @@ fn user_defined_tags_can_be_allowed() {
 #[test]
 fn fields_can_allow_other_values() {
     let dict = DICT.replace("name='Side' type='CHAR'>", "name='Side' type='CHAR' allowOtherValues='Y'>");
-    let v = Validator::new(&turbojet_dictionary::Dictionary::from_xml(&dict).unwrap());
+    let v = checking_codes(Validator::new(&turbojet_dictionary::Dictionary::from_xml(&dict).unwrap()));
     v.validate(&msg("11=A|54=Z|55=AAPL|")).unwrap();
-    assert_eq!(failure(&validator(), "11=A|54=Z|55=AAPL|").1, Some(SessionRejectReason::ValueIsIncorrect));
+    assert_eq!(
+        failure(&checking_codes(validator()), "11=A|54=Z|55=AAPL|").1,
+        Some(SessionRejectReason::ValueIsIncorrect)
+    );
+}
+
+/// A code the dictionary doesn't list passes in an application message unless asked, since a
+/// rejected message is lost; in a session-level one it's still rejected.
+#[test]
+fn unknown_codes_pass_in_application_messages_by_default() {
+    let v = validator();
+    assert!(!v.options().application_values);
+    v.validate(&msg("11=A|54=9|55=AAPL|")).unwrap();
+    v.validate(&msg("11=A|54=1|18=1 Z|55=AAPL|")).unwrap();
+    // Their format is still checked.
+    assert_eq!(failure(&v, "11=A|54=1|55=AAPL|38=ten|").1, Some(SessionRejectReason::IncorrectDataFormat));
+
+    // Side in a Heartbeat, to have an enumerated field in a session-level message.
+    let with_side = "<message name='Heartbeat' msgtype='0' msgcat='admin'><field name='Side' required='N'/></message>";
+    let dict = DICT.replace("<message name='Heartbeat' msgtype='0' msgcat='admin'/>", with_side);
+    let v = Validator::new(&turbojet_dictionary::Dictionary::from_xml(&dict).unwrap());
+    let heartbeat = |side: &str| msg(&format!("54={side}|")).with(tags::MSG_TYPE, "0");
+    v.validate(&heartbeat("1")).unwrap();
+    let err = v.validate(&heartbeat("9")).unwrap_err();
+    assert_eq!((err.tag, err.reason), (Some(54), Some(SessionRejectReason::ValueIsIncorrect)));
 }
 
 /// The session rejects empty values unless told not to, so one that reaches the validator passes.
