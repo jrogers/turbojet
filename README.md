@@ -1022,8 +1022,11 @@ fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), Message
 While a `Hold` is unreleased, the store's marker stays at that message. Later messages are still
 handed over and recorded. If the process stops first, the next connection asks for the held
 message and everything after it again, each marked `maybe_redelivered`. A session hands over at
-most 256 messages past the oldest one held; then it reads nothing more from the counterparty until
-that one is released (TCP slows the counterparty, and the wait doesn't count as its silence).
+most 256 messages past the oldest one held; then it hands over nothing more until that one is
+released. It reads on meanwhile, up to 1 MiB, so a counterparty that closes the connection ends it
+(what was read and not handed over is resent on the next one) and one that goes quiet is sent
+TestRequests and disconnected; past 1 MiB it stops reading, TCP slows the counterparty, and the
+wait doesn't count as its silence.
 Holds end with their connection: one released after it does nothing, and the next connection
 starts from the marker, as after a crash. Each release costs one message to the session's task.
 A session waiting for a release logs a warning, once per connection, and sets the

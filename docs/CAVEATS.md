@@ -31,10 +31,12 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   store that makes each change durable as it's made should implement
   `SessionLog::set_next_incoming_in_flight` as one change, or a crash between its two calls can
   lose a hold's marker. Holds aren't available on FIXP sessions.
-- While a session waits for a release (256 past a hold), it reads nothing: a Logout, a shutdown or
-  a schedule's end waits out `logout_timeout` for a reply it can't read, a counterparty that
-  closes the connection or disappears isn't noticed until a write fails or TCP gives up, and our
-  TestRequests pause meanwhile.
+- While a session waits for a release (256 past a hold), it hands over nothing: a Logout, a
+  shutdown or a schedule's end waits out `logout_timeout` for a reply it can't handle. It reads
+  on, up to 1 MiB, so a counterparty that closes or goes quiet is noticed; past that it stops
+  reading, and one that disappears then isn't noticed until a write fails or TCP gives up. A
+  sans-IO driver of one's own does this only if it calls `Session::watch_while_held` and
+  `on_read_while_held`.
 - Holds don't survive a sequence reset (a Logon with ResetSeqNumFlag, or a schedule's reset): the
   numbers they were for are gone. A counterparty that gap-fills application messages rather than
   resending them won't redeliver a held one. An operator's `set_next_incoming` past a hold is

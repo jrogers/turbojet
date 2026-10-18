@@ -16,6 +16,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- While input waits for a held message's release, the connection reads on, up to 1 MiB, so a
+  counterparty that closes the connection ends it and one that goes quiet is sent TestRequests and
+  disconnected; before, it read nothing and noticed neither. `Session::watch_while_held` and
+  `Session::on_read_while_held` do this for a sans-IO driver of one's own.
 - `MessageLog::garbled`: input ignored as garbled that framed as a FIX message (a CheckSum that
   doesn't match, say), with why, as QuickFIX logs it. It does nothing unless implemented;
   `FileMessageLog` writes it as a `garbled` record, read back as `LogRecord::Garbled`, which

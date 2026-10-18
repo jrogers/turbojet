@@ -204,8 +204,14 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   number at every point a crash can see, so nothing changes; recording the number and marker
   together (`SessionLog::set_next_incoming_in_flight`) keeps a store that writes each change as
   it's made from stopping between them, which the simulator found. Each window starts at the
-  marker, so a session hands over at most 256 past the oldest hold; past that, input waits (the
-  driver stops reading, and silence isn't counted) until a release. The session keeps a weak
+  marker, so a session hands over at most 256 past the oldest hold; past that, input waits until a
+  release. The driver reads on meanwhile, into its buffer and unfed, up to 1 MiB, so a
+  counterparty that closes is noticed (the connection ends at once: what's buffered wasn't
+  counted received, so it's resent) and one that goes quiet is sent TestRequests and
+  disconnected; each read tells the session it heard from the counterparty
+  (`on_read_while_held`), which also answers a TestRequest whose real answer waits unread. Past
+  1 MiB, reading stops and silence isn't counted (`watch_while_held(false)`), as it wasn't at all
+  before: a counterparty closing or vanishing then wasn't noticed until a write failed. The session keeps a weak
   reference per held message, sorted by MsgSeqNum, and the oldest live one is the marker at each
   commit. A release wakes the connection with `Command::HoldReleased` on the session's own control
   queue, at most one waiting at a time (a flag the session clears as it looks), so releases never
