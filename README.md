@@ -606,8 +606,12 @@ MsgType not in the dictionary (373=11), undefined tag (0), tag not defined for t
 required tag missing, including in group entries (1), value not one of the field's codes (5),
 data format (6), a tag repeated outside a group (13), and group counts and order (16, 15).
 `allow_user_defined_tags` accepts tags from 5000 up, which venues often add, wherever they appear.
-With `reject_invalid` off, a message that fails is logged and delivered instead. The defaults are
-QuickFIX's, and a sessions file sets them with `validation = { values = false, ... }`. A QuickFIX
+With `reject_invalid` off, a message that fails is logged and delivered instead. A code the
+dictionary doesn't list is rejected only in session-level messages unless `application_values` is
+on: a rejected message is never resent, so an ExecutionReport carrying a fill would be lost over
+a venue's own OrdRejReason or LastLiquidityInd, which the application then sees as
+`Code::Unknown` instead. Otherwise the defaults are QuickFIX's, and a sessions file sets them with
+`validation = { application_values = true, ... }`. A QuickFIX
 dictionary's `allowOtherValues="Y"` lets a field take codes it doesn't list. With a
 FIX 4.2 dictionary, reasons added after 4.2 are left out and only the text says what's wrong.
 Session-level messages are checked where the dictionary defines them (`admin_messages` turns this

@@ -395,7 +395,13 @@ number and the in-message checks, from 5000 up), `undefined_tags` and `tags_not_
 AllowUnknownMsgFields, and `SessionConfig::check_empty_values` and `check_header_order` its
 ValidateFieldsHaveValues and ValidateFieldsOutOfOrder. A QuickFIX dictionary's
 `allowOtherValues="Y"` turns off the code check for its field and keeps it a `Code<E>` under
-`--strict-enums`. The QuickFIX settings converter maps each of these.
+`--strict-enums`. The QuickFIX settings converter maps each of these. One default differs:
+QuickFIX rejects an unknown code in any message (ValidateFieldsOutOfRange=Y), as the FIX session
+test case 14e expects, but a message rejected is never resent, so an ExecutionReport carrying a
+fill would be lost over a code the venue added to a field the application may not even read.
+`values` checks codes in session-level messages, and `application_values`, off, in application
+messages; the acceptance harness turns it on, so 14e and the ReverseRoute scenarios still check
+the rejection.
 
 ## SBE and FIXP
 

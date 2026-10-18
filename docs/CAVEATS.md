@@ -101,11 +101,13 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it.
 - A rejected message is lost for good: a counterparty doesn't resend one we rejected, so an
-  ExecutionReport carrying a fill is gone. Two things reject a message over a code its dictionary
-  doesn't list, in any enumerated field, even one the application never reads (a venue's own
-  OrdRejReason, a LastLiquidityInd or TargetStrategy of its own): a validator with
-  `ValidationOptions::values` on (the default, as in QuickFIX), and `?` on `parse` of a message
-  generated with `--strict-enums`. Merge the venue's dictionary first, or turn the check off.
+  ExecutionReport carrying a fill is gone. The validator rejects an application message for any
+  other reason that fails (a missing required tag, a bad format, a tag the dictionary doesn't
+  define), and for a code it doesn't list with `ValidationOptions::application_values` on (off by
+  default, unlike QuickFIX). `?` on `parse` of a message generated with `--strict-enums` rejects
+  one over an unknown code in any enumerated field, even one the application never reads (a
+  venue's own OrdRejReason, a LastLiquidityInd or TargetStrategy of its own). Merge the venue's
+  dictionary first.
 - The validator accepts a group entry's fields in any order after its delimiter, as QuickFIX's
   ValidateUnorderedGroupFields=N; QuickFIX's default rejects them. Unknown tags below 5000 and
   from 5000 up can't be treated differently except as `allow_user_defined_tags` does: accepting

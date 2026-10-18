@@ -16,6 +16,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** with a dictionary set, a code it doesn't list in an application message no longer
+  gets the message rejected, since a rejected message is never resent: an ExecutionReport carrying
+  a fill was lost over a venue's own code. `ValidationOptions::application_values` rejects them,
+  as QuickFIX and the FIX session test case 14e do; `values` still checks session-level messages.
 - A CRL past its next update is logged as a warning when a `Trust` holding it is put in use and
   at each handshake it covers; it's still used. `Trust::refuse_expired_crls` refuses one instead:
   putting the trust in use is an `InvalidData` error, and one that expires in use fails each
@@ -23,6 +27,7 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `validation` takes `application_values`.
 - `refuse_expired_crl = true` in an initiator's `tls`, and `refuse_expired_client_crl = true` in
   `[acceptor.tls]`, refuse a CRL past its next update, failing the load or reload.
 
