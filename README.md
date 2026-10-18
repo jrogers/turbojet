@@ -243,7 +243,7 @@ resend (256 sequence numbers).
 For the lowest latency, send from the callback. `Context::send` in `on_message` is written with
 the same wake-up of the connection task, while a `SessionHandle` send from another task wakes the
 connection's task to take it: over localhost, an order sent and its acknowledgement received
-through another task took 26.5 µs, against 16.3 µs from `on_message` (see Benchmarks). Turbojet
+through another task took 31.1 µs, against 10.7 µs from `on_message` (see Benchmarks). Turbojet
 runs on a current-thread tokio runtime as well as a multi-threaded one; on a current-thread one,
 a `SessionHandle` send from a task on the same thread wakes no other thread, which makes the
 hop cheaper.
@@ -254,7 +254,7 @@ To go lower at the cost of a core per connection, drive the session with
 read and write the non-blocking socket directly, and check the handle's commands and the timer,
 rather than waiting for tokio's reactor to wake them. Store jobs and cancel-on-disconnect still
 run on the tokio runtime passed in. Over localhost on macOS, with both ends spinning, the round
-trip from `on_message` took 10.3 µs against 16.3 µs (see Benchmarks). Give each spinning
+trip from `on_message` took 9.0 µs against 10.7 µs (see Benchmarks). Give each spinning
 connection a thread, and on Linux a core, of its own. TLS isn't supported over it.
 
 ### Typed messages
