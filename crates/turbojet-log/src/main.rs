@@ -187,6 +187,14 @@ fn print_record(options: &Options, names: &mut Names, record: &LogRecord, out: &
         // Always shown, so a gap in what's printed is explained: deliberately not the filter's `matches`,
         // which keeps it only in range.
         LogRecord::Dropped { time, count } => return writeln!(out, "{} dropped {count} messages", stamp(*time)),
+        LogRecord::Garbled { time, session, frame, reason } => {
+            if !options.in_range(*time) || !options.filter.matches(record) {
+                return Ok(());
+            }
+            let session = session.as_deref().unwrap_or("-");
+            writeln!(out, "{} in  {session} ignored as garbled: {reason}", stamp(*time))?;
+            return writeln!(out, "  {}", frame.escape_ascii().to_string().replace("\\x01", "|"));
+        }
         _ => return Ok(()),
     };
     if !options.in_range(*time) {

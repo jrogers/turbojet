@@ -24,7 +24,8 @@ pub use replay::{Replayed, replay};
 /// before the session handles it, and [`outbound`](Self::outbound) for each message the session
 /// sends (resends included), once its store has committed what the message covers. Within one
 /// wake-up, the replies to a batch of input come after the whole batch, as they do on the wire.
-/// Garbled input the codec skips isn't seen. A message is logged as it's queued to be written,
+/// Input the codec skips as garbled goes to [`garbled`](Self::garbled) if it framed as a message,
+/// and isn't seen if it didn't. A message is logged as it's queued to be written,
 /// even if the connection fails before it is.
 /// For FIXP, [`FixpSession::feed`](crate::fixp::FixpSession::feed) makes the inbound call itself,
 /// so a driver of your own makes only the outbound one.
@@ -73,6 +74,15 @@ pub trait MessageLog: Send + Sync + fmt::Debug {
     /// A message the session sends, resends included, once its store has committed what it
     /// covers, as it's queued to be written.
     fn outbound(&self, session: Option<&SessionId>, frame: &[u8]);
+
+    /// Input from the counterparty that framed as a FIX message (BeginString(8), BodyLength(9),
+    /// and CheckSum(10) where BodyLength puts it) but was ignored as garbled, for `reason`: a
+    /// CheckSum that doesn't match, say, or MsgType(35) not third. The session never saw it, so
+    /// it isn't [`inbound`](Self::inbound). Bytes that don't frame at all aren't logged, as in
+    /// QuickFIX. Does nothing unless implemented.
+    fn garbled(&self, session: Option<&SessionId>, frame: &[u8], reason: &str) {
+        let _ = (session, frame, reason);
+    }
 }
 
 /// Overwrites with `*` the secrets in `frame`, a message as a [`MessageLog`] sees it, keeping its

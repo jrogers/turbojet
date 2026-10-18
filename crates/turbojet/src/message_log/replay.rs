@@ -67,6 +67,8 @@ pub fn replay(
                 replayer.inbound(time, name.as_deref(), &frame)?;
             }
             LogRecord::Dropped { count, .. } => replayer.replayed.dropped += count,
+            // The session never saw it.
+            LogRecord::Garbled { .. } => replayer.replayed.skipped += 1,
             _ => {}
         }
     }

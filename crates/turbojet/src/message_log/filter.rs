@@ -45,7 +45,9 @@ impl LogFilter {
     /// Whether `record` passes: its time is in range and, for a message, it passes
     /// [`matches_message`](Self::matches_message). A FIX message is decoded only if a MsgType
     /// or tag condition is set. A [`LogRecord::Dropped`] passes if its time is in range, so a gap
-    /// in what's kept is explained.
+    /// in what's kept is explained, and a [`LogRecord::Garbled`] if its time, session and
+    /// direction (inbound) do, whatever the MsgType and tag conditions: its fields can't be trusted
+    /// to say.
     #[must_use]
     pub fn matches(&self, record: &LogRecord) -> bool {
         match record {
@@ -62,6 +64,9 @@ impl LogFilter {
                     _ => None,
                 };
                 self.matches_fields(msg)
+            }
+            LogRecord::Garbled { time, session, .. } => {
+                self.in_range(*time) && self.matches_header(Direction::Inbound, session.as_deref())
             }
             LogRecord::Dropped { time, .. } => self.in_range(*time),
         }

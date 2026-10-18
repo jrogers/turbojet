@@ -59,6 +59,18 @@ pub enum LogRecord {
         /// message with its framing header.
         frame: Vec<u8>,
     },
+    /// Input from the counterparty ignored as garbled that framed as a message: see
+    /// [`MessageLog::garbled`](crate::MessageLog::garbled).
+    Garbled {
+        /// When it was logged, to the microsecond.
+        time: DateTime<Utc>,
+        /// The session, as for [`Message`](Self::Message).
+        session: Option<String>,
+        /// Its bytes, from BeginString(8) to CheckSum(10).
+        frame: Vec<u8>,
+        /// Why it was ignored.
+        reason: String,
+    },
     /// Messages dropped (for a full buffer or a failed write) before this point, not logged.
     Dropped {
         /// When the count was written.
@@ -219,8 +231,9 @@ impl LogRecords {
                 self.position += read as u64;
                 return Ok(Some(LogRecord::Dropped { time, count }));
             }
-            "in" => Direction::Inbound,
-            "out" => Direction::Outbound,
+            "in" => Some(Direction::Inbound),
+            "out" => Some(Direction::Outbound),
+            "garbled" => None,
             _ => return Err(invalid(&format!("bad direction in {header:?}"))),
         };
         let length: usize =
@@ -228,7 +241,15 @@ impl LogRecords {
         if length > MAX_FRAME {
             return Err(invalid(&format!("a {length}-byte message is longer than any the log writes")));
         }
-        let session = match parts.next() {
+        let mut rest = parts.next();
+        // A garbled record's reason comes before the session, quoted: a session may hold spaces.
+        let mut reason = String::new();
+        if direction.is_none() {
+            let quoted = rest.and_then(|r| r.strip_prefix('"')).and_then(|r| r.split_once("\" "));
+            let Some((why, session)) = quoted else { return Err(invalid(&format!("bad reason in {header:?}"))) };
+            (reason, rest) = (why.to_string(), Some(session));
+        }
+        let session = match rest {
             Some("-") => None,
             Some(session) => Some(session.to_string()),
             None => return Err(invalid(&format!("no session in {header:?}"))),
@@ -244,7 +265,10 @@ impl LogRecords {
             return Err(invalid(&format!("the message after {header:?} isn't {length} bytes")));
         }
         self.position += (read + length + 1) as u64;
-        Ok(Some(LogRecord::Message { time, direction, session, frame }))
+        Ok(Some(match direction {
+            Some(direction) => LogRecord::Message { time, direction, session, frame },
+            None => LogRecord::Garbled { time, session, frame, reason },
+        }))
     }
 }
 
@@ -294,6 +318,48 @@ mod tests {
             },
         ];
         assert_eq!(records, expected);
+    }
+
+    /// A garbled record reads back with its reason, whatever the session holds and the reason
+    /// says; its secrets are masked, as a message's are; and a filter keeps it as inbound.
+    #[test]
+    fn garbled_records_read_back_with_their_reasons() {
+        let dir = tempfile::tempdir().unwrap();
+        let options = FileLogOptions { clock: Clock::from_fn(at_noon), ..FileLogOptions::default() };
+        let log = FileMessageLog::open(dir.path(), options).unwrap();
+        let spaced = SessionId::new("FIX.4.4", "US DESK", "THEM");
+        let logon = b"8=FIX.4.4\x019=20\x0135=A\x01554=secret\x0110=999\x01";
+        log.garbled(Some(&spaced), logon, "CheckSum \"mismatch\"\nhere");
+        log.garbled(None, b"8=FIX.4.4\x0135=0\x01", "MsgType");
+        drop(log);
+
+        let files = FileMessageLog::files(dir.path()).unwrap();
+        let records: Vec<_> = FileMessageLog::read(&files[0].path).unwrap().collect::<io::Result<_>>().unwrap();
+        let masked = b"8=FIX.4.4\x019=20\x0135=A\x01554=******\x0110=999\x01".to_vec();
+        let expected = [
+            LogRecord::Garbled {
+                time: at_noon(),
+                session: Some("FIX.4.4:US DESK->THEM".into()),
+                frame: masked,
+                reason: "CheckSum 'mismatch''here".into(),
+            },
+            LogRecord::Garbled {
+                time: at_noon(),
+                session: None,
+                frame: b"8=FIX.4.4\x0135=0\x01".to_vec(),
+                reason: "MsgType".into(),
+            },
+        ];
+        assert_eq!(records, expected);
+
+        let mut filter = crate::LogFilter {
+            direction: Some(Direction::Inbound),
+            msg_types: vec!["D".into()],
+            ..crate::LogFilter::default()
+        };
+        assert!(filter.matches(&records[0]), "its fields can't be trusted to rule it out");
+        filter.direction = Some(Direction::Outbound);
+        assert!(!filter.matches(&records[0]));
     }
 
     #[test]

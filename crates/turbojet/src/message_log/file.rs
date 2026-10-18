@@ -95,7 +95,8 @@ impl Default for FileLogOptions {
 /// [`FileLogOptions::file_bytes_max`], and when the log is opened (an old file is never appended
 /// to). Each message is a record: a line `<time> <in|out> <length> <session>`, with the time in
 /// UTC to the microsecond and the session `-` until it's known, then the message's bytes, then a
-/// newline. A FIX message is readable as it stands; a FIXP one is binary, so read it by its
+/// newline. Input ignored as garbled that framed as a message (see [`MessageLog::garbled`]) is a
+/// record too, its line `<time> garbled <length> "<reason>" <session>`. A FIX message is readable as it stands; a FIXP one is binary, so read it by its
 /// length. Messages dropped for a full buffer, or lost to a failed write, leave a line
 /// `<time> dropped <count>`.
 ///
@@ -189,7 +190,9 @@ impl FileMessageLog {
     }
 
     /// Copies one record into the buffer, or counts it as dropped if the buffer is full.
-    fn append(&self, direction: &str, session: Option<&SessionId>, frame: &[u8]) {
+    /// Buffers a record of `frame`, of kind `kind` (`in`, `out` or `garbled`), with `reason`
+    /// quoted before the session if there is one.
+    fn append(&self, kind: &str, session: Option<&SessionId>, frame: &[u8], reason: Option<&str>) {
         let now = self.clock.now();
         let mut state = self.shared.lock();
         let state = &mut *state;
@@ -197,10 +200,16 @@ impl FileMessageLog {
         state.stamp.clear();
         UtcTimestamp::new(now, Precision::Micros).write_fix(&mut state.stamp);
         state.pending.extend_from_slice(state.stamp.as_bytes());
-        let header = match session {
-            Some(session) => writeln!(state.pending, " {direction} {} {session}", frame.len()),
-            None => writeln!(state.pending, " {direction} {} -", frame.len()),
-        };
+        let header = write!(state.pending, " {kind} {} ", frame.len())
+            .and_then(|()| match reason {
+                // Quoted, and the header one line.
+                Some(reason) => write!(state.pending, "\"{}\" ", reason.replace(['"', '\n', '\r'], "'")),
+                None => Ok(()),
+            })
+            .and_then(|()| match session {
+                Some(session) => writeln!(state.pending, "{session}"),
+                None => writeln!(state.pending, "-"),
+            });
         debug_assert!(header.is_ok(), "writing to a Vec doesn't fail");
         if state.pending.len() + frame.len() + 1 > self.buffer_bytes_max {
             state.pending.truncate(start);
@@ -219,11 +228,15 @@ impl FileMessageLog {
 
 impl MessageLog for FileMessageLog {
     fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
-        self.append("in", session, frame);
+        self.append("in", session, frame, None);
     }
 
     fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
-        self.append("out", session, frame);
+        self.append("out", session, frame, None);
+    }
+
+    fn garbled(&self, session: Option<&SessionId>, frame: &[u8], reason: &str) {
+        self.append("garbled", session, frame, Some(reason));
     }
 }
 
@@ -326,7 +339,7 @@ fn write_until_closed(shared: &Shared, files: &mut Files, clock: &Clock, mask: b
 }
 
 /// Masks the secrets in the message of each record in `batch`, records as `append` writes them:
-/// a line `<time> <in|out> <length> <session>`, the message, a newline.
+/// a line `<time> <kind> <length> ...`, the message, a newline.
 fn mask_records(batch: &mut [u8]) {
     let mut at = 0;
     while let Some(newline) = batch[at..].iter().position(|&b| b == b'\n') {

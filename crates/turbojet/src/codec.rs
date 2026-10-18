@@ -368,6 +368,19 @@ pub fn checksum(bytes: &[u8]) -> u8 {
 
 /// Checks that the field at `start` begins with `prefix` and returns (index of its SOH, index
 /// just past its SOH).
+/// The length of the message at the front of `buf` if it frames as one (BeginString, BodyLength,
+/// and a CheckSum field where BodyLength puts it) whatever else is wrong with it: garbled input
+/// worth logging as the message it was meant to be, as QuickFIX logs what it frames before
+/// checking it. `None` for input that doesn't frame.
+pub(crate) fn framed_len(buf: &[u8]) -> Option<usize> {
+    let (_, len_start) = header_field(buf, 0, b"8=").ok()?;
+    let (len_soh, body_start) = header_field(buf, len_start, b"9=").ok()?;
+    let body_len = parse_digits(&buf[len_start + 2..len_soh]).filter(|&n| n <= MAX_BODY_LENGTH)?;
+    let total = body_start + body_len + TRAILER_LEN;
+    let trailer = buf.get(total - TRAILER_LEN..total)?;
+    (&trailer[..3] == b"10=" && trailer[6] == SOH).then_some(total)
+}
+
 fn header_field(buf: &[u8], start: usize, prefix: &[u8]) -> Result<(usize, usize), Decoded> {
     let avail = &buf[start..];
     let n = avail.len().min(prefix.len());
@@ -428,6 +441,27 @@ pub(crate) fn frame_with_raw_field(msg: &Message, raw: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Input that frames as a message, but fails a check after, gives its length; input that
+    /// doesn't frame gives none.
+    #[test]
+    fn framed_len_is_for_input_that_frames() {
+        let good = encode(&Message::new(MsgType::Heartbeat).with(tags::BEGIN_STRING, "FIX.4.2")).unwrap();
+        assert_eq!(framed_len(&good), Some(good.len()));
+        let mut bad_sum = good.clone();
+        let last_digit = bad_sum.len() - 2;
+        bad_sum[last_digit] = if bad_sum[last_digit] == b'0' { b'1' } else { b'0' };
+        let mut with_more = bad_sum.clone();
+        with_more.extend_from_slice(&good);
+        assert!(matches!(decode(&bad_sum), Decoded::Garbled { .. }));
+        assert_eq!(framed_len(&with_more), Some(good.len()), "the first message only");
+
+        assert_eq!(framed_len(b"junk"), None);
+        assert_eq!(framed_len(b"8=FIX.4.2\x019=x\x0135=0\x0110=000\x01"), None, "BodyLength not a number");
+        let short = String::from_utf8(good.clone()).unwrap().replacen("9=5", "9=4", 1);
+        assert_eq!(framed_len(short.as_bytes()), None, "no CheckSum where BodyLength puts it");
+        assert_eq!(framed_len(&good[..good.len() - 1]), None, "incomplete");
+    }
     use crate::fields::{MsgType, SessionRejectReason};
 
     fn sample() -> Message {

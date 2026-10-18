@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tracing::{Instrument, debug, warn};
 
-use crate::codec::{DecodedInto, decode_into};
+use crate::codec::{DecodedInto, decode_into, framed_len};
 use crate::message::Message;
 use crate::message_log::MessageLog;
 use crate::registry::{Command, CommandReceiver, Next, Sends};
@@ -1265,6 +1265,12 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
             DecodedInto::Garbled { skip, reason } => {
                 debug_assert!(skip > 0);
                 warn!("discarding {skip} garbled bytes: {reason}");
+                // A message that framed is logged; bytes that don't frame aren't one.
+                if let Some(log) = session.message_log()
+                    && let Some(len) = framed_len(&buf[consumed..])
+                {
+                    log.garbled(session.session_id(), &buf[consumed..consumed + len], &reason);
+                }
                 telemetry::garbled_message();
                 consumed += skip;
                 if session.latency_metrics().is_some() {
@@ -1466,11 +1472,13 @@ mod tests {
         Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, id)
     }
 
-    /// Every message the log saw: inbound or not, the session it named, the bytes.
+    /// Every message the log saw: inbound or not, the session it named, the bytes; and apart, the
+    /// garbled input, with the session, the bytes and why.
     #[derive(Debug, Default)]
-    struct Recorded(std::sync::Mutex<Vec<Logged>>);
+    struct Recorded(std::sync::Mutex<Vec<Logged>>, std::sync::Mutex<Vec<Garbled>>);
 
     type Logged = (bool, Option<String>, Vec<u8>);
+    type Garbled = (Option<String>, Vec<u8>, String);
 
     impl crate::MessageLog for Recorded {
         fn inbound(&self, session: Option<&SessionId>, frame: &[u8]) {
@@ -1478,6 +1486,9 @@ mod tests {
         }
         fn outbound(&self, session: Option<&SessionId>, frame: &[u8]) {
             self.0.lock().unwrap().push((false, session.map(ToString::to_string), frame.to_vec()));
+        }
+        fn garbled(&self, session: Option<&SessionId>, frame: &[u8], reason: &str) {
+            self.1.lock().unwrap().push((session.map(ToString::to_string), frame.to_vec(), reason.to_string()));
         }
     }
 
@@ -1530,6 +1541,31 @@ mod tests {
         assert_eq!(entries[0].1, None, "the Logon that identifies the session");
         assert!(entries[1..].iter().all(|(_, session, _)| session.as_deref() == Some("FIX.4.2:US->PEER")));
         assert_eq!(entries[2].2, order_bytes);
+    }
+
+    /// A message that frames but fails its CheckSum is logged as garbled, not inbound, as QuickFIX
+    /// logs it; bytes that don't frame aren't logged at all. The next message is read as usual.
+    #[tokio::test]
+    async fn the_message_log_sees_garbled_messages_that_framed() {
+        let log = Arc::new(Recorded::default());
+        let (mut peer, mut buf, _handle) = logged_on_with(logging_to(&log), 30).await;
+        let mut bad = from_peer(2, order("A"));
+        let last_digit = bad.len() - 2;
+        bad[last_digit] = if bad[last_digit] == b'0' { b'1' } else { b'0' };
+        peer.write_all(b"junk").await.unwrap();
+        peer.write_all(&bad).await.unwrap();
+        peer.write_all(&from_peer(2, order("B"))).await.unwrap();
+        receive(&mut peer, &mut buf, 1).await;
+
+        let garbled = log.1.lock().unwrap().clone();
+        assert_eq!(garbled.len(), 1, "the junk before it doesn't frame: {garbled:?}");
+        let (session, frame, reason) = &garbled[0];
+        assert_eq!(session.as_deref(), Some("FIX.4.2:US->PEER"));
+        assert_eq!(frame, &bad);
+        assert!(reason.contains("CheckSum"), "{reason}");
+        let inbound: Vec<_> = log.messages().into_iter().filter(|(inbound, _)| *inbound).collect();
+        let ids: Vec<_> = inbound.iter().map(|(_, msg)| msg.get(tags::CL_ORD_ID)).collect();
+        assert_eq!(ids, [None, Some("B")], "the Logon and the good order");
     }
 
     /// A reply stored and framed, then cut back when a later write in its commit fails, isn't

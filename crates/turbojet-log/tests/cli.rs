@@ -76,3 +76,22 @@ fn a_file_that_cannot_be_read_fails_the_run() {
     let output = Command::new(env!("CARGO_BIN_EXE_turbojet-log")).arg("/nonexistent/log").output().unwrap();
     assert!(!output.status.success());
 }
+
+/// A message ignored as garbled is printed as such, with why, and kept whatever MsgType is asked
+/// for, since its fields can't be trusted to say.
+#[test]
+fn garbled_messages_print_with_their_reason() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut options = FileLogOptions::default();
+    options.clock = Clock::from_fn(|| Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap());
+    let log = FileMessageLog::open(dir.path(), options).unwrap();
+    let us = SessionId::new("FIX.4.4", "US", "THEM");
+    log.garbled(Some(&us), b"8=FIX.4.4\x019=5\x0135=0\x0110=000\x01", "CheckSum mismatch: received 0, computed 163");
+    drop(log);
+    let output =
+        Command::new(env!("CARGO_BIN_EXE_turbojet-log")).args(["--type", "D"]).arg(dir.path()).output().unwrap();
+    let out = String::from_utf8(output.stdout).unwrap();
+    let expected = "2026-10-08 12:00:00.000000 in  FIX.4.4:US->THEM ignored as garbled: CheckSum mismatch: \
+                    received 0, computed 163\n  8=FIX.4.4|9=5|35=0|10=000|\n";
+    assert_eq!(out, expected);
+}
