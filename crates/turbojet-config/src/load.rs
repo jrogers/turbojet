@@ -250,6 +250,9 @@ fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
         None if tls.client_crl.is_some() => {
             return Err(Error::at("acceptor", "tls", "client_crl needs a client_ca"));
         }
+        _ if tls.refuse_expired_client_crl && tls.client_crl.is_none() => {
+            return Err(Error::at("acceptor", "tls", "refuse_expired_client_crl needs a client_crl"));
+        }
         None => ClientTrust::None,
         Some(ca) => {
             let ca = dir.join(ca);
@@ -257,6 +260,9 @@ fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
             if let Some(crl) = &tls.client_crl {
                 let crl = dir.join(crl);
                 trust = trust.with_crls_pem_files(&crl).map_err(|e| at(&crl, e))?;
+            }
+            if tls.refuse_expired_client_crl {
+                trust = trust.refuse_expired_crls();
             }
             match tls.client_certificate {
                 ClientCertificate::Optional => ClientTrust::Optional(trust),
@@ -477,6 +483,11 @@ fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Optio
     if let Some(crl) = &tls.crl {
         let crl = dir.join(crl);
         trust = trust.with_crls_pem_files(&crl).map_err(|e| file_error(&crl, e))?;
+    }
+    match (tls.refuse_expired_crl, &tls.crl) {
+        (true, None) => return Err(at("refuse_expired_crl needs a crl".into())),
+        (true, Some(_)) => trust = trust.refuse_expired_crls(),
+        (false, _) => {}
     }
     let (cert, key, pkcs12, password_env) =
         (tls.cert.as_deref(), tls.key.as_deref(), tls.pkcs12.as_deref(), tls.pkcs12_password_env.as_deref());

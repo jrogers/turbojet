@@ -103,6 +103,9 @@ pub(crate) struct RawClientTls {
     pub ca: PathBuf,
     /// CRLs to check the counterparty's certificate against; none, and revocation isn't checked.
     pub crl: Option<PathBuf>,
+    /// Refuses `crl` past its next update rather than using it (and logging a warning).
+    #[serde(default)]
+    pub refuse_expired_crl: bool,
     pub cert: Option<PathBuf>,
     pub key: Option<PathBuf>,
     /// A PKCS#12 bundle, in place of `cert` and `key`.
@@ -170,6 +173,9 @@ pub(crate) struct RawTls {
     pub client_ca: Option<PathBuf>,
     /// CRLs to check client certificates against; none, and revocation isn't checked.
     pub client_crl: Option<PathBuf>,
+    /// Refuses `client_crl` past its next update rather than using it (and logging a warning).
+    #[serde(default)]
+    pub refuse_expired_client_crl: bool,
     #[serde(default)]
     pub client_certificate: ClientCertificate,
 }

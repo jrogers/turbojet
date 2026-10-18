@@ -31,6 +31,8 @@ use tokio_rustls::rustls::{
     ClientConfig, DigitallySignedStruct, DistinguishedName, RootCertStore, ServerConfig, SignatureScheme,
 };
 
+use tracing::warn;
+
 use crate::peer::PeerCertificate;
 
 pub use tokio_rustls::rustls;
@@ -185,13 +187,44 @@ impl fmt::Debug for Identity {
 /// Revocation isn't checked unless CRLs are given ([`with_crls_pem`](Self::with_crls_pem) and the
 /// like). With them, every certificate in the chain up to the trusted CA is checked, and one that
 /// no CRL covers is refused, since its status is unknown: give a CRL from each CA that issues in
-/// the chain, intermediates included. A CRL past its next update is still used. Nothing is fetched:
-/// CRLs are only those given, so to take in a new one, build a `Trust` with it and give that to
-/// [`ServerTls::set_client_trust`] or [`ClientTls::set_trust`], from the next handshake on.
+/// the chain, intermediates included.
+///
+/// A CRL past its next update is still used, so that a CRL refreshed late doesn't lock out every
+/// counterparty it covers, but it's logged as a warning: when the trust is put in use
+/// ([`ServerTls::new`], [`ClientTls::new`] and their `set_` methods), and at each handshake that
+/// relies on it. A certificate revoked since then is let in. [`refuse_expired_crls`](Self::refuse_expired_crls)
+/// refuses them instead.
+///
+/// Nothing is fetched: CRLs are only those given, so to take in a new one, build a `Trust` with
+/// it and give that to [`ServerTls::set_client_trust`] or [`ClientTls::set_trust`], from the next
+/// handshake on.
 #[derive(Debug, Clone)]
 pub struct Trust {
     roots: Arc<RootCertStore>,
     crls: Vec<CertificateRevocationListDer<'static>>,
+    /// The CRL whose next update comes first, if any has one.
+    first_expiry: Option<CrlExpiry>,
+    refuse_expired_crls: bool,
+}
+
+/// When a CRL's next update is due, to tell when it goes stale.
+#[derive(Debug, Clone)]
+struct CrlExpiry {
+    issuer: String,
+    /// Seconds since the Unix epoch.
+    next_update: i64,
+}
+
+impl CrlExpiry {
+    fn has_passed(&self, now: UnixTime) -> bool {
+        i64::try_from(now.as_secs()).unwrap_or(i64::MAX) > self.next_update
+    }
+
+    /// The next update, readably.
+    fn next_update(&self) -> String {
+        x509_parser::time::ASN1Time::from_timestamp(self.next_update)
+            .map_or_else(|_| self.next_update.to_string(), |time| time.to_string())
+    }
 }
 
 impl Trust {
@@ -209,7 +242,7 @@ impl Trust {
         if roots.is_empty() {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "no CA certificates"));
         }
-        Ok(Self { roots: Arc::new(roots), crls: Vec::new() })
+        Ok(Self { roots: Arc::new(roots), crls: Vec::new(), first_expiry: None, refuse_expired_crls: false })
     }
 
     /// From PEM text in memory holding one or more CA certificates.
@@ -251,6 +284,14 @@ impl Trust {
             .with_crls(self.crls.iter().cloned())
             .build()
             .map_err(invalid_data)?;
+        for crl in &self.crls[count..] {
+            let (_, parsed) = x509_parser::parse_x509_crl(crl.as_ref()).map_err(invalid_data)?;
+            let Some(next_update) = parsed.next_update() else { continue };
+            if self.first_expiry.as_ref().is_none_or(|first| next_update.timestamp() < first.next_update) {
+                self.first_expiry =
+                    Some(CrlExpiry { issuer: parsed.issuer().to_string(), next_update: next_update.timestamp() });
+            }
+        }
         Ok(self)
     }
 
@@ -279,7 +320,37 @@ impl Trust {
             .map_err(|e| pem_error(path, e))?;
         self.with_crls_der(crls).map_err(|e| in_file(path, e))
     }
+
+    /// Refuses CRLs past their next update rather than using them: putting the trust in use is
+    /// then an error while one has expired, and a CRL that expires while in use fails each
+    /// handshake from then on ("certificate revocation list expired"), until a current one is
+    /// given. Safer, since a certificate revoked since can't get in, but a CRL refreshed late
+    /// locks out every counterparty it covers.
+    #[must_use]
+    pub fn refuse_expired_crls(mut self) -> Self {
+        self.refuse_expired_crls = true;
+        self
+    }
+
+    /// Checks the CRLs as the trust is put in use: one past its next update is refused, or
+    /// logged. Returns the expiry to watch at each handshake, if it's to be logged.
+    fn check_crls(&self) -> io::Result<Option<CrlExpiry>> {
+        let Some(first) = &self.first_expiry else { return Ok(None) };
+        let expired = first.has_passed(UnixTime::now());
+        if expired && self.refuse_expired_crls {
+            let message =
+                format!("the CRL from {} expired at {}: give a current one", first.issuer, first.next_update());
+            return Err(io::Error::new(io::ErrorKind::InvalidData, message));
+        }
+        if expired {
+            warn!(issuer = %first.issuer, next_update = %first.next_update(), "{STALE_CRL}");
+        }
+        Ok((!self.refuse_expired_crls).then(|| first.clone()))
+    }
 }
+
+/// What's logged for a CRL past its next update.
+const STALE_CRL: &str = "a CRL past its next update is in use: certificates its CA has revoked since are let in";
 
 /// Whether an acceptor asks clients for a certificate, and which CAs it trusts to issue one.
 #[derive(Debug, Clone)]
@@ -315,7 +386,8 @@ impl ServerTls {
     /// # Errors
     ///
     /// [`InvalidInput`](io::ErrorKind::InvalidInput) if no client verifier can be built from
-    /// `client_trust`.
+    /// `client_trust`; [`InvalidData`](io::ErrorKind::InvalidData) if one of its CRLs has expired
+    /// and it [refuses expired CRLs](Trust::refuse_expired_crls).
     pub fn new(identity: Identity, client_trust: ClientTrust) -> io::Result<Self> {
         let provider = provider();
         let identity = Arc::new(CurrentIdentity(RwLock::new(Some(identity.0))));
@@ -381,7 +453,8 @@ impl ClientTls {
     /// # Errors
     ///
     /// [`InvalidInput`](io::ErrorKind::InvalidInput) if no server verifier can be built from
-    /// `trust`.
+    /// `trust`; [`InvalidData`](io::ErrorKind::InvalidData) if one of its CRLs has expired and it
+    /// [refuses expired CRLs](Trust::refuse_expired_crls).
     pub fn new(trust: Trust, identity: Option<Identity>) -> io::Result<Self> {
         let provider = provider();
         let trust = Arc::new(CurrentServerTrust {
@@ -458,13 +531,14 @@ impl ResolvesClientCert for CurrentIdentity {
 /// How an acceptor authenticates clients now, read at each handshake: `None` asks for no
 /// certificate.
 struct CurrentClientTrust {
-    verifier: RwLock<Option<Arc<dyn ClientCertVerifier>>>,
+    /// The verifier, and the expiry of a CRL to warn about at each handshake once it's passed.
+    verifier: RwLock<ClientVerifier>,
     provider: Arc<CryptoProvider>,
 }
 
 impl CurrentClientTrust {
     fn get(&self) -> Option<Arc<dyn ClientCertVerifier>> {
-        self.verifier.read().expect("TLS trust lock poisoned").clone()
+        self.verifier.read().expect("TLS trust lock poisoned").0.clone()
     }
 }
 
@@ -495,10 +569,13 @@ impl ClientCertVerifier for CurrentClientTrust {
         intermediates: &[CertificateDer<'_>],
         now: UnixTime,
     ) -> Result<ClientCertVerified, rustls::Error> {
-        match self.get() {
-            Some(verifier) => verifier.verify_client_cert(end_entity, intermediates, now),
-            None => Err(rustls::Error::General("client certificates aren't accepted".into())),
-        }
+        let (verifier, expiry) = self.verifier.read().expect("TLS trust lock poisoned").clone();
+        let Some(verifier) = verifier else {
+            return Err(rustls::Error::General("client certificates aren't accepted".into()));
+        };
+        let verified = verifier.verify_client_cert(end_entity, intermediates, now)?;
+        warn_if_stale(expiry.as_ref(), now);
+        Ok(verified)
     }
 
     fn verify_tls12_signature(
@@ -526,7 +603,8 @@ impl ClientCertVerifier for CurrentClientTrust {
 
 /// The CAs an initiator trusts now, read at each handshake.
 struct CurrentServerTrust {
-    verifier: RwLock<Arc<WebPkiServerVerifier>>,
+    /// The verifier, and the expiry of a CRL to warn about at each handshake once it's passed.
+    verifier: RwLock<(Arc<WebPkiServerVerifier>, Option<CrlExpiry>)>,
     provider: Arc<CryptoProvider>,
 }
 
@@ -545,8 +623,10 @@ impl ServerCertVerifier for CurrentServerTrust {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let verifier = self.verifier.read().expect("TLS trust lock poisoned").clone();
-        verifier.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+        let (verifier, expiry) = self.verifier.read().expect("TLS trust lock poisoned").clone();
+        let verified = verifier.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)?;
+        warn_if_stale(expiry.as_ref(), now);
+        Ok(verified)
     }
 
     fn verify_tls12_signature(
@@ -572,25 +652,41 @@ impl ServerCertVerifier for CurrentServerTrust {
     }
 }
 
-fn client_verifier(
-    client_trust: ClientTrust,
-    provider: &Arc<CryptoProvider>,
-) -> io::Result<Option<Arc<dyn ClientCertVerifier>>> {
+/// An acceptor's client verifier (`None` asks for no certificate), and the expiry of a CRL to
+/// warn about at each handshake once it's passed.
+type ClientVerifier = (Option<Arc<dyn ClientCertVerifier>>, Option<CrlExpiry>);
+
+/// A certificate was verified against CRLs that may have gone stale: say so if they have.
+fn warn_if_stale(expiry: Option<&CrlExpiry>, now: UnixTime) {
+    if let Some(expiry) = expiry
+        && expiry.has_passed(now)
+    {
+        warn!(issuer = %expiry.issuer, next_update = %expiry.next_update(), "{STALE_CRL}");
+    }
+}
+
+fn client_verifier(client_trust: ClientTrust, provider: &Arc<CryptoProvider>) -> io::Result<ClientVerifier> {
     let (trust, optional) = match client_trust {
-        ClientTrust::None => return Ok(None),
+        ClientTrust::None => return Ok((None, None)),
         ClientTrust::Optional(trust) => (trust, true),
         ClientTrust::Required(trust) => (trust, false),
     };
+    let expiry = trust.check_crls()?;
     let builder = WebPkiClientVerifier::builder_with_provider(trust.roots, provider.clone()).with_crls(trust.crls);
     let builder = if optional { builder.allow_unauthenticated() } else { builder };
-    Ok(Some(builder.build().map_err(invalid_input)?))
+    let builder = if trust.refuse_expired_crls { builder.enforce_revocation_expiration() } else { builder };
+    Ok((Some(builder.build().map_err(invalid_input)?), expiry))
 }
 
-fn server_verifier(trust: &Trust, provider: &Arc<CryptoProvider>) -> io::Result<Arc<WebPkiServerVerifier>> {
-    WebPkiServerVerifier::builder_with_provider(trust.roots.clone(), provider.clone())
-        .with_crls(trust.crls.iter().cloned())
-        .build()
-        .map_err(invalid_input)
+fn server_verifier(
+    trust: &Trust,
+    provider: &Arc<CryptoProvider>,
+) -> io::Result<(Arc<WebPkiServerVerifier>, Option<CrlExpiry>)> {
+    let expiry = trust.check_crls()?;
+    let builder = WebPkiServerVerifier::builder_with_provider(trust.roots.clone(), provider.clone())
+        .with_crls(trust.crls.iter().cloned());
+    let builder = if trust.refuse_expired_crls { builder.enforce_revocation_expiration() } else { builder };
+    Ok((builder.build().map_err(invalid_input)?, expiry))
 }
 
 /// Converts a completed handshake's peer certificates for [`crate::ConnectionInfo`].

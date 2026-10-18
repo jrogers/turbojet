@@ -27,10 +27,15 @@ fn certificate(dir: &Path, name: &str) {
 
 /// Writes `NAME.crl.pem`, a CRL revoking nothing, signed by a key of its own: enough to load.
 fn crl(dir: &Path, name: &str) {
+    crl_until(dir, name, 2099);
+}
+
+/// As [`crl`], with its next update at the start of `year`.
+fn crl_until(dir: &Path, name: &str, year: i32) {
     let issuer = Issuer::new(CertificateParams::new(Vec::<String>::new()).unwrap(), KeyPair::generate().unwrap());
     let params = CertificateRevocationListParams {
-        this_update: rcgen::date_time_ymd(2026, 1, 1),
-        next_update: rcgen::date_time_ymd(2099, 1, 1),
+        this_update: rcgen::date_time_ymd(2025, 1, 1),
+        next_update: rcgen::date_time_ymd(year, 1, 1),
         crl_number: SerialNumber::from(1u64),
         issuing_distribution_point: None,
         revoked_certs: Vec::new(),
@@ -159,6 +164,49 @@ fn crl_files_are_checked_when_the_file_loads() {
     std::fs::write(&path, initiator("missing.crl.pem")).unwrap();
     let loaded = SessionsFile::load(&path).unwrap_err().to_string();
     assert!(loaded.contains("initiator LSE: tls: ") && loaded.contains("missing.crl.pem"), "{loaded}");
+}
+
+/// A CRL past its next update loads (with a warning) unless it's to be refused; refusing needs a
+/// CRL.
+#[test]
+fn expired_crls_are_refused_if_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    certificate(dir.path(), "server");
+    certificate(dir.path(), "ca");
+    crl(dir.path(), "ca");
+    crl_until(dir.path(), "expired", 2026);
+    let acceptor =
+        |extra: &str| format!(r#"{{ cert = "server.pem", key = "server.key", client_ca = "ca.pem"{extra} }}"#);
+    let path = write(dir.path(), &acceptor(r#", client_crl = "expired.crl.pem""#));
+    assert!(SessionsFile::load(&path).unwrap().server_tls().unwrap().is_some());
+    let path = write(dir.path(), &acceptor(r#", client_crl = "expired.crl.pem", refuse_expired_client_crl = true"#));
+    let loaded = SessionsFile::load(&path).unwrap_err().to_string();
+    assert!(loaded.contains("acceptor: tls: ") && loaded.contains("expired at"), "{loaded}");
+    let path = write(dir.path(), &acceptor(r#", client_crl = "ca.crl.pem", refuse_expired_client_crl = true"#));
+    assert!(SessionsFile::load(&path).is_ok());
+    let path = write(dir.path(), &acceptor(", refuse_expired_client_crl = true"));
+    let loaded = SessionsFile::load(&path).unwrap_err().to_string();
+    assert!(loaded.contains("refuse_expired_client_crl needs a client_crl"), "{loaded}");
+
+    let initiator = |tls: &str| {
+        format!(
+            "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
+             connect = [\"localhost:1\"]\ntls = {{ ca = \"ca.pem\"{tls} }}\n"
+        )
+    };
+    for (tls, error) in [
+        (r#", crl = "expired.crl.pem""#, None),
+        (r#", crl = "expired.crl.pem", refuse_expired_crl = true"#, Some("expired at")),
+        (r#", crl = "ca.crl.pem", refuse_expired_crl = true"#, None),
+        (", refuse_expired_crl = true", Some("refuse_expired_crl needs a crl")),
+    ] {
+        std::fs::write(&path, initiator(tls)).unwrap();
+        match (SessionsFile::load(&path), error) {
+            (Ok(_), None) => {}
+            (Err(e), Some(error)) => assert!(e.to_string().contains(error), "{tls}: {e}"),
+            (loaded, _) => panic!("{tls}: {:?}", loaded.err()),
+        }
+    }
 }
 
 /// Writes `NAME.p12`, a bundle of a self-signed certificate and its key under `password`.

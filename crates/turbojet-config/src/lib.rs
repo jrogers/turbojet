@@ -56,7 +56,8 @@
 //! out), and `tls = { cert, key, client_ca,
 //! client_crl, client_certificate }` (feature `tls`; `client_certificate` is `optional`, the
 //! default, or `required`; `client_crl`, a PEM file of CRLs, checks client certificates for
-//! revocation). In place of `cert` and `key`, `pkcs12` names a PKCS#12 bundle (feature `pkcs12`),
+//! revocation; one past its next update is used and logged as a warning, or refused with
+//! `refuse_expired_client_crl = true`). In place of `cert` and `key`, `pkcs12` names a PKCS#12 bundle (feature `pkcs12`),
 //! with `pkcs12_password_env` the environment variable holding its password (none, and it has
 //! none).
 //!
@@ -100,7 +101,8 @@
 //! same way), `logon_timeout`, `send_queue`,
 //! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, crl, cert, key, server_name }`
 //! (feature `tls`; `server_name` is the first address's host by default; `crl`, a PEM file of
-//! CRLs, checks the server's certificate for revocation; `pkcs12` and `pkcs12_password_env` in
+//! CRLs, checks the server's certificate for revocation, used past its next update with a
+//! warning unless `refuse_expired_crl = true`; `pkcs12` and `pkcs12_password_env` in
 //! place of `cert` and `key`, as in `[acceptor]`), and every session key
 //! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators
 //! may log on to one session, nor to one the acceptor serves for a listed counterparty.

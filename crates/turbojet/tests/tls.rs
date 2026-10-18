@@ -4,7 +4,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateRevocationListParams, DnType, ExtendedKeyUsagePurpose, IsCa,
@@ -50,6 +50,8 @@ impl Pki {
         pki.crl("ca-revokes-server", &ca, &["server"]);
         pki.crl("ca-revokes-none", &ca, &[]);
         pki.crl("other-ca", &other, &[]);
+        // One whose next update has passed: the CA has said nothing about revocations since.
+        pki.crl_until("ca-expired", &ca, &[], rcgen::date_time_ymd(2026, 2, 1).into());
         pki
     }
 
@@ -58,8 +60,13 @@ impl Pki {
         self.trust(ca).with_crls_pem_files(&self.path(&format!("{crl}.crl.pem"))).unwrap()
     }
 
-    /// Writes `issuer`'s CRL revoking the certificates named in `revoked`.
+    /// Writes `issuer`'s CRL revoking the certificates named in `revoked`, current until 2099.
     fn crl(&self, name: &str, issuer: &Issuer<'_, KeyPair>, revoked: &[&str]) {
+        self.crl_until(name, issuer, revoked, rcgen::date_time_ymd(2099, 1, 1).into());
+    }
+
+    /// As [`crl`](Self::crl), with its next update at `next_update`.
+    fn crl_until(&self, name: &str, issuer: &Issuer<'_, KeyPair>, revoked: &[&str], next_update: SystemTime) {
         let revoked_certs = revoked
             .iter()
             .map(|cert| RevokedCertParams {
@@ -71,7 +78,7 @@ impl Pki {
             .collect();
         let params = CertificateRevocationListParams {
             this_update: rcgen::date_time_ymd(2026, 1, 1),
-            next_update: rcgen::date_time_ymd(2099, 1, 1),
+            next_update: next_update.into(),
             crl_number: SerialNumber::from(1u64),
             issuing_distribution_point: None,
             revoked_certs,
@@ -880,6 +887,85 @@ async fn a_new_crl_applies_from_the_next_handshake() {
     let (initiator, _client) = initiator(addr.as_str());
     let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
     assert!(attempt(&initiator).await.unwrap_err().to_string().contains("Revoked"));
+}
+
+/// A log sink shared between a subscriber and the test.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for Captured {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Captured {
+    /// How many lines say a stale CRL is in use.
+    fn stale_crl_warnings(&self) -> usize {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).matches("a CRL past its next update is in use").count()
+    }
+}
+
+/// An expired CRL is still used, but logged when the trust is put in use and at each handshake
+/// that relies on it.
+#[tokio::test]
+async fn an_expired_crl_is_used_and_logged() {
+    let logs = Captured::default();
+    let writer = logs.clone();
+    let subscriber = tracing_subscriber::fmt().with_writer(move || writer.clone()).with_ansi(false).finish();
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let pki = Pki::new();
+    let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
+    let (addr, _events) = serve(&server).await;
+
+    let current = tls::ClientTls::new(pki.trust_with_crl("ca", "ca-revokes-none"), None).unwrap();
+    assert_eq!(presented(&addr, &current.connector()).await, der(&pki.pem("server.pem")));
+    assert_eq!(logs.stale_crl_warnings(), 0, "a current CRL isn't logged");
+
+    let expired = tls::ClientTls::new(pki.trust_with_crl("ca", "ca-expired"), None).unwrap();
+    assert_eq!(logs.stale_crl_warnings(), 1, "logged as it's put in use");
+    assert_eq!(presented(&addr, &expired.connector()).await, der(&pki.pem("server.pem")));
+    assert_eq!(logs.stale_crl_warnings(), 2, "and at the handshake");
+}
+
+/// Refusing expired CRLs makes a trust holding one an error to put in use.
+#[tokio::test]
+async fn an_expired_crl_is_refused_if_asked() {
+    let pki = Pki::new();
+    let expired = || pki.trust_with_crl("ca", "ca-expired").refuse_expired_crls();
+    let err = tls::ClientTls::new(expired(), None).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert!(err.to_string().contains("expired at"), "{err}");
+    let err = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::Required(expired())).unwrap_err();
+    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    let current = tls::ClientTls::new(pki.trust_with_crl("ca", "ca-revokes-none"), None).unwrap();
+    assert_eq!(current.set_trust(expired()).unwrap_err().kind(), io::ErrorKind::InvalidData);
+}
+
+/// Refusing expired CRLs, one that expires while in use fails each handshake from then on.
+#[tokio::test]
+async fn a_refused_crl_that_expires_in_use_fails_the_next_handshake() {
+    let pki = Pki::new();
+    let soon = SystemTime::now() + Duration::from_secs(2);
+    let ca = pki.ca("short-ca");
+    pki.issue("short-server", &ca, vec!["localhost".into()], ExtendedKeyUsagePurpose::ServerAuth);
+    pki.crl_until("short-ca", &ca, &[], soon);
+    let server = tls::ServerTls::new(pki.identity("short-server"), tls::ClientTrust::None).unwrap();
+    let (addr, _events) = serve(&server).await;
+    let trust = pki.trust_with_crl("short-ca", "short-ca").refuse_expired_crls();
+    let client_tls = tls::ClientTls::new(trust, None).unwrap();
+    assert_eq!(presented(&addr, &client_tls.connector()).await, der(&pki.pem("short-server.pem")));
+
+    tokio::time::sleep(soon.duration_since(SystemTime::now()).unwrap_or_default()).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (initiator, _client) = initiator(addr.as_str());
+    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let err = attempt(&initiator).await.unwrap_err();
+    assert!(err.to_string().contains("certificate revocation list expired"), "{err}");
 }
 
 #[test]
