@@ -1648,6 +1648,8 @@ impl Driven for FixpSession {
     fn is_held_back(&self) -> bool {
         false
     }
+    fn watch_while_held(&mut self, _reading: bool, _now: Instant) {}
+    fn on_read_while_held(&mut self, _now: Instant) {}
     fn metrics(&self) -> Option<&SessionMetrics> {
         FixpSession::metrics(self)
     }

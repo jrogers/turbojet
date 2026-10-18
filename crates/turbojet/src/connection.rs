@@ -59,9 +59,15 @@ const MAX_READS_PER_BATCH: usize = 16;
 /// Delay limit holds isn't read, so it can't build up here.
 const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 
+/// While input waits for the application to release a message it holds, the driver reads on into
+/// its buffer up to this much, unfed, so a counterparty that closes or goes quiet is noticed; past
+/// it, reading stops and TCP slows the counterparty.
+const MAX_HELD_INPUT: usize = 1024 * 1024;
+
 // Sends pause well before the backlog that disconnects; a read fits in what may wait unprocessed.
 const _: () = assert!(COMMANDS_PAUSE_AT < MAX_UNWRITTEN);
 const _: () = assert!(READ_BUFFER_SIZE < MAX_UNPROCESSED);
+const _: () = assert!(READ_BUFFER_SIZE < MAX_HELD_INPUT && MAX_HELD_INPUT < MAX_UNPROCESSED);
 const _: () = assert!(MAX_COMMANDS_PER_BATCH > 0);
 const _: () = assert!(MAX_READS_PER_BATCH > 0);
 
@@ -88,8 +94,10 @@ pub(crate) trait Driven {
     fn send_free_at(&self) -> Option<std::time::Instant>;
     fn input_free_at(&self) -> Option<std::time::Instant>;
     /// Whether input waits for the application to release a message it holds; until then the
-    /// socket isn't read.
+    /// socket is read only into the buffer, up to MAX_HELD_INPUT.
     fn is_held_back(&self) -> bool;
+    fn watch_while_held(&mut self, reading: bool, now: std::time::Instant);
+    fn on_read_while_held(&mut self, now: std::time::Instant);
     fn metrics(&self) -> Option<&SessionMetrics>;
     fn latency_metrics(&self) -> Option<&LatencyMetrics>;
     fn times_latency(&self) -> bool;
@@ -341,7 +349,7 @@ impl<P: Driven> Driver<P> {
         W: AsyncWrite + Unpin,
     {
         debug_assert!(branch < SPIN_BRANCHES);
-        let &Step { closed, committing, resending, nothing_pending, sends, input_held, held_back, .. } = step;
+        let &Step { closed, committing, resending, nothing_pending, sends, held_back, reads, .. } = step;
         let taken = match branch {
             0 if !nothing_pending || self.unflushed => {
                 let write = if nothing_pending {
@@ -362,20 +370,18 @@ impl<P: Driven> Driver<P> {
                     }
                 }
             }
-            1 if input_held.is_none() && !held_back && !self.peer_closed => {
-                match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
-                    None => false,
-                    Some(0) if self.deferred => {
-                        self.peer_closed = true;
-                        true
-                    }
-                    Some(0) => return Ok(ControlFlow::Break(Ended::Lost)),
-                    Some(read) => {
-                        self.on_read(read, closed, resending || committing);
-                        true
-                    }
+            1 if reads => match poll_once(reader.read_buf(&mut self.buf)).transpose()? {
+                None => false,
+                Some(0) if self.deferred && !held_back => {
+                    self.peer_closed = true;
+                    true
                 }
-            }
+                Some(0) => return Ok(ControlFlow::Break(Ended::Lost)),
+                Some(read) => {
+                    self.on_read(read, closed, resending || committing, held_back);
+                    true
+                }
+            },
             2 if !closed && !committing => {
                 poll_once(self.commands.next_with(sends)).flatten().map(|next| self.on_next(next)).is_some()
             }
@@ -427,8 +433,8 @@ where
         if timer.deadline() != d.timer_at {
             timer.as_mut().reset(d.timer_at);
         }
-        let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held, held_back } = step;
-        let reading = input_held.is_none() && !held_back && !d.peer_closed;
+        let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held, held_back, reads } =
+            step;
         let pending = &d.outbox[d.written..];
         // Borrowed apart from `d`, for a future that only runs `if committing`: select! makes
         // every branch's future, and an async block would borrow all of `d`.
@@ -446,13 +452,14 @@ where
                     n => d.on_written(n),
                 }
             }
-            // Not while input is held, so a peer that closes meanwhile is noticed once it ends.
-            // Input waiting for a resend or a commit is handled before a close behind it.
-            read = reader.read_buf(&mut d.buf), if reading => {
+            // Not while the inbound window holds input, so a peer that closes meanwhile is noticed
+            // once it ends. Input waiting for a resend or a commit is handled before a close
+            // behind it; input waiting for a release isn't, since that may never come.
+            read = reader.read_buf(&mut d.buf), if reads => {
                 match read? {
-                    0 if d.deferred => d.peer_closed = true,
+                    0 if d.deferred && !held_back => d.peer_closed = true,
                     0 => return Ok(Ended::Lost),
-                    read => d.on_read(read, closed, resending || committing),
+                    read => d.on_read(read, closed, resending || committing, held_back),
                 }
             }
             // Logout and operator commands, whatever else is going on (a Logout once the sends
@@ -501,9 +508,13 @@ struct Step {
     sends_free_at: Option<std::time::Instant>,
     /// When the inbound window frees up for input it holds; until then the socket isn't read.
     input_held: Option<std::time::Instant>,
-    /// Input waits for the application to release a message it holds: the socket isn't read
-    /// until a release (a control command) lets it go on.
+    /// Input waits for the application to release a message it holds, until a release (a control
+    /// command) lets it go on. Meanwhile the socket is read into the buffer, unfed, up to
+    /// MAX_HELD_INPUT, so a counterparty that closes or goes quiet is noticed.
     held_back: bool,
+    /// Whether to read the socket: not while the inbound window holds input, nor once the
+    /// counterparty has closed, nor while held back past MAX_HELD_INPUT.
+    reads: bool,
 }
 
 /// A connection's state between wake-ups: the session, what's been read and not yet handled,
@@ -614,6 +625,14 @@ impl<P: Driven> Driver<P> {
             && !resending
             && self.unwritten() < COMMANDS_PAUSE_AT;
         let (sends, sends_free_at) = sends_this_time(&self.session, &self.commands, takes_sends);
+        // While the inbound window holds input, the socket isn't read: input waits there, in
+        // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
+        let input_held = input_held_until(&self.session);
+        let held_back = self.session.is_held_back();
+        let reads = input_held.is_none() && !self.peer_closed && (!held_back || self.buf.len() < MAX_HELD_INPUT);
+        if held_back {
+            self.session.watch_while_held(reads, Instant::now().into_std());
+        }
         // Everything the session sent is in the outbox, and the store's job is the session's wait.
         debug_assert!(self.session.output().is_empty());
         debug_assert!(!committing || self.session.is_waiting_on_store());
@@ -627,10 +646,9 @@ impl<P: Driven> Driver<P> {
             nothing_pending: self.unwritten() == 0,
             sends,
             sends_free_at,
-            // While the inbound window holds input, the socket isn't read: input waits there, in
-            // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
-            input_held: input_held_until(&self.session),
-            held_back: self.session.is_held_back(),
+            input_held,
+            held_back,
+            reads,
         }))
     }
 
@@ -831,16 +849,20 @@ impl<P: Driven> Driver<P> {
     }
 
     /// `read` bytes arrived in `buf`: fed to the session, or left for later if it's `waiting`
-    /// (resending or committing), or dropped once it's `closed`.
-    fn on_read(&mut self, read: usize, closed: bool, waiting: bool) {
+    /// (resending or committing) or `held_back` (which the session hears of: the counterparty is
+    /// alive), or dropped once it's `closed`.
+    fn on_read(&mut self, read: usize, closed: bool, waiting: bool, held_back: bool) {
         debug_assert!(read > 0);
         self.unattributed_bytes += read;
         if closed {
             // Only the session's last output is still to go; what arrives is read so the
             // counterparty's writes don't block, and dropped.
             self.buf.clear();
-        } else if waiting || self.deferred {
+        } else if waiting || held_back || self.deferred {
             self.deferred = true;
+            if held_back {
+                self.session.on_read_while_held(Instant::now().into_std());
+            }
             if self.session.times_latency() {
                 self.timings.read(&self.session, Instant::now());
             }
@@ -852,9 +874,10 @@ impl<P: Driven> Driver<P> {
     }
 
     /// Whether the counterparty's close, noticed while input waited, is due now: that input has
-    /// been handled, and the session is still open.
+    /// been handled, or waits for a release that may never come (it wasn't counted received, so
+    /// it's resent after the reconnect), and the session is still open.
     fn input_ended(&self, step: &Step) -> bool {
-        self.peer_closed && !self.deferred && !step.closed
+        self.peer_closed && (!self.deferred || step.held_back) && !step.closed
     }
 
     /// A command, or a send noticed waiting for the outbound window.
@@ -1166,6 +1189,12 @@ impl Driven for Session {
     }
     fn is_held_back(&self) -> bool {
         self.is_held_back()
+    }
+    fn watch_while_held(&mut self, reading: bool, now: std::time::Instant) {
+        self.watch_while_held(reading, now);
+    }
+    fn on_read_while_held(&mut self, now: std::time::Instant) {
+        self.on_read_while_held(now);
     }
     fn metrics(&self) -> Option<&SessionMetrics> {
         self.metrics()
@@ -2780,16 +2809,26 @@ mod tests {
         heartbeat: u64,
         shutdown: Option<&Arc<crate::shutdown::Shutdown>>,
     ) -> (tokio::net::TcpStream, Vec<u8>, crate::SessionHandle) {
+        let (peer, buf, handle, _) = logged_on_spinning_with(config, Arc::new(Acker), heartbeat, shutdown).await;
+        (peer, buf, handle)
+    }
+
+    /// [`logged_on_spinning`] with `app`, also returning the connection's thread.
+    async fn logged_on_spinning_with(
+        config: SessionConfig,
+        app: Arc<dyn Application>,
+        heartbeat: u64,
+        shutdown: Option<&Arc<crate::shutdown::Shutdown>>,
+    ) -> (tokio::net::TcpStream, Vec<u8>, crate::SessionHandle, std::thread::JoinHandle<io::Result<()>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut peer = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
         let ours = SpinningStream::new(listener.accept().unwrap().0).unwrap();
         let registry = Arc::new(SessionRegistry::default());
-        let (session, commands) =
-            Session::acceptor(config, registry.clone(), Arc::new(Acker), Instant::now().into_std());
+        let (session, commands) = Session::acceptor(config, registry.clone(), app, Instant::now().into_std());
         let runtime = Handle::current();
         let open = shutdown.map(crate::shutdown::Shutdown::track);
         let signal = shutdown.map(|shutdown| shutdown.signal());
-        std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             let _runtime = runtime.enter();
             let _open = open;
             run_spinning_tracked(ours, session, commands, &mut false, signal)
@@ -2799,7 +2838,28 @@ mod tests {
         peer.write_all(&from_peer(1, logon)).await.unwrap();
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
-        (peer, buf, registry.handle(peer_session()))
+        (peer, buf, registry.handle(peer_session()), thread)
+    }
+
+    /// Spinning and held back, the connection still reads, so a counterparty that closes ends it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_spinning_session_held_back_ends_when_the_peer_closes() {
+        let app = Arc::new(Holder::default());
+        let (mut peer, mut buf, _handle, thread) =
+            logged_on_spinning_with(SessionConfig::new("FIX.4.2", "US"), app, 30, None).await;
+        let window = crate::session::DELIVERIES_PER_COMMIT;
+        for seq in 2..2 + window + 5 {
+            peer.write_all(&from_peer(seq, order(&format!("O{seq}")))).await.unwrap();
+        }
+        receive(&mut peer, &mut buf, usize::try_from(window).unwrap()).await;
+        peer.shutdown().await.unwrap();
+        let ended = async {
+            while !thread.is_finished() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), ended).await.expect("noticed the close");
+        assert!(thread.join().unwrap().is_ok());
     }
 
     /// Spinning, orders are answered, a handle's send goes out, and a Logout ends the connection
@@ -3000,5 +3060,106 @@ mod tests {
         assert!(more.is_err(), "nothing past the window before the release");
         app.holds.lock().unwrap().clear();
         receive(&mut peer, &mut buf, orders - window).await;
+    }
+    /// An acceptor whose application holds every message, logged on with HeartBtInt
+    /// `heartbeat`, sent a window of orders and 5 more: held back, the window acknowledged. Returns
+    /// the peer's end and read buffer, the connection's task, and the application.
+    async fn held_back(
+        heartbeat: u64,
+    ) -> (DuplexStream, Vec<u8>, tokio::task::JoinHandle<io::Result<()>>, Arc<Holder>) {
+        let registry = Arc::new(SessionRegistry::default());
+        let app = Arc::new(Holder::default());
+        let (ours, mut peer) = duplex(1 << 20);
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        let task = tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        let mut buf = Vec::new();
+        receive(&mut peer, &mut buf, 1).await;
+        let window = crate::session::DELIVERIES_PER_COMMIT;
+        for seq in 2..2 + window + 5 {
+            let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, format!("O{seq}"));
+            peer.write_all(&from_peer(seq, order)).await.unwrap();
+        }
+        receive(&mut peer, &mut buf, usize::try_from(window).unwrap()).await;
+        (peer, buf, task, app)
+    }
+
+    /// Held back, the connection still reads, so a counterparty that closes is noticed at once:
+    /// the connection ends rather than wait for a release that may never come.
+    #[tokio::test]
+    async fn a_peer_that_closes_while_held_back_ends_the_connection() {
+        let (mut peer, _buf, task, _app) = held_back(30).await;
+        peer.shutdown().await.unwrap();
+        let ended = tokio::time::timeout(Duration::from_secs(5), task).await;
+        assert!(ended.expect("noticed the close").unwrap().is_ok());
+    }
+
+    /// Held back, a counterparty that goes quiet is sent a TestRequest, and disconnected when it
+    /// doesn't answer.
+    #[tokio::test(start_paused = true)]
+    async fn a_quiet_peer_while_held_back_is_probed_then_disconnected() {
+        let (mut peer, mut buf, task, _app) = held_back(1).await;
+        let probed = async {
+            loop {
+                if receive(&mut peer, &mut buf, 1).await[0].msg_type() == MsgType::TestRequest {
+                    return;
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), probed).await.expect("a TestRequest");
+        let ended = tokio::time::timeout(Duration::from_secs(5), task).await;
+        assert!(ended.expect("disconnected").unwrap().is_ok());
+    }
+
+    /// Held back, a counterparty that answers our TestRequests (which wait unread behind what's
+    /// held) stays connected: what it sends counts as hearing from it.
+    #[tokio::test(start_paused = true)]
+    async fn a_peer_that_answers_while_held_back_stays_connected() {
+        let (mut peer, mut buf, mut task, _app) = held_back(1).await;
+        let mut seq = 2 + crate::session::DELIVERIES_PER_COMMIT + 5;
+        let answering = async {
+            loop {
+                let msg = receive(&mut peer, &mut buf, 1).await.remove(0);
+                if msg.msg_type() == MsgType::TestRequest {
+                    let id = msg.get(tags::TEST_REQ_ID).unwrap().to_string();
+                    let answer = Message::new(MsgType::Heartbeat).with(tags::TEST_REQ_ID, id);
+                    peer.write_all(&from_peer(seq, answer)).await.unwrap();
+                    seq += 1;
+                }
+            }
+        };
+        tokio::select! {
+            () = answering => unreachable!("answers until the time is up"),
+            ended = &mut task => panic!("disconnected: {ended:?}"),
+            () = tokio::time::sleep(Duration::from_secs(10)) => {}
+        }
+    }
+
+    /// Held back, the connection reads only so much: past MAX_HELD_INPUT it stops, and TCP slows
+    /// the counterparty, rather than buffer without end. A release lets it all through.
+    #[tokio::test]
+    async fn held_back_input_is_read_only_so_far() {
+        let (mut peer, mut buf, _task, app) = held_back(30).await;
+        let order = Message::new(MsgType::NewOrderSingle).with(tags::CL_ORD_ID, "x".repeat(1000));
+        let mut seq = 2 + crate::session::DELIVERIES_PER_COMMIT + 5;
+        let (mut written, mut blocked) = (0, false);
+        while written < 4 * MAX_HELD_INPUT {
+            let bytes = from_peer(seq, order.clone());
+            match tokio::time::timeout(Duration::from_millis(200), peer.write_all(&bytes)).await {
+                Ok(result) => result.unwrap(),
+                Err(_) => {
+                    blocked = true;
+                    break;
+                }
+            }
+            written += bytes.len();
+            seq += 1;
+        }
+        assert!(blocked, "{written} bytes taken while held back");
+        assert!(written < MAX_HELD_INPUT + 2 * (1 << 20), "{written} bytes: past the cap and the stream's buffer");
+        app.holds.lock().unwrap().clear();
+        receive(&mut peer, &mut buf, 5).await;
     }
 }

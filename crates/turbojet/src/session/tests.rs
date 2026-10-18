@@ -1350,6 +1350,35 @@ fn a_logout_while_held_back_ends_by_its_timeout() {
     assert_eq!(s.peer().log.in_flight(), Some(2), "kept for the next connection");
 }
 
+/// Held back, silence counts only while the driver says it reads on (`watch_while_held`): then a
+/// quiet counterparty is probed and timed out, and what's read meanwhile counts as hearing from
+/// it. A driver that doesn't say so, reading nothing while held back, sends no TestRequest.
+#[test]
+fn silence_while_held_back_counts_only_while_watched() {
+    let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+    let mut s = h.logged_on();
+    s.recv(order(2, "A"), h.t0);
+    for seq in 3..=1 + DELIVERIES_PER_COMMIT {
+        s.recv(order(seq, "B"), h.t0);
+    }
+    assert!(s.is_held_back());
+    let interval = s.peer().heartbeat;
+    let probes = |out: &[Action]| types(out).iter().any(|t| t == "TestRequest");
+    let unwatched = h.t0 + interval * 3;
+    assert!(!probes(&s.timer(unwatched)), "silence isn't counted unwatched");
+
+    s.watch_while_held(true, unwatched);
+    let probed = unwatched + interval * 2;
+    assert!(probes(&s.timer(probed)));
+    // What's read answers it, though it waits unread behind the hold.
+    s.on_read_while_held(probed + interval / 2);
+    assert!(!types(&s.timer(probed + interval * 3 / 2)).iter().any(|t| t == "DISCONNECT"));
+
+    let quiet = probed + interval / 2 + interval * 2;
+    assert!(probes(&s.timer(quiet)), "probed again once quiet");
+    assert_eq!(types(&s.timer(quiet + interval)), ["DISCONNECT"]);
+}
+
 /// An operator moving the next incoming number past a held message leaves the marker at it, so a
 /// crash before its release asks for it again from there.
 #[test]

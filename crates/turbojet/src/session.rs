@@ -665,6 +665,10 @@ pub struct Session {
     /// When input last went on after waiting for a release: silence counts from then at the
     /// earliest, since what the counterparty sent meanwhile waited unread.
     resumed_at: Option<Instant>,
+    /// While input waits for a release and the driver reads on regardless (see
+    /// [`watch_while_held`](Session::watch_while_held)): when it last heard from the counterparty,
+    /// or started watching. Silence counts from then; `None`, it isn't counted.
+    held_watch: Option<Instant>,
     /// `config.clock`'s time, read at most once per call into the session (see
     /// [`wall_clock`](Self::wall_clock)).
     wall_clock: Cell<Option<DateTime<Utc>>>,
@@ -783,6 +787,7 @@ impl Session {
             hands_out_holds: true,
             held_back_warned: false,
             resumed_at: None,
+            held_watch: None,
         };
         (session, receiver)
     }
@@ -992,11 +997,43 @@ impl Session {
 
     /// Whether input waits for the application to release a message it holds (see
     /// [`Context::hold`]): the session has handed over all it may past the oldest one held. While
-    /// it does, [`ready_for_input`](Self::ready_for_input) is false, and a driver reads nothing
-    /// more from the counterparty, so TCP slows it. A release comes as a
-    /// [`Command::HoldReleased`]; the commit after it lets input go on.
+    /// it does, [`ready_for_input`](Self::ready_for_input) is false: a driver feeds it nothing
+    /// more, and reads on only into a buffer of its own, up to a limit, so that a counterparty that
+    /// closes or goes quiet is noticed (see [`watch_while_held`](Self::watch_while_held)); past
+    /// that, TCP slows the counterparty. A release comes as a [`Command::HoldReleased`]; the commit
+    /// after it lets input go on.
     pub fn is_held_back(&self) -> bool {
         self.held_back
+    }
+
+    /// While [`is_held_back`](Self::is_held_back), says whether the driver still reads the
+    /// counterparty: into a buffer of its own, up to a limit, without feeding the session, so that
+    /// a counterparty that closes the connection or goes quiet is noticed. Call it each time round
+    /// while held back. While `reading`, silence counts from the last
+    /// [`on_read_while_held`](Self::on_read_while_held) (or the first call), so TestRequests go out
+    /// and time out as usual; once not (the buffer is full, and TCP slows the counterparty),
+    /// silence isn't counted, since its answers would wait unread. A driver that never calls it
+    /// reads nothing while held back, and silence isn't counted.
+    pub fn watch_while_held(&mut self, reading: bool, now: Instant) {
+        if !self.held_back {
+            return;
+        }
+        if !reading {
+            self.held_watch = None;
+        } else if self.held_watch.is_none() {
+            self.held_watch = Some(now);
+        }
+    }
+
+    /// Bytes from the counterparty were read while [`is_held_back`](Self::is_held_back), and
+    /// kept unfed (see [`watch_while_held`](Self::watch_while_held)): it's alive. Silence counts
+    /// from now, and a TestRequest already out counts as answered, since its answer waits behind
+    /// what's held.
+    pub fn on_read_while_held(&mut self, now: Instant) {
+        if self.held_back {
+            self.held_watch = Some(now);
+            self.test_request_sent = None;
+        }
     }
 
     /// Whether an application message may be sent at `now` under
@@ -1066,11 +1103,13 @@ impl Session {
     /// none goes unanswered; after it, silence counts from its end. The window keeps that end
     /// until a message is next recorded, which also moves `last_received` past it.
     ///
-    /// Waiting for the application to release a message it holds isn't silence either: there's no
-    /// time while it waits (`None`), and silence counts from when it ends.
+    /// Waiting for the application to release a message it holds isn't silence either, unless the
+    /// driver reads on meanwhile ([`watch_while_held`](Self::watch_while_held)): then it counts
+    /// from the last read; otherwise there's no time while it waits (`None`), and silence counts
+    /// from when it ends.
     fn silent_from(&self, since: Instant) -> Option<Instant> {
         if self.held_back {
-            return None;
+            return self.held_watch.map(|heard| since.max(heard));
         }
         let since = self.resumed_at.map_or(since, |resumed| since.max(resumed));
         Some(self.hold_end().map_or(since, |hold_end| since.max(hold_end)))
@@ -3345,6 +3384,7 @@ impl Session {
     /// Input has begun or stopped waiting for the application to release a message it holds.
     fn held_back_changed(&mut self, held_back: bool, now: Instant) {
         self.held_back = held_back;
+        self.held_watch = None;
         if let Some(peer) = &self.peer {
             peer.metrics.held_back(held_back);
         }
