@@ -89,8 +89,8 @@ order was due, not when it was sent, so a stall counts against everything queued
 report also says how far the sender fell behind its schedule: when that's large, the generator's
 machine is the bottleneck, not the acceptor. The `ack` example is an acceptor to measure the
 engine against: it answers each NewOrderSingle with an ExecutionReport and keeps nothing. The
-gateway keeps every order, in maps that stall all its sessions each time they grow, and logs
-each at `info`, so against it `load` measures its order book too.
+gateway keeps every order, up to a million (past that it rejects new ones until it restarts), and
+logs each at `info`, so against it `load` measures its order book too.
 
 ## Motivation
 

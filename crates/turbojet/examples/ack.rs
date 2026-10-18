@@ -5,8 +5,7 @@
 //! `--help` for each). Any CompID may log on, FIX 4.2 only. Each order is parsed in its borrowed
 //! typed form and answered with a typed ExecutionReport, as a real application would, but nothing
 //! is booked: a cancel or a repeated ClOrdID isn't checked, and nothing is logged per order. The
-//! gateway example is the one that keeps orders; its book grows with every order, and each time
-//! its maps grow every session waits on the copy.
+//! gateway example is the one that keeps orders, up to a million, rejecting new ones after that.
 
 use std::error::Error;
 use std::sync::Arc;

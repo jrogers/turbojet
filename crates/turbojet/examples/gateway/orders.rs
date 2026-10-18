@@ -8,7 +8,7 @@
 //! an explanatory Text: BrokerCredit, which is OrdRejReason 0 and CxlRejReason 2 (the FIX 4.2
 //! repository names both codes BrokerCredit).
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -45,11 +45,30 @@ fn known<E: FixEnum>(value: CodeRef<'_, E>, tag: u32) -> Result<E, MessageReject
     value.known().ok_or_else(|| MessageReject::value_incorrect(tag, format!("Unsupported value {value}")))
 }
 
+/// The most orders the book keeps: past it, new orders are rejected. Orders are never removed,
+/// so a gateway that has booked this many takes no more until it restarts.
+const MAX_ORDERS: usize = if cfg!(test) { 100 } else { 1_000_000 };
+/// The most ClOrdIDs the book keeps, an order's and those of the cancels and replaces made to it:
+/// past it, new orders, cancels and replaces are rejected.
+const MAX_CL_ORD_IDS: usize = 2 * MAX_ORDERS;
+
+/// B-trees rather than hash maps: a hash map grows by copying every entry, and every session waits
+/// on the book's lock meanwhile (tens of milliseconds at half a million orders); one sized up front
+/// for MAX_ORDERS would take hundreds of megabytes before the first order.
 #[derive(Default)]
 struct Book {
-    orders: HashMap<String, Order>,
+    orders: BTreeMap<String, Order>,
     /// (owner, ClOrdID) -> OrderID, covering both order and cancel ClOrdIDs.
-    cl_ord_ids: HashMap<(String, String), String>,
+    cl_ord_ids: BTreeMap<(String, String), String>,
+}
+
+impl Book {
+    /// Why a request adding `orders` orders and one ClOrdID can't be booked, if the book is full.
+    fn full(&self, orders: usize) -> Option<String> {
+        debug_assert!(self.orders.len() <= MAX_ORDERS && self.cl_ord_ids.len() <= MAX_CL_ORD_IDS);
+        (self.orders.len() + orders > MAX_ORDERS || self.cl_ord_ids.len() >= MAX_CL_ORD_IDS)
+            .then(|| format!("The order book is full ({MAX_ORDERS} orders, {MAX_CL_ORD_IDS} ClOrdIDs)"))
+    }
 }
 
 /// In-memory order book shared by all sessions.
@@ -100,7 +119,9 @@ impl OrderManager {
 
         let mut book = self.lock();
         let key = (owner.to_string(), request.cl_ord_id.to_string());
-        if let Some((reason, text)) = rejection(&order, book.cl_ord_ids.contains_key(&key)) {
+        let refused = rejection(&order, book.cl_ord_ids.contains_key(&key))
+            .or_else(|| book.full(1).map(|text| (OrdRejReason::BrokerCredit, text)));
+        if let Some((reason, text)) = refused {
             info!(owner, cl_ord_id = %order.cl_ord_id, %text, "order rejected");
             order.status = OrdStatus::Rejected;
             let mut report = self.execution_report(&order, ExecType::Rejected, None);
@@ -177,6 +198,11 @@ impl OrderManager {
                 "Order is not open".into(),
             ));
         }
+        if let Some(text) = book.full(0) {
+            let status = book.orders[&order_id].status;
+            return Err(cancel_reject(&order_id, status, CxlRejReason::BrokerCredit, text));
+        }
+        let order = book.orders.get_mut(&order_id).expect("ClOrdID index points at a booked order");
 
         order.status = OrdStatus::Canceled;
         let order = order.clone();
@@ -243,6 +269,11 @@ impl OrderManager {
         if let Some((_, text)) = rejection(&amended, false) {
             return Ok(Err(replace_reject(&order_id, order.status, CxlRejReason::BrokerCredit, text)));
         }
+        if let Some(text) = book.full(0) {
+            let status = book.orders[&order_id].status;
+            return Ok(Err(replace_reject(&order_id, status, CxlRejReason::BrokerCredit, text)));
+        }
+        let order = book.orders.get_mut(&order_id).expect("ClOrdID index points at a booked order");
 
         *order = amended;
         let order = order.clone();
@@ -485,6 +516,35 @@ mod tests {
         let again = om.cancel("C1", cancel("X2", "A").to_message().parse().unwrap()).unwrap_err();
         assert_eq!(again.cxl_rej_reason, Some(CxlRejReason::TooLateToCancel.into()));
         assert_eq!(again.ord_status, OrdStatus::Canceled);
+    }
+
+    /// The book keeps at most MAX_ORDERS orders and MAX_CL_ORD_IDS ClOrdIDs: past either, new
+    /// orders are rejected, and past the second, cancels and replaces too.
+    #[test]
+    fn a_full_book_rejects_what_it_has_no_room_for() {
+        let om = OrderManager::new();
+        for i in 0..MAX_ORDERS {
+            let er = om.new_order("C1", limit_order(&format!("A{i}")).to_message().parse().unwrap()).unwrap();
+            assert_eq!(er.ord_status, OrdStatus::New, "order {i}");
+        }
+        let refused = om.new_order("C1", limit_order("past").to_message().parse().unwrap()).unwrap();
+        assert_eq!(refused.ord_status, OrdStatus::Rejected);
+        assert_eq!(refused.ord_rej_reason, Some(OrdRejReason::BrokerCredit.into()));
+        assert!(refused.text.as_deref().unwrap_or_default().contains("full"), "{:?}", refused.text);
+        assert_eq!(om.order_count(), MAX_ORDERS);
+
+        // Replacing one order again and again fills the ClOrdIDs.
+        let mut orig = "A0".to_string();
+        for i in MAX_ORDERS..MAX_CL_ORD_IDS {
+            let next = format!("R{i}");
+            om.replace("C1", replace(&orig, &next, "100", "150.25").to_message().parse().unwrap()).unwrap().unwrap();
+            orig = next;
+        }
+        let refused = om.replace("C1", replace(&orig, "R-past", "100", "150").to_message().parse().unwrap());
+        assert!(refused.unwrap().unwrap_err().text.unwrap_or_default().contains("full"));
+        let refused = om.cancel("C1", cancel("X-past", "A1").to_message().parse().unwrap()).unwrap_err();
+        assert_eq!(refused.cxl_rej_reason, Some(CxlRejReason::BrokerCredit.into()));
+        assert!(refused.text.unwrap_or_default().contains("full"));
     }
 
     #[test]

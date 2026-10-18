@@ -728,10 +728,16 @@ for all sessions, sleeping until 2 ms before each order and then spinning, since
 overshoots by up to a few milliseconds; the first sleep's overshoot falls in the warm-up, and the
 report gives the worst lag after it. Latencies are kept and sorted for exact percentiles, bounded
 at 20 M samples. It runs against the `ack` example, which answers each order with a typed
-ExecutionReport and keeps nothing. Against the gateway it measures the gateway's order book too:
-two `HashMap`s that keep every order, so each time they grow the copy holds the book's lock and
-every session waits (29 ms and 92 ms p99 on a fresh gateway's first two runs of 600,000 orders,
-and up to a second once it held millions), and it logs every order at `info`. Against `ack` on
+ExecutionReport and keeps nothing. Against the gateway it measures the gateway's order book too,
+and its logging of every order at `info`. The book was two `HashMap`s that kept every order, so
+each time one grew the copy held the book's lock and every session waited (29 ms and 92 ms p99 on
+a fresh gateway's first two runs of 600,000 orders, and up to a second once it held millions).
+They're `BTreeMap`s now, which grow a node at a time, holding at most a million orders and two
+million ClOrdIDs, past which the gateway rejects orders, cancels and replaces: three runs of
+600,000 at 60,000 a second against one gateway (`RUST_LOG=warn`, 2026-10-17, load average about
+10) gave p99 51 to 53 µs and the worst order 0.19 to 0.23 ms, the book filling during the second.
+Sized up front for a million orders instead, the hash maps would take hundreds of megabytes,
+touched within a few hundred thousand orders since entries scatter across them. Against `ack` on
 the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 34 µs from
 10,000 to 100,000 orders a second on one session, p99 52 to 83 µs and the worst order 0.16 to
 1.1 ms; 100,000 a second over 4 or 16 sessions, 40 µs and p99 75 µs, with the sender within

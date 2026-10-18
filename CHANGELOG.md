@@ -45,6 +45,9 @@ Notable changes to the published crates.
 
 ### Examples
 
+- The gateway's order book holds at most a million orders and two million ClOrdIDs, in B-trees
+  rather than hash maps, so it no longer stalls every session each time it grows; past either
+  limit, it rejects orders (and past the second, cancels and replaces) until it restarts.
 - An `ack` example: a FIX 4.2 acceptor that answers each NewOrderSingle with an ExecutionReport
   and keeps nothing, for `load` to measure the engine against rather than the gateway's order
   book.

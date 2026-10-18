@@ -4,7 +4,7 @@
 //! Start the `ack` acceptor with `cargo run --release --example ack`, then run
 //! `cargo run --release --example load -- [ADDR] [OPTIONS]` (see `--help`). Against the gateway
 //! (`--example gateway --all-features -- --allow-any`) it measures the gateway's order book too,
-//! whose maps stall every session each time they grow.
+//! which takes a million orders and rejects the rest until the gateway restarts.
 //!
 //! The load is open loop: order k is due at a fixed time, `start + k / rate`, whatever happened to
 //! the orders before it, and its latency runs from when it was due, not when it was sent. A stall
