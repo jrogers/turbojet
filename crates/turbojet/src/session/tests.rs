@@ -5195,8 +5195,7 @@ mod validation {
 
         let mut h = Harness::new();
         let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
-        let mut options = ValidationOptions::default();
-        options.application_values = true;
+        let options = ValidationOptions { application_values: true, ..ValidationOptions::default() };
         h.config = h.config.clone().with_validator(Validator::new(&dict).with_options(options));
         let mut s = h.logged_on();
         let out = s.recv(order(2, "A").with(tags::SIDE, "9"), h.t0);
