@@ -84,15 +84,17 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     `unsafe`) wrapping TCPDirect's zero-copy TCP API in a stream `run_spinning` takes; DPDK or
     AF_XDP would need a userspace TCP stack, so stay parked;
   - hardware packet timestamps (`SO_TIMESTAMPING`), feeding the latency histograms.
-- **Cache-aligned data** (S each, research). Data shared between threads, such as the session
-  registry, the command queues, metrics counters and `MemoryStorage`'s per-session state, can
-  share a cache line with unrelated data that another core writes (false sharing), and a
-  session's per-message fields are spread across a large struct. Pad what's contended to a
-  cache line (`#[repr(align(64))]`, or 128 bytes on Apple silicon) and group the fields the hot
-  path touches. Measure first with `benches/sessions.rs` (N sessions pipelining at once) on a
-  machine with more cores than an M3's 4+4, where it levels off with the cores at 4 to 8
-  sessions, and compare against a padded build; expect the allocator and the registry's lock to
-  show up before false sharing.
+- **Padding per-session data** (S). Padding what each session writes from another core
+  (`CommandSender`'s queued count, `LiveStatus`, `MemoryStorage`'s per-session state with its
+  lock inline) to 128 bytes gained 2 to 4% from 4 sessions up on an M4 Pro (DESIGN.md, Many
+  sessions). Small, but it costs a few hundred bytes a session; it wants a Linux machine with
+  64-byte lines measured too, and a padding type sized per target.
+- **A hang in the sessions benchmark** (S, research). One run of `benches/sessions.rs` (an
+  experimental build, 16 sessions) stopped with every session connected and a sender waiting for
+  acknowledgements; it looked like sessions had reconnected and lost the orders in flight
+  (DESIGN.md, Many sessions). It hasn't recurred in 30 runs. Count logouts and admin messages in
+  the benchmark's application, and run it in a loop until it hangs, to find why a session
+  disconnected.
 
 ## 5. Operations and deployment
 

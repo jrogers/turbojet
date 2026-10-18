@@ -714,11 +714,45 @@ frequency may differ.
 ### Many sessions
 
 `benches/sessions.rs` runs N sessions against one acceptor on one multi-threaded runtime, each
-keeping 1,000 orders in flight, both ends storing in a shared `MemoryStorage`. On an M3 (4
-performance and 4 efficiency cores, 2026-10-09, `--quick`): 0.53M orders a second with 1 session,
-1.14M with 2, 1.93M with 4, then 2.12M to 2.24M from 8 to 32 sessions. It levels off where the
-cores run out (each session is two connections), so whether shared data (the registry, the
-store, cache lines two cores write) limits scaling needs a machine with more cores.
+keeping 1,000 orders in flight, both ends storing in a shared `MemoryStorage`. On an M4 Pro (8
+performance and 4 efficiency cores, 2026-10-18, `--quick`): 0.61M orders a second with 1 session,
+1.22M with 2, 2.29M with 4, 3.37M with 8, then 3.44M and 3.69M with 16 and 32. Up to 4 sessions,
+8 connections on 8 performance cores, each session keeps 94% of what one alone manages; it levels
+off from 8, 16 connections on 12 cores. An M3 (4 + 4 cores, 2026-10-09) levelled off at 4 the
+same way, at 2.12M to 2.24M.
+
+Shared data costs little. Sampled at 8 sessions, the only cross-core waiting is in the system
+allocator: 1.6% of busy time waits on its lock, of 8.2% in `malloc` and `free`. `MemoryStorage`'s
+per-session lock is 3.2%, all of it uncontended (each session has its own). The rest is each
+message's own work.
+
+False sharing was measured directly, against builds that pad what each session writes from
+another core: `CommandSender`'s count of queued sends (written per send), `LiveStatus` (per
+message) and `MemoryStorage`'s per-session state (locked several times per message). Each is a
+small allocation of its own, so two sessions' can share a cache line, which is 128 bytes on Apple
+silicon. `std::sync::Mutex` keeps its `pthread_mutex_t` in a separate allocation on macOS, so
+padding the state alone wouldn't move the lock: the padded build also makes the store's lock an
+inline `parking_lot::Mutex`, and a third build does that alone. A fourth swaps the allocator for
+mimalloc. Means of three interleaved runs (5 s each), millions of orders a second:
+
+| Sessions | 1 | 2 | 4 | 8 | 16 | 32 |
+|---|---|---|---|---|---|---|
+| As is | 0.57 | 1.28 | 2.27 | 3.12 | 3.23 | 3.26 |
+| Padded, lock inline | 0.57 | 1.38 | 2.36 | 3.20 | 3.32 | 3.32 |
+| Lock inline only | 0.58 | 1.36 | 2.27 | 3.11 | 3.20 | 3.21 |
+| mimalloc | 0.58 | 1.34 | 2.48 | 3.32 | 3.67 | 3.73 |
+
+Padding is worth 2 to 4% from 4 sessions up, the gap between the padded build and the inline lock
+alone. The inline lock's gain at 2 sessions doesn't hold from 4. The allocator is worth more than
+either, 9% at 4 sessions and 14% at 16 to 32, and it's the application's choice
+(`#[global_allocator]`), not the library's. Runs vary by up to 4% between rounds, so the
+differences at 1 and 2 sessions are within the noise. The padding hasn't been adopted.
+
+One run of the inline-lock-only build hung at 16 sessions: every thread idle, all 64 connections
+open with nothing unread, a sender waiting for acknowledgements that never came. Some of its
+initiators' ports were well above the rest, which suggests sessions had disconnected and
+reconnected, losing the orders in flight to the reset at logon; the benchmark's application
+doesn't count logouts, so it waited. Thirty runs of the unpadded build that followed didn't hang.
 
 The `load` example measures over real connections instead, against any acceptor, open loop:
 order k is due at `start + k / rate`, its ClOrdID carries k, and its latency runs from its due
