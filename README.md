@@ -1251,61 +1251,61 @@ about 0.35 µs to a 27.4 µs round trip, and nothing measurable to pipelined thr
 ## Benchmarks
 
 ```sh
-cargo bench -p turbojet --all-features            # everything (~3 minutes)
+cargo bench -p turbojet --all-features            # everything (~13 minutes)
 cargo bench -p turbojet --bench codec             # one group: codec, session, roundtrip or fixp
 cargo bench -p turbojet --all-features -- --quick # fast smoke run
 cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
 cargo bench -p turbojet-fast                      # FAST decoding and encoding
 ```
 
-Apple M3, macOS 27, Rust 1.98.1; criterion medians. Benchmarks build with one
-codegen unit and fat LTO (`[profile.bench]`), so results don't shift with how the compiler happens
-to partition the crate.
+Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; criterion medians.
+Benchmarks build with one codegen unit and fat LTO (`[profile.bench]`), so results don't shift with
+how the compiler happens to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 197 ns / 164 ns | 817 / 985 MiB/s |
-| Encode NewOrderSingle (169 B) | 47 ns | 3.4 GiB/s |
-| Encode ExecutionReport (209 B) | 54 ns | 3.6 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 103 ns / 162 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 130 ns / 205 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 496 ns / 783 ns / 609 ns | |
-| Typed build ExecutionReport | 171 ns | |
-| Format a timestamp (same second / new second) | 11 ns / 33 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store) | 755 ns | 1.32M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 939 ns | 1.06M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 48 ns / 1.7 µs / 4.0 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync | 70 ns / 41 µs | |
-| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 75 µs / 4.5 ms / 112 µs | |
-| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 3.0 µs / 55 µs / 7.1 µs | |
-| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 15.2 µs / 196 µs / 149 µs | |
-| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 7.5 ns / 37 ns | |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 258 ns | |
-| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 243 ns / 1.75 µs / 8.43 µs | |
-| FAST: encode the same refreshes | 377 ns / 2.40 µs / 10.4 µs | |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 15.6 µs | 2.97M msg/s |
-| Round trip over localhost TCP, one at a time | 27.7 µs | 36.1k/s |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 16.3 µs | 61.4k/s |
-| The same, both ends spinning (`run_spinning`) | 10.3 µs | 96.7k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 532k msg/s |
-| Round trip over localhost TLS, one at a time | 27.8 µs | 36.0k/s |
-| Round trip over localhost TLS, one at a time, replying from `on_message` | 20.4 µs | 49.0k/s |
-| Round trip over localhost TLS, 1,000 in flight | | 508k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 31.3 µs | 715k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 4.1 ms | 13.4k msg/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 162 ns / 133 ns | 995 / 1,208 MiB/s |
+| Encode NewOrderSingle (169 B) | 40 ns | 3.9 GiB/s |
+| Encode ExecutionReport (209 B) | 46 ns | 4.2 GiB/s |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 87 ns / 137 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 111 ns / 174 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 398 ns / 616 ns / 484 ns | |
+| Typed build ExecutionReport | 134 ns | |
+| Format a timestamp (same second / new second) | 9.2 ns / 27 ns | |
+| Session: order → ack, no I/O, encoded reply (memory store) | 739 ns | 1.35M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 866 ns | 1.15M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.4 µs / 4.0 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 59 ns / 40 µs | |
+| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 64 µs / 4.0 ms / 138 µs | |
+| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 48 µs / 6.4 µs | |
+| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.7 µs / 179 µs / 148 µs | |
+| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 6.7 ns / 30 ns | |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 222 ns | |
+| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 216 ns / 1.34 µs / 6.27 µs | |
+| FAST: encode the same refreshes | 301 ns / 2.01 µs / 8.65 µs | |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.2 µs | 3.33M msg/s |
+| Round trip over localhost TCP, one at a time | 31.1 µs | 32.2k/s |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 10.7 µs | 93.7k/s |
+| The same, both ends spinning (`run_spinning`) | 9.0 µs | 112k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 1.04M msg/s |
+| Round trip over localhost TLS, one at a time | 31.3 µs | 31.9k/s |
+| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.2 µs | 47.1k/s |
+| Round trip over localhost TLS, 1,000 in flight | | 958k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 32.8 µs | 913k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 4.0 ms | 16.7k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor
 stores to `DiskStorage`. Most send each order from the benchmark's task through a `SessionHandle`;
 the "replying from `on_message`" rows send the next order from the initiator's application, with
-no hop between tasks (see [Using the engine](#using-the-engine)). Of their 16.3 µs, about 13 µs is
-the operating system. The SBE rows use B3's Binary Entrypoint schema; the FIXP rows carry its
-orders under FIXP 1.0 with recoverable flows, each end storing in memory. The FAST rows use the FAST
-specification's own incremental refresh template, each message following the one before. The SQL rows used
-PostgreSQL 14 on the same machine over TCP, and SQLite synced is `synchronous = FULL` with
-`fullfsync`, as `DiskStorage`'s fsync is. Rows were measured between 2026-09-27 and 2026-10-06 on
-the same machine; [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#measurement-history) says when, and what each was
-before.
+no hop between tasks (see [Using the engine](#using-the-engine)). The SBE rows use B3's Binary
+Entrypoint schema; the FIXP rows carry its orders under FIXP 1.0 with recoverable flows, each end
+storing in memory. The FAST rows use the FAST specification's own incremental refresh template,
+each message following the one before. The SQL rows used PostgreSQL 18 on the same machine over
+TCP, and SQLite synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. Rows
+were measured 2026-10-18;
+[DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#measurement-history)
+says what each was before.
 
 A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
 count changes, up or down, so both regressions and improvements show up in CI:

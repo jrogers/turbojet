@@ -779,8 +779,23 @@ the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 
 
 ### Measurement history
 
-The README's benchmark table gives current numbers. When each row was last measured, and what it
-was before:
+The README's benchmark table gives current numbers. Every row was re-measured 2026-10-18 on an
+Apple M4 Pro (8 performance and 4 efficiency cores), the SQL rows against PostgreSQL 18. On the
+M3 (4 + 4) before it, in the table's order: decoding 197 / 164 ns, encoding 47 and 54 ns, typed
+parsing 103 / 162 ns borrowed and 130 / 205 ns owned, nested groups 496 / 783 / 609 ns, building
+171 ns, timestamps 11 / 33 ns; the session 755 ns and 939 ns wire to wire; storing 48 ns /
+1.7 µs / 4.0 ms one per commit and 70 ns / 41 µs at 100, SQLite / synced / PostgreSQL 14 75 µs /
+4.5 ms / 112 µs and 3.0 / 55 / 7.1 µs, resend steps 15.2 / 196 / 149 µs; SBE 7.5 / 37 ns and
+4.8 / 258 ns; FAST decoding 243 ns / 1.75 µs / 8.43 µs and encoding 377 ns / 2.40 µs / 10.4 µs;
+FIXP 15.6 µs and 2.97M msg/s; TCP round trips 27.7 µs, 16.3 µs from `on_message` (about 13 µs of
+it the operating system), 10.3 µs spinning and 532k msg/s; TLS 27.8 µs, 20.4 µs and 508k msg/s;
+the disk store 31.3 µs and 715k msg/s, and with fsync 4.1 ms and 13.4k msg/s. The M4 Pro is
+as fast or faster at everything measured on one thread and at pipelining, but round trips one at
+a time through a `SessionHandle` are slower: 31.1 µs against 27.7 over TCP, 31.3 against 27.8
+over TLS, 32.8 against 31.3 storing to disk. Replying from `on_message` over TCP, with no hop between tasks,
+is faster (10.7 µs against 16.3), so the hop costs more here; over TLS (21.2 against 20.4) and
+FIXP (16.2 against 15.6) it's a little slower. A PostgreSQL commit took 138 µs against 112, a
+different version of PostgreSQL. When each row was last measured on the M3, and what it was before:
 
 - Decoding into a reused message, building an ExecutionReport and formatting timestamps were
   re-measured 2026-09-30, after the session started encoding what it sends straight into its
