@@ -12,16 +12,18 @@
 
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use tokio::net::TcpListener;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+use turbojet::fields::MsgType;
+use turbojet::message::tags;
 use turbojet::{
-    Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, SessionConfig,
-    SessionHandle,
+    Acceptor, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
+    SessionConfig, SessionHandle,
 };
 
 /// Orders each session keeps in flight.
@@ -29,15 +31,37 @@ const WINDOW: u64 = 1_000;
 /// The session counts measured.
 const SESSIONS: [usize; 6] = [1, 2, 4, 8, 16, 32];
 
-/// Forwards logon and each acknowledgement to the benchmark.
+/// How long a sender waits for an acknowledgement before the benchmark fails, rather than hang.
+const ACK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Forwards logon and each acknowledgement to the benchmark, and notes what else happened to the
+/// session, to say why if its acknowledgements stop.
 struct Client {
     logged_on: mpsc::UnboundedSender<()>,
     acked: mpsc::UnboundedSender<()>,
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl Client {
+    fn note(&self, event: String) {
+        self.events.lock().unwrap().push(event);
+    }
 }
 
 impl Application for Client {
     fn on_logon(&self, _session: &SessionHandle) {
+        self.note("logon".into());
         let _ = self.logged_on.send(());
+    }
+
+    fn on_logout(&self, _session: &SessionHandle, ended: Disconnect) {
+        self.note(format!("logout: {ended:?}"));
+    }
+
+    fn on_admin_message(&self, _session: &SessionHandle, msg: &Message) {
+        if msg.msg_type() != MsgType::Heartbeat {
+            self.note(format!("admin {}: {:?}", msg.msg_type(), msg.get(tags::TEXT)));
+        }
     }
 
     fn on_message(&self, _ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
@@ -49,6 +73,7 @@ impl Application for Client {
 struct Sender {
     handle: SessionHandle,
     acks: mpsc::UnboundedReceiver<()>,
+    events: Arc<Mutex<Vec<String>>>,
 }
 
 /// An acceptor and `count` logged-on initiators, CLIENT0 onwards.
@@ -70,11 +95,12 @@ async fn connect(count: usize) -> Vec<Sender> {
     let mut senders = Vec::with_capacity(count);
     for i in 0..count {
         let (acked, acks) = mpsc::unbounded_channel();
-        let client = Arc::new(Client { logged_on: logged_on.clone(), acked });
+        let events = Arc::default();
+        let client = Arc::new(Client { logged_on: logged_on.clone(), acked, events: Arc::clone(&events) });
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", format!("CLIENT{i}")), "GATEWAY");
         config.reset_on_logon = true;
         let initiator = Initiator::new(addr.clone(), config, storage.clone(), client).unwrap();
-        senders.push(Sender { handle: initiator.handle(), acks });
+        senders.push(Sender { handle: initiator.handle(), acks, events });
         tokio::spawn(initiator.run());
     }
     for _ in 0..count {
@@ -96,8 +122,15 @@ async fn run(senders: Vec<Sender>, iters: u64) -> Vec<Sender> {
                         id += 1;
                         sender.handle.send(common::new_order_single(id)).unwrap();
                     }
-                    for _ in 0..WINDOW {
-                        sender.acks.recv().await.unwrap();
+                    for acked in 0..WINDOW {
+                        if tokio::time::timeout(ACK_TIMEOUT, sender.acks.recv()).await.is_err() {
+                            panic!(
+                                "{} stopped after {acked} of {WINDOW} acknowledgements: {:?}, {:?}",
+                                sender.handle.id(),
+                                sender.handle.status(),
+                                sender.events.lock().unwrap(),
+                            );
+                        }
                     }
                 }
                 sender
