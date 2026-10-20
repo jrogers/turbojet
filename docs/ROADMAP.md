@@ -115,6 +115,13 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   with no gap and no resend storm: replicate the session journal, every sequence number change
   and stored message as it happens, to the standby, with the exclusive-session lease deciding
   which instance is active. Failover itself, and the gateway's own state, are Turbojet Gateway's.
+- **The tokio layer in its own crate** (M). The session, store, codec and message types are
+  sans-IO, but they share `turbojet` with the tokio transport (acceptor, initiator, connection
+  driver, TLS, proxies, registry, FIXP endpoints), so a user with another runtime, or none, still
+  builds tokio. A core crate without it needs the few places the core reaches for tokio taken
+  out first: the session's and FIXP session's `oneshot` replies, and the store's future jobs,
+  which spawn and `block_in_place` on a tokio runtime. The fuzz crate, simulation, Python
+  bindings and gateway would follow the moved paths.
 - **More TLS revocation sources** (S each). Revocation is checked against CRLs the application
   gives; OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points
   aren't supported.
