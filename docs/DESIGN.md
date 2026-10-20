@@ -753,6 +753,9 @@ open with nothing unread, a sender waiting for acknowledgements that never came.
 initiators' ports were well above the rest, which suggests sessions had disconnected and
 reconnected, losing the orders in flight to the reset at logon; the benchmark's application
 doesn't count logouts, so it waited. Thirty runs of the unpadded build that followed didn't hang.
+Nor did any on an M3 (2026-10-20): 1,000 `--quick` runs and 80 full ones, two at a time, of the
+unpadded build, and 80 full ones of the inline-lock build. The benchmark now fails after 10 s
+without an acknowledgement, with the session's status and its logons, logouts and admin messages.
 
 The `load` example measures over real connections instead, against any acceptor, open loop:
 order k is due at `start + k / rate`, its ClOrdID carries k, and its latency runs from its due

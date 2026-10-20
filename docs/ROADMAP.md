@@ -90,11 +90,11 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   sessions). Small, but it costs a few hundred bytes a session; it wants a Linux machine with
   64-byte lines measured too, and a padding type sized per target.
 - **A hang in the sessions benchmark** (S, research). One run of `benches/sessions.rs` (an
-  experimental build, 16 sessions) stopped with every session connected and a sender waiting for
-  acknowledgements; it looked like sessions had reconnected and lost the orders in flight
-  (DESIGN.md, Many sessions). It hasn't recurred in 30 runs. Count logouts and admin messages in
-  the benchmark's application, and run it in a loop until it hangs, to find why a session
-  disconnected.
+  experimental build, 16 sessions, on an M4 Pro) stopped with every session connected and a
+  sender waiting for acknowledgements; it looked like sessions had reconnected and lost the orders
+  in flight (DESIGN.md, Many sessions). It hasn't recurred on an M3 in 1,160 runs, including the
+  build that hung. The benchmark now fails after 10 s without an acknowledgement, saying what
+  happened to the session: loop it on the M4 Pro, or a machine with as many cores, to catch it.
 
 ## 5. Operations and deployment
 
