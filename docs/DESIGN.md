@@ -756,6 +756,9 @@ doesn't count logouts, so it waited. Thirty runs of the unpadded build that foll
 Nor did any on an M3 (2026-10-20): 1,000 `--quick` runs and 80 full ones, two at a time, of the
 unpadded build, and 80 full ones of the inline-lock build. The benchmark now fails after 10 s
 without an acknowledgement, with the session's status and its logons, logouts and admin messages.
+On the M4 Pro again (2026-10-20), 100 full runs of the unpadded build and 100 of the inline lock
+alone, rebuilt on it, finished too. It isn't being chased further; if it recurs, the failure says
+what happened to the session.
 
 The `load` example measures over real connections instead, against any acceptor, open loop:
 order k is due at `start + k / rate`, its ClOrdID carries k, and its latency runs from its due
