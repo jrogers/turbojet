@@ -92,9 +92,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 5. Operations and deployment
 
-- **Encrypting the message log** (S). `FileMessageLog` masks passwords and credentials, but the
-  rest of every order and execution is in the clear. Encrypting finished files, alongside
-  compressing them, would let the log be kept where fewer people may read it.
 - **Alternative storage backends**. Today there are `MemoryStorage`, `DiskStorage` and
   `turbojet-sql`'s `SqlStorage`. Each backend should live behind its own feature (or in its own
   crate) so its dependencies stay optional, record `created_at` so session schedules work, pass
