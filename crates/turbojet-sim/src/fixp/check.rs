@@ -123,6 +123,12 @@ impl Sent {
         self.ids.get(&seq).or_else(|| self.past.last()?.ids.get(&seq)).copied()
     }
 
+    /// The session took `seq` for its own Applied or NotApplied, in this session or the one
+    /// before: like [`Sent::id_of`], for what a finalized session still delivers.
+    fn owned(&self, seq: u64) -> bool {
+        self.session_owned.contains(&seq) || self.past.last().is_some_and(|p| p.session_owned.contains(&seq))
+    }
+
     /// Session `epoch`: this one or one kept from before.
     fn session(&self, epoch: u64) -> Option<&Sent> {
         if self.epoch == epoch { Some(self) } else { self.past.iter().find(|p| p.epoch == epoch) }
@@ -837,7 +843,7 @@ fn check_delivery(
         return Err(violation("5 delivery", format!("{side:?} got {seq} after {}", received.last)));
     }
     // The session takes its own Applied and NotApplied: they never reach the application.
-    let skipped = (received.last + 1..seq).find(|n| !sender.session_owned.contains(n));
+    let skipped = (received.last + 1..seq).find(|&n| !sender.owned(n));
     if flow == FlowType::Recoverable && skipped.is_some() {
         return Err(violation(
             "6 lost",
