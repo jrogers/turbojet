@@ -5,8 +5,6 @@
 use std::fmt;
 use std::str::FromStr;
 
-use std::borrow::Cow;
-
 /// The type of string fields in typed messages: values up to 24 bytes are kept inline, so most
 /// IDs and symbols are parsed and built without allocating. Build one with `.into()` from a
 /// `&str` or `String`, or [`format_compact!`] in place of `format!`.
@@ -474,8 +472,9 @@ macro_rules! msg_types {
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
         pub enum MsgType {
             $( #[doc = concat!(stringify!($variant), "(", $code, ").")] $variant, )+
-            /// A code without a variant of its own, such as a venue's custom message type.
-            Other(Cow<'static, str>),
+            /// A code without a variant of its own, such as a venue's custom message type. Codes
+            /// are short, so it's held inline, and reading a message's type doesn't allocate.
+            Other(CompactString),
         }
 
         impl MsgType {
@@ -491,7 +490,7 @@ macro_rules! msg_types {
             pub fn from_code(code: &str) -> Self {
                 match code {
                     $( $code => Self::$variant, )+
-                    other => Self::Other(Cow::Owned(other.to_string())),
+                    other => Self::Other(CompactString::new(other)),
                 }
             }
 
@@ -499,7 +498,7 @@ macro_rules! msg_types {
             /// variant, and anything else to `Other` without allocating.
             pub const fn from_static(code: &'static str) -> Self {
                 $( if str_eq(code, $code) { return Self::$variant; } )+
-                Self::Other(Cow::Borrowed(code))
+                Self::Other(CompactString::const_new(code))
             }
         }
     };

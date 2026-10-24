@@ -1,7 +1,8 @@
 //! Heap allocations per order → ack, wire to wire (decode into one reused message, as the
 //! connection does, then the session, application and store; the session encodes the ack), with
 //! the memory store and the disk store (without fsync), each against an exact budget; the same
-//! for a FIXP server answering B3 orders; and typed parsing alone, borrowed and owned.
+//! for a FIXP server answering B3 orders; typed parsing alone, borrowed and owned; and reading a
+//! message's type.
 //! `cargo test -p turbojet --test allocations -- --nocapture` prints a per-stage table for each
 //! store and a per-parse table.
 
@@ -234,6 +235,20 @@ fn nothing_is_counted_when_off_or_on_other_threads() {
     .unwrap();
     counting::set_counting(false);
     assert_eq!(other, [Counts::ZERO; Stage::ALL.len()]);
+}
+
+/// The engine reads a message's type several times per message, each way, so it must not
+/// allocate, for types without a variant of their own (here MarketDataRequest) as for the rest.
+#[test]
+fn reading_the_message_type_allocates_nothing() {
+    let msg = Message::new(turbojet::MsgType::from_code("V"));
+    counting::take();
+    counting::set_counting(true);
+    for _ in 0..COUNTED {
+        std::hint::black_box(msg.msg_type());
+    }
+    counting::set_counting(false);
+    assert_eq!(counting::take(), [Counts::ZERO; Stage::ALL.len()]);
 }
 
 /// Orders processed, uncounted, before counting starts.
