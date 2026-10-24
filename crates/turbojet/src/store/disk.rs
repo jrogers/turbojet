@@ -1511,6 +1511,16 @@ mod tests {
         assert!(!segment_path(&dir, 2).exists());
     }
 
+    /// Segments of two or three messages and a budget of a few: rotation and eviction at every
+    /// turn, against reopening and resets.
+    #[test]
+    fn agrees_with_the_model_under_a_tight_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = storage(&dir).with_segment_bytes(600).with_max_session_bytes(1_800);
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(super::super::conformance::check_model(&storage, 0..50));
+    }
+
     #[test]
     fn conforms_with_small_segments() {
         let dir = tempfile::tempdir().unwrap();

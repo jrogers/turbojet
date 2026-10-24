@@ -14,6 +14,7 @@
 //! ```
 #![allow(clippy::unwrap_used, reason = "a test suite, which panics on the first failure it finds")]
 
+use std::collections::BTreeMap;
 use std::io;
 
 use super::{Fetched, Opened, SentMessages, SessionId, SessionLog, SessionStorage};
@@ -21,7 +22,8 @@ use crate::codec::encode;
 use crate::fields::{MsgType, UtcTimestamp};
 use crate::message::{Message, tags};
 
-/// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `G`.
+/// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `G`, and
+/// `M0` on for [`check_model`].
 pub fn id(target: &str) -> SessionId {
     SessionId::new("FIX.4.4", "GATEWAY", target)
 }
@@ -88,6 +90,7 @@ pub async fn check(storage: &dyn SessionStorage) {
     check_data_fields(storage).await;
     check_uncommitted_reads(storage).await;
     check_full_ids(storage).await;
+    check_model(storage, 0..20).await;
 }
 
 /// [`check`] on a runtime of its own, for synchronous tests.
@@ -268,4 +271,288 @@ async fn check_full_ids(storage: &dyn SessionStorage) {
     }
     assert_eq!(open(storage, &plain).await.unwrap().next_incoming(), 5, "the plain session is untouched");
     assert_eq!(open(storage, &full).await.unwrap().next_incoming(), 7, "{full} keeps its state");
+}
+
+/// Random sequences of what a session does to its log, one per seed in `seeds`, each on a session
+/// of its own (target `M` and the seed). After every step the store must agree with a model of
+/// the log: its numbers, in-flight marker, creation time and stored messages, as a whole and in a
+/// range. A store may evict its oldest messages to stay within a limit, so it holds exactly the
+/// model's messages above [`evicted_through`](SessionLog::evicted_through). Reopened, it holds
+/// what was committed, or what some later step left: a store may make each change as it's made.
+/// The creation time may be any it had since the commit, as a store may record it at once while
+/// it buffers the rest (only a schedule reads it).
+/// [`check`] runs seeds `0..20`; a store with limits of its own runs more with them small.
+///
+/// # Panics
+///
+/// On the first difference, with its seed and the steps that led to it.
+pub async fn check_model(storage: &dyn SessionStorage, seeds: std::ops::Range<u64>) {
+    for seed in seeds {
+        ModelRun::new(storage, seed).await.run().await;
+    }
+}
+
+/// What the session does to its log in one step.
+#[derive(Debug, Clone, Copy)]
+enum Step {
+    /// The next number, with a message of `padding` extra bytes.
+    Store {
+        padding: usize,
+    },
+    /// The next number, without a message (a session message).
+    Skip,
+    /// Numbers up to this one used without messages (an operator's skip ahead).
+    SkipTo(u64),
+    SetNextIncoming(u64),
+    SetInFlight(u64),
+    SetNextIncomingInFlight(u64, u64),
+    SetCreatedAt(i64),
+    Commit,
+    Reset,
+    Reopen,
+}
+
+/// The log as the session sees it.
+#[derive(Debug, Clone, PartialEq)]
+struct Model {
+    next_outgoing: u64,
+    next_incoming: u64,
+    in_flight: Option<u64>,
+    created_at: Option<UtcTimestamp>,
+    sent: BTreeMap<u64, Vec<u8>>,
+}
+
+impl Model {
+    fn new() -> Self {
+        Self { next_outgoing: 1, next_incoming: 1, in_flight: None, created_at: None, sent: BTreeMap::new() }
+    }
+}
+
+/// One seed's run: the store's log, the model, and what the run has done so far.
+struct ModelRun<'a> {
+    storage: &'a dyn SessionStorage,
+    id: SessionId,
+    seed: u64,
+    rng: u64,
+    log: Box<dyn SessionLog>,
+    model: Model,
+    /// The model as committed, then after each step since: what a reopened store may hold.
+    since_commit: Vec<Model>,
+    steps: Vec<Step>,
+}
+
+impl<'a> ModelRun<'a> {
+    const STEPS: usize = 150;
+
+    async fn new(storage: &'a dyn SessionStorage, seed: u64) -> Self {
+        let id = id(&format!("M{seed}"));
+        let log = open(storage, &id).await.unwrap();
+        let mut run = Self {
+            storage,
+            id,
+            seed,
+            rng: seed,
+            log,
+            model: Model::new(),
+            since_commit: vec![Model::new()],
+            steps: Vec::new(),
+        };
+        run.agrees(&run.model.clone(), "a new session").await;
+        run
+    }
+
+    /// splitmix64: enough to vary the steps, and the same for a seed everywhere.
+    fn next(&mut self) -> u64 {
+        self.rng = self.rng.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.rng;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
+
+    /// A number in `low..high`.
+    fn below(&mut self, low: u64, high: u64) -> u64 {
+        low + self.next() % (high - low)
+    }
+
+    fn step(&mut self) -> Step {
+        let next_incoming = self.model.next_incoming;
+        match self.below(0, 100) {
+            0..35 => Step::Store { padding: usize::try_from(self.below(0, 400)).expect("small") },
+            35..43 => Step::Skip,
+            43..46 => Step::SkipTo(self.model.next_outgoing + self.below(1, 5)),
+            46..56 => Step::SetNextIncoming(self.below(1, next_incoming + 5)),
+            56..61 => Step::SetInFlight(self.below(1, next_incoming + 1)),
+            61..65 => {
+                let seq = self.below(1, next_incoming + 5);
+                Step::SetNextIncomingInFlight(seq, self.below(1, seq + 1))
+            }
+            65..68 => Step::SetCreatedAt(i64::try_from(self.below(1_700_000_000, 1_900_000_000)).expect("small")),
+            68..86 => Step::Commit,
+            86..89 => Step::Reset,
+            _ => Step::Reopen,
+        }
+    }
+
+    async fn run(mut self) {
+        for _ in 0..Self::STEPS {
+            let step = self.step();
+            self.steps.push(step);
+            self.apply(step).await;
+            let range = {
+                let end = self.below(1, self.model.next_outgoing + 2);
+                (self.below(1, end + 1), end)
+            };
+            self.agrees_in(&self.model.clone(), range).await;
+        }
+        drop(self.log);
+    }
+
+    async fn apply(&mut self, step: Step) {
+        let model = &mut self.model;
+        match step {
+            Step::Store { padding } => {
+                let seq = model.next_outgoing;
+                let msg = encode(&message(seq).with(tags::TEXT, "x".repeat(padding))).expect("valid fields");
+                self.log.record_outgoing(seq, Some(&msg)).unwrap();
+                model.sent.insert(seq, msg);
+                model.next_outgoing = seq + 1;
+            }
+            Step::Skip => {
+                self.log.record_outgoing(model.next_outgoing, None).unwrap();
+                model.next_outgoing += 1;
+            }
+            Step::SkipTo(seq) => {
+                self.log.record_outgoing(seq - 1, None).unwrap();
+                model.next_outgoing = seq;
+            }
+            Step::SetNextIncoming(seq) => {
+                self.log.set_next_incoming(seq).unwrap();
+                (model.next_incoming, model.in_flight) = (seq, None);
+            }
+            Step::SetInFlight(seq) => {
+                self.log.set_in_flight(seq).unwrap();
+                model.in_flight = Some(seq);
+            }
+            Step::SetNextIncomingInFlight(seq, in_flight) => {
+                self.log.set_next_incoming_in_flight(seq, in_flight).unwrap();
+                (model.next_incoming, model.in_flight) = (seq, Some(in_flight));
+            }
+            Step::SetCreatedAt(seconds) => {
+                let at = UtcTimestamp::from_timestamp(seconds, 0).expect("in range");
+                self.log.set_created_at(at).unwrap();
+                model.created_at = Some(at);
+            }
+            Step::Commit => {
+                commit(self.log.as_mut()).await.unwrap();
+                self.since_commit.clear();
+            }
+            Step::Reset => {
+                self.log.reset().unwrap();
+                *model = Model::new();
+            }
+            Step::Reopen => {
+                // The old log goes first: a store may lock a session while it's open.
+                self.log = Box::new(Closed);
+                self.log = open(self.storage, &self.id).await.unwrap();
+                let candidates: Vec<Model> = self.since_commit.iter().chain([&self.model]).cloned().collect();
+                let created_at = self.log.created_at();
+                let mut held = None;
+                if candidates.iter().any(|candidate| candidate.created_at == created_at) {
+                    for candidate in candidates {
+                        let candidate = Model { created_at, ..candidate };
+                        if self.differs(&candidate, (1, u64::MAX)).await.is_none() {
+                            held = Some(candidate);
+                            break;
+                        }
+                    }
+                }
+                let Some(held) = held else {
+                    let committed = self.since_commit.first().cloned().unwrap_or_else(|| self.model.clone());
+                    return self.agrees(&committed, "reopened, as committed or after a later step").await;
+                };
+                self.model = held;
+                self.since_commit.clear();
+            }
+        }
+        if self.since_commit.is_empty() || !matches!(step, Step::Commit | Step::Reopen) {
+            self.since_commit.push(self.model.clone());
+        }
+    }
+
+    async fn agrees(&mut self, model: &Model, what: &str) {
+        if let Some(difference) = self.differs(model, (1, u64::MAX)).await {
+            self.fail(&format!("{what}: {difference}"));
+        }
+    }
+
+    async fn agrees_in(&mut self, model: &Model, range: (u64, u64)) {
+        for range in [(1, u64::MAX), range] {
+            if let Some(difference) = self.differs(model, range).await {
+                self.fail(&difference);
+            }
+        }
+    }
+
+    /// How the store differs from `model`, reading the messages in `range`, if it does.
+    async fn differs(&mut self, model: &Model, (begin, end): (u64, u64)) -> Option<String> {
+        let log = &mut self.log;
+        let numbers = |next_outgoing, next_incoming, in_flight, created_at| {
+            format!(
+                "next outgoing {next_outgoing}, next incoming {next_incoming}, in flight {in_flight:?}, created {created_at:?}"
+            )
+        };
+        let (store, expected) = (
+            numbers(log.next_outgoing(), log.next_incoming(), log.in_flight(), log.created_at()),
+            numbers(model.next_outgoing, model.next_incoming, model.in_flight, model.created_at),
+        );
+        if store != expected {
+            return Some(format!("the store has {store}; expected {expected}"));
+        }
+        let kept_after = log.evicted_through().unwrap_or(0);
+        let sent = fetch(log.as_mut(), begin, end).await.unwrap();
+        let first = begin.max(kept_after + 1);
+        let expected: Vec<_> = if first <= end {
+            model.sent.range(first..=end).map(|(seq, msg)| (*seq, msg.clone())).collect()
+        } else {
+            Vec::new()
+        };
+        if sent != expected {
+            let seqs = |messages: &[(u64, Vec<u8>)]| messages.iter().map(|(seq, _)| *seq).collect::<Vec<_>>();
+            return Some(format!(
+                "messages {begin}..={end} are {:?}; expected {:?} (evicted through {kept_after})",
+                seqs(&sent),
+                seqs(&expected)
+            ));
+        }
+        None
+    }
+
+    fn fail(&self, difference: &str) -> ! {
+        panic!("seed {}, after {} steps {:?}: {difference}", self.seed, self.steps.len(), self.steps);
+    }
+}
+
+/// Stands in for a log while it's reopened, so the old one is dropped first.
+struct Closed;
+
+impl SessionLog for Closed {
+    fn next_outgoing(&self) -> u64 {
+        unreachable!("replaced at once")
+    }
+    fn next_incoming(&self) -> u64 {
+        unreachable!("replaced at once")
+    }
+    fn set_next_incoming(&mut self, _: u64) -> io::Result<()> {
+        unreachable!("replaced at once")
+    }
+    fn record_outgoing(&mut self, _: u64, _: Option<&[u8]>) -> io::Result<()> {
+        unreachable!("replaced at once")
+    }
+    fn sent_messages(&mut self, _: u64, _: u64) -> io::Result<SentMessages> {
+        unreachable!("replaced at once")
+    }
+    fn reset(&mut self) -> io::Result<()> {
+        unreachable!("replaced at once")
+    }
 }

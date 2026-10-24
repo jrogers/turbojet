@@ -244,6 +244,13 @@ mod tests {
     }
 
     #[test]
+    fn agrees_with_the_model_under_a_tight_budget() {
+        let storage = MemoryStorage::new().with_max_session_bytes(1_500);
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(super::super::conformance::check_model(&storage, 0..50));
+    }
+
+    #[test]
     fn evicts_the_oldest_messages_past_the_byte_budget() {
         let len = app_message(1).len();
         let storage = MemoryStorage::new().with_max_session_bytes(2 * len + len / 2);
