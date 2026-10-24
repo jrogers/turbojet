@@ -123,7 +123,8 @@ impl End {
 
     fn connect(&mut self, now: Instant) {
         let (mut session, commands) =
-            FixpSession::new(self.config.clone(), self.role.clone(), self.registry.clone(), self.app.clone(), now);
+            FixpSession::new(self.config.clone(), self.role.clone(), self.registry.clone(), self.app.clone(), now)
+                .unwrap();
         session.on_connect(now);
         self.session = Some((session, commands));
     }
@@ -1047,7 +1048,7 @@ async fn the_message_log_sees_both_directions_on_the_wire() {
         let mut config = end.config.clone();
         config.message_log = Some(log.clone());
         let (session, commands) =
-            FixpSession::new(config, end.role.clone(), end.registry.clone(), end.app.clone(), Instant::now());
+            FixpSession::new(config, end.role.clone(), end.registry.clone(), end.app.clone(), Instant::now()).unwrap();
         tokio::spawn(super::super::run(stream, session, commands))
     };
     let server_task = start(&net.server, server_stream, &server_log);

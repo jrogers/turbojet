@@ -207,7 +207,8 @@ impl FixpAcceptor {
     {
         let (config, server) = (self.config.clone(), self.server.clone());
         let (session, commands) =
-            FixpSession::server(config, server, self.registry.clone(), self.app.clone(), Instant::now());
+            FixpSession::server(config, server, self.registry.clone(), self.app.clone(), Instant::now())
+                .expect("checked by FixpAcceptor::new");
         let session = session.with_connection(connection);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
@@ -516,5 +517,6 @@ impl FixpInitiator {
     fn session(&self) -> (FixpSession, crate::registry::CommandReceiver<super::SbeMessage>) {
         let (config, client) = (self.config.session.clone(), self.config.client.clone());
         FixpSession::client(config, client, self.registry.clone(), self.app.clone(), Instant::now())
+            .expect("checked by FixpInitiator::new")
     }
 }

@@ -93,9 +93,9 @@ fn end(server: bool) -> (FixpSession, turbojet::registry::CommandReceiver<SbeMes
     let app = Arc::new(Events { server, events });
     let (config, now) = (FixpConfig::new(), std::time::Instant::now());
     let (session, commands) = if server {
-        FixpSession::server(config, ServerConfig::new("SERVER"), registry, app, now)
+        FixpSession::server(config, ServerConfig::new("SERVER"), registry, app, now).unwrap()
     } else {
-        FixpSession::client(config, ClientConfig::new("CLIENT", "SERVER"), registry, app, now)
+        FixpSession::client(config, ClientConfig::new("CLIENT", "SERVER"), registry, app, now).unwrap()
     };
     (session, commands, received)
 }

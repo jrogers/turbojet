@@ -25,7 +25,7 @@ use crate::registry::{
     SequenceError, SequenceNumbers, SessionEventKind, SessionState, apply_sequence_command, command_queues,
 };
 use crate::sbe::{Encode, SbeError};
-use crate::session::DELIVERIES_PER_COMMIT;
+use crate::session::{ConfigError, DELIVERIES_PER_COMMIT};
 use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 
@@ -199,7 +199,7 @@ impl FixpSession {
     /// [`run_spinning`](super::run_spinning), or a driver of your own (see
     /// [`on_connect`](Self::on_connect)). The receiver carries [`FixpHandle`] commands.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// If `config` is invalid; see [`FixpConfig::check`].
     pub fn client(
@@ -208,14 +208,14 @@ impl FixpSession {
         registry: Arc<FixpRegistry>,
         app: Arc<dyn FixpApplication>,
         now: Instant,
-    ) -> (Self, CommandReceiver<SbeMessage>) {
+    ) -> Result<(Self, CommandReceiver<SbeMessage>), ConfigError> {
         Self::new(config, Role::Client(client), registry, app, now)
     }
 
     /// A server session, `server` with settings `config`, as [`client`](Self::client) is a
     /// client's.
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// If `config` is invalid; see [`FixpConfig::check`].
     pub fn server(
@@ -224,7 +224,7 @@ impl FixpSession {
         registry: Arc<FixpRegistry>,
         app: Arc<dyn FixpApplication>,
         now: Instant,
-    ) -> (Self, CommandReceiver<SbeMessage>) {
+    ) -> Result<(Self, CommandReceiver<SbeMessage>), ConfigError> {
         Self::new(config, Role::Server(server), registry, app, now)
     }
 
@@ -234,10 +234,8 @@ impl FixpSession {
         registry: Arc<FixpRegistry>,
         app: Arc<dyn FixpApplication>,
         now: Instant,
-    ) -> (Self, CommandReceiver<SbeMessage>) {
-        if let Err(e) = config.check() {
-            panic!("invalid FIXP configuration: {e}");
-        }
+    ) -> Result<(Self, CommandReceiver<SbeMessage>), ConfigError> {
+        config.check()?;
         let (commands, receiver) = command_queues(config.send_queue);
         let state = if matches!(role, Role::Server(_)) { State::AwaitingClient } else { State::Starting };
         let session = Self {
@@ -276,7 +274,7 @@ impl FixpSession {
             finishing: false,
             connection: ConnectionInfo::default(),
         };
-        (session, receiver)
+        Ok((session, receiver))
     }
 
     /// Describes the connection the session runs on, for [`FixpApplication::verify`]: the

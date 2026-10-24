@@ -476,11 +476,12 @@ fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::
     // `feed` shows each message to the log; `fixp_feed` shows it the answers.
     config.message_log = Some(Arc::new(NoLog));
     let server = ServerConfig::new("SERVER");
-    let (mut server, _server_commands) = FixpSession::server(config, server, server_registry, Arc::new(FixpAcker), now);
+    let (mut server, _server_commands) =
+        FixpSession::server(config, server, server_registry, Arc::new(FixpAcker), now).unwrap();
     let client_registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
     let client = ClientConfig::new("CLIENT", "SERVER");
     let (mut client, _client_commands) =
-        FixpSession::client(FixpConfig::new(), client, client_registry, Arc::new(FixpAcker), now);
+        FixpSession::client(FixpConfig::new(), client, client_registry, Arc::new(FixpAcker), now).unwrap();
     server.on_connect(now);
     client.on_connect(now);
     let mut to_server = fixp_step(&mut client, &[], now);

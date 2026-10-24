@@ -52,9 +52,9 @@ fn run(server: bool, flows: u8, input: &[u8]) {
     config.timestamp_window = Duration::MAX;
     config.max_retransmit = 4;
     let (mut session, _commands) = if server {
-        FixpSession::server(config, ServerConfig::new("SERVER"), registry, Arc::new(Echo), now)
+        FixpSession::server(config, ServerConfig::new("SERVER"), registry, Arc::new(Echo), now).unwrap()
     } else {
-        FixpSession::client(config, ClientConfig::new("CLIENT", "SERVER"), registry, Arc::new(Echo), now)
+        FixpSession::client(config, ClientConfig::new("CLIENT", "SERVER"), registry, Arc::new(Echo), now).unwrap()
     };
     session.on_connect(now);
     let mut buf = Vec::new();

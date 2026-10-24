@@ -116,7 +116,8 @@ impl Node {
         let (session, commands) = match &self.end {
             End::Client(client) => FixpSession::client(config, client.clone(), registry, app, instant),
             End::Server(server) => FixpSession::server(config, server.clone(), registry, app, instant),
-        };
+        }
+        .expect("the world's configurations are valid");
         let running = Running {
             session,
             commands,
