@@ -308,7 +308,7 @@ impl FixpConfig {
 /// the credentials as `***`.
 #[non_exhaustive]
 pub struct ClientLogin<'a> {
-    /// The session it names: its UUID, as [`FixpSession::uuid`].
+    /// The session it names: its UUID.
     pub uuid: [u8; 16],
     /// Its credentials, as sent.
     pub credentials: &'a [u8],
