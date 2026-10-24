@@ -1557,9 +1557,25 @@ fn a_clean_end_keeps_a_recovered_window_until_it_is_passed() {
         s.recv(gap_fill(2, filled_to), h.t0);
         assert_eq!(types(&s.recv(client(filled_to, MsgType::Logout), h.t0)), ["Logout", "DISCONNECT"]);
         drop(s);
-        // The window from 2 ends before 2 + DELIVERIES_PER_COMMIT, 258; the Logout took one number.
-        assert_eq!(storage.open(&id).unwrap().in_flight().is_some(), kept, "filled to {filled_to}");
+        // The window from 2 ends before 2 + DELIVERIES_PER_COMMIT, 258; the Logout took one number,
+        // and what may not be finished starts after it.
+        let in_flight = storage.open(&id).unwrap().in_flight();
+        assert_eq!(in_flight, kept.then_some(filled_to + 1), "filled to {filled_to}");
     }
+}
+
+/// A driver that feeds a message without asking `ready_for_input` has it handled at once: the
+/// window it needs is committed on the calling thread.
+#[test]
+fn a_message_fed_without_asking_is_handled_at_once() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    // Past the window the Logon's commit opened.
+    let last = 2 + DELIVERIES_PER_COMMIT;
+    for seq in 2..=last {
+        s.on_message(&order(seq, "A"), h.t0);
+    }
+    assert_eq!(h.app.received(), usize::try_from(DELIVERIES_PER_COMMIT).unwrap() + 1);
 }
 
 /// A step of a resend changes nothing stored, so it costs no commit.
@@ -3483,6 +3499,33 @@ mod schedule_tests {
         assert_eq!(sent(&out)[0].get(tags::TEXT), Some("End of session"));
         assert_eq!(types(&s.recv(client(2, MsgType::Logout), h.at(2))), ["DISCONNECT"]);
         assert_eq!(h.app.events(), ["logon CLIENT", "logout CLIENT Shutdown"]);
+    }
+
+    /// State created at the very start of a period belongs to it: reconnecting continues it.
+    #[test]
+    fn state_created_as_the_period_starts_is_kept_within_it() {
+        let clock = ManualClock::at("2026-09-28 08:00:00");
+        let h = scheduled("daily 08:00-17:00", &clock);
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"));
+        drop(s);
+        clock.set("2026-09-28 09:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(2), h.t0)), Some("2"));
+    }
+
+    /// A SendingTime exactly max_latency off is accurate enough; a millisecond more isn't.
+    #[test]
+    fn sending_time_may_be_off_by_exactly_max_latency() {
+        let clock = ManualClock::at("2026-09-28 09:00:00");
+        let mut h = Harness::new();
+        h.config.clock = clock.clock();
+        let mut s = h.session();
+        let out = s.recv(logon(1).with(tags::SENDING_TIME, "20260928-09:00:00.000"), h.t0);
+        assert_eq!(types(&out), ["Logon"]);
+        let heartbeat = |seq, time| client(seq, MsgType::Heartbeat).with(tags::SENDING_TIME, time);
+        assert!(s.recv(heartbeat(2, "20260928-08:58:00.000"), h.t0).is_empty());
+        assert_eq!(types(&s.recv(heartbeat(3, "20260928-08:57:59.999"), h.t0)), ["Reject", "Logout"]);
     }
 
     #[test]
