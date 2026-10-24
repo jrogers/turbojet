@@ -401,13 +401,15 @@ impl SessionsFile {
     /// If the certificates can't be used; loading the file checked them, so only if they changed
     /// since.
     #[cfg(feature = "tls")]
-    pub fn server_tls(&self) -> io::Result<Option<turbojet::tls::ServerTls>> {
+    pub fn server_tls(&self) -> Result<Option<turbojet::tls::ServerTls>, Error> {
         let mut server = self.server_tls.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let tls = self.current.get().acceptor.as_ref().and_then(|acceptor| acceptor.tls.clone());
         if server.is_none()
             && let Some((identity, client_trust)) = tls
         {
-            *server = Some(turbojet::tls::ServerTls::new(identity, client_trust)?);
+            let tls =
+                turbojet::tls::ServerTls::new(identity, client_trust).map_err(|e| Error::at("acceptor", "tls", e))?;
+            *server = Some(tls);
         }
         Ok(server.clone())
     }
