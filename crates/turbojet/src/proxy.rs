@@ -9,6 +9,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::fields::Secret;
+use crate::session::ConfigError;
 
 /// A proxy an initiator reaches its counterparty through, for a network that only connects out
 /// that way: see [`InitiatorConfig::proxy`](crate::InitiatorConfig::proxy). The initiator connects
@@ -21,7 +22,7 @@ use crate::fields::Secret;
 /// let proxy: Proxy = "socks5://firm@proxy.internal:1080".parse()?;
 /// let proxy = proxy.with_password("from-a-vault");
 /// assert_eq!(format!("{proxy:?}"), r#"Proxy { kind: Socks5, addr: "proxy.internal:1080", username: Some("firm"), password: Some(***) }"#);
-/// # Ok::<(), String>(())
+/// # Ok::<(), turbojet::ConfigError>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -76,26 +77,31 @@ impl Proxy {
 /// `http://host:port` or `socks5://host:port`, with an optional `username@` before the host. A
 /// password isn't taken here, so that it isn't kept in a URL: see [`Proxy::with_password`].
 impl FromStr for Proxy {
-    type Err = String;
+    type Err = ConfigError;
 
-    fn from_str(url: &str) -> Result<Self, String> {
-        let (scheme, rest) = url.split_once("://").ok_or_else(|| format!("'{url}' isn't scheme://host:port"))?;
-        let rest = rest.strip_suffix('/').unwrap_or(rest);
-        let (username, addr) = match rest.rsplit_once('@') {
-            Some((user, _)) if user.contains(':') => {
-                return Err(format!("'{url}' has a password: give it apart from the URL"));
-            }
-            Some((user, addr)) => (Some(user.to_string()), addr),
-            None => (None, rest),
-        };
-        split_host_port(addr).ok_or_else(|| format!("'{url}' has no host:port"))?;
-        let proxy = match scheme {
-            "http" => Self::http(addr),
-            "socks5" | "socks5h" => Self::socks5(addr),
-            other => return Err(format!("'{url}': proxy scheme must be http or socks5, not '{other}'")),
-        };
-        Ok(Self { username, ..proxy })
+    fn from_str(url: &str) -> Result<Self, ConfigError> {
+        parse_proxy(url).map_err(ConfigError::new)
     }
+}
+
+/// [`Proxy::from_str`], its error as text.
+fn parse_proxy(url: &str) -> Result<Proxy, String> {
+    let (scheme, rest) = url.split_once("://").ok_or_else(|| format!("'{url}' isn't scheme://host:port"))?;
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    let (username, addr) = match rest.rsplit_once('@') {
+        Some((user, _)) if user.contains(':') => {
+            return Err(format!("'{url}' has a password: give it apart from the URL"));
+        }
+        Some((user, addr)) => (Some(user.to_string()), addr),
+        None => (None, rest),
+    };
+    split_host_port(addr).ok_or_else(|| format!("'{url}' has no host:port"))?;
+    let proxy = match scheme {
+        "http" => Proxy::http(addr),
+        "socks5" | "socks5h" => Proxy::socks5(addr),
+        other => return Err(format!("'{url}': proxy scheme must be http or socks5, not '{other}'")),
+    };
+    Ok(Proxy { username, ..proxy })
 }
 
 impl fmt::Display for Proxy {
@@ -295,8 +301,8 @@ mod tests {
         let proxy: Proxy = "socks5://firm@[::1]:1080/".parse().unwrap();
         assert_eq!(proxy, Proxy::socks5("[::1]:1080").with_username("firm"));
         assert_eq!(proxy.to_string(), "socks5://firm@[::1]:1080");
-        assert!("http://firm:pw@proxy:3128".parse::<Proxy>().unwrap_err().contains("password"));
-        assert!("ftp://proxy:21".parse::<Proxy>().unwrap_err().contains("http or socks5"));
+        assert!("http://firm:pw@proxy:3128".parse::<Proxy>().unwrap_err().to_string().contains("password"));
+        assert!("ftp://proxy:21".parse::<Proxy>().unwrap_err().to_string().contains("http or socks5"));
         assert!("http://proxy".parse::<Proxy>().is_err());
     }
 

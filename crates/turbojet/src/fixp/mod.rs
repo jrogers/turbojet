@@ -276,7 +276,7 @@ impl FixpConfig {
     /// Both flows `None` or an unknown flow, a keepalive of zero, over a `u32` of milliseconds or
     /// over `max_keepalive`, or a zero count, timeout or queue.
     pub fn check(&self) -> Result<(), crate::ConfigError> {
-        let fail = |reason: &str| Err(crate::ConfigError::from(reason.to_string()));
+        let fail = |reason: &str| Err(crate::ConfigError::new(reason));
         let known = |flow: FlowType| !matches!(flow, FlowType::Unknown(_));
         if !known(self.client_flow) || !known(self.server_flow) {
             return fail("client_flow and server_flow must be flow types FIXP defines");

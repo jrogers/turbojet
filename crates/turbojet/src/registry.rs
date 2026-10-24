@@ -156,7 +156,14 @@ impl fmt::Display for SequenceError {
     }
 }
 
-impl std::error::Error for SequenceError {}
+impl std::error::Error for SequenceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Storage(e) => Some(e),
+            _ => None,
+        }
+    }
+}
 
 impl From<io::Error> for SequenceError {
     fn from(e: io::Error) -> Self {

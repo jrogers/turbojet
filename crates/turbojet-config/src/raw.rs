@@ -144,7 +144,7 @@ pub(crate) struct RawAcceptor {
 
 impl RawAcceptor {
     /// `allow`, the addresses connections are accepted from: `None` for any.
-    pub(crate) fn allowed(&self) -> Result<Option<turbojet::AllowedIps>, String> {
+    pub(crate) fn allowed(&self) -> Result<Option<turbojet::AllowedIps>, turbojet::ConfigError> {
         self.allow.as_ref().map(turbojet::AllowedIps::new).transpose()
     }
 }

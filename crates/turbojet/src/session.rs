@@ -72,9 +72,10 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
-impl From<String> for ConfigError {
-    fn from(message: String) -> Self {
-        Self(message)
+impl ConfigError {
+    /// A configuration problem, described by `message`.
+    pub(crate) fn new(message: impl Into<String>) -> Self {
+        Self(message.into())
     }
 }
 

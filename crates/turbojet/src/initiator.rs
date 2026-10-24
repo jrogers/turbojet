@@ -145,7 +145,7 @@ impl InitiatorConfig {
     ///
     /// The first problem found.
     pub fn check(&self) -> Result<(), ConfigError> {
-        self.first_problem().map_err(ConfigError::from)
+        self.first_problem().map_err(ConfigError::new)
     }
 
     /// [`check`](Self::check), as text.
@@ -337,7 +337,7 @@ impl Initiator {
     ) -> Result<Self, ConfigError> {
         config.check()?;
         if !config.session.clock.same_as(registry.clock()) {
-            return Err(ConfigError::from("the configuration's clock isn't the registry's".to_string()));
+            return Err(ConfigError::new("the configuration's clock isn't the registry's"));
         }
         Ok(Self {
             config: Arc::new(RwLock::new(Arc::new(config))),
@@ -359,7 +359,7 @@ impl Initiator {
     /// of its [`SessionId`]) or another clock than the one this initiator was made with: those
     /// make another initiator.
     pub fn reconfigure(&self, config: InitiatorConfig) -> Result<(), ConfigError> {
-        self.reconfigure_or(config).map_err(ConfigError::from)
+        self.reconfigure_or(config).map_err(ConfigError::new)
     }
 
     fn reconfigure_or(&self, config: InitiatorConfig) -> Result<(), String> {

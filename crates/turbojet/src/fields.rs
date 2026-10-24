@@ -29,6 +29,17 @@ pub enum ValueError {
     Format,
 }
 
+impl fmt::Display for ValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Incorrect => "not a permitted value",
+            Self::Format => "not in the field's data format",
+        })
+    }
+}
+
+impl std::error::Error for ValueError {}
+
 /// An enumerated field's type, as defined with [`fix_enum!`](crate::fix_enum): its values and
 /// their FIX codes.
 pub trait FixEnum: Sized + Copy {

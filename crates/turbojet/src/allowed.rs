@@ -1,5 +1,6 @@
 //! [`AllowedIps`]: the addresses an acceptor accepts connections from.
 
+use crate::session::ConfigError;
 use std::fmt;
 use std::net::IpAddr;
 
@@ -15,7 +16,7 @@ use std::net::IpAddr;
 /// let allowed = AllowedIps::new(["10.1.0.0/16", "203.0.113.5", "2001:db8::/32"])?;
 /// assert!(allowed.contains("10.1.2.3".parse().unwrap()));
 /// assert!(!allowed.contains("10.2.0.1".parse().unwrap()));
-/// # Ok::<(), String>(())
+/// # Ok::<(), turbojet::ConfigError>(())
 /// ```
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct AllowedIps(Vec<(IpAddr, u8)>);
@@ -28,8 +29,9 @@ impl AllowedIps {
     ///
     /// The first entry that isn't one, or a range with bits set past its prefix length
     /// (`10.1.2.0/16`), which is more likely a mistake than meant.
-    pub fn new(entries: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, String> {
-        entries.into_iter().map(|entry| parse(entry.as_ref())).collect::<Result<_, _>>().map(Self)
+    pub fn new(entries: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, ConfigError> {
+        let entries = entries.into_iter().map(|entry| parse(entry.as_ref()));
+        entries.collect::<Result<_, _>>().map(Self).map_err(ConfigError::new)
     }
 
     /// Whether a connection from `ip` is accepted.
@@ -128,9 +130,9 @@ mod tests {
 
     #[test]
     fn mistakes_are_refused() {
-        assert!(AllowedIps::new(["10.1.2.0/16"]).unwrap_err().contains("did you mean 10.1.0.0/16?"));
-        assert!(AllowedIps::new(["10.0.0.0/33"]).unwrap_err().contains("0 to 32"));
-        assert!(AllowedIps::new(["2001:db8::/129"]).unwrap_err().contains("0 to 128"));
-        assert!(AllowedIps::new(["venue.example"]).unwrap_err().contains("isn't an IP address"));
+        assert!(AllowedIps::new(["10.1.2.0/16"]).unwrap_err().to_string().contains("did you mean 10.1.0.0/16?"));
+        assert!(AllowedIps::new(["10.0.0.0/33"]).unwrap_err().to_string().contains("0 to 32"));
+        assert!(AllowedIps::new(["2001:db8::/129"]).unwrap_err().to_string().contains("0 to 128"));
+        assert!(AllowedIps::new(["venue.example"]).unwrap_err().to_string().contains("isn't an IP address"));
     }
 }

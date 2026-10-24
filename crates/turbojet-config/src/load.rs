@@ -385,7 +385,7 @@ fn connection_keys(
             None => Ok(()),
         };
     };
-    let mut proxy: turbojet::Proxy = url.parse().map_err(|e| at("proxy", e))?;
+    let mut proxy: turbojet::Proxy = url.parse().map_err(|e: turbojet::ConfigError| at("proxy", e.to_string()))?;
     if let Some(variable) = &own.proxy_password_env {
         let password = std::env::var(variable)
             .map_err(|e| at("proxy_password_env", format!("environment variable {variable}: {e}")))?;
@@ -580,7 +580,8 @@ fn apply(
         update(config, |c| c.with_data_field(length_tag, data_tag));
     }
     if let Some(limit) = &settings.outbound_limit {
-        config.outbound_limit = off_or(limit, str::parse::<RateLimit>).map_err(|e| at("outbound_limit", e))?;
+        config.outbound_limit =
+            off_or(limit, str::parse::<RateLimit>).map_err(|e| at("outbound_limit", e.to_string()))?;
     }
     config.inbound_limit = inbound_limit(settings, section)?;
     config.cancel_on_disconnect = cancel_on_disconnect(settings, section)?;
@@ -604,7 +605,7 @@ fn update(config: &mut SessionConfig, build: impl FnOnce(SessionConfig) -> Sessi
 }
 
 /// `off`, or a value `parse` reads.
-fn off_or<T>(text: &str, parse: impl Fn(&str) -> Result<T, String>) -> Result<Option<T>, String> {
+fn off_or<T, E>(text: &str, parse: impl Fn(&str) -> Result<T, E>) -> Result<Option<T>, E> {
     if text == "off" { Ok(None) } else { parse(text).map(Some) }
 }
 
@@ -620,7 +621,7 @@ fn schedule(settings: &RawSettings, section: &str, dir: &Path) -> Result<Option<
     let path = dir.join(path);
     let at = |e: String| Error::at(section, "holidays", format!("{}: {e}", path.display()));
     let text = std::fs::read_to_string(&path).map_err(|e| at(e.to_string()))?;
-    let holidays: HolidayCalendar = text.parse().map_err(at)?;
+    let holidays: HolidayCalendar = text.parse().map_err(|e: turbojet::ConfigError| at(e.to_string()))?;
     Ok(Some(schedule.with_holidays(holidays)))
 }
 

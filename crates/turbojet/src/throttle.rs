@@ -1,5 +1,6 @@
 //! Message-rate limits: at most N messages in any window of length W.
 
+use crate::session::ConfigError;
 use std::collections::VecDeque;
 use std::fmt;
 use std::str::FromStr;
@@ -87,24 +88,29 @@ impl fmt::Display for RateLimit {
 }
 
 impl FromStr for RateLimit {
-    type Err = String;
+    type Err = ConfigError;
 
     /// Parses `N/W`: a message count, then a window such as `1s`, `200ms`, `1m` or `s`.
-    fn from_str(s: &str) -> Result<Self, String> {
-        let (messages, per) =
-            s.split_once('/').ok_or_else(|| format!("expected a rate limit N/W, e.g. 100/1s, not '{s}'"))?;
-        let messages = messages.trim();
-        // `u32::from_str` takes a leading `+`; a count is plain digits.
-        if !messages.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(format!("invalid message count '{messages}' in '{s}'"));
-        }
-        let messages = messages.parse().map_err(|_| format!("invalid message count '{messages}' in '{s}'"))?;
-        let limit = Self { messages, per: parse_per(per.trim())? };
-        limit.check()?;
-        // A limit displays as it parses: what a config file or a log shows reads back the same.
-        assert_eq!(parse_per(&Per(limit.per).to_string()), Ok(limit.per));
-        Ok(limit)
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
+        parse_rate_limit(s).map_err(ConfigError::new)
     }
+}
+
+/// [`RateLimit::from_str`], its error as text.
+fn parse_rate_limit(s: &str) -> Result<RateLimit, String> {
+    let (messages, per) =
+        s.split_once('/').ok_or_else(|| format!("expected a rate limit N/W, e.g. 100/1s, not '{s}'"))?;
+    let messages = messages.trim();
+    // `u32::from_str` takes a leading `+`; a count is plain digits.
+    if !messages.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("invalid message count '{messages}' in '{s}'"));
+    }
+    let messages = messages.parse().map_err(|_| format!("invalid message count '{messages}' in '{s}'"))?;
+    let limit = RateLimit { messages, per: parse_per(per.trim())? };
+    limit.check()?;
+    // A limit displays as it parses: what a config file or a log shows reads back the same.
+    assert_eq!(parse_per(&Per(limit.per).to_string()), Ok(limit.per));
+    Ok(limit)
 }
 
 /// A window: an optional whole number, then a unit. A bare unit means one of it.
@@ -306,7 +312,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_limits_saying_what_is_wrong() {
-        let error = |s: &str| s.parse::<RateLimit>().unwrap_err();
+        let error = |s: &str| s.parse::<RateLimit>().unwrap_err().to_string();
         assert!(error("0/1s").contains("at least 1"), "{}", error("0/1s"));
         assert!(error("100/0s").contains("longer than zero"), "{}", error("100/0s"));
         assert!(error("100").contains("N/W"), "{}", error("100"));

@@ -282,9 +282,9 @@ impl FixpInitiatorConfig {
         self.session.check()?;
         self.reconnect.check()?;
         #[cfg(feature = "tls")]
-        return endpoints_problem(&self.endpoints, self.tls.as_ref()).map_err(ConfigError::from);
+        return endpoints_problem(&self.endpoints, self.tls.as_ref()).map_err(ConfigError::new);
         #[cfg(not(feature = "tls"))]
-        return endpoints_problem(&self.endpoints).map_err(ConfigError::from);
+        return endpoints_problem(&self.endpoints).map_err(ConfigError::new);
     }
 }
 

@@ -75,7 +75,7 @@ impl Counterparty {
     /// config failing [`SessionConfig::check`], or a heartbeat range outside
     /// [`DEFAULT_HEARTBEAT`](Self::DEFAULT_HEARTBEAT).
     pub fn check(&self, base: &SessionConfig) -> Result<(), crate::ConfigError> {
-        self.first_problem(base).map_err(crate::ConfigError::from)
+        self.first_problem(base).map_err(crate::ConfigError::new)
     }
 
     /// [`check`](Self::check), as text.
@@ -225,7 +225,7 @@ mod tests {
             let mut counterparty = Counterparty::new(base.clone());
             change(&mut counterparty.config);
             let error = format!("the counterparty's {field} differs from the acceptor's");
-            assert_eq!(counterparty.check(&base), Err(error.into()), "{field}");
+            assert_eq!(counterparty.check(&base), Err(crate::ConfigError::new(error)), "{field}");
         }
     }
 

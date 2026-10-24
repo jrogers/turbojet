@@ -134,6 +134,18 @@ pub struct Invalid {
     pub text: String,
 }
 
+/// The Text, with the tag if there is one: `tag 55: Required tag missing`.
+impl fmt::Display for Invalid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.tag {
+            Some(tag) => write!(f, "tag {tag}: {}", self.text),
+            None => f.write_str(&self.text),
+        }
+    }
+}
+
+impl std::error::Error for Invalid {}
+
 /// A data dictionary compiled for checking messages; see the [module docs](self).
 pub struct Validator {
     messages: FastMap<String, Rules>,

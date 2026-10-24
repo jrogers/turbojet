@@ -28,6 +28,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::session::ConfigError;
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Utc, Weekday,
 };
@@ -158,24 +159,29 @@ impl fmt::Display for ScheduleTimeZone {
 }
 
 impl FromStr for ScheduleTimeZone {
-    type Err = String;
+    type Err = ConfigError;
 
-    fn from_str(s: &str) -> Result<Self, String> {
-        if s.eq_ignore_ascii_case("UTC") || s.eq_ignore_ascii_case("Z") {
-            return Ok(Self::Utc);
-        }
-        if s.starts_with('+') || s.starts_with('-') {
-            let offset = parse_offset(s).ok_or_else(|| format!("invalid UTC offset '{s}' (expected e.g. +05:30)"))?;
-            return Ok(Self::Fixed(offset));
-        }
-        #[cfg(feature = "tz")]
-        {
-            s.parse::<chrono_tz::Tz>().map(Self::Named).map_err(|_| format!("unknown time zone '{s}'"))
-        }
-        #[cfg(not(feature = "tz"))]
-        {
-            Err(format!("named time zones like '{s}' need turbojet's `tz` feature; use UTC or an offset"))
-        }
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
+        parse_time_zone(s).map_err(ConfigError::new)
+    }
+}
+
+/// [`ScheduleTimeZone::from_str`], its error as text.
+fn parse_time_zone(s: &str) -> Result<ScheduleTimeZone, String> {
+    if s.eq_ignore_ascii_case("UTC") || s.eq_ignore_ascii_case("Z") {
+        return Ok(ScheduleTimeZone::Utc);
+    }
+    if s.starts_with('+') || s.starts_with('-') {
+        let offset = parse_offset(s).ok_or_else(|| format!("invalid UTC offset '{s}' (expected e.g. +05:30)"))?;
+        return Ok(ScheduleTimeZone::Fixed(offset));
+    }
+    #[cfg(feature = "tz")]
+    {
+        s.parse::<chrono_tz::Tz>().map(ScheduleTimeZone::Named).map_err(|_| format!("unknown time zone '{s}'"))
+    }
+    #[cfg(not(feature = "tz"))]
+    {
+        Err(format!("named time zones like '{s}' need turbojet's `tz` feature; use UTC or an offset"))
     }
 }
 
@@ -253,21 +259,26 @@ impl FromIterator<NaiveDate> for HolidayCalendar {
 }
 
 impl FromStr for HolidayCalendar {
-    type Err = String;
+    type Err = ConfigError;
 
-    fn from_str(s: &str) -> Result<Self, String> {
-        let mut dates = BTreeSet::new();
-        for (index, line) in s.lines().enumerate() {
-            let text = line.split_once('#').map_or(line, |(before, _)| before).trim();
-            if text.is_empty() {
-                continue;
-            }
-            let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
-                .map_err(|_| format!("line {}: invalid date '{text}' (expected YYYY-MM-DD)", index + 1))?;
-            dates.insert(date);
-        }
-        Ok(Self { dates })
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
+        parse_calendar(s).map_err(ConfigError::new)
     }
+}
+
+/// [`HolidayCalendar::from_str`], its error as text.
+fn parse_calendar(s: &str) -> Result<HolidayCalendar, String> {
+    let mut dates = BTreeSet::new();
+    for (index, line) in s.lines().enumerate() {
+        let text = line.split_once('#').map_or(line, |(before, _)| before).trim();
+        if text.is_empty() {
+            continue;
+        }
+        let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
+            .map_err(|_| format!("line {}: invalid date '{text}' (expected YYYY-MM-DD)", index + 1))?;
+        dates.insert(date);
+    }
+    Ok(HolidayCalendar { dates })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -498,47 +509,51 @@ impl fmt::Display for SessionSchedule {
 }
 
 impl FromStr for SessionSchedule {
-    type Err = String;
+    type Err = ConfigError;
 
     /// Parses `daily HH:MM[:SS]-HH:MM[:SS] [DAYS] [ZONE]` or
     /// `weekly DAY HH:MM[:SS]-DAY HH:MM[:SS] [ZONE]`. DAYS is a comma-separated list of days or
     /// ranges (`mon-fri`, `mon,wed,fri`, `sun-thu`); ZONE defaults to UTC.
-    fn from_str(s: &str) -> Result<Self, String> {
-        let normalized = s.trim().replace(" - ", "-");
-        let mut words = normalized.split_whitespace();
-        let kind = words.next().ok_or("empty schedule")?.to_ascii_lowercase();
-        let rest: Vec<&str> = words.collect();
-        let (schedule, zone) = match kind.as_str() {
-            "daily" => {
-                let (range, rest) = rest.split_first().ok_or("daily schedule needs HH:MM-HH:MM")?;
-                let (start, end) =
-                    range.split_once('-').ok_or_else(|| format!("expected HH:MM-HH:MM, got '{range}'"))?;
-                let mut schedule = Self::daily(parse_time(start)?, parse_time(end)?);
-                let mut rest = rest;
-                if let Some((first, after)) = rest.split_first()
-                    && let Ok(days) = parse_days(first)
-                {
-                    schedule = schedule.on_days(days);
-                    rest = after;
-                }
-                (schedule, rest)
+    fn from_str(s: &str) -> Result<Self, ConfigError> {
+        parse_schedule(s).map_err(ConfigError::new)
+    }
+}
+
+/// [`SessionSchedule::from_str`], its error as text.
+fn parse_schedule(s: &str) -> Result<SessionSchedule, String> {
+    let normalized = s.trim().replace(" - ", "-");
+    let mut words = normalized.split_whitespace();
+    let kind = words.next().ok_or("empty schedule")?.to_ascii_lowercase();
+    let rest: Vec<&str> = words.collect();
+    let (schedule, zone) = match kind.as_str() {
+        "daily" => {
+            let (range, rest) = rest.split_first().ok_or("daily schedule needs HH:MM-HH:MM")?;
+            let (start, end) = range.split_once('-').ok_or_else(|| format!("expected HH:MM-HH:MM, got '{range}'"))?;
+            let mut schedule = SessionSchedule::daily(parse_time(start)?, parse_time(end)?);
+            let mut rest = rest;
+            if let Some((first, after)) = rest.split_first()
+                && let Ok(days) = parse_days(first)
+            {
+                schedule = schedule.on_days(days);
+                rest = after;
             }
-            "weekly" => {
-                if rest.len() < 3 {
-                    return Err("weekly schedule needs DAY HH:MM-DAY HH:MM".into());
-                }
-                let (start, end) = rest[1].split_once('-').ok_or("weekly schedule needs DAY HH:MM-DAY HH:MM")?;
-                let schedule =
-                    Self::weekly(parse_day(rest[0])?, parse_time(start)?, parse_day(end)?, parse_time(rest[2])?);
-                (schedule, &rest[3..])
-            }
-            other => return Err(format!("schedule must start with 'daily' or 'weekly', not '{other}'")),
-        };
-        match zone {
-            [] => Ok(schedule),
-            [zone] => Ok(schedule.in_time_zone(zone.parse()?)),
-            [_, extra, ..] => Err(format!("unexpected '{extra}' in schedule")),
+            (schedule, rest)
         }
+        "weekly" => {
+            if rest.len() < 3 {
+                return Err("weekly schedule needs DAY HH:MM-DAY HH:MM".into());
+            }
+            let (start, end) = rest[1].split_once('-').ok_or("weekly schedule needs DAY HH:MM-DAY HH:MM")?;
+            let schedule =
+                SessionSchedule::weekly(parse_day(rest[0])?, parse_time(start)?, parse_day(end)?, parse_time(rest[2])?);
+            (schedule, &rest[3..])
+        }
+        other => return Err(format!("schedule must start with 'daily' or 'weekly', not '{other}'")),
+    };
+    match zone {
+        [] => Ok(schedule),
+        [zone] => Ok(schedule.in_time_zone(parse_time_zone(zone)?)),
+        [_, extra, ..] => Err(format!("unexpected '{extra}' in schedule")),
     }
 }
 
@@ -695,7 +710,7 @@ mod tests {
             ("daily 08:00-17:00 +25:00", "invalid UTC offset"),
             ("daily 08:00-17:00 mon-fri UTC extra", "unexpected 'extra'"),
         ] {
-            let err = text.parse::<SessionSchedule>().unwrap_err();
+            let err = text.parse::<SessionSchedule>().unwrap_err().to_string();
             assert!(err.contains(expected), "{text}: {err}");
         }
         #[cfg(not(feature = "tz"))]
@@ -726,10 +741,10 @@ mod tests {
 
     #[test]
     fn holiday_calendars_reject_bad_dates_with_their_line() {
-        let err = "2026-12-25\n2026-13-01\n".parse::<HolidayCalendar>().unwrap_err();
+        let err = "2026-12-25\n2026-13-01\n".parse::<HolidayCalendar>().unwrap_err().to_string();
         assert!(err.contains("line 2"), "{err}");
         assert!(err.contains("'2026-13-01'"), "{err}");
-        let err = "2026-12-25 2026-12-26".parse::<HolidayCalendar>().unwrap_err();
+        let err = "2026-12-25 2026-12-26".parse::<HolidayCalendar>().unwrap_err().to_string();
         assert!(err.contains("line 1"), "{err}");
     }
 

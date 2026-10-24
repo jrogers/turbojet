@@ -41,7 +41,7 @@ impl ReconnectPolicy {
     ///
     /// The first problem found.
     pub fn check(&self) -> Result<(), crate::ConfigError> {
-        self.first_problem().map_err(crate::ConfigError::from)
+        self.first_problem().map_err(crate::ConfigError::new)
     }
 
     /// [`check`](Self::check), as text.
