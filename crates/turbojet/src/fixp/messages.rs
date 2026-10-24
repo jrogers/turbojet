@@ -317,7 +317,7 @@ impl std::fmt::Debug for NegotiateRef<'_> {
             .field("session_id", &self.session_id())
             .field("timestamp", &self.timestamp())
             .field("client_flow", &self.client_flow())
-            .field("credentials", &self.credentials())
+            .field("credentials", &format_args!("***"))
             .finish()
     }
 }
@@ -434,7 +434,7 @@ impl std::fmt::Debug for NegotiationResponseRef<'_> {
             .field("session_id", &self.session_id())
             .field("request_timestamp", &self.request_timestamp())
             .field("server_flow", &self.server_flow())
-            .field("credentials", &self.credentials())
+            .field("credentials", &format_args!("***"))
             .finish()
     }
 }
@@ -791,7 +791,7 @@ impl std::fmt::Debug for EstablishRef<'_> {
             .field("timestamp", &self.timestamp())
             .field("keepalive_interval", &self.keepalive_interval())
             .field("next_seq_no", &self.next_seq_no())
-            .field("credentials", &self.credentials())
+            .field("credentials", &format_args!("***"))
             .finish()
     }
 }

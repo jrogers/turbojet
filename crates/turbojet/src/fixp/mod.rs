@@ -150,8 +150,8 @@ pub enum Role {
     Server(ServerConfig),
 }
 
-/// A client's identity and credentials.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A client's identity and credentials. `Debug` prints the credentials as `***`.
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ClientConfig {
     /// Names this client's log, and goes into the session IDs it negotiates.
@@ -169,8 +169,18 @@ impl ClientConfig {
     }
 }
 
-/// A server's identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+impl fmt::Debug for ClientConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientConfig")
+            .field("name", &self.name)
+            .field("server", &self.server)
+            .field("credentials", &format_args!("***"))
+            .finish()
+    }
+}
+
+/// A server's identity. `Debug` prints the credentials as `***`.
+#[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ServerConfig {
     /// Names the server's logs.
@@ -183,6 +193,12 @@ impl ServerConfig {
     /// A server called `name`, with no credentials.
     pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into(), credentials: Vec::new() }
+    }
+}
+
+impl fmt::Debug for ServerConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServerConfig").field("name", &self.name).field("credentials", &format_args!("***")).finish()
     }
 }
 
@@ -280,8 +296,8 @@ impl FixpConfig {
     }
 }
 
-/// A client asking to negotiate or establish, as the server's application sees it.
-#[derive(Debug)]
+/// A client asking to negotiate or establish, as the server's application sees it. `Debug` prints
+/// the credentials as `***`.
 #[non_exhaustive]
 pub struct ClientLogin<'a> {
     /// The session ID it names.
@@ -291,6 +307,16 @@ pub struct ClientLogin<'a> {
     /// The connection it came on: the client's address and, over TLS with client certificates,
     /// the certificate chain it presented, already verified against the configured CAs.
     pub connection: &'a ConnectionInfo,
+}
+
+impl fmt::Debug for ClientLogin<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ClientLogin")
+            .field("session_id", &self.session_id)
+            .field("credentials", &format_args!("***"))
+            .field("connection", &self.connection)
+            .finish()
+    }
 }
 
 /// An application message received, as the application sees it. On a sequenced flow, messages
@@ -464,6 +490,36 @@ mod mask_tests {
         assert_eq!(sequence, before);
         for end in 0..original.len() {
             mask_credentials(&mut original[..end].to_vec());
+        }
+    }
+
+    #[test]
+    fn debug_never_prints_credentials() {
+        let mut client = ClientConfig::new("C", "S");
+        client.credentials = b"user:secret".to_vec();
+        let mut server = ServerConfig::new("S");
+        server.credentials = b"user:secret".to_vec();
+        let connection = ConnectionInfo::default();
+        let login = ClientLogin { session_id: [7; 16], credentials: b"user:secret", connection: &connection };
+        let negotiate = messages::Negotiate {
+            session_id: [7; 16],
+            timestamp: 1,
+            client_flow: FlowType::Idempotent,
+            credentials: b"user:secret",
+        };
+        let mut frame = Vec::new();
+        framing::push(&mut frame, &negotiate).unwrap();
+        let (decoded, _) = messages::decode(&frame[framing::HEADER..]).unwrap();
+        for printed in [
+            format!("{client:?}"),
+            format!("{server:?}"),
+            format!("{:?}", FixpConfig::new(Role::Client(client.clone()))),
+            format!("{login:?}"),
+            format!("{decoded:?}"),
+        ] {
+            assert!(!printed.contains("secret"), "{printed}");
+            assert!(!printed.contains("117, 115, 101, 114"), "bytes of \"user\" in {printed}");
+            assert!(printed.contains("***"), "{printed}");
         }
     }
 }

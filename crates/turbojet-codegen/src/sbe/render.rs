@@ -511,8 +511,11 @@ impl<'s> Renderer<'s> {
             .chain(block.data.iter().map(|d| &d.name));
         for member in members {
             let method = field_ident(member);
-            writeln!(fields, "            .field({:?}, &self.{method}())", method.trim_start_matches("r#"))
-                .expect(INFALLIBLE);
+            let name = method.trim_start_matches("r#");
+            // Credentials and passwords print as *** so they can't leak into logs.
+            let value =
+                if is_secret(member) { "format_args!(\"***\")".to_string() } else { format!("self.{method}()") };
+            writeln!(fields, "            .field({name:?}, &{value})").expect(INFALLIBLE);
         }
         writeln!(
             self.out,
@@ -765,4 +768,10 @@ impl Prim {
             _ => 4,
         }
     }
+}
+
+/// Whether a member holds credentials, which `Debug` masks.
+fn is_secret(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.contains("credential") || name.contains("password")
 }

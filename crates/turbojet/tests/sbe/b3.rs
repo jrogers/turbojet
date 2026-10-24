@@ -2302,7 +2302,7 @@ impl std::fmt::Debug for NegotiateRef<'_> {
             .field("client_flow", &self.client_flow())
             .field("entering_firm", &self.entering_firm())
             .field("onbehalf_firm", &self.onbehalf_firm())
-            .field("credentials", &self.credentials())
+            .field("credentials", &format_args!("***"))
             .field("client_ip", &self.client_ip())
             .field("client_app_name", &self.client_app_name())
             .field("client_app_version", &self.client_app_version())
@@ -2736,7 +2736,7 @@ impl std::fmt::Debug for EstablishRef<'_> {
             .field("next_seq_no", &self.next_seq_no())
             .field("cancel_on_disconnect_type", &self.cancel_on_disconnect_type())
             .field("cod_timeout_window", &self.cod_timeout_window())
-            .field("credentials", &self.credentials())
+            .field("credentials", &format_args!("***"))
             .finish()
     }
 }
