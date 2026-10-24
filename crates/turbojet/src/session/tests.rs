@@ -739,6 +739,40 @@ fn initiator_logs_out_when_the_acceptor_expects_too_much() {
     assert_eq!(types(&out), ["Logout", "DISCONNECT"]);
 }
 
+/// An acceptor whose NextExpectedMsgSeqNum is our Logon, or the number after it, missed nothing
+/// before it: nothing is resent.
+#[test]
+fn initiator_resends_nothing_when_the_acceptor_missed_nothing() {
+    for their_next in ["4", "5"] {
+        let h = Harness::new();
+        let configure = |config: &mut InitiatorConfig| config.next_expected_msg_seq_num = true;
+        let mut first = h.initiator_with(configure);
+        first.connect(h.t0); // our 1: Logon
+        first.recv(logon(1), h.t0);
+        first.command(send_command("A"), h.t0); // our 2
+        first.command(send_command("B"), h.t0); // our 3
+        drop(first);
+
+        let mut s = h.initiator_with(configure);
+        s.connect(h.t0); // our 4: Logon
+        let out = s.recv(logon(2).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, their_next), h.t0);
+        assert!(out.is_empty(), "789 = {their_next}: {out:?}");
+        assert!(s.is_logged_on());
+    }
+}
+
+/// Only when both Logons carry NextExpectedMsgSeqNum is a gap left for the counterparty to
+/// resend unasked: an initiator that didn't send it asks.
+#[test]
+fn an_initiator_without_next_expected_asks_for_a_gap_at_logon() {
+    let h = Harness::new();
+    let mut s = h.initiator(false);
+    s.connect(h.t0); // our 1: Logon; we expect their 1
+    let out = s.recv(logon(3).with(tags::NEXT_EXPECTED_MSG_SEQ_NUM, "2"), h.t0);
+    assert_eq!(types(&out), ["ResendRequest"]);
+    assert_eq!(sent(&out)[0].get(tags::BEGIN_SEQ_NO), Some("1"));
+}
+
 // ---- Heartbeats ----
 
 #[test]
@@ -1503,6 +1537,31 @@ fn a_clean_end_clears_the_window_and_a_dropped_connection_keeps_it() {
     assert_eq!(storage.open(&id).unwrap().in_flight(), Some(3));
 }
 
+/// A session that logs out cleanly while messages recovered from before a restart may still come
+/// back keeps a window, so the next connection still marks them; once the next incoming number is
+/// past the recovered window, it doesn't.
+#[test]
+fn a_clean_end_keeps_a_recovered_window_until_it_is_passed() {
+    for (filled_to, kept) in [(256, true), (257, false)] {
+        let storage = Arc::new(MemoryStorage::new());
+        let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
+        {
+            let mut log = storage.open(&id).unwrap();
+            log.record_outgoing(1, None).unwrap();
+            log.set_next_incoming(2).unwrap();
+            log.set_in_flight(2).unwrap();
+        }
+        let h = Harness::with_storage(storage.clone());
+        let mut s = h.session();
+        assert_eq!(types(&s.recv(logon(4), h.t0)), ["Logon", "ResendRequest"]);
+        s.recv(gap_fill(2, filled_to), h.t0);
+        assert_eq!(types(&s.recv(client(filled_to, MsgType::Logout), h.t0)), ["Logout", "DISCONNECT"]);
+        drop(s);
+        // The window from 2 ends before 2 + DELIVERIES_PER_COMMIT, 258; the Logout took one number.
+        assert_eq!(storage.open(&id).unwrap().in_flight().is_some(), kept, "filled to {filled_to}");
+    }
+}
+
 /// A step of a resend changes nothing stored, so it costs no commit.
 #[test]
 fn a_resend_step_costs_no_commit() {
@@ -1760,6 +1819,10 @@ fn an_operator_change_after_the_store_failed_is_refused() {
     s.on_command(Command::Sequence(SequenceCommand::SetNextOutgoing(50), reply), h.t0);
     s.commit_blocking(h.t0);
     assert!(matches!(answer.try_recv().unwrap(), Err(SequenceError::Storage(_))));
+    // A query changes nothing, so it's still answered.
+    let (reply, mut answer) = tokio::sync::oneshot::channel();
+    s.on_command(Command::Sequence(SequenceCommand::Get, reply), h.t0);
+    assert!(answer.try_recv().unwrap().is_ok());
 }
 
 #[test]
@@ -1772,6 +1835,10 @@ fn an_operator_hears_of_a_change_once_it_is_committed() {
     let (reply, mut answer) = tokio::sync::oneshot::channel();
     s.on_command(Command::Sequence(SequenceCommand::SetNextIncoming(7), reply), h.t0);
     assert!(answer.try_recv().is_err(), "not committed yet");
+    // A query changes nothing, so it's answered at once.
+    let (query, mut numbers) = tokio::sync::oneshot::channel();
+    s.on_command(Command::Sequence(SequenceCommand::Get, query), h.t0);
+    assert_eq!(numbers.try_recv().unwrap().unwrap().next_incoming, 7);
     assert!(run_commit(&mut s, h.t0));
     assert_eq!(answer.try_recv().unwrap().unwrap().next_incoming, 7);
 }
@@ -3680,7 +3747,9 @@ mod operator_tests {
         let h = Harness::new();
         let mut s = h.logged_on();
         s.recv(order(5, "E"), h.t0); // gap: ResendRequest for 2..
-        operate_at(&mut s, SequenceCommand::SetNextIncoming(4), h.at(50)).0.unwrap();
+        let (result, out) = operate_at(&mut s, SequenceCommand::SetNextIncoming(4), h.at(50));
+        result.unwrap();
+        assert!(out.is_empty(), "the ResendRequest from 2 still covers 4: {out:?}");
         assert!(!types(&s.timer(h.at(60))).contains(&"ResendRequest".to_string()), "timed from 50 s");
         // Keep the link up after the TestRequest sent at 60 s; a duplicate is no progress.
         s.recv(resend_of(client(1, MsgType::Heartbeat)), h.at(80));
@@ -3709,6 +3778,23 @@ mod operator_tests {
         let h = Harness::new();
         let mut s = h.logged_on();
         assert!(matches!(operate(&mut s, SequenceCommand::Reset, &h).0, Err(SequenceError::Connected)));
+    }
+
+    #[test]
+    fn a_zero_next_incoming_is_refused() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        let (result, _) = operate(&mut s, SequenceCommand::SetNextIncoming(0), &h);
+        assert!(matches!(result, Err(SequenceError::Invalid(_))));
+        assert_eq!(s.peer().log.next_incoming(), 2);
+    }
+
+    #[test]
+    fn a_logout_under_way_is_not_sent_again() {
+        let h = Harness::new();
+        let mut s = h.logged_on();
+        assert_eq!(types(&s.command(Command::Logout(None), h.t0)), ["Logout"]);
+        assert!(s.command(Command::Logout(None), h.t0).is_empty());
     }
 
     #[test]
