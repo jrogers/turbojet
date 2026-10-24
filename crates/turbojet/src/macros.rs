@@ -448,7 +448,7 @@ macro_rules! fix_message {
             };
         }
         if let Some(error) = failed {
-            let failed_at = $crate::message::declared_at(__DECLARED_TAGS, error.tag);
+            let failed_at = $crate::message::__private::declared_at(__DECLARED_TAGS, error.tag);
             let mut _at = 0usize;
             $(
                 if _at < failed_at && $crate::fix_message!(@missing $presence $crate::fix_message!(@place $mode __slots $field)) {
@@ -532,27 +532,27 @@ macro_rules! fix_message {
         $crate::fix_message!(@take $mode $lt, opt $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
     (@take borrowed $lt:lifetime, opt $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
-        $crate::message::take_value_ref::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
+        $crate::message::__private::take_value_ref::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
         $index + 1
     }};
     (@take owned $lt:lifetime, opt $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
-        $crate::message::take_value::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
+        $crate::message::__private::take_value::<$ty>(&mut $slot, &mut $failed, $declared, $tag, $value);
         $index + 1
     }};
     (@take $mode:ident $lt:lifetime, req_group $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::fix_message!(@take $mode $lt, group $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
     (@take borrowed $lt:lifetime, group $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
-        $crate::message::take_group_ref::<<$ty as $crate::message::FixGroup>::Ref<$lt>>(&mut $slot, &$fields, $index, $tag)?
+        $crate::message::__private::take_group_ref::<<$ty as $crate::message::FixGroup>::Ref<$lt>>(&mut $slot, &$fields, $index, $tag)?
     }};
     (@take owned $lt:lifetime, group $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {{
-        $crate::message::take_group::<$ty>(&mut $slot, &$fields, $index, $tag)?
+        $crate::message::__private::take_group::<$ty>(&mut $slot, &$fields, $index, $tag)?
     }};
     (@take $mode:ident $lt:lifetime, data $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::fix_message!(@take $mode $lt, opt_data $ty, $slot, $fields, $index, $tag, $value, $failed, $declared, $tags)
     };
     (@take $mode:ident $lt:lifetime, opt_data $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
-        $crate::message::take_data_ref(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
+        $crate::message::__private::take_data_ref(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
     };
     // Whether a field fails as missing, for the error path.
     (@missing req $slot:expr) => { $slot.is_none() };
@@ -561,14 +561,14 @@ macro_rules! fix_message {
     (@missing req_group $slot:expr) => { $slot.as_ref().is_none_or(|entries| entries.is_empty()) };
     (@missing data $slot:expr) => { $slot.is_none() };
     (@missing opt_data $slot:expr) => { false };
-    (@finish $mode:ident req $ty:ty, $slot:expr, $tags:tt) => { $crate::message::required($crate::fix_message!(@key $tags), $slot)? };
+    (@finish $mode:ident req $ty:ty, $slot:expr, $tags:tt) => { $crate::message::__private::required($crate::fix_message!(@key $tags), $slot)? };
     (@finish $mode:ident opt $ty:ty, $slot:expr, $tags:tt) => { $slot };
     (@finish $mode:ident group $ty:ty, $slot:expr, $tags:tt) => { $slot.unwrap_or_default() };
     (@finish borrowed req_group $ty:ty, $slot:expr, $tags:tt) => {
-        $crate::message::required_group_ref($crate::fix_message!(@key $tags), $slot)?
+        $crate::message::__private::required_group_ref($crate::fix_message!(@key $tags), $slot)?
     };
     (@finish owned req_group $ty:ty, $slot:expr, $tags:tt) => {
-        $crate::message::required_group($crate::fix_message!(@key $tags), $slot)?
+        $crate::message::__private::required_group($crate::fix_message!(@key $tags), $slot)?
     };
     (@finish borrowed data $ty:ty, $slot:expr, $tags:tt) => { $crate::fix_message!(@finish borrowed req $ty, $slot, $tags) };
     (@finish owned data $ty:ty, $slot:expr, $tags:tt) => {
@@ -583,23 +583,23 @@ macro_rules! fix_message {
     (@spec data $ty:ty) => { None };
     (@spec opt_data $ty:ty) => { None };
     // Typed messages are built fresh with one field per tag, so fields are appended directly.
-    (@write req $msg:ident, [$tag:path], $value:expr) => { $crate::message::write_value(&mut $msg, $tag, $value) };
+    (@write req $msg:ident, [$tag:path], $value:expr) => { $crate::message::__private::write_value(&mut $msg, $tag, $value) };
     // Only a field that's set costs a call: most of a large message's optional fields are empty.
     (@write opt $msg:ident, [$tag:path], $value:expr) => {
         if let Some(value) = $value {
-            $crate::message::write_value(&mut $msg, $tag, value);
+            $crate::message::__private::write_value(&mut $msg, $tag, value);
         }
     };
     (@write req_group $msg:ident, $tags:tt, $value:expr) => {
         $crate::fix_message!(@write group $msg, $tags, $value)
     };
-    (@write group $msg:ident, [$tag:path], $value:expr) => { $crate::message::write_group(&mut $msg, $tag, $value) };
+    (@write group $msg:ident, [$tag:path], $value:expr) => { $crate::message::__private::write_group(&mut $msg, $tag, $value) };
     (@write data $msg:ident, [$length:path => $data:path], $value:expr) => {
-        $crate::message::write_data(&mut $msg, $length, $data, $value)
+        $crate::message::__private::write_data(&mut $msg, $length, $data, $value)
     };
     (@write opt_data $msg:ident, [$length:path => $data:path], $value:expr) => {
         if let Some(value) = $value {
-            $crate::message::write_data(&mut $msg, $length, $data, value);
+            $crate::message::__private::write_data(&mut $msg, $length, $data, value);
         }
     };
 }

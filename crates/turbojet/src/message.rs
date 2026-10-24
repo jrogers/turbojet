@@ -907,195 +907,188 @@ fn conversion_error(tag: u32, raw: &str, error: ValueError) -> FieldError {
     FieldError { tag, kind }
 }
 
-/// A required field: `Missing` if absent.
+/// What `fix_message!`, `fix_group!` and the generated code call: not for use otherwise.
 #[doc(hidden)]
-#[inline(always)]
-pub fn required<T>(tag: u32, value: Option<T>) -> Result<T, FieldError> {
-    value.ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
-}
+pub mod __private {
+    use super::*;
 
-/// Notes that the value of `tag`, the field declared at its position in `tags`, failed to convert,
-/// unless a field declared earlier has already failed.
-#[doc(hidden)]
-#[cold]
-#[inline(never)]
-pub fn conversion_failed(failed: &mut Option<FieldError>, tags: &[u32], tag: u32, raw: &str, error: ValueError) {
-    // Strictly earlier: a repeat of the same tag keeps the first occurrence's error.
-    if failed.as_ref().is_none_or(|earlier| declared_at(tags, tag) < declared_at(tags, earlier.tag)) {
-        *failed = Some(conversion_error(tag, raw, error));
+    /// A required field: `Missing` if absent.
+    #[inline(always)]
+    pub fn required<T>(tag: u32, value: Option<T>) -> Result<T, FieldError> {
+        value.ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
     }
-}
 
-// The helpers below do the per-field work of typed parsing and writing. They're generic over the
-// field's type and kept out of line, so each type has one copy however many fields use it:
-// inlined into every field of every generated message, they made large dictionaries slow to
-// compile (FIX 4.4's messages took 75 s in release, against 16 s) for a few percent of speed.
-
-/// Converts a field's first occurrence into its slot, borrowed from the message; a failure,
-/// including a binary value (`None`) in a field that isn't declared as data, is noted in `failed`
-/// (see [`conversion_failed`]). Later occurrences are ignored.
-#[doc(hidden)]
-#[inline(never)]
-pub fn take_value_ref<'a, T: FieldRef<'a>>(
-    slot: &mut Option<T::Ref>,
-    failed: &mut Option<FieldError>,
-    tags: &[u32],
-    tag: u32,
-    raw: Option<&'a str>,
-) {
-    // After a failed conversion the slot stays empty and a repeat is converted too, but the parse
-    // fails anyway, with the first occurrence's error.
-    if slot.is_none() {
-        match raw.map(T::parse_ref) {
-            Some(Ok(value)) => *slot = Some(value),
-            Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
-            None => conversion_failed(failed, tags, tag, "", ValueError::Format),
+    /// Notes that the value of `tag`, the field declared at its position in `tags`, failed to convert,
+    /// unless a field declared earlier has already failed.
+    #[cold]
+    #[inline(never)]
+    pub fn conversion_failed(failed: &mut Option<FieldError>, tags: &[u32], tag: u32, raw: &str, error: ValueError) {
+        // Strictly earlier: a repeat of the same tag keeps the first occurrence's error.
+        if failed.as_ref().is_none_or(|earlier| declared_at(tags, tag) < declared_at(tags, earlier.tag)) {
+            *failed = Some(conversion_error(tag, raw, error));
         }
     }
-}
 
-/// [`take_value_ref`], keeping the value owned: converted as the borrowed form's is, so it fails
-/// alike, and then made owned.
-#[doc(hidden)]
-#[inline(never)]
-pub fn take_value<'a, T: FieldRef<'a>>(
-    slot: &mut Option<T>,
-    failed: &mut Option<FieldError>,
-    tags: &[u32],
-    tag: u32,
-    raw: Option<&'a str>,
-) {
-    // Its own copy of take_value_ref's body rather than a call to it: one call per field, not two.
-    if slot.is_none() {
-        match raw.map(T::parse_ref) {
-            Some(Ok(value)) => *slot = Some(T::into_owned(value)),
-            Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
-            None => conversion_failed(failed, tags, tag, "", ValueError::Format),
+    // The helpers below do the per-field work of typed parsing and writing. They're generic over the
+    // field's type and kept out of line, so each type has one copy however many fields use it:
+    // inlined into every field of every generated message, they made large dictionaries slow to
+    // compile (FIX 4.4's messages took 75 s in release, against 16 s) for a few percent of speed.
+
+    /// Converts a field's first occurrence into its slot, borrowed from the message; a failure,
+    /// including a binary value (`None`) in a field that isn't declared as data, is noted in `failed`
+    /// (see [`conversion_failed`]). Later occurrences are ignored.
+    #[inline(never)]
+    pub fn take_value_ref<'a, T: FieldRef<'a>>(
+        slot: &mut Option<T::Ref>,
+        failed: &mut Option<FieldError>,
+        tags: &[u32],
+        tag: u32,
+        raw: Option<&'a str>,
+    ) {
+        // After a failed conversion the slot stays empty and a repeat is converted too, but the parse
+        // fails anyway, with the first occurrence's error.
+        if slot.is_none() {
+            match raw.map(T::parse_ref) {
+                Some(Ok(value)) => *slot = Some(value),
+                Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
+                None => conversion_failed(failed, tags, tag, "", ValueError::Format),
+            }
         }
     }
-}
 
-/// [`take_group_ref`], parsing each entry straight into its owned form, once: the group is
-/// checked whole first, so a structural error anywhere in it wins over an earlier entry's
-/// conversion error, as it does borrowed.
-#[doc(hidden)]
-#[inline(never)]
-pub fn take_group<G: FixGroup>(
-    slot: &mut Option<Vec<G>>,
-    fields: &Fields<'_>,
-    index: usize,
-    tag: u32,
-) -> Result<usize, FieldError> {
-    // Within the view, as `Fields::group` scans.
-    let (count, end) = check_group(fields.msg, index, fields.end, tag, &G::SPEC)?;
-    if slot.is_some() {
-        return Ok(end);
-    }
-    let group: Group<'_, G::Ref<'_>> = Group::new(fields.msg, index + 1, end, count);
-    // At most one entry per field checked, so the message's size bounds it.
-    let mut entries = Vec::with_capacity(group.len());
-    for entry in group.entries() {
-        entries.push(G::from_fields(entry)?);
-    }
-    debug_assert_eq!(entries.len(), group.len());
-    *slot = Some(entries);
-    Ok(end)
-}
-
-/// Checks the repeating group whose NumInGroup field is at `index` and stores it in its slot,
-/// borrowed, returning the index after it. A second occurrence is skipped, like any repeated
-/// field, but whole: its entries aren't read as the message's own fields, and if it's malformed,
-/// so that its end can't be found, it fails the parse. An entry that fails to parse fails the
-/// parse.
-#[doc(hidden)]
-#[inline(never)]
-pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
-    slot: &mut Option<Group<'a, G>>,
-    fields: &Fields<'a>,
-    index: usize,
-    tag: u32,
-) -> Result<usize, FieldError> {
-    let spec = &<G::Owned as FixGroup>::SPEC;
-    // Within the view, as `Fields::group` scans.
-    let (count, end) = check_group(fields.msg, index, fields.end, tag, spec)?;
-    if slot.is_some() {
-        return Ok(end);
-    }
-    let group = Group::new(fields.msg, index + 1, end, count);
-    // Each entry is parsed now, in order, so a bad one fails the parse; the entries are parsed
-    // again as the group is iterated. Not inside the walk above: the group is checked whole before
-    // any entry is converted, so a structural error anywhere in it wins over an earlier entry's
-    // conversion error.
-    let mut parsed = 0usize;
-    for entry in group.entries() {
-        G::from_fields(entry)?;
-        parsed += 1;
-    }
-    debug_assert_eq!(parsed, group.len());
-    *slot = Some(group);
-    Ok(end)
-}
-
-/// Appends a field.
-#[doc(hidden)]
-#[inline(never)]
-pub fn write_value<T: ToFix>(msg: &mut Message, tag: u32, value: &T) {
-    msg.push(tag, value);
-}
-
-/// Takes a data field's first occurrence into its slot, borrowed from the message; its Length
-/// field, which comes first and which decoding has already checked, is skipped.
-#[doc(hidden)]
-#[inline(never)]
-pub fn take_data_ref<'a>(
-    slot: &mut Option<&'a [u8]>,
-    fields: &Fields<'a>,
-    index: usize,
-    tag: u32,
-    data_tag: u32,
-) -> usize {
-    if tag == data_tag && slot.is_none() {
-        *slot = Some(fields.bytes_at(index));
-    }
-    index + 1
-}
-
-/// Appends a data field after its Length field.
-#[doc(hidden)]
-#[inline(never)]
-pub fn write_data(msg: &mut Message, length_tag: u32, data_tag: u32, value: &[u8]) {
-    msg.push_data(length_tag, data_tag, value);
-}
-
-/// Appends a repeating group, NumInGroup first, unless it has no entries.
-#[doc(hidden)]
-#[inline(never)]
-pub fn write_group<G: FixGroup>(msg: &mut Message, tag: u32, entries: &[G]) {
-    if !entries.is_empty() {
-        msg.push(tag, entries.len() as u64);
-        for entry in entries {
-            entry.write(msg);
+    /// [`take_value_ref`], keeping the value owned: converted as the borrowed form's is, so it fails
+    /// alike, and then made owned.
+    #[inline(never)]
+    pub fn take_value<'a, T: FieldRef<'a>>(
+        slot: &mut Option<T>,
+        failed: &mut Option<FieldError>,
+        tags: &[u32],
+        tag: u32,
+        raw: Option<&'a str>,
+    ) {
+        // Its own copy of take_value_ref's body rather than a call to it: one call per field, not two.
+        if slot.is_none() {
+            match raw.map(T::parse_ref) {
+                Some(Ok(value)) => *slot = Some(T::into_owned(value)),
+                Some(Err(error)) => conversion_failed(failed, tags, tag, raw.unwrap_or_default(), error),
+                None => conversion_failed(failed, tags, tag, "", ValueError::Format),
+            }
         }
     }
-}
 
-/// `tag`'s position in `tags`.
-#[doc(hidden)]
-pub fn declared_at(tags: &[u32], tag: u32) -> usize {
-    tags.iter().position(|&t| t == tag).unwrap_or(usize::MAX)
-}
+    /// [`take_group_ref`], parsing each entry straight into its owned form, once: the group is
+    /// checked whole first, so a structural error anywhere in it wins over an earlier entry's
+    /// conversion error, as it does borrowed.
+    #[inline(never)]
+    pub fn take_group<G: FixGroup>(
+        slot: &mut Option<Vec<G>>,
+        fields: &Fields<'_>,
+        index: usize,
+        tag: u32,
+    ) -> Result<usize, FieldError> {
+        // Within the view, as `Fields::group` scans.
+        let (count, end) = check_group(fields.msg, index, fields.end, tag, &G::SPEC)?;
+        if slot.is_some() {
+            return Ok(end);
+        }
+        let group: Group<'_, G::Ref<'_>> = Group::new(fields.msg, index + 1, end, count);
+        // At most one entry per field checked, so the message's size bounds it.
+        let mut entries = Vec::with_capacity(group.len());
+        for entry in group.entries() {
+            entries.push(G::from_fields(entry)?);
+        }
+        debug_assert_eq!(entries.len(), group.len());
+        *slot = Some(entries);
+        Ok(end)
+    }
 
-/// A required group: `Missing` if absent or empty.
-#[doc(hidden)]
-#[inline(never)]
-pub fn required_group_ref<G>(tag: u32, group: Option<Group<'_, G>>) -> Result<Group<'_, G>, FieldError> {
-    group.filter(|group| !group.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
-}
+    /// Checks the repeating group whose NumInGroup field is at `index` and stores it in its slot,
+    /// borrowed, returning the index after it. A second occurrence is skipped, like any repeated
+    /// field, but whole: its entries aren't read as the message's own fields, and if it's malformed,
+    /// so that its end can't be found, it fails the parse. An entry that fails to parse fails the
+    /// parse.
+    #[inline(never)]
+    pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
+        slot: &mut Option<Group<'a, G>>,
+        fields: &Fields<'a>,
+        index: usize,
+        tag: u32,
+    ) -> Result<usize, FieldError> {
+        let spec = &<G::Owned as FixGroup>::SPEC;
+        // Within the view, as `Fields::group` scans.
+        let (count, end) = check_group(fields.msg, index, fields.end, tag, spec)?;
+        if slot.is_some() {
+            return Ok(end);
+        }
+        let group = Group::new(fields.msg, index + 1, end, count);
+        // Each entry is parsed now, in order, so a bad one fails the parse; the entries are parsed
+        // again as the group is iterated. Not inside the walk above: the group is checked whole before
+        // any entry is converted, so a structural error anywhere in it wins over an earlier entry's
+        // conversion error.
+        let mut parsed = 0usize;
+        for entry in group.entries() {
+            G::from_fields(entry)?;
+            parsed += 1;
+        }
+        debug_assert_eq!(parsed, group.len());
+        *slot = Some(group);
+        Ok(end)
+    }
 
-/// [`required_group_ref`] for a group parsed owned.
-#[doc(hidden)]
-pub fn required_group<G>(tag: u32, entries: Option<Vec<G>>) -> Result<Vec<G>, FieldError> {
-    entries.filter(|entries| !entries.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
+    /// Appends a field.
+    #[inline(never)]
+    pub fn write_value<T: ToFix>(msg: &mut Message, tag: u32, value: &T) {
+        msg.push(tag, value);
+    }
+
+    /// Takes a data field's first occurrence into its slot, borrowed from the message; its Length
+    /// field, which comes first and which decoding has already checked, is skipped.
+    #[inline(never)]
+    pub fn take_data_ref<'a>(
+        slot: &mut Option<&'a [u8]>,
+        fields: &Fields<'a>,
+        index: usize,
+        tag: u32,
+        data_tag: u32,
+    ) -> usize {
+        if tag == data_tag && slot.is_none() {
+            *slot = Some(fields.bytes_at(index));
+        }
+        index + 1
+    }
+
+    /// Appends a data field after its Length field.
+    #[inline(never)]
+    pub fn write_data(msg: &mut Message, length_tag: u32, data_tag: u32, value: &[u8]) {
+        msg.push_data(length_tag, data_tag, value);
+    }
+
+    /// Appends a repeating group, NumInGroup first, unless it has no entries.
+    #[inline(never)]
+    pub fn write_group<G: FixGroup>(msg: &mut Message, tag: u32, entries: &[G]) {
+        if !entries.is_empty() {
+            msg.push(tag, entries.len() as u64);
+            for entry in entries {
+                entry.write(msg);
+            }
+        }
+    }
+
+    /// `tag`'s position in `tags`.
+    pub fn declared_at(tags: &[u32], tag: u32) -> usize {
+        tags.iter().position(|&t| t == tag).unwrap_or(usize::MAX)
+    }
+
+    /// A required group: `Missing` if absent or empty.
+    #[inline(never)]
+    pub fn required_group_ref<G>(tag: u32, group: Option<Group<'_, G>>) -> Result<Group<'_, G>, FieldError> {
+        group.filter(|group| !group.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
+    }
+
+    /// [`required_group_ref`] for a group parsed owned.
+    pub fn required_group<G>(tag: u32, entries: Option<Vec<G>>) -> Result<Vec<G>, FieldError> {
+        entries.filter(|entries| !entries.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
+    }
 }
 
 /// Defines a repeating group: its fields in order, the first being the *delimiter* that starts
@@ -1805,7 +1798,8 @@ pub trait FixMessage: Sized + Into<Message> {
     type Ref<'a>: FixMessageRef<'a, Owned = Self>;
 
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
-    /// ignored.
+    /// ignored. Doesn't check the MsgType, so a message of another type may parse: use
+    /// [`Message::parse`], which does.
     ///
     /// # Errors
     ///
@@ -1846,7 +1840,8 @@ pub trait FixMessageRef<'a>: Copy + Sized {
     type Owned: FixMessage;
 
     /// Reads the body fields; header fields, and body fields the message doesn't define, are
-    /// ignored.
+    /// ignored. Doesn't check the MsgType, so a message of another type may parse: use
+    /// [`Message::parse`], which does.
     ///
     /// # Errors
     ///
@@ -1976,6 +1971,7 @@ impl std::error::Error for FieldError {}
 
 #[cfg(test)]
 mod tests {
+    use super::__private::*;
     use super::*;
     use crate::codec::{Decoded, decode, encode};
 
