@@ -16,6 +16,13 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `SessionLog` is `StoredSession`, so that "log" means only the message log.
+- **Changed:** a store must implement what it's for: `SessionStorage::open` and `is_durable`, and
+  `StoredSession::sent_messages`, `in_flight`, `set_in_flight`, `created_at` and
+  `set_created_at`, have no defaults. Before, a store could leave them out and compile, then
+  refuse every Logon, claim to be durable, or lose the at-least-once marker and scheduled resets.
+  `begin_open` and `fetch` keep their defaults; a store that overrides them to wait for a
+  network implements `open` and `sent_messages` by running their jobs.
 - **Changed:** parsing a configuration value returns `ConfigError`, a `std::error::Error`, not a
   `String`: `FromStr` for `RateLimit`, `Proxy`, `ScheduleTimeZone`, `HolidayCalendar` and
   `SessionSchedule`, and `AllowedIps::new`. `ConfigError` no longer converts from any `String`.
@@ -85,6 +92,12 @@ Notable changes to the published crates.
 - `validation` takes `application_values`.
 - `refuse_expired_crl = true` in an initiator's `tls`, and `refuse_expired_client_crl = true` in
   `[acceptor.tls]`, refuse a CRL past its next update, failing the load or reload.
+
+### `turbojet-sql`
+
+- `SqlStorage::open` and its sessions' `sent_messages` work, running the database round trip on
+  the calling thread (which needs a multi-threaded tokio runtime current); before, they returned
+  `Unsupported`.
 
 ### `turbojet-log`
 
