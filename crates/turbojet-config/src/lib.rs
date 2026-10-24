@@ -546,4 +546,10 @@ impl SessionStorage for InitiatorStores {
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
         self.0.get().initiator_store(id).begin_open(id)
     }
+
+    /// Whether every initiator's store, as the file current now says, is.
+    fn is_durable(&self) -> bool {
+        let loaded = self.0.get();
+        loaded.initiators.values().all(|initiator| loaded.store(&initiator.store).is_durable())
+    }
 }
