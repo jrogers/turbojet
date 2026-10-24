@@ -221,20 +221,20 @@ extern crate self as turbojet;
 #[macro_use]
 mod macros;
 
-pub mod acceptor;
+mod acceptor;
 pub mod admin;
 mod allowed;
 pub mod application;
 pub mod cancel;
 pub mod codec;
 pub mod connection;
-pub mod counterparty;
+mod counterparty;
 pub mod fields;
 pub mod fixp;
-pub mod initiator;
+mod initiator;
 pub mod message;
 mod message_log;
-pub mod peer;
+mod peer;
 mod proxy;
 mod reconnect;
 pub mod registry;

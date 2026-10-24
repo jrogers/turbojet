@@ -12,7 +12,7 @@ use pyo3::exceptions::{PyException, PyStopAsyncIteration, PyStopIteration, PyVal
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::{future_into_py, get_runtime};
 use tokio::sync::{mpsc, watch};
-use turbojet::peer::ConnectionInfo;
+use turbojet::ConnectionInfo;
 use turbojet::{
     Application, CommandError, Context, Hold, Message, MessageReject, MsgType, SendError, SessionHandle, SessionId,
 };
