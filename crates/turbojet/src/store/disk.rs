@@ -1436,6 +1436,36 @@ mod tests {
         assert_eq!(fs::metadata(segment_path(&dir, 0)).unwrap().len(), len);
     }
 
+    /// The first segment, which a reset empties and keeps, starts again from nothing: what's
+    /// stored after reads back, and fills it before another starts.
+    #[test]
+    fn a_reset_empties_the_first_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 100);
+        let mut log = storage.open(&id("A")).unwrap();
+        store_each(log.as_mut(), 1..=3);
+        log.reset().unwrap();
+        store_each(log.as_mut(), 1..=2);
+        let sent = log.sent_messages(1, 2).unwrap();
+        assert_eq!(sent, [(1, app_message(1)), (2, app_message(2))]);
+        assert!(!segment_path(&dir, 1).exists(), "both fit in the first segment");
+    }
+
+    /// The newest segment is never evicted, even when it's over the budget alone.
+    #[test]
+    fn a_new_segment_over_the_budget_alone_is_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = rotating(&dir, 2, 2);
+        let mut log = storage.open(&id("A")).unwrap();
+        store_each(log.as_mut(), 1..=2);
+        // One commit of five: a new segment, longer than the budget of two messages and records.
+        for seq in 3..=7 {
+            log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
+        }
+        commit_now(log.as_mut()).unwrap();
+        assert_eq!((stored(log.as_mut()), log.evicted_through()), (vec![3, 4, 5, 6, 7], Some(2)));
+    }
+
     /// A segment a reset deleted that a power loss brings back holds records older than the
     /// reset's: it's deleted again, so neither its numbers nor its messages come back.
     #[test]

@@ -3987,6 +3987,16 @@ fn resend_requests_ask_for_a_chunk_at_a_time() {
     assert_eq!(h.app.received(), 6, "2 to 7, the queued 7 included");
 }
 
+/// A gap no longer than a chunk is asked for to the end, in one ResendRequest; one longer gets
+/// a chunk.
+#[test]
+fn a_gap_of_one_chunk_is_asked_for_to_the_end() {
+    for (revealed_by, asked) in [(5, "2..0"), (6, "2..4")] {
+        let (h, mut s) = chunking(3);
+        assert_eq!(resend_requests(&s.recv(order(revealed_by, "E"), h.t0)), [asked], "gap from 2 to {revealed_by}");
+    }
+}
+
 #[test]
 fn a_gap_fill_past_the_chunk_asks_for_the_next_from_where_it_ends() {
     let (h, mut s) = chunking(2);
