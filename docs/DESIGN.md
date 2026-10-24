@@ -239,7 +239,14 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   taken can't commit. Stores can open sessions, commit and read resend steps with futures the
   driver awaits (`SessionStorage::begin_open`, `SessionLog::fetch`, `Job`), so a networked store
   never blocks the runtime; the simulator runs half its seeds over stores that do. The store
-  conformance suite is public (`conformance` feature) for other stores to check themselves.
+  conformance suite is public (`conformance` feature) for other stores to check themselves. Its
+  model check runs random sequences of what a session does to its log against a model of it,
+  after every step: a store must hold exactly the model's messages above what it says it evicted,
+  and reopened, what was committed or what a later step left. `DiskStorage` and `MemoryStorage`
+  also run it with budgets of a few messages, so eviction, segment rotation and resets meet at
+  every turn. Bugs planted in eviction, resets and the in-flight marker are caught. It found that
+  `DiskStorage` records a creation time at once while it buffers everything else; that's allowed,
+  since only a schedule reads it.
   Sessions are keyed on an `extra` column as well as BeginString and CompIDs; `migrate` adds it to
   a database made before it, PostgreSQL altering the table under a lock and SQLite rebuilding it
   with foreign keys off, so a second gateway migrating at once waits and finds nothing to do.

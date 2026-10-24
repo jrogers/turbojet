@@ -1062,7 +1062,8 @@ A session waiting for a release logs a warning, once per connection, and sets th
   must be longer than the longest heartbeat interval. Leases compare the gateways' clocks.
 
 Stores outside Turbojet can check themselves against the suite its own stores pass:
-`turbojet::store::conformance::check`, with the `conformance` feature.
+`turbojet::store::conformance::check`, with the `conformance` feature. A store with limits of
+its own (a byte budget, say) can also run `conformance::check_model` with them set small.
 
 ## The gateway
 

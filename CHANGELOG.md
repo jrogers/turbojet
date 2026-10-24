@@ -32,6 +32,10 @@ Notable changes to the published crates.
   at each handshake it covers; it's still used. `Trust::refuse_expired_crls` refuses one instead:
   putting the trust in use is an `InvalidData` error, and one that expires in use fails each
   handshake.
+- `store::conformance::check_model`: random sequences of what a session does to its log
+  (storing, skipping ahead, the in-flight marker, commits, resets, reopening), checked after
+  every step against a model of the log. `conformance::check` runs 20 of them; a store with
+  limits of its own can run more with the limits small, to reach eviction and its other edges.
 
 ### `turbojet-config`
 
