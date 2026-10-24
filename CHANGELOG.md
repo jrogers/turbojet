@@ -6,16 +6,30 @@ Notable changes to the published crates.
 
 ### `turbojet-dictionary`
 
+- **Changed:** `FieldType::parse` is `From<&str>`: it can't fail.
 - `Value::deprecated`: whether the FIX standard deprecates a code, read from Orchestra's
   `deprecated` attribute on each code, as `Field::deprecated` already was on fields.
 
 ### `turbojet-codegen` and `turbojet-fix`
 
+- **Changed:** an ID ending an acronym is a word of its own in generated names: IOIID(23) is the
+  field `ioi_id` and the tag `IOI_ID`, not `ioiid` and `IOIID`.
 - A deprecated code's enum variant says so in its docs, as a deprecated field's does: OrdStatus
   Replaced in FIX 4.4, say, and the pegged ExecInst codes in FIX 5.0.
 
 ### `turbojet`
 
+- **Changed:** renamed, for names that say what things are and match one another: `ApplVerId`
+  is `ApplVerID` (FIX's spelling, as the other enums use); `Acceptor::session(comp_id)` is
+  `handle_for`; `SessionConfig::send_queue` and `FixpConfig::send_queue` are `max_queued_sends`;
+  `Counterparty::DEFAULT_HEARTBEAT` is `MAX_HEARTBEAT_RANGE`; `FileLogOptions::file_bytes_max`
+  and `buffer_bytes_max` are `max_file_bytes` and `max_buffer_bytes`, and their defaults
+  `DEFAULT_MAX_FILE_BYTES` and `DEFAULT_MAX_BUFFER_BYTES`; `fixp::Ended::TerminatedByPeer` is
+  `TerminatedByCounterparty`; `ClientLogin::session_id` is `uuid`; `SbeMessage::bytes` is
+  `as_bytes` (with `AsRef<[u8]>`); `CommandReceiver::next(sends)` is `next()` and
+  `next_control()`.
+- **Changed:** `DiskStorage::new(dir)` syncs every commit; `with_fsync(false)` doesn't. It took
+  the choice as a bare bool.
 - **Changed:** the `acceptor`, `initiator`, `peer` and `counterparty` modules are private: their
   items are at the crate root (`turbojet::ConnectionInfo`, not `turbojet::peer::ConnectionInfo`).
 - **Changed:** `MsgType`, `Precision` and `MessageReject`'s variants are `#[non_exhaustive]`;
@@ -93,6 +107,10 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- **Changed:** keys renamed to the engine's names: `connect` is `endpoints`, `local_address`
+  `local_addr`, `send_queue` `max_queued_sends`, `allow` `allowed_ips`, and `refuse_expired_crl`
+  and `refuse_expired_client_crl` are `refuse_expired_crls` and `refuse_expired_client_crls`. A
+  file using an old key is refused with its new name.
 - **Changed:** `SessionsFile::server_tls` returns `Error`, as the crate's other methods do, not
   `io::Error`.
 - `validation` takes `application_values`.
@@ -104,6 +122,10 @@ Notable changes to the published crates.
 - `SqlStorage::open` and its sessions' `sent_messages` work, running the database round trip on
   the calling thread (which needs a multi-threaded tokio runtime current); before, they returned
   `Unsupported`.
+
+### `turbojet-fast`
+
+- **Changed:** `Encoder::encode` is `encode_into`, as `Decoder::decode_into` is.
 
 ### `turbojet-log`
 
