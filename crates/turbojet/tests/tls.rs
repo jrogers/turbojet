@@ -20,8 +20,8 @@ use turbojet::fixp::{
 use turbojet::message::tags;
 use turbojet::tls;
 use turbojet::{
-    Acceptor, Application, ConnectionInfo, Context, Endpoint, Initiator, InitiatorConfig, MemoryStorage, Message,
-    MessageReject, MsgType, SessionConfig, SessionHandle,
+    Acceptor, AcceptorConfig, Application, ConnectionInfo, Context, Endpoint, Initiator, InitiatorConfig,
+    MemoryStorage, Message, MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 
 /// A CA plus a server certificate for `localhost` and a client certificate, as PEM files.
@@ -579,9 +579,9 @@ async fn initiator_shutdown_abandons_a_tls_handshake() {
 async fn a_connection_past_the_limit_gets_no_handshake() {
     let pki = Pki::new();
     let (app, _events) = recorder();
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), app)
-        .unwrap()
-        .with_max_connections(1);
+    let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "SERVER"));
+    config.max_connections = 1;
+    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve_tls(listener, pki.acceptor(Auth::None)));

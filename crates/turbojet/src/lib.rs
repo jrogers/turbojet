@@ -249,7 +249,7 @@ pub mod tls;
 #[cfg(feature = "validation")]
 pub mod validation;
 
-pub use acceptor::Acceptor;
+pub use acceptor::{Acceptor, AcceptorConfig};
 pub use allowed::AllowedIps;
 pub use application::{Application, Context, Disconnect, Hold, MessageReject};
 pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};

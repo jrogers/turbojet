@@ -23,13 +23,75 @@ use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
 use crate::telemetry;
 
-/// The most connections an [`Acceptor`] keeps open at once by default: well above the
-/// counterparties one usually serves, while bounding the tasks a flood of connections can start.
-pub const DEFAULT_MAX_CONNECTIONS: usize = 1024;
+/// An [`Acceptor`]'s configuration: its sessions' settings, and how it accepts connections. Fixed
+/// once the acceptor is made, except the allowed addresses
+/// ([`Acceptor::set_allowed_ips`]).
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct AcceptorConfig {
+    /// Settings for its sessions, including our own CompID.
+    pub session: SessionConfig,
+    /// The most connections kept open at once: any more are closed as soon as they're accepted,
+    /// before a TLS handshake or a task. Every connection counts, from accept until it closes,
+    /// logged on or not.
+    pub max_connections: usize,
+    /// The most connections from one IP address kept open at once, as `max_connections` is
+    /// overall. Counterparties behind one address (a NAT, or a hub serving several firms) share
+    /// it.
+    pub max_connections_per_ip: usize,
+    /// Accepts connections only from these addresses, closing any other as soon as it's
+    /// accepted, as past `max_connections` (counted in `turbojet_connections_refused_total` with
+    /// reason `not_allowed`). `None` (the default) accepts any.
+    pub allowed_ips: Option<AllowedIps>,
+    /// Gives each counterparty the settings this resolves at its Logon, in place of `session`,
+    /// or refuses it; see [`Counterparties`]. `None` (the default) gives every counterparty
+    /// `session`.
+    ///
+    /// To give counterparties different stores, use a store that routes by CompID, such as
+    /// [`StorageByCounterparty`](crate::store::StorageByCounterparty): a store is opened for
+    /// operator changes to disconnected sessions too, when there's no Logon to resolve.
+    pub counterparties: Option<Arc<dyn Counterparties>>,
+}
 
-/// The most connections from one IP address an [`Acceptor`] keeps open at once by default: room
-/// for a counterparty's sessions and reconnects, while one address can't take every place.
-pub const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 16;
+impl AcceptorConfig {
+    /// The most connections kept open at once by default: well above the counterparties one
+    /// usually serves, while bounding the tasks a flood of connections can start.
+    pub const DEFAULT_MAX_CONNECTIONS: usize = 1024;
+
+    /// The most connections from one IP address kept open at once by default: room for a
+    /// counterparty's sessions and reconnects, while one address can't take every place.
+    pub const DEFAULT_MAX_CONNECTIONS_PER_IP: usize = 16;
+
+    /// A configuration giving every counterparty `session`, from any address, with the default
+    /// connection limits.
+    pub fn new(session: SessionConfig) -> Self {
+        Self {
+            session,
+            max_connections: Self::DEFAULT_MAX_CONNECTIONS,
+            max_connections_per_ip: Self::DEFAULT_MAX_CONNECTIONS_PER_IP,
+            allowed_ips: None,
+            counterparties: None,
+        }
+    }
+}
+
+impl From<SessionConfig> for AcceptorConfig {
+    fn from(session: SessionConfig) -> Self {
+        Self::new(session)
+    }
+}
+
+impl std::fmt::Debug for AcceptorConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcceptorConfig")
+            .field("session", &self.session)
+            .field("max_connections", &self.max_connections)
+            .field("max_connections_per_ip", &self.max_connections_per_ip)
+            .field("allowed_ips", &self.allowed_ips)
+            .field("counterparties", &self.counterparties.is_some())
+            .finish()
+    }
+}
 
 /// How often a refused connection is reported in the log, at most: a flood shouldn't flood it.
 const REFUSALS_REPORTED_EVERY: Duration = Duration::from_secs(60);
@@ -41,9 +103,9 @@ const REFUSALS_REPORTED_EVERY: Duration = Duration::from_secs(60);
 /// (files, with [`DiskStorage`](crate::DiskStorage)) and metric series. Check the CompID, and
 /// the client certificate if using mutual TLS, in `verify_logon`.
 ///
-/// It keeps at most [`DEFAULT_MAX_CONNECTIONS`] connections open at once, and at most
-/// [`DEFAULT_MAX_CONNECTIONS_PER_IP`] from one IP address, closing any past either as soon as it's
-/// accepted (see [`with_max_connections`](Acceptor::with_max_connections)).
+/// It keeps at most [`AcceptorConfig::max_connections`] connections open at once, and at most
+/// [`max_connections_per_ip`](AcceptorConfig::max_connections_per_ip) from one IP address,
+/// closing any past either as soon as it's accepted.
 #[derive(Clone)]
 pub struct Acceptor {
     config: SessionConfig,
@@ -64,67 +126,30 @@ impl std::fmt::Debug for Acceptor {
 }
 
 impl Acceptor {
-    /// An acceptor serving `app`, keeping session state in `storage`.
+    /// An acceptor serving `app`, keeping session state in `storage`. `config` is an
+    /// [`AcceptorConfig`], or a [`SessionConfig`] for the default connection limits.
     ///
     /// # Errors
     ///
-    /// If `config` is invalid; see [`SessionConfig::check`].
+    /// If the session configuration is invalid; see [`SessionConfig::check`].
     pub fn new(
-        config: SessionConfig,
+        config: impl Into<AcceptorConfig>,
         storage: Arc<dyn SessionStorage>,
         app: Arc<dyn Application>,
     ) -> Result<Self, ConfigError> {
+        let AcceptorConfig { session: config, max_connections, max_connections_per_ip, allowed_ips, counterparties } =
+            config.into();
         config.check()?;
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.clock.clone()));
-        let limits = Arc::new(Limits::new(DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP));
-        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties: None })
-    }
-
-    /// Keeps at most `connections` connections open at once, closing any more as soon as they're
-    /// accepted, before a TLS handshake or a task. Every connection counts, from accept until it
-    /// closes, logged on or not. Set it before serving or cloning: clones share the limits.
-    #[must_use]
-    pub fn with_max_connections(mut self, connections: usize) -> Self {
-        self.limits = Arc::new(self.limits.resized(connections, self.limits.max_per_ip));
-        self
-    }
-
-    /// Keeps at most `connections` connections from one IP address open at once, as
-    /// [`with_max_connections`](Acceptor::with_max_connections) does overall. Counterparties
-    /// behind one address (a NAT, or a hub serving several firms) share it.
-    #[must_use]
-    pub fn with_max_connections_per_ip(mut self, connections: usize) -> Self {
-        self.limits = Arc::new(self.limits.resized(self.limits.max_total, connections));
-        self
-    }
-
-    /// Accepts connections only from `allowed`, closing any other as soon as it's accepted,
-    /// before a TLS handshake or a task, as [`with_max_connections`](Self::with_max_connections)
-    /// does past its limit (counted in `turbojet_connections_refused_total` with reason
-    /// `not_allowed`). Every address is accepted until this is set. Clones share it.
-    #[must_use]
-    pub fn with_allowed_ips(self, allowed: AllowedIps) -> Self {
-        self.limits.set_allowed(Some(allowed));
-        self
+        let limits = Arc::new(Limits::new(max_connections, max_connections_per_ip));
+        limits.set_allowed(allowed_ips);
+        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties })
     }
 
     /// Replaces the addresses connections are accepted from, while serving: `None` accepts any.
     /// Connections already open stay open. Clones share it.
     pub fn set_allowed_ips(&self, allowed: Option<AllowedIps>) {
         self.limits.set_allowed(allowed);
-    }
-
-    /// Gives each counterparty the settings `counterparties` resolves at its Logon, in place of
-    /// this acceptor's configuration, or refuses it; see [`Counterparties`]. Set it before
-    /// serving or cloning: connections accepted by a clone made earlier don't use it.
-    ///
-    /// To give counterparties different stores, use a store that routes by CompID, such as
-    /// [`StorageByCounterparty`](crate::store::StorageByCounterparty): a store is opened for
-    /// operator changes to disconnected sessions too, when there's no Logon to resolve.
-    #[must_use]
-    pub fn with_counterparties(mut self, counterparties: Arc<dyn Counterparties>) -> Self {
-        self.counterparties = Some(counterparties);
-        self
     }
 
     /// A handle to the session with counterparty `target_comp_id` and no SubIDs, LocationIDs or
@@ -587,8 +612,10 @@ mod tests {
         addr
     }
 
-    fn quiet_acceptor() -> Acceptor {
-        Acceptor::new(SessionConfig::new("FIX.4.2", "US"), Arc::new(MemoryStorage::new()), Arc::new(Nothing)).unwrap()
+    fn quiet_acceptor(configure: impl FnOnce(&mut AcceptorConfig)) -> Acceptor {
+        let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "US"));
+        configure(&mut config);
+        Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(Nothing)).unwrap()
     }
 
     /// Whether the acceptor closed `client` at once: a read returns end-of-file rather than
@@ -605,8 +632,10 @@ mod tests {
     #[tokio::test]
     async fn addresses_not_allowed_are_closed_at_once_and_the_list_can_change() {
         let elsewhere = AllowedIps::new(["10.0.0.0/8"]).unwrap();
-        // Set before the limits are changed, and kept by them.
-        let acceptor = quiet_acceptor().with_allowed_ips(elsewhere).with_max_connections(5);
+        let acceptor = quiet_acceptor(|c| {
+            c.allowed_ips = Some(elsewhere);
+            c.max_connections = 5;
+        });
         let handle = acceptor.clone();
         let addr = serving(acceptor).await;
         assert!(refused(&mut TcpStream::connect(addr).await.unwrap()).await, "127.0.0.1 isn't allowed");
@@ -619,7 +648,10 @@ mod tests {
 
     #[tokio::test]
     async fn connections_past_the_limit_are_closed_at_once() {
-        let acceptor = quiet_acceptor().with_max_connections(2).with_max_connections_per_ip(10);
+        let acceptor = quiet_acceptor(|c| {
+            c.max_connections = 2;
+            c.max_connections_per_ip = 10;
+        });
         let limits = acceptor.limits.clone();
         let addr = serving(acceptor).await;
         let mut first = TcpStream::connect(addr).await.unwrap();
@@ -640,7 +672,7 @@ mod tests {
 
     #[tokio::test]
     async fn connections_past_the_per_ip_limit_are_closed_at_once() {
-        let addr = serving(quiet_acceptor().with_max_connections_per_ip(1)).await;
+        let addr = serving(quiet_acceptor(|c| c.max_connections_per_ip = 1)).await;
         let mut first = TcpStream::connect(addr).await.unwrap();
         let mut second = TcpStream::connect(addr).await.unwrap();
         assert!(refused(&mut second).await, "one from 127.0.0.1 at a time");
@@ -654,7 +686,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             (acceptor.limits.max_total, acceptor.limits.max_per_ip),
-            (DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP)
+            (AcceptorConfig::DEFAULT_MAX_CONNECTIONS, AcceptorConfig::DEFAULT_MAX_CONNECTIONS_PER_IP)
         );
     }
 }

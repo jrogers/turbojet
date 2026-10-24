@@ -724,7 +724,7 @@ Stores keep a session without SubIDs, LocationIDs or a qualifier where they alwa
 ## Per-counterparty settings
 
 An `Acceptor` gives every counterparty its own `SessionConfig` unless told otherwise. With
-`Acceptor::with_counterparties`, a `Counterparties` resolver decides at each Logon, once
+`AcceptorConfig::counterparties`, a `Counterparties` resolver decides at each Logon, once
 SenderCompID is known, whether that counterparty may log on and with which settings: its own
 schedule, rate limits, validation, SendingTime tolerance and so on, the HeartBtInt range it may
 ask for, and whether it must present a TLS client certificate. `CounterpartyMap` covers the usual
@@ -743,7 +743,9 @@ let counterparties = CounterpartyMap::new()
     .refuse_unknown(); // or admit others with the acceptor's own settings
 let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
     .with("FUND", Arc::new(DiskStorage::new("./store", true)?));
-let acceptor = Acceptor::new(config, Arc::new(storage), app)?.with_counterparties(Arc::new(counterparties));
+let mut config = AcceptorConfig::new(config);
+config.counterparties = Some(Arc::new(counterparties));
+let acceptor = Acceptor::new(config, Arc::new(storage), app)?;
 ```
 
 Each counterparty starts from the acceptor's configuration. What's in use before Logon stays the
@@ -835,12 +837,12 @@ initiators that lost a venue together don't all come back together, and 1 s agai
 has logged on. `ReconnectPolicy::fixed` waits the same every time.
 
 An acceptor keeps at most 1,024 connections open at once, and 16 from one IP address
-(`Acceptor::with_max_connections`, `with_max_connections_per_ip`), counting every connection
+(`AcceptorConfig::max_connections`, `max_connections_per_ip`), counting every connection
 until it closes, logged on or not. One past either is closed as soon as it's accepted, before any
 TLS handshake, and counted in `turbojet_connections_refused_total`. Counterparties behind one
 address (a NAT, or a hub serving several firms) share its limit.
 
-`Acceptor::with_allowed_ips` (and `FixpAcceptor`'s) accepts connections only from the addresses
+`AcceptorConfig::allowed_ips` (and `FixpAcceptor::with_allowed_ips`) accepts connections only from the addresses
 and CIDR ranges given, closing any other as soon as it's accepted, before a TLS handshake or a
 Logon. `set_allowed_ips` replaces the list while serving; connections already open stay. In a
 sessions file it's `allow` in `[acceptor]`, reloaded with the rest.
@@ -848,7 +850,9 @@ sessions file it's `allow` in `[acceptor]`, reloaded with the rest.
 ```rust
 use turbojet::AllowedIps;
 
-let acceptor = acceptor.with_allowed_ips(AllowedIps::new(["10.1.0.0/16", "203.0.113.5"])?);
+let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+config.allowed_ips = Some(AllowedIps::new(["10.1.0.0/16", "203.0.113.5"])?);
+let acceptor = Acceptor::new(config, storage, app)?;
 ```
 
 All endpoints are treated as the same FIX session (e.g. a counterparty's primary and DR

@@ -13,7 +13,9 @@ use turbojet::codec::{Decoded, decode, encode};
 use turbojet::fields::EncryptMethod;
 use turbojet::fields::UtcTimestamp;
 use turbojet::message::{Message, tags, utc_timestamp};
-use turbojet::{Acceptor, DiskStorage, MemoryStorage, MsgType, SessionConfig, SessionId, SessionStorage};
+use turbojet::{
+    Acceptor, AcceptorConfig, DiskStorage, MemoryStorage, MsgType, SessionConfig, SessionId, SessionStorage,
+};
 use turbojet_fix::fix42::{
     CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, OrdRejReason,
     OrdStatus, OrdType, OrderCancelReject, OrderCancelReplaceRequest, OrderCancelRequest, OrderStatusRequest,
@@ -424,9 +426,9 @@ async fn disk_store_survives_gateway_restart() {
 #[tokio::test]
 async fn allowlist_refuses_unknown_counterparty() {
     let app = Arc::new(GatewayApp::new(Arc::new(OrderManager::new())));
-    let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "GATEWAY"), Arc::new(MemoryStorage::new()), app)
-        .unwrap()
-        .with_counterparties(Arc::new(crate::only(&["CLIENT1".to_string()].into())));
+    let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "GATEWAY"));
+    config.counterparties = Some(Arc::new(crate::only(&["CLIENT1".to_string()].into())));
+    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     let (addr, _server) = serve(acceptor).await;
 
     let mut stranger = Client::connect(addr, "STRANGER").await;

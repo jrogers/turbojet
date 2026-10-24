@@ -22,8 +22,8 @@ use tokio::sync::mpsc;
 use turbojet::fields::MsgType;
 use turbojet::message::tags;
 use turbojet::{
-    Acceptor, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
-    SessionConfig, SessionHandle,
+    Acceptor, AcceptorConfig, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
+    MessageReject, SessionConfig, SessionHandle,
 };
 
 /// Orders each session keeps in flight.
@@ -78,14 +78,10 @@ struct Sender {
 
 /// An acceptor and `count` logged-on initiators, CLIENT0 onwards.
 async fn connect(count: usize) -> Vec<Sender> {
-    let acceptor = Acceptor::new(
-        SessionConfig::new("FIX.4.2", "GATEWAY"),
-        Arc::new(MemoryStorage::new()),
-        Arc::new(common::Acker::default()),
-    )
-    .unwrap()
+    let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "GATEWAY"));
     // All the initiators connect from 127.0.0.1.
-    .with_max_connections_per_ip(count);
+    config.max_connections_per_ip = count;
+    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(common::Acker::default())).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));

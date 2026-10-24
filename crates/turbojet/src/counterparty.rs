@@ -17,7 +17,7 @@ use crate::session::SessionConfig;
 use crate::store::SessionId;
 
 /// Decides, at Logon, whether a counterparty may log on and with which settings. Set one with
-/// [`Acceptor::with_counterparties`](crate::Acceptor::with_counterparties).
+/// [`AcceptorConfig::counterparties`](crate::AcceptorConfig::counterparties).
 pub trait Counterparties: Send + Sync {
     /// Whether `id`'s counterparty may log on with `logon` over `connection`, and its settings,
     /// starting from the acceptor's `base`: `Counterparty::new(base.clone())` and changes to it.
@@ -109,7 +109,7 @@ type Adjust = Box<dyn Fn(&mut Counterparty) + Send + Sync>;
 ///
 /// ```
 /// # use std::sync::Arc;
-/// # use turbojet::{Acceptor, MemoryStorage, SessionConfig};
+/// # use turbojet::{Acceptor, AcceptorConfig, MemoryStorage, SessionConfig};
 /// # use turbojet::CounterpartyMap;
 /// # struct App;
 /// # impl turbojet::Application for App {}
@@ -117,8 +117,9 @@ type Adjust = Box<dyn Fn(&mut Counterparty) + Send + Sync>;
 ///     .with("BROKER", |c| c.config.schedule = Some("daily 08:00-17:00".parse().unwrap()))
 ///     .with("FUND", |c| c.require_client_certificate = true)
 ///     .refuse_unknown();
-/// let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App)).unwrap()
-///     .with_counterparties(Arc::new(counterparties));
+/// let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+/// config.counterparties = Some(Arc::new(counterparties));
+/// let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(App)).unwrap();
 /// ```
 pub struct CounterpartyMap {
     entries: HashMap<String, Adjust>,

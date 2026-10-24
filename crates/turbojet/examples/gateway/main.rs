@@ -22,9 +22,9 @@ use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 use turbojet::{
-    Acceptor, CancelOnDisconnect, CancelTrigger, CounterpartyMap, DiskStorage, FileLogOptions, FileMessageLog,
-    HolidayCalendar, InboundLimit, MemoryStorage, MessageLog, RateLimit, SequenceError, SessionConfig, SessionId,
-    SessionRegistry, SessionSchedule, SessionStorage, tls,
+    Acceptor, AcceptorConfig, CancelOnDisconnect, CancelTrigger, CounterpartyMap, DiskStorage, FileLogOptions,
+    FileMessageLog, HolidayCalendar, InboundLimit, MemoryStorage, MessageLog, RateLimit, SequenceError, SessionConfig,
+    SessionId, SessionRegistry, SessionSchedule, SessionStorage, tls,
 };
 use turbojet_config::SessionsFile;
 
@@ -623,16 +623,17 @@ async fn main() -> ExitCode {
         "FIX gateway listening"
     );
 
-    let mut acceptor = match Acceptor::new(config, storage, app) {
+    let mut config = AcceptorConfig::new(config);
+    if let Some(allowed) = &allowed {
+        config.counterparties = Some(Arc::new(only(allowed)));
+    }
+    let acceptor = match Acceptor::new(config, storage, app) {
         Ok(acceptor) => acceptor,
         Err(e) => {
             error!("invalid configuration: {e}");
             return ExitCode::FAILURE;
         }
     };
-    if let Some(allowed) = &allowed {
-        acceptor = acceptor.with_counterparties(Arc::new(only(allowed)));
-    }
     run(acceptor, listener, tls).await
 }
 

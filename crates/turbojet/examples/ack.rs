@@ -14,8 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpListener;
 use turbojet::fields::{Decimal, UtcTimestamp, format_compact};
 use turbojet::{
-    Acceptor, Application, Context, Disconnect, MemoryStorage, Message, MessageReject, MsgType, SessionConfig,
-    SessionHandle,
+    Acceptor, AcceptorConfig, Application, Context, Disconnect, MemoryStorage, Message, MessageReject, MsgType,
+    SessionConfig, SessionHandle,
 };
 use turbojet_fix::fix42::{ExecTransType, ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
 
@@ -94,12 +94,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             other => return Err(format!("unknown argument '{other}'").into()),
         }
     }
-    let acceptor = Acceptor::new(
-        SessionConfig::new("FIX.4.2", comp_id.as_str()),
-        Arc::new(MemoryStorage::new()),
-        Arc::new(Acker::default()),
-    )?
-    .with_max_connections_per_ip(CONNECTIONS_PER_IP_MAX);
+    let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", comp_id.as_str()));
+    config.max_connections_per_ip = CONNECTIONS_PER_IP_MAX;
+    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(Acker::default()))?;
     let listener = TcpListener::bind(&listen).await?;
     eprintln!("{comp_id} listening on {}", listener.local_addr()?);
     tokio::select! {

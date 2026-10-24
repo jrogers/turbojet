@@ -5,7 +5,7 @@ use std::net::IpAddr;
 
 /// The IP addresses an acceptor accepts connections from: single addresses and CIDR ranges, IPv4
 /// or IPv6. A connection from anywhere else is closed as soon as it's accepted, before a TLS
-/// handshake or a Logon. See [`Acceptor::with_allowed_ips`](crate::Acceptor::with_allowed_ips).
+/// handshake or a Logon. See [`AcceptorConfig::allowed_ips`](crate::AcceptorConfig::allowed_ips).
 ///
 /// An IPv4 address that reaches an IPv6 listener as `::ffff:a.b.c.d` is matched as IPv4.
 ///

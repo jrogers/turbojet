@@ -7,8 +7,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::store::StorageByCounterparty;
 use turbojet::{
-    Acceptor, Application, ConnectionInfo, Counterparties, Counterparty, Initiator, InitiatorConfig, MemoryStorage,
-    Message, SessionConfig, SessionHandle, SessionId, SessionStorage,
+    Acceptor, AcceptorConfig, Application, ConnectionInfo, Counterparties, Counterparty, Initiator, InitiatorConfig,
+    MemoryStorage, Message, SessionConfig, SessionHandle, SessionId, SessionStorage,
 };
 
 /// Reports each logon by the counterparty's CompID.
@@ -42,10 +42,9 @@ impl Counterparties for Rules {
 
 async fn start_acceptor() -> (String, mpsc::UnboundedReceiver<String>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    let acceptor =
-        Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx)))
-            .unwrap()
-            .with_counterparties(Arc::new(Rules));
+    let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "SERVER"));
+    config.counterparties = Some(Arc::new(Rules));
+    let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx))).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.serve(listener));

@@ -151,8 +151,8 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use turbojet::store::{Opened, SessionLog};
 use turbojet::{
-    Acceptor, Application, Clock, ConnectionInfo, Counterparties, Counterparty, Message, MessageLog, SessionConfig,
-    SessionId, SessionRegistry, SessionStorage,
+    Acceptor, AcceptorConfig, Application, Clock, ConnectionInfo, Counterparties, Counterparty, Message, MessageLog,
+    SessionConfig, SessionId, SessionRegistry, SessionStorage,
 };
 
 pub use crate::initiators::Initiators;
@@ -368,19 +368,12 @@ impl SessionsFile {
         let loaded = self.current.get();
         let (raw, part) = (loaded.raw.acceptor.as_ref()?, loaded.acceptor.as_ref()?);
         let storage = Arc::new(Router(self.current.clone()));
-        let mut acceptor = Acceptor::new(part.base.clone(), storage, app)
-            .expect("checked when the file loaded")
-            .with_counterparties(Arc::new(Resolver(self.current.clone())));
-        if let Some(connections) = raw.max_connections {
-            acceptor = acceptor.with_max_connections(connections);
-        }
-        if let Some(connections) = raw.max_connections_per_ip {
-            acceptor = acceptor.with_max_connections_per_ip(connections);
-        }
-        if let Some(allowed) = raw.allowed().expect("checked when the file loaded") {
-            acceptor = acceptor.with_allowed_ips(allowed);
-        }
-        Some(acceptor)
+        let mut config = AcceptorConfig::new(part.base.clone());
+        config.counterparties = Some(Arc::new(Resolver(self.current.clone())));
+        config.max_connections = raw.max_connections.unwrap_or(config.max_connections);
+        config.max_connections_per_ip = raw.max_connections_per_ip.unwrap_or(config.max_connections_per_ip);
+        config.allowed_ips = raw.allowed().expect("checked when the file loaded");
+        Some(Acceptor::new(config, storage, app).expect("checked when the file loaded"))
     }
 
     /// Starts every `[initiator.NAME]`, each on its own task, serving `app`. Call it within a

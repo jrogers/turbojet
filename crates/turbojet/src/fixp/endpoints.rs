@@ -9,7 +9,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tracing::{Instrument, info, warn};
 
 use super::{FixpApplication, FixpConfig, FixpHandle, FixpRegistry, FixpSession, Role};
-use crate::acceptor::{DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP, Limits, accept_loop};
+use crate::acceptor::{AcceptorConfig, Limits, accept_loop};
 use crate::connection;
 use crate::initiator::Endpoint;
 use crate::peer::ConnectionInfo;
@@ -24,8 +24,8 @@ use crate::store::{SessionId, SessionStorage};
 ///
 /// Any client that can reach the listener may negotiate unless [`FixpApplication::verify`]
 /// refuses it, and each session gets its own stored state. It keeps at most
-/// [`DEFAULT_MAX_CONNECTIONS`] connections open at once, and at most
-/// [`DEFAULT_MAX_CONNECTIONS_PER_IP`] from one IP address, as the FIX
+/// [`AcceptorConfig::DEFAULT_MAX_CONNECTIONS`] connections open at once, and at most
+/// [`AcceptorConfig::DEFAULT_MAX_CONNECTIONS_PER_IP`] from one IP address, as the FIX
 /// [`Acceptor`](crate::Acceptor) does.
 #[derive(Clone)]
 pub struct FixpAcceptor {
@@ -58,7 +58,10 @@ impl FixpAcceptor {
             return Err(ConfigError::from("a FixpAcceptor needs a server's configuration".to_string()));
         }
         let registry = Arc::new(FixpRegistry::with_storage(storage).with_clock(config.clock.clone()));
-        let limits = Arc::new(Limits::new(DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS_PER_IP));
+        let limits = Arc::new(Limits::new(
+            AcceptorConfig::DEFAULT_MAX_CONNECTIONS,
+            AcceptorConfig::DEFAULT_MAX_CONNECTIONS_PER_IP,
+        ));
         Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits })
     }
 
