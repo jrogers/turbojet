@@ -133,6 +133,10 @@ impl SessionStorage for DiskStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Ok(Box::new(DiskLog::open(&self.dir, id, self.sync, self.sizes)?))
     }
+
+    fn is_durable(&self) -> bool {
+        true
+    }
 }
 
 /// Where a stored message is. Sixteen bytes, as the index holds one per message kept.

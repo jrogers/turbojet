@@ -187,8 +187,13 @@ impl SessionLog for SqlLog {
 
     /// Never called: the session reads with [`fetch`](SessionLog::fetch), which may need the
     /// database.
-    fn sent_messages(&mut self, _begin: u64, _end: u64) -> io::Result<SentMessages> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "a SQL store reads with fetch"))
+    /// Reads on this thread, which needs a multi-threaded tokio runtime current on it: see
+    /// [`Job::run`].
+    fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<SentMessages> {
+        match self.fetch(begin, end)? {
+            Fetched::Ready(messages) => Ok(messages),
+            Fetched::Pending(job) => job.run(),
+        }
     }
 
     fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {

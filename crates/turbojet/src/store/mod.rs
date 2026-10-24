@@ -162,20 +162,17 @@ impl fmt::Display for SessionId {
 
 /// Opens per-session logs. Shared by all connections.
 ///
-/// Implement [`open`](SessionStorage::open) for a store that opens at once (memory, local
-/// files), or [`begin_open`](SessionStorage::begin_open) for one that waits for a network.
+/// A store that opens at once (memory, local files) implements [`open`](SessionStorage::open);
+/// one that waits for a network also overrides [`begin_open`](SessionStorage::begin_open), and
+/// opens in `open` by running that job on the calling thread.
 pub trait SessionStorage: Send + Sync {
-    /// Opens the log for `id`, creating it with both sequence numbers at 1 if it does not exist.
-    /// The gateway holds at most one open log per session. The default fails, for stores that
-    /// open only with [`begin_open`](SessionStorage::begin_open).
+    /// Opens the log for `id`, creating it with both sequence numbers at 1 if it does not exist,
+    /// on this thread. The session holds at most one open log per session.
     ///
     /// # Errors
     ///
-    /// Any failure opening the log, and by default [`Unsupported`](io::ErrorKind::Unsupported); the
-    /// logon is refused.
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, format!("{id}: this store opens only with begin_open")))
-    }
+    /// Any failure opening the log; the logon is refused.
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>>;
 
     /// Opens the log for `id` as [`open`](SessionStorage::open) does: at once, or by a [`Job`]
     /// the session's driver runs off the async runtime while the logon waits. The session calls
@@ -190,10 +187,8 @@ pub trait SessionStorage: Send + Sync {
 
     /// Whether what this store keeps survives the process ending: false for
     /// [`MemoryStorage`]. A store that routes sessions to others is durable
-    /// only if every store it can route to is. The default says it is.
-    fn is_durable(&self) -> bool {
-        true
-    }
+    /// only if every store it can route to is.
+    fn is_durable(&self) -> bool;
 }
 
 /// A [`SessionLog`] being opened: see [`SessionStorage::begin_open`].
@@ -261,8 +256,9 @@ pub trait SessionLog: Send {
     /// default reads [`sent_messages`](SessionLog::sent_messages) at once, which suits stores
     /// that read from memory or local files.
     ///
-    /// A store that waits for a network to read should return a job here. Its reads must see
-    /// every mutation made, committed or not, as `sent_messages` does.
+    /// A store that waits for a network to read should return a job here, and read in
+    /// `sent_messages` by running it on the calling thread. Its reads must see every mutation
+    /// made, committed or not, as `sent_messages` does.
     ///
     /// # Errors
     ///
@@ -311,11 +307,8 @@ pub trait SessionLog: Send {
     /// [`set_in_flight`](SessionLog::set_in_flight), cleared by
     /// [`set_next_incoming`](SessionLog::set_next_incoming). Still set after a crash, it tells
     /// the session that the messages from it on (up to a batch of them) may have been handled
-    /// already. Stores that don't record it return `None` (the default), and redeliveries then go
-    /// unmarked.
-    fn in_flight(&self) -> Option<u64> {
-        None
-    }
+    /// already, and it marks them [`maybe_redelivered`](crate::Context::maybe_redelivered).
+    fn in_flight(&self) -> Option<u64>;
 
     /// Records the next incoming sequence number with the in-flight marker at `in_flight`, as
     /// [`set_next_incoming`](SessionLog::set_next_incoming) then
@@ -333,32 +326,25 @@ pub trait SessionLog: Send {
     }
 
     /// Records that incoming messages from `seq` on are about to be handed to the application.
-    /// The default does nothing.
     ///
     /// # Errors
     ///
     /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
     /// than send it.
-    fn set_in_flight(&mut self, _seq: u64) -> io::Result<()> {
-        Ok(())
-    }
+    fn set_in_flight(&mut self, seq: u64) -> io::Result<()>;
 
-    /// When the stored state was created or last reset, if recorded. Session schedules use it to
-    /// tell whether the state belongs to the current session period. Stores that don't record it
-    /// return `None` (the default), and schedule-based sequence resets are then skipped.
-    fn created_at(&self) -> Option<UtcTimestamp> {
-        None
-    }
+    /// When the stored state was created or last reset, if recorded: `None` before the first
+    /// [`set_created_at`](SessionLog::set_created_at). Session schedules use it to tell whether
+    /// the state belongs to the current session period.
+    fn created_at(&self) -> Option<UtcTimestamp>;
 
-    /// Records when the stored state was created. The default does nothing.
+    /// Records when the stored state was created.
     ///
     /// # Errors
     ///
     /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
     /// than send it.
-    fn set_created_at(&mut self, _at: UtcTimestamp) -> io::Result<()> {
-        Ok(())
-    }
+    fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()>;
 }
 
 /// Stored messages and their sequence numbers, in ascending order, as given to
@@ -550,6 +536,10 @@ pub(crate) mod deferring {
             let (calls, job) = (self.calls.clone(), self.job.clone());
             let inner = self.inner.open(id)?;
             Ok(Box::new(DeferringLog { inner, calls, job, dirty: false, deferred: self.deferred }))
+        }
+
+        fn is_durable(&self) -> bool {
+            self.inner.is_durable()
         }
 
         fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {

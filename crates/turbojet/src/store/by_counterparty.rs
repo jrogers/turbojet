@@ -79,7 +79,14 @@ mod tests {
     #[test]
     fn is_durable_if_every_store_is() {
         struct Durable;
-        impl SessionStorage for Durable {}
+        impl SessionStorage for Durable {
+            fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+                MemoryStorage::new().open(id)
+            }
+            fn is_durable(&self) -> bool {
+                true
+            }
+        }
         let durable = || -> Arc<dyn SessionStorage> { Arc::new(Durable) };
         assert!(!MemoryStorage::new().is_durable());
         assert!(StorageByCounterparty::new(durable()).with("A", durable()).is_durable());

@@ -555,4 +555,16 @@ impl SessionLog for Closed {
     fn reset(&mut self) -> io::Result<()> {
         unreachable!("replaced at once")
     }
+    fn in_flight(&self) -> Option<u64> {
+        unreachable!("replaced at once")
+    }
+    fn set_in_flight(&mut self, _: u64) -> io::Result<()> {
+        unreachable!("replaced at once")
+    }
+    fn created_at(&self) -> Option<UtcTimestamp> {
+        unreachable!("replaced at once")
+    }
+    fn set_created_at(&mut self, _: UtcTimestamp) -> io::Result<()> {
+        unreachable!("replaced at once")
+    }
 }

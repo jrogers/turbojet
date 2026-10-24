@@ -1166,6 +1166,9 @@ impl SessionStorage for RecordingStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Ok(Box::new(RecordingLog { inner: self.inner.open(id)?, writes: self.writes.clone() }))
     }
+    fn is_durable(&self) -> bool {
+        false
+    }
 }
 
 impl SessionLog for RecordingLog {
@@ -1195,6 +1198,12 @@ impl SessionLog for RecordingLog {
     fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
         self.writes.lock().unwrap().push(format!("in flight {seq}"));
         self.inner.set_in_flight(seq)
+    }
+    fn created_at(&self) -> Option<crate::fields::UtcTimestamp> {
+        None
+    }
+    fn set_created_at(&mut self, _at: crate::fields::UtcTimestamp) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -3016,6 +3025,9 @@ impl SessionStorage for FailingStorage {
         let inner = self.inner.open(id)?;
         Ok(Box::new(FailingLog { inner, remaining: Some(self.ok_writes), once: self.once }))
     }
+    fn is_durable(&self) -> bool {
+        false
+    }
 }
 
 impl SessionLog for FailingLog {
@@ -3046,6 +3058,12 @@ impl SessionLog for FailingLog {
     fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
         self.write()?;
         self.inner.set_in_flight(seq)
+    }
+    fn created_at(&self) -> Option<crate::fields::UtcTimestamp> {
+        None
+    }
+    fn set_created_at(&mut self, _at: crate::fields::UtcTimestamp) -> std::io::Result<()> {
+        Ok(())
     }
 }
 
@@ -3644,6 +3662,9 @@ mod schedule_tests {
         fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
             Ok(Box::new(NoCreationTimesLog(self.0.open(id)?)))
         }
+        fn is_durable(&self) -> bool {
+            false
+        }
     }
 
     impl SessionLog for NoCreationTimesLog {
@@ -3664,6 +3685,18 @@ mod schedule_tests {
         }
         fn reset(&mut self) -> io::Result<()> {
             self.0.reset()
+        }
+        fn in_flight(&self) -> Option<u64> {
+            None
+        }
+        fn set_in_flight(&mut self, _seq: u64) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn created_at(&self) -> Option<crate::fields::UtcTimestamp> {
+            None
+        }
+        fn set_created_at(&mut self, _at: crate::fields::UtcTimestamp) -> std::io::Result<()> {
+            Ok(())
         }
     }
 

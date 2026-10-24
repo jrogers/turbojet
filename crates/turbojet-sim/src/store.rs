@@ -173,6 +173,10 @@ impl LedgerStorage {
 }
 
 impl SessionStorage for LedgerStorage {
+    fn is_durable(&self) -> bool {
+        self.inner.is_durable()
+    }
+
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
         let log = self.open(id)?;
         Ok(if self.slow { Opened::Pending(Job::blocking(move || Ok(log))) } else { Opened::Ready(log) })

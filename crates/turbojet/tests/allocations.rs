@@ -53,6 +53,9 @@ impl<S: SessionStorage> SessionStorage for StagedStorage<S> {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Ok(Box::new(StagedLog(self.0.open(id)?)))
     }
+    fn is_durable(&self) -> bool {
+        false
+    }
 }
 
 struct StagedLog(Box<dyn SessionLog>);

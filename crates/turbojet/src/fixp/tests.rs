@@ -687,6 +687,9 @@ impl SessionStorage for Flaky {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Ok(Box::new(FlakyLog { inner: self.inner.open(id)?, store: self.clone() }))
     }
+    fn is_durable(&self) -> bool {
+        false
+    }
 }
 
 impl SessionLog for FlakyLog {

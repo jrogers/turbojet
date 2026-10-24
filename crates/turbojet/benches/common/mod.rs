@@ -171,6 +171,9 @@ impl SessionStorage for DiscardStorage {
     fn open(&self, _id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
         Ok(Box::new(DiscardLog { seq: Arc::new(Mutex::new((1, 1))) }))
     }
+    fn is_durable(&self) -> bool {
+        false
+    }
 }
 
 impl SessionLog for DiscardLog {
@@ -193,6 +196,18 @@ impl SessionLog for DiscardLog {
     }
     fn reset(&mut self) -> io::Result<()> {
         *self.seq.lock().unwrap() = (1, 1);
+        Ok(())
+    }
+    fn in_flight(&self) -> Option<u64> {
+        None
+    }
+    fn set_in_flight(&mut self, _seq: u64) -> io::Result<()> {
+        Ok(())
+    }
+    fn created_at(&self) -> Option<UtcTimestamp> {
+        None
+    }
+    fn set_created_at(&mut self, _at: UtcTimestamp) -> io::Result<()> {
         Ok(())
     }
 }
