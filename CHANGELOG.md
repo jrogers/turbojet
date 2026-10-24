@@ -16,6 +16,19 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `MsgType::Other` holds a `CompactString`, not a `Cow<'static, str>`. Reading the
+  type of a message without a variant of its own (MarketDataRequest, say) allocated a string each
+  time, and the engine reads it several times per message each way; it now allocates nothing.
+- **Changed:** `MessageReject::Business` has a `ref_id`, set with `MessageReject::with_ref_id`
+  and sent as BusinessRejectRefID(379), which FIX 4.2 and later require whenever the rejected
+  message has a business ID (its ClOrdID, say). The admin `BusinessMessageReject` has
+  `business_reject_ref_id`, and Python's `Session.reject` takes `ref_id`.
+- FIXP application callbacks are guarded against panics, as FIX ones are: a panic in `on_message`
+  drops the replies it queued, one in `verify` refuses the client, and the rest are logged. Before,
+  a panic ended the connection.
+- FIXP `ClientConfig`, `ServerConfig` and `ClientLogin`, and the generated SBE decoders, print
+  credentials as `***` in `Debug` output; before, `{:?}` of a FIXP config printed them.
+
 - While input waits for a held message's release, the connection reads on, up to 1 MiB, so a
   counterparty that closes the connection ends it and one that goes quiet is sent TestRequests and
   disconnected; before, it read nothing and noticed neither. `Session::watch_while_held` and
