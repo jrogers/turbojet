@@ -46,10 +46,13 @@ struct Recorder {
     echo: bool,
     /// Refuses every client.
     refuse: bool,
+    /// Panics in `verify`, and in `on_message` for this order once it has replied.
+    panic_on: Option<u64>,
 }
 
 impl FixpApplication for Recorder {
     fn verify(&self, _client: &ClientLogin<'_>) -> bool {
+        assert!(self.panic_on != Some(0), "verify panicked");
         !self.refuse
     }
     fn on_established(&self, _session: &FixpHandle) {
@@ -64,6 +67,7 @@ impl FixpApplication for Recorder {
         if self.echo {
             ctx.send(&Order(number + 1000)).unwrap();
         }
+        assert!(self.panic_on != Some(number), "on_message panicked");
     }
     fn on_not_applied(&self, _session: &FixpHandle, from: u64, count: u64) {
         self.not_applied.lock().unwrap().push((from, count));
@@ -323,6 +327,27 @@ fn application_messages_flow_both_ways_with_implicit_sequence_numbers() {
     assert_eq!(receipts.map(seq_of), [1, 2]);
     assert_eq!(net.server.app.messages(), [(1, Some(1), false), (2, Some(2), false)]);
     assert_eq!(net.client.app.messages(), [(1001, Some(1), false), (1002, Some(2), false)]);
+}
+
+#[test]
+fn a_panic_in_on_message_drops_its_replies_and_the_session_carries_on() {
+    let server = Recorder { echo: true, panic_on: Some(2), ..Recorder::default() };
+    let mut net = Net::with(Recorder::default(), server, |_| {});
+    net.connect();
+    let receipts = [net.send_order(1), net.send_order(2), net.send_order(3)];
+    net.pump();
+    assert_eq!(receipts.map(seq_of), [1, 2, 3]);
+    assert!(net.server.session().is_established());
+    assert_eq!(net.client.app.messages(), [(1001, Some(1), false), (1003, Some(2), false)]);
+}
+
+#[test]
+fn a_panic_in_verify_refuses_the_client() {
+    let server = Recorder { panic_on: Some(0), ..Recorder::default() };
+    let mut net = Net::with(Recorder::default(), server, |_| {});
+    net.connect();
+    assert!(!net.client.session().is_established());
+    assert_eq!(net.server.app.established.load(Ordering::Relaxed), 0);
 }
 
 #[test]

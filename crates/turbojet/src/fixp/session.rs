@@ -14,6 +14,7 @@ use super::messages::{self as m, Decoded, FlowType};
 use super::{
     ClientLogin, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, Received, Role, SbeMessage,
 };
+use crate::application::guarded;
 use crate::connection::Driven;
 use crate::fields::{Precision, UtcTimestamp};
 use crate::message_log::MessageLog;
@@ -477,7 +478,7 @@ impl FixpSession {
             Some((m::NegotiationRejectCode::Unspecified, "timestamp too far from the server's clock"))
         } else if negotiate.client_flow() != self.config.client_flow {
             Some((m::NegotiationRejectCode::FlowTypeNotSupported, "that client flow isn't supported"))
-        } else if !self.app.verify(&login) {
+        } else if !guarded("verify", || self.app.verify(&login)).unwrap_or(false) {
             Some((m::NegotiationRejectCode::Credentials, "credentials refused"))
         } else {
             None
@@ -545,7 +546,7 @@ impl FixpSession {
                 Some((m::EstablishmentRejectCode::Unspecified, "timestamp too far from the server's clock"))
             } else if keepalive.is_zero() || keepalive > self.config.max_keepalive {
                 Some((m::EstablishmentRejectCode::KeepaliveInterval, "keepalive interval out of range"))
-            } else if !self.app.verify(&login) {
+            } else if !guarded("verify", || self.app.verify(&login)).unwrap_or(false) {
                 Some((m::EstablishmentRejectCode::Credentials, "credentials refused"))
             } else {
                 None
@@ -611,7 +612,7 @@ impl FixpSession {
             self.send(&m::Sequence { next_seq_no: next });
         }
         let handle = self.handle();
-        self.app.on_established(&handle);
+        guarded("on_established", || self.app.on_established(&handle));
     }
 
     // ---- Messages ----
@@ -787,11 +788,14 @@ impl FixpSession {
         // Lent, not cloned: a clone copies the session ID's strings, for every message.
         let handle = &self.bound.as_ref().expect("bound once established").handle;
         let mut ctx = FixpContext { replies: &mut replies, ends: &mut ends, handle };
-        self.app.on_message(&mut ctx, Received { bytes, seq, retransmitted, maybe_redelivered });
-        let mut start = 0;
-        for &end in &ends {
-            self.send_application(&replies[start..end], None);
-            start = end;
+        let received = Received { bytes, seq, retransmitted, maybe_redelivered };
+        // Replies queued before a panic may be half-done, so they're dropped, not sent.
+        if guarded("on_message", || self.app.on_message(&mut ctx, received)).is_some() {
+            let mut start = 0;
+            for &end in &ends {
+                self.send_application(&replies[start..end], None);
+                start = end;
+            }
         }
         replies.clear();
         ends.clear();
@@ -805,9 +809,9 @@ impl FixpSession {
         }
         let handle = self.handle();
         if applied {
-            self.app.on_applied(&handle, from, u64::from(count));
+            guarded("on_applied", || self.app.on_applied(&handle, from, u64::from(count)));
         } else {
-            self.app.on_not_applied(&handle, from, u64::from(count));
+            guarded("on_not_applied", || self.app.on_not_applied(&handle, from, u64::from(count)));
         }
     }
 
@@ -1163,7 +1167,7 @@ impl FixpSession {
         }
         if self.established {
             let handle = self.handle();
-            self.app.on_ended(&handle, how);
+            guarded("on_ended", || self.app.on_ended(&handle, how));
         }
     }
 

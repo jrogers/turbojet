@@ -362,6 +362,11 @@ pub enum Ended {
 
 /// What a FIXP session tells the application. Callbacks run on the connection's task and must
 /// not block.
+///
+/// A panicking callback doesn't end the connection. A panic in `on_message` drops any replies it
+/// queued; in `verify` it refuses the client; in the others it is only logged. Each panic is
+/// logged and counted (`turbojet_application_panics_total`). With `panic = "abort"` the process
+/// stops.
 pub trait FixpApplication: Send + Sync {
     /// Server: whether a client may negotiate or establish. `false` refuses it as bad
     /// credentials. The default lets every client in.
