@@ -16,6 +16,12 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** the `acceptor`, `initiator`, `peer` and `counterparty` modules are private: their
+  items are at the crate root (`turbojet::ConnectionInfo`, not `turbojet::peer::ConnectionInfo`).
+- **Changed:** `MsgType`, `Precision` and `MessageReject`'s variants are `#[non_exhaustive]`;
+  build a reject with `MessageReject::session` or `MessageReject::business`, or the helpers.
+- **Changed:** `registry::command_queues`, `CommandSender` and `Session::is_committing` are no
+  longer public, and the functions `fix_message!` expands to are in a hidden `message::__private`.
 - **Changed:** `SessionLog` is `StoredSession`, so that "log" means only the message log.
 - **Changed:** a store must implement what it's for: `SessionStorage::open` and `is_durable`, and
   `StoredSession::sent_messages`, `in_flight`, `set_in_flight`, `created_at` and
