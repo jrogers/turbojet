@@ -26,7 +26,7 @@ use crate::registry::{
 };
 use crate::sbe::{Encode, SbeError};
 use crate::session::{ConfigError, DELIVERIES_PER_COMMIT};
-use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
+use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, StoredSession};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 
 /// The BeginString part of a FIXP session's [`SessionId`], so its logs never share a name with a
@@ -76,14 +76,14 @@ struct Opening {
     id: SessionId,
     session_id: Uuid,
     then: Option<Request>,
-    job: Option<Job<Box<dyn SessionLog>>>,
+    job: Option<Job<Box<dyn StoredSession>>>,
 }
 
 /// The session's log, once open, and which session it is.
 struct Bound {
     id: SessionId,
     handle: FixpHandle,
-    log: Box<dyn SessionLog>,
+    log: Box<dyn StoredSession>,
     session_id: Uuid,
     /// The session's metrics, labelled with its log's ID (feature `metrics`; nothing without).
     metrics: SessionMetrics,
@@ -341,7 +341,7 @@ impl FixpSession {
         self.timestamp().abs_diff(timestamp) <= window
     }
 
-    fn log(&mut self) -> &mut dyn SessionLog {
+    fn log(&mut self) -> &mut dyn StoredSession {
         self.bound.as_mut().expect("bound before its log is used").log.as_mut()
     }
 
@@ -383,7 +383,7 @@ impl FixpSession {
         }
     }
 
-    fn bound(&mut self, id: SessionId, session_id: Uuid, log: Box<dyn SessionLog>, then: Option<Request>) {
+    fn bound(&mut self, id: SessionId, session_id: Uuid, log: Box<dyn StoredSession>, then: Option<Request>) {
         tracing::Span::current().record("id", tracing::field::display(&id));
         let handle = self.registry.handle(id.clone());
         self.recovered = log.in_flight();
@@ -1476,7 +1476,7 @@ impl FixpSession {
 
     /// The store's opening of the session's log, if it returned a job: run it, then
     /// [`on_opened`](Self::on_opened).
-    pub fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
+    pub fn take_open(&mut self) -> Option<Job<Box<dyn StoredSession>>> {
         self.opening.as_mut()?.job.take()
     }
 
@@ -1557,7 +1557,7 @@ impl FixpSession {
     }
 
     /// An opening from [`take_open`](Self::take_open) has ended.
-    pub fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: Instant) {
+    pub fn on_opened(&mut self, result: io::Result<Box<dyn StoredSession>>, now: Instant) {
         self.now = now;
         let Some(Opening { id, session_id, then, .. }) = self.opening.take() else { return };
         match result {
@@ -1714,7 +1714,7 @@ impl Driven for FixpSession {
     fn take_fetch(&mut self) -> Option<Job<SentMessages>> {
         FixpSession::take_fetch(self)
     }
-    fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
+    fn take_open(&mut self) -> Option<Job<Box<dyn StoredSession>>> {
         FixpSession::take_open(self)
     }
     fn on_committed(&mut self, result: io::Result<()>, now: Instant) {
@@ -1723,7 +1723,7 @@ impl Driven for FixpSession {
     fn on_fetched(&mut self, result: io::Result<SentMessages>, now: Instant) {
         FixpSession::on_fetched(self, result, now);
     }
-    fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: Instant) {
+    fn on_opened(&mut self, result: io::Result<Box<dyn StoredSession>>, now: Instant) {
         FixpSession::on_opened(self, result, now);
     }
     fn message_log(&self) -> Option<&dyn MessageLog> {

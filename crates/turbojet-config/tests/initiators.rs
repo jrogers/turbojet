@@ -185,7 +185,7 @@ async fn an_initiators_store_is_read_before_it_starts() {
     initiators.shutdown(None).await;
 }
 
-fn commit(log: &mut dyn turbojet::store::SessionLog) {
+fn commit(log: &mut dyn turbojet::store::StoredSession) {
     if let Some(commit) = log.commit().unwrap() {
         commit.run().unwrap();
     }

@@ -14,7 +14,7 @@ use sqlx::query::Query;
 use sqlx::{Any, Row};
 use tracing::{debug, info, warn};
 use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
-use turbojet::store::{Commit, Fetched, Job, SentMessages, SessionId, SessionLog};
+use turbojet::store::{Commit, Fetched, Job, SentMessages, SessionId, StoredSession};
 
 use crate::Shared;
 
@@ -27,7 +27,7 @@ const ROWS_PER_INSERT: usize = 256;
 const NOT_EVICTED: u64 = 0;
 
 /// Opens `id`'s log: creates its row if it has none, takes its lease, and reads its state.
-pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn SessionLog>> {
+pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn StoredSession>> {
     let token = new_token();
     let now = now_millis();
     let until = now.saturating_add(millis(shared.config.lease));
@@ -159,7 +159,7 @@ impl SqlLog {
     }
 }
 
-impl SessionLog for SqlLog {
+impl StoredSession for SqlLog {
     fn next_outgoing(&self) -> u64 {
         self.state.next_outgoing
     }
@@ -185,7 +185,7 @@ impl SessionLog for SqlLog {
         Ok(())
     }
 
-    /// Never called: the session reads with [`fetch`](SessionLog::fetch), which may need the
+    /// Never called: the session reads with [`fetch`](StoredSession::fetch), which may need the
     /// database.
     /// Reads on this thread, which needs a multi-threaded tokio runtime current on it: see
     /// [`Job::run`].

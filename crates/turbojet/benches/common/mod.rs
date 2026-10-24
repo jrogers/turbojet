@@ -11,7 +11,7 @@ use turbojet::fields::UtcTimestamp;
 use turbojet::fields::{Decimal, format_compact};
 use turbojet::message::{Message, tags, utc_timestamp};
 use turbojet::registry::CommandReceiver;
-use turbojet::store::{SessionLog, SessionStorage};
+use turbojet::store::{SessionStorage, StoredSession};
 use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
 use turbojet_fix::fix42::{
     ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, NewOrderSingleRef, OrdStatus, OrdType, Side,
@@ -168,7 +168,7 @@ struct DiscardLog {
 }
 
 impl SessionStorage for DiscardStorage {
-    fn open(&self, _id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, _id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         Ok(Box::new(DiscardLog { seq: Arc::new(Mutex::new((1, 1))) }))
     }
     fn is_durable(&self) -> bool {
@@ -176,7 +176,7 @@ impl SessionStorage for DiscardStorage {
     }
 }
 
-impl SessionLog for DiscardLog {
+impl StoredSession for DiscardLog {
     fn next_outgoing(&self) -> u64 {
         self.seq.lock().unwrap().0
     }

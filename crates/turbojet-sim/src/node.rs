@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use turbojet::codec::{DecodedInto, decode_into};
 use turbojet::message::DataFields;
 use turbojet::registry::CommandReceiver;
-use turbojet::store::{Commit, Job, SentMessages, SessionLog};
+use turbojet::store::{Commit, Job, SentMessages, StoredSession};
 use turbojet::{CancelOnDisconnect, InitiatorConfig, Message, Session, SessionConfig, SessionRegistry};
 
 use crate::Side;
@@ -76,7 +76,7 @@ struct Running {
 enum StoreWork {
     Commit(Commit),
     Fetch(Job<SentMessages>),
-    Open(Job<Box<dyn SessionLog>>),
+    Open(Job<Box<dyn StoredSession>>),
 }
 
 /// What a driver step leaves for the world: new output from the session (to check; the node

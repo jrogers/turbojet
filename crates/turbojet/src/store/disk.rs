@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use super::{Commit, SessionId, SessionLog, SessionStorage};
+use super::{Commit, SessionId, SessionStorage, StoredSession};
 use crate::codec::{Decoded, frame_stored};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
 use crate::fixp::framing::{self, Framed};
@@ -18,7 +18,7 @@ use crate::fixp::framing::{self, Framed};
 /// Each session has these files in the store directory, named after its [`SessionId`]:
 ///
 /// - `<name>.body`, `<name>.body.1`, `<name>.body.2` and so on: a journal, in segments, of sent
-///   application messages (see [`SessionLog::record_outgoing`]), whatever their size (a FIXP
+///   application messages (see [`StoredSession::record_outgoing`]), whatever their size (a FIXP
 ///   frame, which carries no sequence number, after a header with its number), each
 ///   commit's followed by a record of the session's state: the next outgoing and incoming
 ///   sequence numbers and the incoming message in flight to the application (0 for none), with a
@@ -130,7 +130,7 @@ impl DiskStorage {
 }
 
 impl SessionStorage for DiskStorage {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         Ok(Box::new(DiskLog::open(&self.dir, id, self.sync, self.sizes)?))
     }
 
@@ -361,7 +361,7 @@ impl DiskLog {
     }
 }
 
-impl SessionLog for DiskLog {
+impl StoredSession for DiskLog {
     fn next_outgoing(&self) -> u64 {
         self.next_outgoing
     }
@@ -1107,7 +1107,7 @@ mod tests {
     /// Runs `change` on the store for "A" and commits it, then cuts the commit's append to the
     /// journal short at each length a power loss could leave. Returns what each reopened store
     /// finds, shortest cut first.
-    fn torn_journal(dir: &tempfile::TempDir, change: impl Fn(&mut dyn SessionLog)) -> Vec<Reopened> {
+    fn torn_journal(dir: &tempfile::TempDir, change: impl Fn(&mut dyn StoredSession)) -> Vec<Reopened> {
         let path = body_path(dir, "A");
         let before = fs::metadata(&path).map_or(0, |m| m.len());
         let seqnums = fs::read(seqnums_path(dir)).unwrap_or_default();
@@ -1135,7 +1135,7 @@ mod tests {
     /// Runs `change` on the store for "A" and commits it, then puts back the seqnums file as a power
     /// loss part-way through that write could leave it: for each length of what reached the device,
     /// the new bytes up to there over the old ones. Returns each reopened store's numbers.
-    fn torn_slot(dir: &tempfile::TempDir, change: impl Fn(&mut dyn SessionLog)) -> Vec<(u64, u64, Option<u64>)> {
+    fn torn_slot(dir: &tempfile::TempDir, change: impl Fn(&mut dyn StoredSession)) -> Vec<(u64, u64, Option<u64>)> {
         let path = seqnums_path(dir);
         let before = fs::read(&path).unwrap_or_default();
         {
@@ -1386,14 +1386,14 @@ mod tests {
     }
 
     /// Stores `seqs` on `log`, committing each.
-    fn store_each(log: &mut dyn SessionLog, seqs: std::ops::RangeInclusive<u64>) {
+    fn store_each(log: &mut dyn StoredSession, seqs: std::ops::RangeInclusive<u64>) {
         for seq in seqs {
             log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
             commit_now(log).unwrap();
         }
     }
 
-    fn stored(log: &mut dyn SessionLog) -> Vec<u64> {
+    fn stored(log: &mut dyn StoredSession) -> Vec<u64> {
         log.sent_messages(1, u64::MAX).unwrap().into_iter().map(|(seq, _)| seq).collect()
     }
 

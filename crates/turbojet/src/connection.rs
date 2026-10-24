@@ -18,7 +18,7 @@ use crate::message_log::MessageLog;
 use crate::registry::{Command, CommandReceiver, Next, Sends};
 use crate::session::Session;
 use crate::shutdown::Signal;
-use crate::store::{Commit, Job, SentMessages, SessionId, SessionLog};
+use crate::store::{Commit, Job, SentMessages, SessionId, StoredSession};
 use crate::telemetry::{self, LatencyMetrics, SessionMetrics};
 
 // The simulator in crates/turbojet-sim (src/node.rs) drives sessions as this driver does, branch
@@ -110,10 +110,10 @@ pub(crate) trait Driven {
     fn on_sends_held(&mut self);
     fn take_commit(&mut self, now: std::time::Instant) -> Option<Commit>;
     fn take_fetch(&mut self) -> Option<Job<SentMessages>>;
-    fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>>;
+    fn take_open(&mut self) -> Option<Job<Box<dyn StoredSession>>>;
     fn on_committed(&mut self, result: io::Result<()>, now: std::time::Instant);
     fn on_fetched(&mut self, result: io::Result<SentMessages>, now: std::time::Instant);
-    fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: std::time::Instant);
+    fn on_opened(&mut self, result: io::Result<Box<dyn StoredSession>>, now: std::time::Instant);
     fn message_log(&self) -> Option<&dyn MessageLog>;
     fn session_id(&self) -> Option<&SessionId>;
     /// The length of the frame at the start of `output`, which holds whole frames.
@@ -982,14 +982,14 @@ impl Timings {
 enum StoreTask {
     Commit(JoinHandle<io::Result<()>>),
     Fetch(JoinHandle<io::Result<SentMessages>>),
-    Open(JoinHandle<io::Result<Box<dyn SessionLog>>>),
+    Open(JoinHandle<io::Result<Box<dyn StoredSession>>>),
 }
 
 /// The result of a [`StoreTask`], for the session.
 enum StoreDone {
     Committed(io::Result<()>),
     Fetched(io::Result<SentMessages>),
-    Opened(io::Result<Box<dyn SessionLog>>),
+    Opened(io::Result<Box<dyn StoredSession>>),
 }
 
 impl StoreTask {
@@ -1232,7 +1232,7 @@ impl Driven for Session {
     fn take_fetch(&mut self) -> Option<Job<SentMessages>> {
         self.take_fetch()
     }
-    fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
+    fn take_open(&mut self) -> Option<Job<Box<dyn StoredSession>>> {
         self.take_open()
     }
     fn on_committed(&mut self, result: io::Result<()>, now: std::time::Instant) {
@@ -1241,7 +1241,7 @@ impl Driven for Session {
     fn on_fetched(&mut self, result: io::Result<SentMessages>, now: std::time::Instant) {
         self.on_fetched(result, now);
     }
-    fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: std::time::Instant) {
+    fn on_opened(&mut self, result: io::Result<Box<dyn StoredSession>>, now: std::time::Instant) {
         self.on_opened(result, now);
     }
     fn message_log(&self) -> Option<&dyn MessageLog> {

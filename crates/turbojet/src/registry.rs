@@ -16,7 +16,7 @@ use crate::fields::ApplVerId;
 use crate::message::Message;
 use crate::peer::ConnectionInfo;
 use crate::schedule::Clock;
-use crate::store::{MemoryStorage, Opened, SessionId, SessionLog, SessionStorage};
+use crate::store::{MemoryStorage, Opened, SessionId, SessionStorage, StoredSession};
 use crate::sync::{AtomicBool, AtomicU8, AtomicU64, Mutex, MutexGuard, Ordering};
 
 /// A request to a session's connection task. `T` is what it sends: a FIX [`Message`], or for a
@@ -174,7 +174,7 @@ impl From<io::Error> for SequenceError {
 /// Applies `command` to a session's stored state. The connection task uses this for a live
 /// session (after any protocol side effects); the registry uses it for one that isn't connected.
 pub(crate) fn apply_sequence_command(
-    log: &mut dyn SessionLog,
+    log: &mut dyn StoredSession,
     command: SequenceCommand,
     clock: &Clock,
 ) -> Result<SequenceNumbers, SequenceError> {

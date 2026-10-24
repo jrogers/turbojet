@@ -679,12 +679,12 @@ impl Flaky {
 }
 
 struct FlakyLog {
-    inner: Box<dyn SessionLog>,
+    inner: Box<dyn StoredSession>,
     store: Flaky,
 }
 
 impl SessionStorage for Flaky {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         Ok(Box::new(FlakyLog { inner: self.inner.open(id)?, store: self.clone() }))
     }
     fn is_durable(&self) -> bool {
@@ -692,7 +692,7 @@ impl SessionStorage for Flaky {
     }
 }
 
-impl SessionLog for FlakyLog {
+impl StoredSession for FlakyLog {
     fn next_outgoing(&self) -> u64 {
         self.inner.next_outgoing()
     }

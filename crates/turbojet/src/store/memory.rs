@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::{SessionId, SessionLog, SessionStorage};
+use super::{SessionId, SessionStorage, StoredSession};
 use crate::fields::UtcTimestamp;
 
 #[derive(Debug)]
@@ -125,7 +125,7 @@ impl MemoryStorage {
 }
 
 impl SessionStorage for MemoryStorage {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         let mut sessions = self.sessions.lock().expect("memory storage lock poisoned");
         if !sessions.contains_key(id) && sessions.len() >= self.max_sessions {
             return Err(io::Error::new(
@@ -154,7 +154,7 @@ impl MemoryLog {
     }
 }
 
-impl SessionLog for MemoryLog {
+impl StoredSession for MemoryLog {
     fn next_outgoing(&self) -> u64 {
         self.state().next_outgoing
     }
@@ -239,7 +239,7 @@ mod tests {
         super::super::conformance::check_blocking(&MemoryStorage::new());
     }
 
-    fn stored(log: &mut Box<dyn SessionLog>) -> Vec<u64> {
+    fn stored(log: &mut Box<dyn StoredSession>) -> Vec<u64> {
         log.sent_messages(1, u64::MAX).unwrap().into_iter().map(|(seq, _)| seq).collect()
     }
 

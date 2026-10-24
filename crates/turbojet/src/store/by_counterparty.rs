@@ -5,7 +5,7 @@ use std::fmt;
 use std::io;
 use std::sync::Arc;
 
-use super::{Opened, SessionId, SessionLog, SessionStorage};
+use super::{Opened, SessionId, SessionStorage, StoredSession};
 
 /// Keeps each listed counterparty's sessions in its own store, and the rest in a default one,
 /// choosing by the counterparty's CompID ([`SessionId::target_comp_id`]).
@@ -48,7 +48,7 @@ impl StorageByCounterparty {
 }
 
 impl SessionStorage for StorageByCounterparty {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         self.route(id).open(id)
     }
 
@@ -80,7 +80,7 @@ mod tests {
     fn is_durable_if_every_store_is() {
         struct Durable;
         impl SessionStorage for Durable {
-            fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+            fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
                 MemoryStorage::new().open(id)
             }
             fn is_durable(&self) -> bool {

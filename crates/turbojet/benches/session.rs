@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::codec::{DecodedInto, decode_into, encode};
 use turbojet::message::DataFields;
-use turbojet::store::{SessionLog, SessionStorage};
+use turbojet::store::{SessionStorage, StoredSession};
 use turbojet::throttle::{InboundLimit, RateLimit};
 use turbojet::{DiskStorage, MemoryStorage, Message, SessionConfig, SessionId};
 
@@ -262,7 +262,7 @@ fn resend(c: &mut Criterion) {
 
 /// Records `n` messages from `seq` on, committing after each `per_commit`, and runs any commit
 /// the store hands back, as the driver would: what it costs to make them durable.
-fn store_messages(log: &mut dyn SessionLog, report: &[u8], seq: u64, n: u64, per_commit: u64) {
+fn store_messages(log: &mut dyn StoredSession, report: &[u8], seq: u64, n: u64, per_commit: u64) {
     for i in 1..=n {
         log.record_outgoing(seq + i - 1, Some(report)).unwrap();
         if i % per_commit == 0
@@ -286,7 +286,7 @@ fn storage(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let disk = DiskStorage::new(dir.path(), false).unwrap();
     for (name, storage) in [("memory", &memory as &dyn SessionStorage), ("disk", &disk as &dyn SessionStorage)] {
-        let mut log: Box<dyn SessionLog> = storage.open(&id).unwrap();
+        let mut log: Box<dyn StoredSession> = storage.open(&id).unwrap();
         for per_commit in [1, 100] {
             let name = if per_commit == 1 { name.to_string() } else { format!("{name}, {per_commit} per commit") };
             group.bench_function(name, |b| {

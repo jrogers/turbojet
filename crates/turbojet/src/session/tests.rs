@@ -1158,12 +1158,12 @@ struct RecordingStorage {
 }
 
 struct RecordingLog {
-    inner: Box<dyn SessionLog>,
+    inner: Box<dyn StoredSession>,
     writes: Arc<Mutex<Vec<String>>>,
 }
 
 impl SessionStorage for RecordingStorage {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         Ok(Box::new(RecordingLog { inner: self.inner.open(id)?, writes: self.writes.clone() }))
     }
     fn is_durable(&self) -> bool {
@@ -1171,7 +1171,7 @@ impl SessionStorage for RecordingStorage {
     }
 }
 
-impl SessionLog for RecordingLog {
+impl StoredSession for RecordingLog {
     fn next_outgoing(&self) -> u64 {
         self.inner.next_outgoing()
     }
@@ -2999,7 +2999,7 @@ pub(crate) struct FailingStorage {
 }
 
 struct FailingLog {
-    inner: Box<dyn SessionLog>,
+    inner: Box<dyn StoredSession>,
     remaining: Option<usize>,
     once: bool,
 }
@@ -3021,7 +3021,7 @@ impl FailingLog {
 }
 
 impl SessionStorage for FailingStorage {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         let inner = self.inner.open(id)?;
         Ok(Box::new(FailingLog { inner, remaining: Some(self.ok_writes), once: self.once }))
     }
@@ -3030,7 +3030,7 @@ impl SessionStorage for FailingStorage {
     }
 }
 
-impl SessionLog for FailingLog {
+impl StoredSession for FailingLog {
     fn next_outgoing(&self) -> u64 {
         self.inner.next_outgoing()
     }
@@ -3656,10 +3656,10 @@ mod schedule_tests {
     /// delegates everything except `created_at`/`set_created_at`, which keep their defaults.
     struct NoCreationTimes(MemoryStorage);
 
-    struct NoCreationTimesLog(Box<dyn SessionLog>);
+    struct NoCreationTimesLog(Box<dyn StoredSession>);
 
     impl SessionStorage for NoCreationTimes {
-        fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
             Ok(Box::new(NoCreationTimesLog(self.0.open(id)?)))
         }
         fn is_durable(&self) -> bool {
@@ -3667,7 +3667,7 @@ mod schedule_tests {
         }
     }
 
-    impl SessionLog for NoCreationTimesLog {
+    impl StoredSession for NoCreationTimesLog {
         fn next_outgoing(&self) -> u64 {
             self.0.next_outgoing()
         }

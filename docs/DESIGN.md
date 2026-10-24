@@ -202,7 +202,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   a marker below its next incoming number moves the number back to it, so the counterparty is asked
   again from there, and the window marks everything from it. Without holds the marker equals the
   number at every point a crash can see, so nothing changes; recording the number and marker
-  together (`SessionLog::set_next_incoming_in_flight`) keeps a store that writes each change as
+  together (`StoredSession::set_next_incoming_in_flight`) keeps a store that writes each change as
   it's made from stopping between them, which the simulator found. Each window starts at the
   marker, so a session hands over at most 256 past the oldest hold; past that, input waits until a
   release. The driver reads on meanwhile, into its buffer and unfed, up to 1 MiB, so a
@@ -237,7 +237,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was
   taken can't commit. Stores can open sessions, commit and read resend steps with futures the
-  driver awaits (`SessionStorage::begin_open`, `SessionLog::fetch`, `Job`), so a networked store
+  driver awaits (`SessionStorage::begin_open`, `StoredSession::fetch`, `Job`), so a networked store
   never blocks the runtime; the simulator runs half its seeds over stores that do. The store
   conformance suite is public (`conformance` feature) for other stores to check themselves. Its
   model check runs random sequences of what a session does to its log against a model of it,

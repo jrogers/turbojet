@@ -149,7 +149,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
-use turbojet::store::{Opened, SessionLog};
+use turbojet::store::{Opened, StoredSession};
 use turbojet::{
     Acceptor, AcceptorConfig, Application, Clock, ConnectionInfo, Counterparties, Counterparty, Message, MessageLog,
     SessionConfig, SessionId, SessionRegistry, SessionStorage,
@@ -512,7 +512,7 @@ fn admitted<'a>(loaded: &'a Loaded, comp_id: &str) -> Option<&'a Counterparty> {
 struct Router(Arc<Current>);
 
 impl SessionStorage for Router {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         self.0.get().counterparty_store(&id.target_comp_id).open(id)
     }
 
@@ -534,7 +534,7 @@ impl SessionStorage for Router {
 struct InitiatorStores(Arc<Current>);
 
 impl SessionStorage for InitiatorStores {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         self.0.get().initiator_store(id).open(id)
     }
 

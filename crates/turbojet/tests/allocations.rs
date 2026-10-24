@@ -24,7 +24,7 @@ use turbojet::fixp::{
     ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, Received, ServerConfig,
 };
 use turbojet::message::DataFields;
-use turbojet::store::{SessionLog, SessionStorage};
+use turbojet::store::{SessionStorage, StoredSession};
 use turbojet::{
     Application, Context, DiskStorage, MemoryStorage, Message, MessageLog, MessageReject, SessionConfig, SessionId,
 };
@@ -50,7 +50,7 @@ impl Application for StagedApp {
 struct StagedStorage<S>(S);
 
 impl<S: SessionStorage> SessionStorage for StagedStorage<S> {
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         Ok(Box::new(StagedLog(self.0.open(id)?)))
     }
     fn is_durable(&self) -> bool {
@@ -58,10 +58,10 @@ impl<S: SessionStorage> SessionStorage for StagedStorage<S> {
     }
 }
 
-struct StagedLog(Box<dyn SessionLog>);
+struct StagedLog(Box<dyn StoredSession>);
 
 // Every method, including the provided ones, so the wrapped log's overrides are still used.
-impl SessionLog for StagedLog {
+impl StoredSession for StagedLog {
     fn next_outgoing(&self) -> u64 {
         counting::in_stage(Stage::Store, || self.0.next_outgoing())
     }

@@ -57,7 +57,7 @@ use std::time::Duration;
 
 use sqlx::AnyPool;
 use sqlx::any::AnyPoolOptions;
-use turbojet::store::{Job, Opened, SessionId, SessionLog, SessionStorage};
+use turbojet::store::{Job, Opened, SessionId, SessionStorage, StoredSession};
 
 /// How a [`SqlStorage`] keeps sessions.
 #[derive(Debug, Clone)]
@@ -169,7 +169,7 @@ impl SqlStorage {
 impl SessionStorage for SqlStorage {
     /// Opens on this thread, which needs a multi-threaded tokio runtime current on it: see
     /// [`Job::run`].
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         Job::future(log::open(self.shared.clone(), id.clone())).run()
     }
 

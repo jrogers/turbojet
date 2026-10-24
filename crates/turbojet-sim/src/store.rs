@@ -11,7 +11,7 @@ use turbojet::SessionId;
 
 use crate::files::{DiskFiles, Snapshot, Tear};
 use turbojet::fields::UtcTimestamp;
-use turbojet::store::{Commit, Fetched, Job, Opened, SessionLog, SessionStorage};
+use turbojet::store::{Commit, Fetched, Job, Opened, SessionStorage, StoredSession};
 
 /// One change to a side's outgoing sequence, in the order the session made them.
 #[derive(Debug, Clone)]
@@ -182,7 +182,7 @@ impl SessionStorage for LedgerStorage {
         Ok(if self.slow { Opened::Pending(Job::blocking(move || Ok(log))) } else { Opened::Ready(log) })
     }
 
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         let ledger = LogLedger { ledger: self.ledger.clone(), writer: self.writer.clone(), id: id.clone() };
         let inner = self.inner.open(id).inspect_err(|e| ledger.entries().push(Stored::OpenFailed(e.to_string())))?;
         let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
@@ -204,7 +204,7 @@ impl SessionStorage for LedgerStorage {
 }
 
 struct LedgerLog {
-    inner: Box<dyn SessionLog>,
+    inner: Box<dyn StoredSession>,
     ledger: LogLedger,
     traps: Arc<Mutex<Traps>>,
     files: Option<Arc<DiskFiles>>,
@@ -330,7 +330,7 @@ impl LedgerLog {
     }
 }
 
-impl SessionLog for LedgerLog {
+impl StoredSession for LedgerLog {
     fn next_outgoing(&self) -> u64 {
         self.inner.next_outgoing()
     }

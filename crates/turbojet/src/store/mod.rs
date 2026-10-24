@@ -160,21 +160,21 @@ impl fmt::Display for SessionId {
     }
 }
 
-/// Opens per-session logs. Shared by all connections.
+/// Opens each session's [`StoredSession`]. Shared by all connections.
 ///
 /// A store that opens at once (memory, local files) implements [`open`](SessionStorage::open);
 /// one that waits for a network also overrides [`begin_open`](SessionStorage::begin_open), and
 /// opens in `open` by running that job on the calling thread.
 pub trait SessionStorage: Send + Sync {
-    /// Opens the log for `id`, creating it with both sequence numbers at 1 if it does not exist,
-    /// on this thread. The session holds at most one open log per session.
+    /// Opens session `id`'s stored state, creating it with both sequence numbers at 1 if it does
+    /// not exist, on this thread. The engine holds at most one open per session.
     ///
     /// # Errors
     ///
-    /// Any failure opening the log; the logon is refused.
-    fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>>;
+    /// Any failure opening it; the logon is refused.
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>>;
 
-    /// Opens the log for `id` as [`open`](SessionStorage::open) does: at once, or by a [`Job`]
+    /// Opens session `id`'s stored state as [`open`](SessionStorage::open) does: at once, or by a [`Job`]
     /// the session's driver runs off the async runtime while the logon waits. The session calls
     /// this when it learns its ID, at logon. The default opens at once with `open`.
     ///
@@ -191,12 +191,12 @@ pub trait SessionStorage: Send + Sync {
     fn is_durable(&self) -> bool;
 }
 
-/// A [`SessionLog`] being opened: see [`SessionStorage::begin_open`].
+/// A [`StoredSession`] being opened: see [`SessionStorage::begin_open`].
 pub enum Opened {
     /// Opened at once.
-    Ready(Box<dyn SessionLog>),
+    Ready(Box<dyn StoredSession>),
     /// To be opened by running the job, which the session's driver does off the async runtime.
-    Pending(Job<Box<dyn SessionLog>>),
+    Pending(Job<Box<dyn StoredSession>>),
 }
 
 impl fmt::Debug for Opened {
@@ -211,10 +211,10 @@ impl fmt::Debug for Opened {
 /// Persistent state of one session.
 ///
 /// A store may make each mutation durable as it's made, or buffer them until
-/// [`commit`](SessionLog::commit), which the session calls once per batch of work (one read
+/// [`commit`](StoredSession::commit), which the session calls once per batch of work (one read
 /// from the counterparty, one batch of commands, one step of a resend), before anything that
 /// batch sends goes on the wire. Reads see every mutation made, committed or not.
-pub trait SessionLog: Send {
+pub trait StoredSession: Send {
     /// The MsgSeqNum of the next message to send.
     fn next_outgoing(&self) -> u64;
 
@@ -222,7 +222,7 @@ pub trait SessionLog: Send {
     fn next_incoming(&self) -> u64;
 
     /// Records the next incoming sequence number, which also clears
-    /// [`in_flight`](SessionLog::in_flight).
+    /// [`in_flight`](StoredSession::in_flight).
     ///
     /// # Errors
     ///
@@ -250,10 +250,10 @@ pub trait SessionLog: Send {
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<SentMessages>;
 
     /// Stored messages with sequence numbers in `begin..=end`, as
-    /// [`sent_messages`](SessionLog::sent_messages) returns them: at once, or from a [`Job`] the
+    /// [`sent_messages`](StoredSession::sent_messages) returns them: at once, or from a [`Job`] the
     /// session's driver runs off the async runtime, while the resend waits. The session calls
     /// this for each step of a resend, and makes no other call while a returned job runs. The
-    /// default reads [`sent_messages`](SessionLog::sent_messages) at once, which suits stores
+    /// default reads [`sent_messages`](StoredSession::sent_messages) at once, which suits stores
     /// that read from memory or local files.
     ///
     /// A store that waits for a network to read should return a job here, and read in
@@ -262,7 +262,7 @@ pub trait SessionLog: Send {
     ///
     /// # Errors
     ///
-    /// As [`sent_messages`](SessionLog::sent_messages).
+    /// As [`sent_messages`](StoredSession::sent_messages).
     fn fetch(&mut self, begin: u64, end: u64) -> io::Result<Fetched> {
         self.sent_messages(begin, end).map(Fetched::Ready)
     }
@@ -285,8 +285,8 @@ pub trait SessionLog: Send {
     }
 
     /// Resets both sequence numbers to 1, discards stored messages, and clears
-    /// [`created_at`](SessionLog::created_at), [`in_flight`](SessionLog::in_flight) and
-    /// [`evicted_through`](SessionLog::evicted_through).
+    /// [`created_at`](StoredSession::created_at), [`in_flight`](StoredSession::in_flight) and
+    /// [`evicted_through`](StoredSession::evicted_through).
     ///
     /// # Errors
     ///
@@ -304,15 +304,15 @@ pub trait SessionLog: Send {
 
     /// The first of the incoming messages being handed to the application when this was last
     /// committed, if they hadn't all been handled by then: set by
-    /// [`set_in_flight`](SessionLog::set_in_flight), cleared by
-    /// [`set_next_incoming`](SessionLog::set_next_incoming). Still set after a crash, it tells
+    /// [`set_in_flight`](StoredSession::set_in_flight), cleared by
+    /// [`set_next_incoming`](StoredSession::set_next_incoming). Still set after a crash, it tells
     /// the session that the messages from it on (up to a batch of them) may have been handled
     /// already, and it marks them [`maybe_redelivered`](crate::Context::maybe_redelivered).
     fn in_flight(&self) -> Option<u64>;
 
     /// Records the next incoming sequence number with the in-flight marker at `in_flight`, as
-    /// [`set_next_incoming`](SessionLog::set_next_incoming) then
-    /// [`set_in_flight`](SessionLog::set_in_flight) would. A store that makes each change durable
+    /// [`set_next_incoming`](StoredSession::set_next_incoming) then
+    /// [`set_in_flight`](StoredSession::set_in_flight) would. A store that makes each change durable
     /// as it's made should make this one change, so that a crash never leaves the number without
     /// the marker; the default makes the two calls, enough for a store that commits them together.
     ///
@@ -334,7 +334,7 @@ pub trait SessionLog: Send {
     fn set_in_flight(&mut self, seq: u64) -> io::Result<()>;
 
     /// When the stored state was created or last reset, if recorded: `None` before the first
-    /// [`set_created_at`](SessionLog::set_created_at). Session schedules use it to tell whether
+    /// [`set_created_at`](StoredSession::set_created_at). Session schedules use it to tell whether
     /// the state belongs to the current session period.
     fn created_at(&self) -> Option<UtcTimestamp>;
 
@@ -348,10 +348,10 @@ pub trait SessionLog: Send {
 }
 
 /// Stored messages and their sequence numbers, in ascending order, as given to
-/// [`SessionLog::record_outgoing`].
+/// [`StoredSession::record_outgoing`].
 pub type SentMessages = Vec<(u64, Vec<u8>)>;
 
-/// Stored messages read for a resend: see [`SessionLog::fetch`].
+/// Stored messages read for a resend: see [`StoredSession::fetch`].
 #[derive(Debug)]
 pub enum Fetched {
     /// Read at once.
@@ -360,8 +360,8 @@ pub enum Fetched {
     Pending(Job<SentMessages>),
 }
 
-/// Work that makes a [`SessionLog`]'s buffered mutations durable, returned by
-/// [`SessionLog::commit`] for its caller to run off the connection's task.
+/// Work that makes a [`StoredSession`]'s buffered mutations durable, returned by
+/// [`StoredSession::commit`] for its caller to run off the connection's task.
 pub type Commit = Job<()>;
 
 /// Store work handed to the session's driver rather than done on the connection's task: either
@@ -464,7 +464,7 @@ pub(crate) fn debug_check_sent(messages: &SentMessages, begin: u64, end: u64, ev
     }
 }
 
-/// Checks, in debug builds, a call to [`SessionLog::record_outgoing`] against the log's
+/// Checks, in debug builds, a call to [`StoredSession::record_outgoing`] against the log's
 /// `next_outgoing` before it: numbers are never reused, and a message stored takes the next one
 /// (numbers recorded without a message may skip ahead, as an operator does).
 pub(crate) fn debug_check_record(seq: u64, next_outgoing: u64, msg: Option<&[u8]>) {
@@ -484,7 +484,7 @@ pub(crate) fn is_one_message(bytes: &[u8]) -> bool {
 /// Commits `log`'s mutations, running any [`Commit`] on this thread: for changes made outside a
 /// connected session (operator commands on a disconnected one), which are rare.
 #[cfg(test)]
-pub(crate) fn commit_now(log: &mut dyn SessionLog) -> io::Result<()> {
+pub(crate) fn commit_now(log: &mut dyn StoredSession) -> io::Result<()> {
     log.commit()?.map_or(Ok(()), Commit::run)
 }
 
@@ -523,7 +523,7 @@ pub(crate) mod deferring {
     }
 
     struct DeferringLog {
-        inner: Box<dyn SessionLog>,
+        inner: Box<dyn StoredSession>,
         calls: Arc<Mutex<Vec<String>>>,
         job: Arc<Mutex<Job>>,
         /// Mutations since the last commit.
@@ -532,7 +532,7 @@ pub(crate) mod deferring {
     }
 
     impl SessionStorage for DeferringStorage {
-        fn open(&self, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+        fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
             let (calls, job) = (self.calls.clone(), self.job.clone());
             let inner = self.inner.open(id)?;
             Ok(Box::new(DeferringLog { inner, calls, job, dirty: false, deferred: self.deferred }))
@@ -560,7 +560,7 @@ pub(crate) mod deferring {
         }
     }
 
-    impl SessionLog for DeferringLog {
+    impl StoredSession for DeferringLog {
         fn next_outgoing(&self) -> u64 {
             self.inner.next_outgoing()
         }

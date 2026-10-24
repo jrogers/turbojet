@@ -3,8 +3,8 @@
 //! own.
 //!
 //! [`check`] goes through the store as the session does: it opens with
-//! [`begin_open`](SessionStorage::begin_open), reads with [`fetch`](SessionLog::fetch) and
-//! commits with [`commit`](SessionLog::commit), running whatever jobs they return. It panics on
+//! [`begin_open`](SessionStorage::begin_open), reads with [`fetch`](StoredSession::fetch) and
+//! commits with [`commit`](StoredSession::commit), running whatever jobs they return. It panics on
 //! the first difference, saying what was expected.
 //!
 //! ```no_run
@@ -17,7 +17,7 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use super::{Fetched, Opened, SentMessages, SessionId, SessionLog, SessionStorage};
+use super::{Fetched, Opened, SentMessages, SessionId, SessionStorage, StoredSession};
 use crate::codec::encode;
 use crate::fields::{MsgType, UtcTimestamp};
 use crate::message::{Message, tags};
@@ -46,7 +46,7 @@ fn message(seq: u64) -> Message {
 /// # Errors
 ///
 /// The store's error opening the log.
-pub async fn open(storage: &dyn SessionStorage, id: &SessionId) -> io::Result<Box<dyn SessionLog>> {
+pub async fn open(storage: &dyn SessionStorage, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
     match storage.begin_open(id)? {
         Opened::Ready(log) => Ok(log),
         Opened::Pending(job) => job.run_async().await,
@@ -58,7 +58,7 @@ pub async fn open(storage: &dyn SessionStorage, id: &SessionId) -> io::Result<Bo
 /// # Errors
 ///
 /// The store's error committing.
-pub async fn commit(log: &mut dyn SessionLog) -> io::Result<()> {
+pub async fn commit(log: &mut dyn StoredSession) -> io::Result<()> {
     match log.commit()? {
         None => Ok(()),
         Some(job) => job.run_async().await,
@@ -70,7 +70,7 @@ pub async fn commit(log: &mut dyn SessionLog) -> io::Result<()> {
 /// # Errors
 ///
 /// The store's error reading.
-pub async fn fetch(log: &mut dyn SessionLog, begin: u64, end: u64) -> io::Result<SentMessages> {
+pub async fn fetch(log: &mut dyn StoredSession, begin: u64, end: u64) -> io::Result<SentMessages> {
     match log.fetch(begin, end)? {
         Fetched::Ready(read) => Ok(read),
         Fetched::Pending(job) => job.run_async().await,
@@ -277,7 +277,7 @@ async fn check_full_ids(storage: &dyn SessionStorage) {
 /// of its own (target `M` and the seed). After every step the store must agree with a model of
 /// the log: its numbers, in-flight marker, creation time and stored messages, as a whole and in a
 /// range. A store may evict its oldest messages to stay within a limit, so it holds exactly the
-/// model's messages above [`evicted_through`](SessionLog::evicted_through). Reopened, it holds
+/// model's messages above [`evicted_through`](StoredSession::evicted_through). Reopened, it holds
 /// what was committed, or what some later step left: a store may make each change as it's made.
 /// The creation time may be any it had since the commit, as a store may record it at once while
 /// it buffers the rest (only a schedule reads it).
@@ -334,7 +334,7 @@ struct ModelRun<'a> {
     id: SessionId,
     seed: u64,
     rng: u64,
-    log: Box<dyn SessionLog>,
+    log: Box<dyn StoredSession>,
     model: Model,
     /// The model as committed, then after each step since: what a reopened store may hold.
     since_commit: Vec<Model>,
@@ -536,7 +536,7 @@ impl<'a> ModelRun<'a> {
 /// Stands in for a log while it's reopened, so the old one is dropped first.
 struct Closed;
 
-impl SessionLog for Closed {
+impl StoredSession for Closed {
     fn next_outgoing(&self) -> u64 {
         unreachable!("replaced at once")
     }

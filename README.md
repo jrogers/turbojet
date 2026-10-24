@@ -209,7 +209,7 @@ Layers, from the bottom up — each is public, so you can stop at any level:
   application message, group and enum, generated from the official FIX data, a module and feature per version
   (`fix44`, …)
 - `fix_message!`, `fix_group!`, `fix_enum!` – define your own typed messages, groups and enums
-- `store` – `SessionStorage` / `SessionLog` traits; `MemoryStorage`, `DiskStorage`; with the
+- `store` – `SessionStorage` / `StoredSession` traits; `MemoryStorage`, `DiskStorage`; with the
   `conformance` feature, the suite every store must pass
 - `turbojet-sql` (a separate crate) – `SqlStorage`, session storage in SQLite or PostgreSQL
 - `turbojet-config` (a separate crate) – `SessionsFile`, an acceptor and initiators from a TOML
@@ -637,7 +637,7 @@ config.schedule = Some("daily 08:00-17:00 mon-fri America/New_York".parse()?);
 - When a period ends, a logged-on session sends Logout ("End of session") and disconnects,
   including at the boundary between back-to-back periods.
 - The first logon of a new period resets sequence numbers to 1 and clears the resend store,
-  based on when the store's state was created (`SessionLog::created_at`). State from before
+  based on when the store's state was created (`StoredSession::created_at`). State from before
   creation times were recorded is kept and resets from the next period; custom stores that don't
   record creation times never reset on schedule (a warning says so).
 
@@ -998,7 +998,7 @@ device (`DiskStorage` with `fsync`) hands the commit to the connection driver, w
 blocking thread, so the async runtime never waits for a disk; meanwhile the connection reads but
 processes nothing. A store that waits for a network does the same with a future, and can hand
 over opening a session (at logon) and reading a resend step too (`SessionStorage::begin_open`,
-`SessionLog::fetch`). A `Receipt` resolves, and an operator hears of a sequence number change, once
+`StoredSession::fetch`). A `Receipt` resolves, and an operator hears of a sequence number change, once
 the change is committed.
 
 Delivery to the application is at least once. An inbound message counts as received only after

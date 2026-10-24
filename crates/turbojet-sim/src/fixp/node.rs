@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use turbojet::fixp::{ClientConfig, FixpConfig, FixpRegistry, FixpSession, SbeMessage, ServerConfig};
 use turbojet::registry::CommandReceiver;
-use turbojet::store::{Commit, Job, SentMessages, SessionLog};
+use turbojet::store::{Commit, Job, SentMessages, StoredSession};
 
 use super::app::RecordingApp;
 use crate::Side;
@@ -70,7 +70,7 @@ struct Running {
 enum StoreWork {
     Commit(Commit),
     Fetch(Job<SentMessages>),
-    Open(Job<Box<dyn SessionLog>>),
+    Open(Job<Box<dyn StoredSession>>),
 }
 
 /// What a driver step leaves for the world, as the FIX node's `Effects`.

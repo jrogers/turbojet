@@ -10,7 +10,7 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use tokio::runtime::Runtime;
 use turbojet::DiskStorage;
 use turbojet::store::conformance::{app_message, commit, fetch, id, open};
-use turbojet::store::{SessionLog, SessionStorage};
+use turbojet::store::{SessionStorage, StoredSession};
 use turbojet_sql::{SqlConfig, SqlStorage};
 
 /// Messages stored before an untimed reset, so a store doesn't grow without bound.
@@ -50,7 +50,7 @@ fn stores(runtime: &Runtime, dir: &std::path::Path) -> Vec<(&'static str, Arc<dy
 }
 
 /// Records `n` messages from `seq` on, committing after each `per_commit`, as the driver would.
-async fn store_messages(log: &mut dyn SessionLog, report: &[u8], seq: u64, n: u64, per_commit: u64) {
+async fn store_messages(log: &mut dyn StoredSession, report: &[u8], seq: u64, n: u64, per_commit: u64) {
     for i in 1..=n {
         log.record_outgoing(seq + i - 1, Some(report)).unwrap();
         if i % per_commit == 0 {

@@ -29,7 +29,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   clean logout included, even if it's released meanwhile: holds end with their connection. A
   session 256 messages past an unreleased hold reads nothing more until it's released. A custom
   store that makes each change durable as it's made should implement
-  `SessionLog::set_next_incoming_in_flight` as one change, or a crash between its two calls can
+  `StoredSession::set_next_incoming_in_flight` as one change, or a crash between its two calls can
   lose a hold's marker. Holds aren't available on FIXP sessions.
 - While a session waits for a release (256 past a hold), it hands over nothing: a Logout, a
   shutdown or a schedule's end waits out `logout_timeout` for a reply it can't handle. It reads

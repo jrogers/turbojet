@@ -5,7 +5,7 @@
 //! timer when its next deadline falls due, writes the encoded messages it leaves in
 //! [`Session::output`], and closes the connection once [`Session::is_closed`], so the protocol
 //! logic is deterministic and testable without sockets. Sequence numbers and sent messages are
-//! persisted through a [`SessionLog`], and committed (see [`Session::take_commit`]) before the
+//! persisted through a [`StoredSession`], and committed (see [`Session::take_commit`]) before the
 //! corresponding message is handed to the driver.
 //! Application messages are delivered to an [`Application`].
 
@@ -42,7 +42,7 @@ use crate::registry::{
     apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
-use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, SessionLog};
+use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, StoredSession};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
@@ -441,7 +441,7 @@ struct Peer {
     id: SessionId,
     /// Given to the application's callbacks.
     handle: SessionHandle,
-    log: Box<dyn SessionLog>,
+    log: Box<dyn StoredSession>,
     heartbeat: Duration,
     metrics: SessionMetrics,
 }
@@ -502,7 +502,7 @@ struct OpeningLog {
     heartbeat: Duration,
     then: AfterOpen,
     /// The job, until the driver takes it.
-    job: Option<Job<Box<dyn SessionLog>>>,
+    job: Option<Job<Box<dyn StoredSession>>>,
 }
 
 /// The rest of logon, once the session's log is open.
@@ -897,7 +897,7 @@ impl Session {
     }
 
     /// The store's read of the messages for the next step of a resend, if it returned one as a
-    /// job (see [`SessionLog::fetch`]): run it off the async runtime, feed the session nothing
+    /// job (see [`StoredSession::fetch`]): run it off the async runtime, feed the session nothing
     /// meanwhile, and hand its result to [`on_fetched`](Self::on_fetched). Stores that read at
     /// once never return one. Call it after [`take_commit`](Self::take_commit) returns `None`.
     pub fn take_fetch(&mut self) -> Option<Job<SentMessages>> {
@@ -925,7 +925,7 @@ impl Session {
     /// told the session its ID: run it off the async runtime, feed the session nothing
     /// meanwhile, and hand its result to [`on_opened`](Self::on_opened). Stores that open at once
     /// never return one. Call it after [`take_commit`](Self::take_commit) returns `None`.
-    pub fn take_open(&mut self) -> Option<Job<Box<dyn SessionLog>>> {
+    pub fn take_open(&mut self) -> Option<Job<Box<dyn StoredSession>>> {
         self.opening_log.as_mut()?.job.take()
     }
 
@@ -933,7 +933,7 @@ impl Session {
     /// the session refuses it and closes. A session that closed meanwhile (shutdown) closes the
     /// log at once. Call [`take_commit`](Self::take_commit) after it, as after any call into the
     /// session.
-    pub fn on_opened(&mut self, result: io::Result<Box<dyn SessionLog>>, now: Instant) {
+    pub fn on_opened(&mut self, result: io::Result<Box<dyn StoredSession>>, now: Instant) {
         self.wall_clock.set(None);
         let Some(OpeningLog { id, heartbeat, then, job }) = self.opening_log.take() else {
             debug_assert!(false, "an opening was taken");
@@ -1888,7 +1888,14 @@ impl Session {
     }
 
     /// The session's log is open: the session is bound, and logon goes on with `then`.
-    fn bound(&mut self, id: SessionId, heartbeat: Duration, log: Box<dyn SessionLog>, then: AfterOpen, now: Instant) {
+    fn bound(
+        &mut self,
+        id: SessionId,
+        heartbeat: Duration,
+        log: Box<dyn StoredSession>,
+        then: AfterOpen,
+        now: Instant,
+    ) {
         // Label the driver's span (see `connection::run`), so every later log line, from the
         // engine or the application, carries the session ID.
         tracing::Span::current().record("id", tracing::field::display(&id));
