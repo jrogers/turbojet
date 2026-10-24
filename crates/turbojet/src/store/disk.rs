@@ -1040,6 +1040,33 @@ mod tests {
         }
     }
 
+    /// A FIXP frame's header that doesn't parse is a torn write if it's the last thing in its
+    /// segment, and corruption anywhere else.
+    #[test]
+    fn a_damaged_frame_header_is_torn_at_the_end_and_corrupt_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let mut log = storage(&dir).open(&id("A")).unwrap();
+            for seq in 1..=3 {
+                log.record_outgoing(seq, Some(&fixp_frame(seq))).unwrap();
+                commit_now(log.as_mut()).unwrap();
+            }
+        }
+        let body = body_path(&dir, "A");
+        let whole = fs::read(&body).unwrap();
+        fs::write(&body, [whole.as_slice(), b"F1 0000000000000000000x\n"].concat()).unwrap();
+        let mut log = storage(&dir).open(&id("A")).unwrap();
+        assert_eq!((log.next_outgoing(), stored(log.as_mut())), (4, vec![1, 2, 3]));
+        drop(log);
+        assert_eq!(fs::read(&body).unwrap(), whole, "the torn header is dropped");
+        // The second frame's header, after the first frame and its record.
+        let mut bytes = whole.clone();
+        bytes[FRAME_HEADER + fixp_frame(1).len() + JOURNAL_RECORD + 10] = b'x';
+        fs::write(&body, &bytes).unwrap();
+        let err = storage(&dir).open(&id("A")).err().expect("open should fail");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
     #[test]
     fn two_number_records_still_read() {
         let dir = tempfile::tempdir().unwrap();
