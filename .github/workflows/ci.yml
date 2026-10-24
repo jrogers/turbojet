@@ -66,6 +66,21 @@ jobs:
           cargo test -p turbojet-fix --no-default-features --features fix42 --locked
       - run: cargo test --workspace ${{ matrix.skip }} ${{ matrix.features }} --locked
 
+  # The concurrency tests (crates/turbojet/src/sync.rs), with shuttle's locks and atomics in place of
+  # std's; nothing else runs under them.
+  shuttle:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: --cfg shuttle
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p turbojet --lib --tests --locked -- -D warnings
+      - run: cargo test -p turbojet --lib --locked shuttle_tests
+
   # The minimum supported Rust version (workspace rust-version).
   msrv:
     runs-on: ubuntu-latest

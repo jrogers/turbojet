@@ -241,6 +241,7 @@ pub mod schedule;
 pub mod session;
 mod shutdown;
 pub mod store;
+mod sync;
 pub mod telemetry;
 pub mod throttle;
 #[cfg(feature = "tls")]

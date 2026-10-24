@@ -3,8 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -18,6 +17,7 @@ use crate::message::Message;
 use crate::peer::ConnectionInfo;
 use crate::schedule::Clock;
 use crate::store::{MemoryStorage, Opened, SessionId, SessionLog, SessionStorage};
+use crate::sync::{AtomicBool, AtomicU8, AtomicU64, Mutex, MutexGuard, Ordering};
 
 /// A request to a session's connection task. `T` is what it sends: a FIX [`Message`], or for a
 /// FIXP session an encoded SBE message.
@@ -1618,5 +1618,114 @@ mod tests {
         });
         assert_eq!(app.0.load(Ordering::Relaxed), 2, "both fired");
         assert_eq!(registry.next_cancel_deadline(), None);
+    }
+}
+
+#[cfg(all(test, shuttle))]
+mod shuttle_tests {
+    use shuttle::scheduler::PctScheduler;
+    use shuttle::{Config, MaxSteps, Runner};
+
+    use super::*;
+
+    /// Runs `test` in many interleavings of its threads. A thread that waits with nothing left to
+    /// wake it fails as a deadlock, or past the step limit if it spins.
+    fn check(test: impl Fn() + Send + Sync + 'static) {
+        let mut config = Config::new();
+        config.max_steps = MaxSteps::FailAfter(20_000);
+        Runner::new(PctScheduler::new(3, 2_000), config).run(test);
+    }
+
+    fn registry() -> Arc<SessionRegistry> {
+        Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())))
+    }
+
+    fn id() -> SessionId {
+        SessionId::new("FIX.4.4", "GATEWAY", "CLIENT")
+    }
+
+    fn binding() -> Binding {
+        Binding { since: Utc::now(), connection: ConnectionInfo::default(), appl_ver_id: None, live: None }
+    }
+
+    /// Two connections logging on as one session at once: exactly one binds it, and once it
+    /// releases, the session can be bound again.
+    #[test]
+    fn one_of_two_logons_at_once_binds_the_session() {
+        check(|| {
+            let registry = registry();
+            let logons: Vec<_> = (0..2)
+                .map(|_| {
+                    let registry = registry.clone();
+                    shuttle::thread::spawn(move || {
+                        let (commands, _queues) = command_queues::<Message>(1);
+                        let bound = registry.acquire(&id(), commands.clone(), Some(binding()), usize::MAX);
+                        bound.is_ok().then_some(commands)
+                    })
+                })
+                .collect();
+            let winners: Vec<_> = logons.into_iter().filter_map(|logon| logon.join().unwrap()).collect();
+            let [winner] = &winners[..] else { panic!("{} logons bound the session", winners.len()) };
+            assert!(registry.sender(&id()).is_some_and(|bound| bound.is_same(winner)));
+            registry.release(&id(), winner);
+            let (commands, _queues) = command_queues::<Message>(1);
+            assert!(registry.acquire(&id(), commands.clone(), Some(binding()), usize::MAX).is_ok());
+            registry.release(&id(), &commands);
+        });
+    }
+
+    /// A pause racing a Logon either refuses it or finds the session connected, to log it out:
+    /// never a session that binds after the pause found it not connected.
+    #[test]
+    fn a_pause_refuses_a_logon_or_finds_it_connected() {
+        check(|| {
+            let registry = registry();
+            let logon = {
+                let registry = registry.clone();
+                shuttle::thread::spawn(move || {
+                    let (commands, _queues) = command_queues::<Message>(1);
+                    registry.acquire(&id(), commands.clone(), Some(binding()), usize::MAX).is_ok().then_some(commands)
+                })
+            };
+            let connected = registry.pause(&id());
+            let bound = logon.join().unwrap();
+            assert!(bound.is_none() || connected, "bound after a pause that found it not connected");
+            if let Some(commands) = bound {
+                registry.release(&id(), &commands);
+            }
+        });
+    }
+
+    /// A message sent before a logout goes out before it, however the connection's reads of its
+    /// queues fall against them.
+    #[test]
+    fn a_send_before_a_logout_goes_out_first() {
+        check(|| {
+            let registry = registry();
+            let (commands, mut queues) = command_queues::<Message>(4);
+            assert!(registry.acquire(&id(), commands.clone(), Some(binding()), usize::MAX).is_ok());
+            let operator = {
+                let handle = registry.handle(id());
+                shuttle::thread::spawn(move || {
+                    handle.send(Message::new(crate::fields::MsgType::NewOrderSingle)).unwrap();
+                    handle.logout(None).unwrap();
+                })
+            };
+            // The connection's driver: control commands first, then a send, as it takes them.
+            let mut seen = Vec::new();
+            while !seen.contains(&"logout") {
+                if let Some(command) = queues.try_control() {
+                    assert!(matches!(command, Command::Logout(_)), "{command:?}");
+                    seen.push("logout");
+                } else if queues.try_send().is_some() {
+                    seen.push("send");
+                } else {
+                    shuttle::thread::yield_now();
+                }
+            }
+            assert_eq!(seen, ["send", "logout"]);
+            operator.join().unwrap();
+            registry.release(&id(), &commands);
+        });
     }
 }

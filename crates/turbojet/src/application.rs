@@ -1,7 +1,6 @@
 //! The interface between the engine and the code using it.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
 
 use tracing::error;
@@ -11,6 +10,7 @@ use crate::message::{FieldError, FixMessage, Message};
 use crate::peer::ConnectionInfo;
 use crate::registry::{CommandSender, SessionHandle};
 use crate::store::SessionId;
+use crate::sync::{AtomicBool, Ordering};
 
 /// Callbacks from the engine into the application. The engine handles the session layer
 /// (logon, sequencing, heartbeats, resends, logout); the application sees only what it needs.
@@ -602,5 +602,49 @@ mod tests {
         let large = Message::new(MsgType::OrderCancelReject).with(tags::TEXT, "x".repeat(MAX_SPARE_MESSAGE_BYTES));
         outbox.recycle(large);
         assert!(outbox.spare.is_empty(), "a message holding more than the limit isn't kept");
+    }
+}
+
+#[cfg(all(test, shuttle))]
+mod shuttle_tests {
+    use shuttle::scheduler::PctScheduler;
+    use shuttle::{Config, MaxSteps, Runner};
+
+    use super::*;
+    use crate::registry::{Command, command_queues};
+
+    /// Runs `test` in many interleavings of its threads. One that spins past the step limit is a
+    /// lost wake-up: the thread waiting has nothing left to wake it.
+    fn check(test: impl Fn() + Send + Sync + 'static) {
+        let mut config = Config::new();
+        config.max_steps = MaxSteps::FailAfter(20_000);
+        Runner::new(PctScheduler::new(3, 2_000), config).run(test);
+    }
+
+    /// Releases on other threads, while the session tidies and looks at its holds, each either
+    /// shows as released when it looks or wakes it to look again: it never waits with every hold
+    /// released and no wake-up coming.
+    #[test]
+    fn a_release_is_seen_or_wakes_the_session() {
+        check(|| {
+            let (commands, mut queues) = command_queues::<Message>(1);
+            let mut holds = Holds::default();
+            let releases: Vec<_> = [2, 3]
+                .map(|seq| holds.take(seq, &commands))
+                .into_iter()
+                .map(|hold| shuttle::thread::spawn(move || hold.release()))
+                .collect();
+            loop {
+                holds.tidy();
+                if holds.oldest().is_none() {
+                    break;
+                }
+                // Input waits for the next command, as the connection's driver does.
+                while !matches!(queues.try_control(), Some(Command::HoldReleased)) {
+                    shuttle::thread::yield_now();
+                }
+            }
+            releases.into_iter().for_each(|release| release.join().unwrap());
+        });
     }
 }

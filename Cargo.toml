@@ -27,6 +27,8 @@ lto = "fat"
 unsafe_code = "deny"
 # Public types can go in a user's `#[derive(Debug)]` struct.
 missing_debug_implementations = "warn"
+# `--cfg shuttle` builds turbojet's locks and atomics from shuttle, for its concurrency tests.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(shuttle)"] }
 
 [workspace.lints.clippy]
 # A builder's result dropped (`msg.with(tag, value);`) is a bug.

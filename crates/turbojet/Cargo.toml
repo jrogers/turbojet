@@ -49,6 +49,10 @@ conformance = []
 # Compressing finished FileMessageLog files with gzip (FileLogOptions::compress).
 gzip = ["dep:flate2"]
 
+# Only with `--cfg shuttle`, for the concurrency tests: see src/sync.rs.
+[target.'cfg(shuttle)'.dependencies]
+shuttle = "0.9.8"
+
 [dev-dependencies]
 criterion.workspace = true
 metrics-util.workspace = true
