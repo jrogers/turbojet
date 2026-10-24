@@ -119,3 +119,36 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   - logging into Python's `logging`, once `pyo3-log` supports PyO3 0.30;
   - acceptors, FIXP sessions, and typed message classes generated from the dictionaries, if
     they're wanted.
+
+## 7. Usability and outreach
+
+- **A review of the public API** (M). For idiomatic Rust and ease of use, before more of it is
+  relied on: naming, builders and configuration, error types, what's public that needn't be, and
+  the path from `cargo add` to a first logged-on session. Checked against the Rust API
+  Guidelines, with `cargo-semver-checks` to catch accidental breaks once it settles.
+- **Caveats worth fixing** (S to M each). Several entries in [CAVEATS.md](CAVEATS.md) are
+  limits nobody chose so much as left, and each fixed is one less thing to explain:
+  - an operator's pause forgotten on restart, and cancel-on-disconnect countdowns lost with the
+    process;
+  - a held message redelivered after a clean logout even when it was released meanwhile; and in
+    Python, an `AppMessage` dropped without `done()` holding its session up for good;
+  - an operator change to a disconnected session running a store's fsync on the calling task;
+  - a weekly schedule ignoring mid-week holidays, no early closes, and clock changes of three
+    hours or more resolved with the wrong offset;
+  - counterparty settings and stores chosen by CompID alone, and the sessions file refusing an
+    initiator that differs from a counterparty only in its SubIDs;
+  - unknown tags below 5000 and from 5000 up accepted or rejected only together;
+  - a `MessageLog` seeing an acceptor's Logon with no `SessionId`;
+  - FIX 4.0 and 4.1 sessions writing SendingTime in whole seconds whatever the precision set;
+  - a `Message` that panics past 4 GiB rather than refusing to grow;
+  - the PROXY protocol not read, so allowed addresses behind a load balancer see the device.
+- **Fuller documentation** (M to L). The README is long and the crate docs are reference
+  material. Wanted: a guide that goes from a first initiator and acceptor to storage, recovery,
+  schedules and operations; an architecture overview (the sans-IO session, drivers, registry,
+  stores) for contributors, with diagrams, distilled from DESIGN.md; and examples in the crate
+  docs for the main types.
+- **A public website** (M). An introduction, the guide and the architecture overview, the
+  benchmark numbers, and links to the crates and repository: built from the repository's own
+  docs so it doesn't drift from them.
+- **Announcement posts** (S). Posts introducing Turbojet where Rust and trading-systems
+  developers read, once the website and guide are up for them to land on.
