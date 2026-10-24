@@ -95,7 +95,8 @@ fn fix44_nested_order() -> Message {
     use turbojet::fields::Decimal;
     use turbojet::message::tags;
     use turbojet_fix::fix44::{
-        NewOrderSingle, OrdType, Parties, PartyIDSource, PartyRole, PartySubIDType, PtysSubGrp, Side,
+        NewOrderSingle, NewOrderSingleRequired, OrdType, Parties, PartyIDSource, PartyRole, PartySubIDType, PtysSubGrp,
+        Side,
     };
     let party = |id: &str, role: PartyRole| {
         let mut party = Parties::new(id);
@@ -111,7 +112,12 @@ fn fix44_nested_order() -> Message {
             .collect();
         party
     };
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, UtcTimestamp::now(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::now(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.party_ids = vec![
         party("FIRM-A", PartyRole::ExecutingFirm),
         party("CLIENT-B", PartyRole::ClientID),

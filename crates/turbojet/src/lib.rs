@@ -35,7 +35,7 @@
 //! ```
 //! use turbojet::fields::Decimal;
 //! use turbojet::{Application, Context, Message, MessageReject, MsgType};
-//! use turbojet_fix::fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
+//! use turbojet_fix::fix44::{ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingleRef, OrdStatus};
 //!
 //! /// Acknowledges every order.
 //! struct OrderDesk;
@@ -45,10 +45,16 @@
 //!         match msg.msg_type() {
 //!             MsgType::NewOrderSingle => {
 //!                 let order: NewOrderSingleRef = msg.parse()?;
-//!                 let qty = order.order_qty.unwrap_or_default();
-//!                 let mut ack = ExecutionReport::new(
-//!                     "O1", "E1", ExecType::New, OrdStatus::New, order.side, qty, Decimal::ZERO, Decimal::ZERO,
-//!                 );
+//!                 let mut ack = ExecutionReport::new(ExecutionReportRequired {
+//!                     order_id: "O1".into(),
+//!                     exec_id: "E1".into(),
+//!                     exec_type: ExecType::New.into(),
+//!                     ord_status: OrdStatus::New.into(),
+//!                     side: order.side.into(),
+//!                     leaves_qty: order.order_qty.unwrap_or_default(),
+//!                     cum_qty: Decimal::ZERO,
+//!                     avg_px: Decimal::ZERO,
+//!                 });
 //!                 ack.cl_ord_id = Some(order.cl_ord_id.into());
 //!                 ctx.send(ack);
 //!                 Ok(())
@@ -83,15 +89,16 @@
 //! ```
 //! # use turbojet::fields::Decimal;
 //! # use turbojet::{Application, Context, Message, MessageReject, MsgType};
-//! # use turbojet_fix::fix44::{ExecType, ExecutionReport, NewOrderSingle, NewOrderSingleRef, OrdStatus};
+//! # use turbojet_fix::fix44::{ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingle, NewOrderSingleRef, NewOrderSingleRequired, OrdStatus};
 //! # struct OrderDesk;
 //! # impl Application for OrderDesk {
 //! #     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
 //! #         let order: NewOrderSingleRef = msg.parse()?;
-//! #         let qty = order.order_qty.unwrap_or_default();
-//! #         let mut ack = ExecutionReport::new(
-//! #             "O1", "E1", ExecType::New, OrdStatus::New, order.side, qty, Decimal::ZERO, Decimal::ZERO,
-//! #         );
+//! #         let mut ack = ExecutionReport::new(ExecutionReportRequired {
+//! #             order_id: "O1".into(), exec_id: "E1".into(), exec_type: ExecType::New.into(),
+//! #             ord_status: OrdStatus::New.into(), side: order.side.into(), leaves_qty: order.order_qty.unwrap_or_default(),
+//! #             cum_qty: Decimal::ZERO, avg_px: Decimal::ZERO,
+//! #         });
 //! #         ack.cl_ord_id = Some(order.cl_ord_id.into());
 //! #         ctx.send(ack);
 //! #         Ok(())
@@ -137,7 +144,12 @@
 //!     tokio::spawn(client.clone().run());
 //!
 //!     let session = logged_on.recv().await.expect("logged on");
-//!     let mut order = NewOrderSingle::new("order-1", Side::Buy, turbojet::fields::UtcTimestamp::now(), OrdType::Market);
+//!     let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+//!         cl_ord_id: "order-1".into(),
+//!         side: Side::Buy.into(),
+//!         transact_time: turbojet::fields::UtcTimestamp::now(),
+//!         ord_type: OrdType::Market.into(),
+//!     });
 //!     order.symbol = Some("ACME".into());
 //!     order.order_qty = Some(Decimal::from(100));
 //!     session.send(order)?;

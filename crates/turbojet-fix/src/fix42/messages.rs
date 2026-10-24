@@ -84,21 +84,30 @@ mod part0 {
         }
     }
 
+    /// [`IOI`]'s required fields and groups, for [`IOI::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct IOIRequired {
+        /// IOIID(23).
+        pub ioi_id: CompactString,
+        /// IOITransType(28).
+        pub ioi_trans_type: Code<IOITransType>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+        /// IOIShares(27).
+        pub ioi_shares: Code<IOIShares>,
+    }
+
     impl IOI {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            ioi_id: impl Into<CompactString>,
-            ioi_trans_type: impl Into<Code<IOITransType>>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-            ioi_shares: impl Into<Code<IOIShares>>,
-        ) -> Self {
+        pub fn new(required: IOIRequired) -> Self {
+            let IOIRequired { ioi_id, ioi_trans_type, symbol, side, ioi_shares } = required;
             Self {
-                ioi_id: ioi_id.into(),
-                ioi_trans_type: ioi_trans_type.into(),
+                ioi_id,
+                ioi_trans_type,
                 ioi_ref_id: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -115,8 +124,8 @@ mod part0 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                side: side.into(),
-                ioi_shares: ioi_shares.into(),
+                side,
+                ioi_shares,
                 price: None,
                 currency: None,
                 valid_until_time: None,
@@ -202,21 +211,30 @@ mod part0 {
         }
     }
 
+    /// [`Advertisement`]'s required fields and groups, for [`Advertisement::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct AdvertisementRequired {
+        /// AdvId(2).
+        pub adv_id: CompactString,
+        /// AdvTransType(5).
+        pub adv_trans_type: Code<AdvTransType>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// AdvSide(4).
+        pub adv_side: Code<AdvSide>,
+        /// Shares(53).
+        pub shares: Decimal,
+    }
+
     impl Advertisement {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            adv_id: impl Into<CompactString>,
-            adv_trans_type: impl Into<Code<AdvTransType>>,
-            symbol: impl Into<CompactString>,
-            adv_side: impl Into<Code<AdvSide>>,
-            shares: Decimal,
-        ) -> Self {
+        pub fn new(required: AdvertisementRequired) -> Self {
+            let AdvertisementRequired { adv_id, adv_trans_type, symbol, adv_side, shares } = required;
             Self {
-                adv_id: adv_id.into(),
-                adv_trans_type: adv_trans_type.into(),
+                adv_id,
+                adv_trans_type,
                 adv_ref_id: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -233,7 +251,7 @@ mod part0 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                adv_side: adv_side.into(),
+                adv_side,
                 shares,
                 price: None,
                 currency: None,
@@ -432,23 +450,48 @@ mod part0 {
         }
     }
 
+    /// [`ExecutionReport`]'s required fields and groups, for [`ExecutionReport::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ExecutionReportRequired {
+        /// OrderID(37).
+        pub order_id: CompactString,
+        /// ExecID(17).
+        pub exec_id: CompactString,
+        /// ExecTransType(20).
+        pub exec_trans_type: Code<ExecTransType>,
+        /// ExecType(150).
+        pub exec_type: Code<ExecType>,
+        /// OrdStatus(39).
+        pub ord_status: Code<OrdStatus>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+        /// LeavesQty(151).
+        pub leaves_qty: Decimal,
+        /// CumQty(14).
+        pub cum_qty: Decimal,
+        /// AvgPx(6).
+        pub avg_px: Decimal,
+    }
+
     impl ExecutionReport {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            order_id: impl Into<CompactString>,
-            exec_id: impl Into<CompactString>,
-            exec_trans_type: impl Into<Code<ExecTransType>>,
-            exec_type: impl Into<Code<ExecType>>,
-            ord_status: impl Into<Code<OrdStatus>>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-            leaves_qty: Decimal,
-            cum_qty: Decimal,
-            avg_px: Decimal,
-        ) -> Self {
+        pub fn new(required: ExecutionReportRequired) -> Self {
+            let ExecutionReportRequired {
+                order_id,
+                exec_id,
+                exec_trans_type,
+                exec_type,
+                ord_status,
+                symbol,
+                side,
+                leaves_qty,
+                cum_qty,
+                avg_px,
+            } = required;
             Self {
-                order_id: order_id.into(),
+                order_id,
                 secondary_order_id: None,
                 cl_ord_id: None,
                 orig_cl_ord_id: None,
@@ -456,17 +499,17 @@ mod part0 {
                 exec_broker: None,
                 contra_brokers: Vec::new(),
                 list_id: None,
-                exec_id: exec_id.into(),
-                exec_trans_type: exec_trans_type.into(),
+                exec_id,
+                exec_trans_type,
                 exec_ref_id: None,
-                exec_type: exec_type.into(),
-                ord_status: ord_status.into(),
+                exec_type,
+                ord_status,
                 ord_rej_reason: None,
                 exec_restatement_reason: None,
                 account: None,
                 settlmnt_typ: None,
                 fut_sett_date: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -483,7 +526,7 @@ mod part0 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                side: side.into(),
+                side,
                 order_qty: None,
                 cash_order_qty: None,
                 ord_type: None,
@@ -575,28 +618,38 @@ mod part0 {
         }
     }
 
+    /// [`OrderCancelReject`]'s required fields and groups, for [`OrderCancelReject::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct OrderCancelRejectRequired {
+        /// OrderID(37).
+        pub order_id: CompactString,
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// OrigClOrdID(41).
+        pub orig_cl_ord_id: CompactString,
+        /// OrdStatus(39).
+        pub ord_status: Code<OrdStatus>,
+        /// CxlRejResponseTo(434).
+        pub cxl_rej_response_to: Code<CxlRejResponseTo>,
+    }
+
     impl OrderCancelReject {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            order_id: impl Into<CompactString>,
-            cl_ord_id: impl Into<CompactString>,
-            orig_cl_ord_id: impl Into<CompactString>,
-            ord_status: impl Into<Code<OrdStatus>>,
-            cxl_rej_response_to: impl Into<Code<CxlRejResponseTo>>,
-        ) -> Self {
+        pub fn new(required: OrderCancelRejectRequired) -> Self {
+            let OrderCancelRejectRequired { order_id, cl_ord_id, orig_cl_ord_id, ord_status, cxl_rej_response_to } =
+                required;
             Self {
-                order_id: order_id.into(),
+                order_id,
                 secondary_order_id: None,
-                cl_ord_id: cl_ord_id.into(),
-                orig_cl_ord_id: orig_cl_ord_id.into(),
-                ord_status: ord_status.into(),
+                cl_ord_id,
+                orig_cl_ord_id,
+                ord_status,
                 client_id: None,
                 exec_broker: None,
                 list_id: None,
                 account: None,
                 transact_time: None,
-                cxl_rej_response_to: cxl_rej_response_to.into(),
+                cxl_rej_response_to,
                 cxl_rej_reason: None,
                 text: None,
                 encoded_text: None,
@@ -628,14 +681,23 @@ mod part0 {
         }
     }
 
+    /// [`News`]'s required fields and groups, for [`News::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct NewsRequired {
+        /// Headline(148).
+        pub headline: CompactString,
+        /// LinesOfText(33).
+        pub lines_of_text: Vec<LinesOfTextGrp>,
+    }
+
     impl News {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(headline: impl Into<CompactString>, lines_of_text: Vec<LinesOfTextGrp>) -> Self {
+        pub fn new(required: NewsRequired) -> Self {
+            let NewsRequired { headline, lines_of_text } = required;
             Self {
                 orig_time: None,
                 urgency: None,
-                headline: headline.into(),
+                headline,
                 encoded_headline: None,
                 routing_ids: Vec::new(),
                 related_sym: Vec::new(),
@@ -674,20 +736,28 @@ mod part0 {
         }
     }
 
+    /// [`Email`]'s required fields and groups, for [`Email::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct EmailRequired {
+        /// EmailThreadID(164).
+        pub email_thread_id: CompactString,
+        /// EmailType(94).
+        pub email_type: Code<EmailType>,
+        /// Subject(147).
+        pub subject: CompactString,
+        /// LinesOfText(33).
+        pub lines_of_text: Vec<LinesOfTextGrp>,
+    }
+
     impl Email {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            email_thread_id: impl Into<CompactString>,
-            email_type: impl Into<Code<EmailType>>,
-            subject: impl Into<CompactString>,
-            lines_of_text: Vec<LinesOfTextGrp>,
-        ) -> Self {
+        pub fn new(required: EmailRequired) -> Self {
+            let EmailRequired { email_thread_id, email_type, subject, lines_of_text } = required;
             Self {
-                email_thread_id: email_thread_id.into(),
-                email_type: email_type.into(),
+                email_thread_id,
+                email_type,
                 orig_time: None,
-                subject: subject.into(),
+                subject,
                 encoded_subject: None,
                 routing_ids: Vec::new(),
                 related_sym: Vec::new(),
@@ -841,33 +911,43 @@ mod part0 {
         }
     }
 
+    /// [`NewOrderSingle`]'s required fields and groups, for [`NewOrderSingle::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct NewOrderSingleRequired {
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// HandlInst(21).
+        pub handl_inst: Code<HandlInst>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+        /// TransactTime(60).
+        pub transact_time: UtcTimestamp,
+        /// OrdType(40).
+        pub ord_type: Code<OrdType>,
+    }
+
     impl NewOrderSingle {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            cl_ord_id: impl Into<CompactString>,
-            handl_inst: impl Into<Code<HandlInst>>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-            transact_time: UtcTimestamp,
-            ord_type: impl Into<Code<OrdType>>,
-        ) -> Self {
+        pub fn new(required: NewOrderSingleRequired) -> Self {
+            let NewOrderSingleRequired { cl_ord_id, handl_inst, symbol, side, transact_time, ord_type } = required;
             Self {
-                cl_ord_id: cl_ord_id.into(),
+                cl_ord_id,
                 client_id: None,
                 exec_broker: None,
                 account: None,
                 allocs: Vec::new(),
                 settlmnt_typ: None,
                 fut_sett_date: None,
-                handl_inst: handl_inst.into(),
+                handl_inst,
                 exec_inst: None,
                 min_qty: None,
                 max_floor: None,
                 ex_destination: None,
                 trading_sessions: Vec::new(),
                 process_code: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -885,12 +965,12 @@ mod part0 {
                 security_desc: None,
                 encoded_security_desc: None,
                 prev_close_px: None,
-                side: side.into(),
+                side,
                 locate_reqd: None,
                 transact_time,
                 order_qty: None,
                 cash_order_qty: None,
-                ord_type: ord_type.into(),
+                ord_type,
                 price: None,
                 stop_px: None,
                 currency: None,
@@ -953,21 +1033,29 @@ mod part0 {
         }
     }
 
+    /// [`NewOrderList`]'s required fields and groups, for [`NewOrderList::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct NewOrderListRequired {
+        /// ListID(66).
+        pub list_id: CompactString,
+        /// BidType(394).
+        pub bid_type: Code<BidType>,
+        /// TotNoOrders(68).
+        pub tot_no_orders: i64,
+        /// NoOrders(73).
+        pub orders: Vec<ListOrdGrp>,
+    }
+
     impl NewOrderList {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            list_id: impl Into<CompactString>,
-            bid_type: impl Into<Code<BidType>>,
-            tot_no_orders: i64,
-            orders: Vec<ListOrdGrp>,
-        ) -> Self {
+        pub fn new(required: NewOrderListRequired) -> Self {
+            let NewOrderListRequired { list_id, bid_type, tot_no_orders, orders } = required;
             Self {
-                list_id: list_id.into(),
+                list_id,
                 bid_id: None,
                 client_bid_id: None,
                 prog_rpt_reqs: None,
-                bid_type: bid_type.into(),
+                bid_type,
                 prog_period_interval: None,
                 list_exec_inst_type: None,
                 list_exec_inst: None,
@@ -1053,25 +1141,34 @@ mod part1 {
         }
     }
 
+    /// [`OrderCancelRequest`]'s required fields and groups, for [`OrderCancelRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct OrderCancelRequestRequired {
+        /// OrigClOrdID(41).
+        pub orig_cl_ord_id: CompactString,
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+        /// TransactTime(60).
+        pub transact_time: UtcTimestamp,
+    }
+
     impl OrderCancelRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            orig_cl_ord_id: impl Into<CompactString>,
-            cl_ord_id: impl Into<CompactString>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-            transact_time: UtcTimestamp,
-        ) -> Self {
+        pub fn new(required: OrderCancelRequestRequired) -> Self {
+            let OrderCancelRequestRequired { orig_cl_ord_id, cl_ord_id, symbol, side, transact_time } = required;
             Self {
-                orig_cl_ord_id: orig_cl_ord_id.into(),
+                orig_cl_ord_id,
                 order_id: None,
-                cl_ord_id: cl_ord_id.into(),
+                cl_ord_id,
                 list_id: None,
                 account: None,
                 client_id: None,
                 exec_broker: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -1088,7 +1185,7 @@ mod part1 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                side: side.into(),
+                side,
                 transact_time,
                 order_qty: None,
                 cash_order_qty: None,
@@ -1240,36 +1337,55 @@ mod part1 {
         }
     }
 
+    /// [`OrderCancelReplaceRequest`]'s required fields and groups, for [`OrderCancelReplaceRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct OrderCancelReplaceRequestRequired {
+        /// OrigClOrdID(41).
+        pub orig_cl_ord_id: CompactString,
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// HandlInst(21).
+        pub handl_inst: Code<HandlInst>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+        /// TransactTime(60).
+        pub transact_time: UtcTimestamp,
+        /// OrdType(40).
+        pub ord_type: Code<OrdType>,
+    }
+
     impl OrderCancelReplaceRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            orig_cl_ord_id: impl Into<CompactString>,
-            cl_ord_id: impl Into<CompactString>,
-            handl_inst: impl Into<Code<HandlInst>>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-            transact_time: UtcTimestamp,
-            ord_type: impl Into<Code<OrdType>>,
-        ) -> Self {
+        pub fn new(required: OrderCancelReplaceRequestRequired) -> Self {
+            let OrderCancelReplaceRequestRequired {
+                orig_cl_ord_id,
+                cl_ord_id,
+                handl_inst,
+                symbol,
+                side,
+                transact_time,
+                ord_type,
+            } = required;
             Self {
                 order_id: None,
                 client_id: None,
                 exec_broker: None,
-                orig_cl_ord_id: orig_cl_ord_id.into(),
-                cl_ord_id: cl_ord_id.into(),
+                orig_cl_ord_id,
+                cl_ord_id,
                 list_id: None,
                 account: None,
                 allocs: Vec::new(),
                 settlmnt_typ: None,
                 fut_sett_date: None,
-                handl_inst: handl_inst.into(),
+                handl_inst,
                 exec_inst: None,
                 min_qty: None,
                 max_floor: None,
                 ex_destination: None,
                 trading_sessions: Vec::new(),
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -1286,11 +1402,11 @@ mod part1 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                side: side.into(),
+                side,
                 transact_time,
                 order_qty: None,
                 cash_order_qty: None,
-                ord_type: ord_type.into(),
+                ord_type,
                 price: None,
                 stop_px: None,
                 peg_difference: None,
@@ -1376,21 +1492,28 @@ mod part1 {
         }
     }
 
+    /// [`OrderStatusRequest`]'s required fields and groups, for [`OrderStatusRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct OrderStatusRequestRequired {
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+    }
+
     impl OrderStatusRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            cl_ord_id: impl Into<CompactString>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-        ) -> Self {
+        pub fn new(required: OrderStatusRequestRequired) -> Self {
+            let OrderStatusRequestRequired { cl_ord_id, symbol, side } = required;
             Self {
                 order_id: None,
-                cl_ord_id: cl_ord_id.into(),
+                cl_ord_id,
                 client_id: None,
                 account: None,
                 exec_broker: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -1407,7 +1530,7 @@ mod part1 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                side: side.into(),
+                side,
             }
         }
     }
@@ -1504,28 +1627,39 @@ mod part1 {
         }
     }
 
+    /// [`Allocation`]'s required fields and groups, for [`Allocation::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct AllocationRequired {
+        /// AllocID(70).
+        pub alloc_id: CompactString,
+        /// AllocTransType(71).
+        pub alloc_trans_type: Code<AllocTransType>,
+        /// Side(54).
+        pub side: Code<Side>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Shares(53).
+        pub shares: Decimal,
+        /// AvgPx(6).
+        pub avg_px: Decimal,
+        /// TradeDate(75).
+        pub trade_date: NaiveDate,
+    }
+
     impl Allocation {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            alloc_id: impl Into<CompactString>,
-            alloc_trans_type: impl Into<Code<AllocTransType>>,
-            side: impl Into<Code<Side>>,
-            symbol: impl Into<CompactString>,
-            shares: Decimal,
-            avg_px: Decimal,
-            trade_date: NaiveDate,
-        ) -> Self {
+        pub fn new(required: AllocationRequired) -> Self {
+            let AllocationRequired { alloc_id, alloc_trans_type, side, symbol, shares, avg_px, trade_date } = required;
             Self {
-                alloc_id: alloc_id.into(),
-                alloc_trans_type: alloc_trans_type.into(),
+                alloc_id,
+                alloc_trans_type,
                 ref_alloc_id: None,
                 alloc_link_id: None,
                 alloc_link_type: None,
                 orders: Vec::new(),
                 execs: Vec::new(),
-                side: side.into(),
-                symbol: symbol.into(),
+                side,
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -1578,11 +1712,20 @@ mod part1 {
         }
     }
 
+    /// [`ListCancelRequest`]'s required fields and groups, for [`ListCancelRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ListCancelRequestRequired {
+        /// ListID(66).
+        pub list_id: CompactString,
+        /// TransactTime(60).
+        pub transact_time: UtcTimestamp,
+    }
+
     impl ListCancelRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(list_id: impl Into<CompactString>, transact_time: UtcTimestamp) -> Self {
-            Self { list_id: list_id.into(), transact_time, text: None, encoded_text: None }
+        pub fn new(required: ListCancelRequestRequired) -> Self {
+            let ListCancelRequestRequired { list_id, transact_time } = required;
+            Self { list_id, transact_time, text: None, encoded_text: None }
         }
     }
 
@@ -1604,18 +1747,20 @@ mod part1 {
         }
     }
 
+    /// [`ListExecute`]'s required fields and groups, for [`ListExecute::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ListExecuteRequired {
+        /// ListID(66).
+        pub list_id: CompactString,
+        /// TransactTime(60).
+        pub transact_time: UtcTimestamp,
+    }
+
     impl ListExecute {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(list_id: impl Into<CompactString>, transact_time: UtcTimestamp) -> Self {
-            Self {
-                list_id: list_id.into(),
-                client_bid_id: None,
-                bid_id: None,
-                transact_time,
-                text: None,
-                encoded_text: None,
-            }
+        pub fn new(required: ListExecuteRequired) -> Self {
+            let ListExecuteRequired { list_id, transact_time } = required;
+            Self { list_id, client_bid_id: None, bid_id: None, transact_time, text: None, encoded_text: None }
         }
     }
 
@@ -1632,10 +1777,11 @@ mod part1 {
     }
 
     impl ListStatusRequest {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(list_id: impl Into<CompactString>) -> Self {
-            Self { list_id: list_id.into(), text: None, encoded_text: None }
+            let list_id = list_id.into();
+            Self { list_id, text: None, encoded_text: None }
         }
     }
 
@@ -1665,23 +1811,42 @@ mod part1 {
         }
     }
 
+    /// [`ListStatus`]'s required fields and groups, for [`ListStatus::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ListStatusRequired {
+        /// ListID(66).
+        pub list_id: CompactString,
+        /// ListStatusType(429).
+        pub list_status_type: Code<ListStatusType>,
+        /// NoRpts(82).
+        pub no_rpts: i64,
+        /// ListOrderStatus(431).
+        pub list_order_status: Code<ListOrderStatus>,
+        /// RptSeq(83).
+        pub rpt_seq: i64,
+        /// TotNoOrders(68).
+        pub tot_no_orders: i64,
+        /// NoOrders(73).
+        pub orders: Vec<OrdListStatGrp>,
+    }
+
     impl ListStatus {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            list_id: impl Into<CompactString>,
-            list_status_type: impl Into<Code<ListStatusType>>,
-            no_rpts: i64,
-            list_order_status: impl Into<Code<ListOrderStatus>>,
-            rpt_seq: i64,
-            tot_no_orders: i64,
-            orders: Vec<OrdListStatGrp>,
-        ) -> Self {
-            Self {
-                list_id: list_id.into(),
-                list_status_type: list_status_type.into(),
+        pub fn new(required: ListStatusRequired) -> Self {
+            let ListStatusRequired {
+                list_id,
+                list_status_type,
                 no_rpts,
-                list_order_status: list_order_status.into(),
+                list_order_status,
+                rpt_seq,
+                tot_no_orders,
+                orders,
+            } = required;
+            Self {
+                list_id,
+                list_status_type,
+                no_rpts,
+                list_order_status,
                 rpt_seq,
                 list_status_text: None,
                 encoded_list_status_text: None,
@@ -1721,21 +1886,28 @@ mod part2 {
         }
     }
 
+    /// [`AllocationAck`]'s required fields and groups, for [`AllocationAck::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct AllocationAckRequired {
+        /// AllocID(70).
+        pub alloc_id: CompactString,
+        /// TradeDate(75).
+        pub trade_date: NaiveDate,
+        /// AllocStatus(87).
+        pub alloc_status: Code<AllocStatus>,
+    }
+
     impl AllocationAck {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            alloc_id: impl Into<CompactString>,
-            trade_date: NaiveDate,
-            alloc_status: impl Into<Code<AllocStatus>>,
-        ) -> Self {
+        pub fn new(required: AllocationAckRequired) -> Self {
+            let AllocationAckRequired { alloc_id, trade_date, alloc_status } = required;
             Self {
                 client_id: None,
                 exec_broker: None,
-                alloc_id: alloc_id.into(),
+                alloc_id,
                 trade_date,
                 transact_time: None,
-                alloc_status: alloc_status.into(),
+                alloc_status,
                 alloc_rej_code: None,
                 text: None,
                 encoded_text: None,
@@ -1803,21 +1975,30 @@ mod part2 {
         }
     }
 
+    /// [`DontKnowTrade`]'s required fields and groups, for [`DontKnowTrade::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct DontKnowTradeRequired {
+        /// OrderID(37).
+        pub order_id: CompactString,
+        /// ExecID(17).
+        pub exec_id: CompactString,
+        /// DKReason(127).
+        pub dk_reason: Code<DKReason>,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Side(54).
+        pub side: Code<Side>,
+    }
+
     impl DontKnowTrade {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            order_id: impl Into<CompactString>,
-            exec_id: impl Into<CompactString>,
-            dk_reason: impl Into<Code<DKReason>>,
-            symbol: impl Into<CompactString>,
-            side: impl Into<Code<Side>>,
-        ) -> Self {
+        pub fn new(required: DontKnowTradeRequired) -> Self {
+            let DontKnowTradeRequired { order_id, exec_id, dk_reason, symbol, side } = required;
             Self {
-                order_id: order_id.into(),
-                exec_id: exec_id.into(),
-                dk_reason: dk_reason.into(),
-                symbol: symbol.into(),
+                order_id,
+                exec_id,
+                dk_reason,
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -1834,7 +2015,7 @@ mod part2 {
                 encoded_issuer: None,
                 security_desc: None,
                 encoded_security_desc: None,
-                side: side.into(),
+                side,
                 order_qty: None,
                 cash_order_qty: None,
                 last_shares: None,
@@ -1855,11 +2036,20 @@ mod part2 {
         }
     }
 
+    /// [`QuoteRequest`]'s required fields and groups, for [`QuoteRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct QuoteRequestRequired {
+        /// QuoteReqID(131).
+        pub quote_req_id: CompactString,
+        /// NoRelatedSym(146).
+        pub related_sym: Vec<QuotReqGrp>,
+    }
+
     impl QuoteRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(quote_req_id: impl Into<CompactString>, related_sym: Vec<QuotReqGrp>) -> Self {
-            Self { quote_req_id: quote_req_id.into(), related_sym }
+        pub fn new(required: QuoteRequestRequired) -> Self {
+            let QuoteRequestRequired { quote_req_id, related_sym } = required;
+            Self { quote_req_id, related_sym }
         }
     }
 
@@ -1941,16 +2131,25 @@ mod part2 {
         }
     }
 
+    /// [`Quote`]'s required fields and groups, for [`Quote::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct QuoteRequired {
+        /// QuoteID(117).
+        pub quote_id: CompactString,
+        /// Symbol(55).
+        pub symbol: CompactString,
+    }
+
     impl Quote {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(quote_id: impl Into<CompactString>, symbol: impl Into<CompactString>) -> Self {
+        pub fn new(required: QuoteRequired) -> Self {
+            let QuoteRequired { quote_id, symbol } = required;
             Self {
                 quote_req_id: None,
-                quote_id: quote_id.into(),
+                quote_id,
                 quote_response_level: None,
                 trading_session_id: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -2064,25 +2263,44 @@ mod part2 {
         }
     }
 
+    /// [`SettlementInstructions`]'s required fields and groups, for [`SettlementInstructions::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct SettlementInstructionsRequired {
+        /// SettlInstID(162).
+        pub settl_inst_id: CompactString,
+        /// SettlInstTransType(163).
+        pub settl_inst_trans_type: Code<SettlInstTransType>,
+        /// SettlInstRefID(214).
+        pub settl_inst_ref_id: CompactString,
+        /// SettlInstMode(160).
+        pub settl_inst_mode: Code<SettlInstMode>,
+        /// SettlInstSource(165).
+        pub settl_inst_source: Code<SettlInstSource>,
+        /// AllocAccount(79).
+        pub alloc_account: CompactString,
+        /// TransactTime(60).
+        pub transact_time: UtcTimestamp,
+    }
+
     impl SettlementInstructions {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            settl_inst_id: impl Into<CompactString>,
-            settl_inst_trans_type: impl Into<Code<SettlInstTransType>>,
-            settl_inst_ref_id: impl Into<CompactString>,
-            settl_inst_mode: impl Into<Code<SettlInstMode>>,
-            settl_inst_source: impl Into<Code<SettlInstSource>>,
-            alloc_account: impl Into<CompactString>,
-            transact_time: UtcTimestamp,
-        ) -> Self {
+        pub fn new(required: SettlementInstructionsRequired) -> Self {
+            let SettlementInstructionsRequired {
+                settl_inst_id,
+                settl_inst_trans_type,
+                settl_inst_ref_id,
+                settl_inst_mode,
+                settl_inst_source,
+                alloc_account,
+                transact_time,
+            } = required;
             Self {
-                settl_inst_id: settl_inst_id.into(),
-                settl_inst_trans_type: settl_inst_trans_type.into(),
-                settl_inst_ref_id: settl_inst_ref_id.into(),
-                settl_inst_mode: settl_inst_mode.into(),
-                settl_inst_source: settl_inst_source.into(),
-                alloc_account: alloc_account.into(),
+                settl_inst_id,
+                settl_inst_trans_type,
+                settl_inst_ref_id,
+                settl_inst_mode,
+                settl_inst_source,
+                alloc_account,
                 settl_location: None,
                 trade_date: None,
                 alloc_id: None,
@@ -2137,19 +2355,34 @@ mod part2 {
         }
     }
 
+    /// [`MarketDataRequest`]'s required fields and groups, for [`MarketDataRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct MarketDataRequestRequired {
+        /// MDReqID(262).
+        pub md_req_id: CompactString,
+        /// SubscriptionRequestType(263).
+        pub subscription_request_type: Code<SubscriptionRequestType>,
+        /// MarketDepth(264).
+        pub market_depth: i64,
+        /// NoMDEntryTypes(267).
+        pub md_entry_types: Vec<MDReqGrp>,
+        /// NoRelatedSym(146).
+        pub related_sym: Vec<InstrmtMDReqGrp>,
+    }
+
     impl MarketDataRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            md_req_id: impl Into<CompactString>,
-            subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
-            market_depth: i64,
-            md_entry_types: Vec<MDReqGrp>,
-            related_sym: Vec<InstrmtMDReqGrp>,
-        ) -> Self {
+        pub fn new(required: MarketDataRequestRequired) -> Self {
+            let MarketDataRequestRequired {
+                md_req_id,
+                subscription_request_type,
+                market_depth,
+                md_entry_types,
+                related_sym,
+            } = required;
             Self {
-                md_req_id: md_req_id.into(),
-                subscription_request_type: subscription_request_type.into(),
+                md_req_id,
+                subscription_request_type,
                 market_depth,
                 md_update_type: None,
                 aggregated_book: None,
@@ -2209,13 +2442,22 @@ mod part2 {
         }
     }
 
+    /// [`MarketDataSnapshotFullRefresh`]'s required fields and groups, for [`MarketDataSnapshotFullRefresh::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct MarketDataSnapshotFullRefreshRequired {
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// NoMDEntries(268).
+        pub md_entries: Vec<MDFullGrp>,
+    }
+
     impl MarketDataSnapshotFullRefresh {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(symbol: impl Into<CompactString>, md_entries: Vec<MDFullGrp>) -> Self {
+        pub fn new(required: MarketDataSnapshotFullRefreshRequired) -> Self {
+            let MarketDataSnapshotFullRefreshRequired { symbol, md_entries } = required;
             Self {
                 md_req_id: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -2251,8 +2493,8 @@ mod part2 {
     }
 
     impl MarketDataIncrementalRefresh {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(md_entries: Vec<MDIncGrp>) -> Self {
             Self { md_req_id: None, md_entries }
         }
@@ -2278,10 +2520,11 @@ mod part3 {
     }
 
     impl MarketDataRequestReject {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(md_req_id: impl Into<CompactString>) -> Self {
-            Self { md_req_id: md_req_id.into(), md_req_rej_reason: None, text: None, encoded_text: None }
+            let md_req_id = md_req_id.into();
+            Self { md_req_id, md_req_rej_reason: None, text: None, encoded_text: None }
         }
     }
 
@@ -2303,14 +2546,23 @@ mod part3 {
         }
     }
 
+    /// [`QuoteCancel`]'s required fields and groups, for [`QuoteCancel::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct QuoteCancelRequired {
+        /// QuoteID(117).
+        pub quote_id: CompactString,
+        /// QuoteCancelType(298).
+        pub quote_cancel_type: Code<QuoteCancelType>,
+    }
+
     impl QuoteCancel {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(quote_id: impl Into<CompactString>, quote_cancel_type: impl Into<Code<QuoteCancelType>>) -> Self {
+        pub fn new(required: QuoteCancelRequired) -> Self {
+            let QuoteCancelRequired { quote_id, quote_cancel_type } = required;
             Self {
                 quote_req_id: None,
-                quote_id: quote_id.into(),
-                quote_cancel_type: quote_cancel_type.into(),
+                quote_id,
+                quote_cancel_type,
                 quote_response_level: None,
                 trading_session_id: None,
                 quote_entries: Vec::new(),
@@ -2365,12 +2617,13 @@ mod part3 {
     }
 
     impl QuoteStatusRequest {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(symbol: impl Into<CompactString>) -> Self {
+            let symbol = symbol.into();
             Self {
                 quote_id: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -2416,13 +2669,14 @@ mod part3 {
     }
 
     impl QuoteAcknowledgement {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(quote_ack_status: impl Into<Code<QuoteAckStatus>>) -> Self {
+            let quote_ack_status = quote_ack_status.into();
             Self {
                 quote_req_id: None,
                 quote_id: None,
-                quote_ack_status: quote_ack_status.into(),
+                quote_ack_status,
                 quote_reject_reason: None,
                 quote_response_level: None,
                 trading_session_id: None,
@@ -2486,16 +2740,22 @@ mod part3 {
         }
     }
 
+    /// [`SecurityDefinitionRequest`]'s required fields and groups, for [`SecurityDefinitionRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct SecurityDefinitionRequestRequired {
+        /// SecurityReqID(320).
+        pub security_req_id: CompactString,
+        /// SecurityRequestType(321).
+        pub security_request_type: Code<SecurityRequestType>,
+    }
+
     impl SecurityDefinitionRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            security_req_id: impl Into<CompactString>,
-            security_request_type: impl Into<Code<SecurityRequestType>>,
-        ) -> Self {
+        pub fn new(required: SecurityDefinitionRequestRequired) -> Self {
+            let SecurityDefinitionRequestRequired { security_req_id, security_request_type } = required;
             Self {
-                security_req_id: security_req_id.into(),
-                security_request_type: security_request_type.into(),
+                security_req_id,
+                security_request_type,
                 symbol: None,
                 symbol_sfx: None,
                 security_id: None,
@@ -2580,17 +2840,24 @@ mod part3 {
         }
     }
 
+    /// [`SecurityDefinition`]'s required fields and groups, for [`SecurityDefinition::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct SecurityDefinitionRequired {
+        /// SecurityReqID(320).
+        pub security_req_id: CompactString,
+        /// SecurityResponseID(322).
+        pub security_response_id: CompactString,
+        /// TotalNumSecurities(393).
+        pub total_num_securities: i64,
+    }
+
     impl SecurityDefinition {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            security_req_id: impl Into<CompactString>,
-            security_response_id: impl Into<CompactString>,
-            total_num_securities: i64,
-        ) -> Self {
+        pub fn new(required: SecurityDefinitionRequired) -> Self {
+            let SecurityDefinitionRequired { security_req_id, security_response_id, total_num_securities } = required;
             Self {
-                security_req_id: security_req_id.into(),
-                security_response_id: security_response_id.into(),
+                security_req_id,
+                security_response_id,
                 security_response_type: None,
                 total_num_securities,
                 symbol: None,
@@ -2667,17 +2934,24 @@ mod part3 {
         }
     }
 
+    /// [`SecurityStatusRequest`]'s required fields and groups, for [`SecurityStatusRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct SecurityStatusRequestRequired {
+        /// SecurityStatusReqID(324).
+        pub security_status_req_id: CompactString,
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// SubscriptionRequestType(263).
+        pub subscription_request_type: Code<SubscriptionRequestType>,
+    }
+
     impl SecurityStatusRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            security_status_req_id: impl Into<CompactString>,
-            symbol: impl Into<CompactString>,
-            subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
-        ) -> Self {
+        pub fn new(required: SecurityStatusRequestRequired) -> Self {
+            let SecurityStatusRequestRequired { security_status_req_id, symbol, subscription_request_type } = required;
             Self {
-                security_status_req_id: security_status_req_id.into(),
-                symbol: symbol.into(),
+                security_status_req_id,
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -2695,7 +2969,7 @@ mod part3 {
                 security_desc: None,
                 encoded_security_desc: None,
                 currency: None,
-                subscription_request_type: subscription_request_type.into(),
+                subscription_request_type,
                 trading_session_id: None,
             }
         }
@@ -2776,12 +3050,13 @@ mod part3 {
     }
 
     impl SecurityStatus {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(symbol: impl Into<CompactString>) -> Self {
+            let symbol = symbol.into();
             Self {
                 security_status_req_id: None,
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 id_source: None,
@@ -2839,19 +3114,25 @@ mod part4 {
         }
     }
 
+    /// [`TradingSessionStatusRequest`]'s required fields and groups, for [`TradingSessionStatusRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct TradingSessionStatusRequestRequired {
+        /// TradSesReqID(335).
+        pub trad_ses_req_id: CompactString,
+        /// SubscriptionRequestType(263).
+        pub subscription_request_type: Code<SubscriptionRequestType>,
+    }
+
     impl TradingSessionStatusRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            trad_ses_req_id: impl Into<CompactString>,
-            subscription_request_type: impl Into<Code<SubscriptionRequestType>>,
-        ) -> Self {
+        pub fn new(required: TradingSessionStatusRequestRequired) -> Self {
+            let TradingSessionStatusRequestRequired { trad_ses_req_id, subscription_request_type } = required;
             Self {
-                trad_ses_req_id: trad_ses_req_id.into(),
+                trad_ses_req_id,
                 trading_session_id: None,
                 trad_ses_method: None,
                 trad_ses_mode: None,
-                subscription_request_type: subscription_request_type.into(),
+                subscription_request_type,
             }
         }
     }
@@ -2890,20 +3171,26 @@ mod part4 {
         }
     }
 
+    /// [`TradingSessionStatus`]'s required fields and groups, for [`TradingSessionStatus::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct TradingSessionStatusRequired {
+        /// TradingSessionID(336).
+        pub trading_session_id: CompactString,
+        /// TradSesStatus(340).
+        pub trad_ses_status: Code<TradSesStatus>,
+    }
+
     impl TradingSessionStatus {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            trading_session_id: impl Into<CompactString>,
-            trad_ses_status: impl Into<Code<TradSesStatus>>,
-        ) -> Self {
+        pub fn new(required: TradingSessionStatusRequired) -> Self {
+            let TradingSessionStatusRequired { trading_session_id, trad_ses_status } = required;
             Self {
                 trad_ses_req_id: None,
-                trading_session_id: trading_session_id.into(),
+                trading_session_id,
                 trad_ses_method: None,
                 trad_ses_mode: None,
                 unsolicited_indicator: None,
-                trad_ses_status: trad_ses_status.into(),
+                trad_ses_status,
                 trad_ses_start_time: None,
                 trad_ses_open_time: None,
                 trad_ses_pre_close_time: None,
@@ -2934,13 +3221,22 @@ mod part4 {
         }
     }
 
+    /// [`MassQuote`]'s required fields and groups, for [`MassQuote::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct MassQuoteRequired {
+        /// QuoteID(117).
+        pub quote_id: CompactString,
+        /// NoQuoteSets(296).
+        pub quote_sets: Vec<QuotSetGrp>,
+    }
+
     impl MassQuote {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(quote_id: impl Into<CompactString>, quote_sets: Vec<QuotSetGrp>) -> Self {
+        pub fn new(required: MassQuoteRequired) -> Self {
+            let MassQuoteRequired { quote_id, quote_sets } = required;
             Self {
                 quote_req_id: None,
-                quote_id: quote_id.into(),
+                quote_id,
                 quote_response_level: None,
                 def_bid_size: None,
                 def_offer_size: None,
@@ -3011,24 +3307,41 @@ mod part4 {
         }
     }
 
+    /// [`BidRequest`]'s required fields and groups, for [`BidRequest::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct BidRequestRequired {
+        /// ClientBidID(391).
+        pub client_bid_id: CompactString,
+        /// BidRequestTransType(374).
+        pub bid_request_trans_type: Code<BidRequestTransType>,
+        /// TotalNumSecurities(393).
+        pub total_num_securities: i64,
+        /// BidType(394).
+        pub bid_type: Code<BidType>,
+        /// TradeType(418).
+        pub trade_type: Code<TradeType>,
+        /// BasisPxType(419).
+        pub basis_px_type: Code<BasisPxType>,
+    }
+
     impl BidRequest {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            client_bid_id: impl Into<CompactString>,
-            bid_request_trans_type: impl Into<Code<BidRequestTransType>>,
-            total_num_securities: i64,
-            bid_type: impl Into<Code<BidType>>,
-            trade_type: impl Into<Code<TradeType>>,
-            basis_px_type: impl Into<Code<BasisPxType>>,
-        ) -> Self {
+        pub fn new(required: BidRequestRequired) -> Self {
+            let BidRequestRequired {
+                client_bid_id,
+                bid_request_trans_type,
+                total_num_securities,
+                bid_type,
+                trade_type,
+                basis_px_type,
+            } = required;
             Self {
                 bid_id: None,
-                client_bid_id: client_bid_id.into(),
-                bid_request_trans_type: bid_request_trans_type.into(),
+                client_bid_id,
+                bid_request_trans_type,
                 list_name: None,
                 total_num_securities,
-                bid_type: bid_type.into(),
+                bid_type,
                 num_tickets: None,
                 currency: None,
                 side_value1: None,
@@ -3046,8 +3359,8 @@ mod part4 {
                 forex_req: None,
                 num_bidders: None,
                 trade_date: None,
-                trade_type: trade_type.into(),
-                basis_px_type: basis_px_type.into(),
+                trade_type,
+                basis_px_type,
                 strike_time: None,
                 text: None,
                 encoded_text: None,
@@ -3068,8 +3381,8 @@ mod part4 {
     }
 
     impl BidResponse {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(bid_components: Vec<BidCompRspGrp>) -> Self {
             Self { bid_id: None, client_bid_id: None, bid_components }
         }
@@ -3087,11 +3400,22 @@ mod part4 {
         }
     }
 
+    /// [`ListStrikePrice`]'s required fields and groups, for [`ListStrikePrice::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct ListStrikePriceRequired {
+        /// ListID(66).
+        pub list_id: CompactString,
+        /// TotNoStrikes(422).
+        pub tot_no_strikes: i64,
+        /// NoStrikes(428).
+        pub strikes: Vec<InstrmtStrkPxGrp>,
+    }
+
     impl ListStrikePrice {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(list_id: impl Into<CompactString>, tot_no_strikes: i64, strikes: Vec<InstrmtStrkPxGrp>) -> Self {
-            Self { list_id: list_id.into(), tot_no_strikes, strikes }
+        pub fn new(required: ListStrikePriceRequired) -> Self {
+            let ListStrikePriceRequired { list_id, tot_no_strikes, strikes } = required;
+            Self { list_id, tot_no_strikes, strikes }
         }
     }
 }

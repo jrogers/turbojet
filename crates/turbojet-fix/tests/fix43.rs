@@ -10,8 +10,13 @@ fn time() -> UtcTimestamp {
 }
 
 fn limit_order() -> NewOrderSingle {
-    let mut order =
-        NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     // From the Instrument and OrderQtyData components.
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
@@ -49,8 +54,16 @@ fn groups_round_trip() {
 #[test]
 fn execution_report_round_trips() {
     let (leaves_qty, cum_qty, avg_px) = (0.into(), 100.into(), "12.34".parse().unwrap());
-    let mut report =
-        ExecutionReport::new("O1", "E1", ExecType::Fill, OrdStatus::Filled, Side::Sell, leaves_qty, cum_qty, avg_px);
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_type: ExecType::Fill.into(),
+        ord_status: OrdStatus::Filled.into(),
+        side: Side::Sell.into(),
+        leaves_qty,
+        cum_qty,
+        avg_px,
+    });
     report.symbol = Some("AAPL".into());
     let msg = report.to_message();
     let text = msg.to_string();

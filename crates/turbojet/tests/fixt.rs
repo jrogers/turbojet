@@ -38,8 +38,15 @@ impl Application for Recorder {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         if self.fill_orders && msg.msg_type() == MsgType::NewOrderSingle {
             let order: NewOrderSingle = msg.parse()?;
-            let mut report =
-                ExecutionReport::new("O1", "E1", ExecType::Trade, OrdStatus::Filled, order.side, 0.into(), 100.into());
+            let mut report = ExecutionReport::new(ExecutionReportRequired {
+                order_id: "O1".into(),
+                exec_id: "E1".into(),
+                exec_type: ExecType::Trade.into(),
+                ord_status: OrdStatus::Filled.into(),
+                side: order.side,
+                leaves_qty: 0.into(),
+                cum_qty: 100.into(),
+            });
             report.cl_ord_id = Some(order.cl_ord_id);
             ctx.send(report);
         }
@@ -107,7 +114,12 @@ async fn fix50sp2_orders_are_validated_and_filled_over_fixt() {
     assert_eq!(server_handle.appl_ver_id(), Some(ApplVerID::Fix50Sp2));
 
     let time = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time, OrdType::Market);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time,
+        ord_type: OrdType::Market.into(),
+    });
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.party_ids.push(Parties::new("FIRM"));

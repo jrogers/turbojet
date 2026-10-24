@@ -11,14 +11,14 @@ fn time() -> UtcTimestamp {
 
 #[test]
 fn new_order_single_round_trips() {
-    let mut order = NewOrderSingle::new(
-        "ORD1",
-        HandlInst::AutomatedExecutionNoIntervention,
-        "AAPL",
-        Side::Buy,
-        time(),
-        OrdType::Limit,
-    );
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
     order.time_in_force = Some(TimeInForce::Day.into());
@@ -33,18 +33,18 @@ fn new_order_single_round_trips() {
 
 #[test]
 fn execution_report_round_trips() {
-    let report = ExecutionReport::new(
-        "O1",
-        "E1",
-        ExecTransType::New,
-        ExecType::Fill,
-        OrdStatus::Filled,
-        "AAPL",
-        Side::Sell,
-        0.into(),
-        100.into(),
-        "12.34".parse().unwrap(),
-    );
+    let report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_trans_type: ExecTransType::New.into(),
+        exec_type: ExecType::Fill.into(),
+        ord_status: OrdStatus::Filled.into(),
+        symbol: "AAPL".into(),
+        side: Side::Sell.into(),
+        leaves_qty: 0.into(),
+        cum_qty: 100.into(),
+        avg_px: "12.34".parse().unwrap(),
+    });
     let msg = report.to_message();
     assert!(msg.to_string().starts_with("35=8|"));
     assert_eq!(msg.parse::<ExecutionReport>().unwrap(), report);
@@ -52,7 +52,14 @@ fn execution_report_round_trips() {
 
 #[test]
 fn groups_round_trip() {
-    let mut order = NewOrderSingle::new("ORD1", HandlInst::ManualOrder, "AAPL", Side::Buy, time(), OrdType::Market);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::ManualOrder.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Market.into(),
+    });
     // Orchestra's official name for NewOrderSingle's NoAllocs group.
     let mut alloc = PreAllocGrp::new("ACC1");
     alloc.alloc_shares = Some(100.into());
@@ -67,8 +74,15 @@ fn groups_round_trip() {
 
 #[test]
 fn missing_required_fields_are_errors() {
-    let msg =
-        NewOrderSingle::new("ORD1", HandlInst::ManualOrder, "AAPL", Side::Buy, time(), OrdType::Market).to_message();
+    let msg = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::ManualOrder.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Market.into(),
+    })
+    .to_message();
     let text = msg.to_string().replace("|55=AAPL", "");
     let raw = turbojet::Message::from_fields(text.split('|').filter(|f| !f.is_empty()).map(|f| {
         let (tag, value) = f.split_once('=').unwrap();
@@ -79,13 +93,28 @@ fn missing_required_fields_are_errors() {
 
 #[test]
 fn required_groups_round_trip_with_nested_groups() {
-    let mut first = ListOrdGrp::new("ORD1", 1, "AAPL", Side::Buy);
+    let mut first = ListOrdGrp::new(ListOrdGrpRequired {
+        cl_ord_id: "ORD1".into(),
+        list_seq_no: 1,
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+    });
     first.allocs = vec![PreAllocGrp::new("ACC1"), PreAllocGrp::new("ACC2")];
     first.trading_sessions.push(TrdgSesGrp::new("REG"));
-    let mut second = ListOrdGrp::new("ORD2", 2, "MSFT", Side::Sell);
+    let mut second = ListOrdGrp::new(ListOrdGrpRequired {
+        cl_ord_id: "ORD2".into(),
+        list_seq_no: 2,
+        symbol: "MSFT".into(),
+        side: Side::Sell.into(),
+    });
     second.order_qty = Some(50.into());
     // NoOrders is required, so it's a new() parameter.
-    let list = NewOrderList::new("LIST1", BidType::NoBiddingProcess, 2, vec![first, second]);
+    let list = NewOrderList::new(NewOrderListRequired {
+        list_id: "LIST1".into(),
+        bid_type: BidType::NoBiddingProcess.into(),
+        tot_no_orders: 2,
+        orders: vec![first, second],
+    });
     let msg = list.to_message();
     let text = msg.to_string();
     assert!(text.contains("|73=2|11=ORD1|67=1|"), "{text}");
@@ -96,17 +125,30 @@ fn required_groups_round_trip_with_nested_groups() {
 
 #[test]
 fn missing_required_groups_are_errors() {
-    let mut list = NewOrderList::new("LIST1", BidType::NoBiddingProcess, 0, Vec::new());
+    let mut list = NewOrderList::new(NewOrderListRequired {
+        list_id: "LIST1".into(),
+        bid_type: BidType::NoBiddingProcess.into(),
+        tot_no_orders: 0,
+        orders: Vec::new(),
+    });
     let err = list.to_message().parse::<NewOrderList>().unwrap_err();
     assert_eq!((err.tag, err.kind), (tags::NO_ORDERS, turbojet::message::FieldErrorKind::Missing));
-    list.orders.push(ListOrdGrp::new("ORD1", 1, "AAPL", Side::Buy));
+    list.orders.push(ListOrdGrp::new(ListOrdGrpRequired {
+        cl_ord_id: "ORD1".into(),
+        list_seq_no: 1,
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+    }));
     assert!(list.to_message().parse::<NewOrderList>().is_ok());
 }
 
 #[test]
 fn cancel_all_quotes_needs_no_entries() {
     // The FIX 4.2 file marks NoQuoteEntries required; this crate is generated with it optional.
-    let cancel = QuoteCancel::new("Q1", QuoteCancelType::CancelAllQuotes);
+    let cancel = QuoteCancel::new(QuoteCancelRequired {
+        quote_id: "Q1".into(),
+        quote_cancel_type: QuoteCancelType::CancelAllQuotes.into(),
+    });
     let msg = cancel.to_message();
     assert_eq!(msg.to_string(), "35=Z|117=Q1|298=4|");
     assert_eq!(msg.parse::<QuoteCancel>().unwrap(), cancel);

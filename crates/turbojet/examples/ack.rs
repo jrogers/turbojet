@@ -17,7 +17,9 @@ use turbojet::{
     Acceptor, AcceptorConfig, Application, Context, Disconnect, MemoryStorage, Message, MessageReject, MsgType,
     SessionConfig, SessionHandle,
 };
-use turbojet_fix::fix42::{ExecTransType, ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
+use turbojet_fix::fix42::{
+    ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingleRef, OrdStatus,
+};
 
 const USAGE: &str = "\
 usage: ack [OPTIONS]
@@ -56,18 +58,18 @@ impl Application for Acker {
 /// The ExecutionReport accepting `order`, as order `id`.
 fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
     let leaves_qty = order.order_qty.unwrap_or_default();
-    let mut report = ExecutionReport::new(
-        format_compact!("O{id}"),
-        format_compact!("E{id}"),
-        ExecTransType::New,
-        ExecType::New,
-        OrdStatus::New,
-        order.symbol,
-        order.side,
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: format_compact!("O{id}"),
+        exec_id: format_compact!("E{id}"),
+        exec_trans_type: ExecTransType::New.into(),
+        exec_type: ExecType::New.into(),
+        ord_status: OrdStatus::New.into(),
+        symbol: order.symbol.into(),
+        side: order.side.into(),
         leaves_qty,
-        Decimal::ZERO,
-        Decimal::ZERO,
-    );
+        cum_qty: Decimal::ZERO,
+        avg_px: Decimal::ZERO,
+    });
     report.cl_ord_id = Some(order.cl_ord_id.into());
     report.account = order.account.map(Into::into);
     report.order_qty = order.order_qty;

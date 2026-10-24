@@ -4,7 +4,7 @@ use std::fmt::Write;
 
 use turbojet_dictionary::Dictionary;
 
-use crate::plan::{Plan, Presence, Struct};
+use crate::plan::{Plan, Presence, Slot, Struct};
 
 /// Why writing generated code can't fail: it goes into a `String`.
 const INFALLIBLE: &str = "writing to a String cannot fail";
@@ -128,41 +128,7 @@ fn write_struct(out: &mut String, macro_name: &str, head: &str, s: &Struct) {
     }
     out.push_str("    }\n}\n");
 
-    // new(required fields and groups, in slot order)
-    let params: Vec<String> = s
-        .slots
-        .iter()
-        .filter_map(|f| match f.presence {
-            Presence::Req if f.ty == "CompactString" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
-                Some(format!("{}: impl Into<{}>", f.ident, f.ty))
-            }
-            Presence::Req | Presence::Data => Some(format!("{}: {}", f.ident, f.ty)),
-            Presence::ReqGroup => Some(format!("{}: Vec<{}>", f.ident, f.ty)),
-            Presence::Opt | Presence::Group | Presence::OptData => None,
-        })
-        .collect();
-    let inits: Vec<String> = s
-        .slots
-        .iter()
-        .map(|f| match f.presence {
-            Presence::Req if f.ty == "CompactString" || f.ty == "Secret" || f.ty.starts_with("Code<") => {
-                format!("{0}: {0}.into()", f.ident)
-            }
-            Presence::Req | Presence::ReqGroup | Presence::Data => f.ident.clone(),
-            Presence::Opt | Presence::OptData => format!("{}: None", f.ident),
-            Presence::Group => format!("{}: Vec::new()", f.ident),
-        })
-        .collect();
-    write!(
-        out,
-        "\nimpl {name} {{\n    /// With the required fields and groups; optional ones empty.\n    \
-         #[allow(clippy::too_many_arguments, clippy::new_without_default)]\n    \
-         pub fn new({params}) -> Self {{\n        Self {{ {inits} }}\n    }}\n}}\n",
-        name = s.name,
-        params = params.join(", "),
-        inits = inits.join(", "),
-    )
-    .expect(INFALLIBLE);
+    write_new(out, s);
 }
 
 /// A `///` line per line of `doc`; an empty line separates paragraphs.
@@ -172,6 +138,78 @@ fn doc_comment(out: &mut String, indent: &str, doc: &str) {
             writeln!(out, "{indent}///").expect(INFALLIBLE);
         } else {
             writeln!(out, "{indent}/// {line}").expect(INFALLIBLE);
+        }
+    }
+}
+
+/// A required slot's type as `new` takes it.
+fn required_type(slot: &Slot) -> Option<String> {
+    match slot.presence {
+        Presence::Req | Presence::Data => Some(slot.ty.clone()),
+        Presence::ReqGroup => Some(format!("Vec<{}>", slot.ty)),
+        Presence::Opt | Presence::Group | Presence::OptData => None,
+    }
+}
+
+/// `new`, from the required fields and groups. With two or more, they come in a struct of their
+/// own, `NameRequired`, so each is named where it's given: positional arguments of one type (the
+/// IDs, or LeavesQty, CumQty and AvgPx) could be swapped and still compile. One is taken as it is.
+fn write_new(out: &mut String, s: &Struct) {
+    let required: Vec<(&Slot, String)> = s.slots.iter().filter_map(|f| required_type(f).map(|ty| (f, ty))).collect();
+    let inits: Vec<String> = s
+        .slots
+        .iter()
+        .map(|f| match f.presence {
+            Presence::Req | Presence::ReqGroup | Presence::Data => f.ident.clone(),
+            Presence::Opt | Presence::OptData => format!("{}: None", f.ident),
+            Presence::Group => format!("{}: Vec::new()", f.ident),
+        })
+        .collect();
+    let name = &s.name;
+    let inits = inits.join(", ");
+    let into = |f: &Slot| f.ty == "CompactString" || f.ty == "Secret" || f.ty.starts_with("Code<");
+    match required.as_slice() {
+        [] | [_] => {
+            let params: Vec<String> = required
+                .iter()
+                .map(
+                    |(f, ty)| {
+                        if into(f) { format!("{}: impl Into<{ty}>", f.ident) } else { format!("{}: {ty}", f.ident) }
+                    },
+                )
+                .collect();
+            let converted: Vec<String> = required
+                .iter()
+                .filter(|(f, _)| into(f))
+                .map(|(f, _)| format!("let {0} = {0}.into();", f.ident))
+                .collect();
+            let what = if required.is_empty() { "No required fields" } else { "With its required field" };
+            write!(
+                out,
+                "\nimpl {name} {{\n    /// {what}; optional ones empty.\n    \
+                 #[allow(clippy::new_without_default)]\n    \
+                 pub fn new({params}) -> Self {{\n        {converted}Self {{ {inits} }}\n    }}\n}}\n",
+                params = params.join(", "),
+                converted = converted.iter().map(|c| format!("{c}\n        ")).collect::<String>(),
+            )
+            .expect(INFALLIBLE);
+        }
+        _ => {
+            writeln!(out, "\n/// [`{name}`]'s required fields and groups, for [`{name}::new`].").expect(INFALLIBLE);
+            writeln!(out, "#[derive(Debug, Clone, PartialEq)]\npub struct {name}Required {{").expect(INFALLIBLE);
+            for (slot, ty) in &required {
+                doc_comment(out, "    ", &slot.doc);
+                writeln!(out, "    pub {}: {ty},", slot.ident).expect(INFALLIBLE);
+            }
+            let fields: Vec<&str> = required.iter().map(|(f, _)| f.ident.as_str()).collect();
+            write!(
+                out,
+                "}}\n\nimpl {name} {{\n    /// With the required fields and groups; optional ones empty.\n    \
+                 pub fn new(required: {name}Required) -> Self {{\n        \
+                 let {name}Required {{ {fields} }} = required;\n        Self {{ {inits} }}\n    }}\n}}\n",
+                fields = fields.join(", "),
+            )
+            .expect(INFALLIBLE);
         }
     }
 }

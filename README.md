@@ -152,7 +152,7 @@ compiled and run as a test.
 ```rust
 use turbojet::*;
 use turbojet::fields::Decimal;
-use turbojet_fix::fix44::{ExecType, ExecutionReport, NewOrderSingleRef, OrdStatus};
+use turbojet_fix::fix44::{ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingleRef, OrdStatus};
 
 struct MyApp;
 
@@ -164,10 +164,16 @@ impl Application for MyApp {
             MsgType::NewOrderSingle => {
                 // A missing or malformed field becomes a Reject(3) naming the tag.
                 let order: NewOrderSingleRef = msg.parse()?;
-                let qty = order.order_qty.unwrap_or_default();
-                let mut ack = ExecutionReport::new(
-                    "O1", "E1", ExecType::New, OrdStatus::New, order.side, qty, Decimal::ZERO, Decimal::ZERO,
-                );
+                let mut ack = ExecutionReport::new(ExecutionReportRequired {
+                    order_id: "O1".into(),
+                    exec_id: "E1".into(),
+                    exec_type: ExecType::New.into(),
+                    ord_status: OrdStatus::New.into(),
+                    side: order.side.into(),
+                    leaves_qty: order.order_qty.unwrap_or_default(),
+                    cum_qty: Decimal::ZERO,
+                    avg_px: Decimal::ZERO,
+                });
                 ack.cl_ord_id = Some(order.cl_ord_id.into());
                 ctx.send(ack);
                 Ok(())

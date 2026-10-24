@@ -22,8 +22,14 @@ fn time() -> UtcTimestamp {
 fn fix40_messages_pass() {
     use turbojet_fix::fix40::*;
     let validator = Validator::new(&dictionary("OrchestraFIX40.xml"));
-    let mut order =
-        OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, 100, OrdType::Limit);
+    let mut order = OrderSingle::new(OrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        order_qty: 100,
+        ord_type: OrdType::Limit.into(),
+    });
     order.price = Some("12.34".parse().unwrap());
     order.exec_inst = Some(vec![ExecInst::NotHeld.into(), ExecInst::Work.into()]);
     validator.validate(&order.to_message()).unwrap();
@@ -38,26 +44,31 @@ fn fix40_messages_pass() {
 fn fix41_messages_pass() {
     use turbojet_fix::fix41::*;
     let validator = Validator::new(&dictionary("OrchestraFIX41.xml"));
-    let mut order =
-        OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, OrdType::Limit);
+    let mut order = OrderSingle::new(OrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.order_qty = Some(100);
     order.price = Some("12.34".parse().unwrap());
     validator.validate(&order.to_message()).unwrap();
-    let mut report = ExecutionReport::new(
-        "O1",
-        "E1",
-        ExecTransType::New,
-        ExecType::Fill,
-        OrdStatus::Filled,
-        "AAPL",
-        Side::Sell,
-        100,
-        100,
-        "12.34".parse().unwrap(),
-        0,
-        100,
-        "12.34".parse().unwrap(),
-    );
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_trans_type: ExecTransType::New.into(),
+        exec_type: ExecType::Fill.into(),
+        ord_status: OrdStatus::Filled.into(),
+        symbol: "AAPL".into(),
+        side: Side::Sell.into(),
+        order_qty: 100,
+        last_shares: 100,
+        last_px: "12.34".parse().unwrap(),
+        leaves_qty: 0,
+        cum_qty: 100,
+        avg_px: "12.34".parse().unwrap(),
+    });
     report.transact_time = Some(time());
     validator.validate(&report.to_message()).unwrap();
 }
@@ -70,38 +81,54 @@ fn fix42_messages_pass() {
     dict.make_optional("QuoteCancel", "NoQuoteEntries").unwrap();
     let validator = Validator::new(&dict);
 
-    let mut order = NewOrderSingle::new(
-        "ORD1",
-        HandlInst::AutomatedExecutionNoIntervention,
-        "AAPL",
-        Side::Buy,
-        time(),
-        OrdType::Limit,
-    );
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
     order.time_in_force = Some(TimeInForce::Day.into());
     order.allocs.push(PreAllocGrp::new("ACC1"));
     validator.validate(&order.to_message()).unwrap();
 
-    let report = ExecutionReport::new(
-        "O1",
-        "E1",
-        ExecTransType::New,
-        ExecType::Fill,
-        OrdStatus::Filled,
-        "AAPL",
-        Side::Sell,
-        0.into(),
-        100.into(),
-        "12.34".parse().unwrap(),
-    );
+    let report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_trans_type: ExecTransType::New.into(),
+        exec_type: ExecType::Fill.into(),
+        ord_status: OrdStatus::Filled.into(),
+        symbol: "AAPL".into(),
+        side: Side::Sell.into(),
+        leaves_qty: 0.into(),
+        cum_qty: 100.into(),
+        avg_px: "12.34".parse().unwrap(),
+    });
     validator.validate(&report.to_message()).unwrap();
-    validator.validate(&QuoteCancel::new("Q1", QuoteCancelType::CancelAllQuotes).to_message()).unwrap();
+    validator
+        .validate(
+            &QuoteCancel::new(QuoteCancelRequired {
+                quote_id: "Q1".into(),
+                quote_cancel_type: QuoteCancelType::CancelAllQuotes.into(),
+            })
+            .to_message(),
+        )
+        .unwrap();
 
     // Without the correction, the cancel-all request is missing NoQuoteEntries.
     let strict = Validator::new(&dictionary("OrchestraFIX42.xml"));
-    let err = strict.validate(&QuoteCancel::new("Q1", QuoteCancelType::CancelAllQuotes).to_message()).unwrap_err();
+    let err = strict
+        .validate(
+            &QuoteCancel::new(QuoteCancelRequired {
+                quote_id: "Q1".into(),
+                quote_cancel_type: QuoteCancelType::CancelAllQuotes.into(),
+            })
+            .to_message(),
+        )
+        .unwrap_err();
     assert_eq!((err.tag, err.reason), (Some(295), Some(SessionRejectReason::RequiredTagMissing)));
 
     // What typed parsing ignores, validation refuses: ExecType isn't a NewOrderSingle field.
@@ -114,8 +141,13 @@ fn fix43_messages_pass() {
     use turbojet_fix::fix43::*;
     let validator = Validator::new(&dictionary("OrchestraFIX43.xml"));
 
-    let mut order =
-        NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
@@ -123,16 +155,16 @@ fn fix43_messages_pass() {
     order.security_alt_id.push(SecAltIDGrp::new("US0378331005"));
     validator.validate(&order.to_message()).unwrap();
 
-    let mut report = ExecutionReport::new(
-        "O1",
-        "E1",
-        ExecType::Fill,
-        OrdStatus::Filled,
-        Side::Sell,
-        0.into(),
-        100.into(),
-        "12.34".parse().unwrap(),
-    );
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_type: ExecType::Fill.into(),
+        ord_status: OrdStatus::Filled.into(),
+        side: Side::Sell.into(),
+        leaves_qty: 0.into(),
+        cum_qty: 100.into(),
+        avg_px: "12.34".parse().unwrap(),
+    });
     report.symbol = Some("AAPL".into());
     validator.validate(&report.to_message()).unwrap();
 }
@@ -142,7 +174,12 @@ fn fix50sp2_messages_pass_over_fixt() {
     use turbojet_fix::fix50sp2::*;
     let dict = dictionary("OrchestraFIX50SP2.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
     let validator = Validator::new(&dict);
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.party_ids.push(Parties::new("FIRM"));
@@ -155,7 +192,12 @@ fn fix50_messages_pass_over_fixt() {
     use turbojet_fix::fix50::*;
     let dict = dictionary("OrchestraFIX50.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
     let validator = Validator::new(&dict);
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.party_ids.push(Parties::new("FIRM"));
@@ -168,7 +210,12 @@ fn fix50sp1_messages_pass_over_fixt() {
     use turbojet_fix::fix50sp1::*;
     let dict = dictionary("OrchestraFIX50SP1.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
     let validator = Validator::new(&dict);
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.party_ids.push(Parties::new("FIRM"));
@@ -181,7 +228,12 @@ fn fix44_messages_pass() {
     use turbojet_fix::fix44::*;
     let validator = Validator::new(&dictionary("OrchestraFIX44.xml"));
 
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
     order.price = Some("12.34".parse().unwrap());
@@ -191,16 +243,16 @@ fn fix44_messages_pass() {
     order.party_ids.push(firm);
     validator.validate(&order.to_message()).unwrap();
 
-    let mut report = ExecutionReport::new(
-        "O1",
-        "E1",
-        ExecType::Trade,
-        OrdStatus::Filled,
-        Side::Sell,
-        0.into(),
-        100.into(),
-        "12.34".parse().unwrap(),
-    );
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_type: ExecType::Trade.into(),
+        ord_status: OrdStatus::Filled.into(),
+        side: Side::Sell.into(),
+        leaves_qty: 0.into(),
+        cum_qty: 100.into(),
+        avg_px: "12.34".parse().unwrap(),
+    });
     report.symbol = Some("AAPL".into());
     validator.validate(&report.to_message()).unwrap();
 }

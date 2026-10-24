@@ -21,7 +21,8 @@ use turbojet::{
     MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 use turbojet_fix::fix42::{
-    ExecutionReportRef, HandlInst, NewOrderSingle, OrdType, OrderCancelRejectRef, OrderCancelRequest, Side, TimeInForce,
+    ExecutionReportRef, HandlInst, NewOrderSingle, NewOrderSingleRequired, OrdType, OrderCancelRejectRef,
+    OrderCancelRequest, OrderCancelRequestRequired, Side, TimeInForce,
 };
 
 enum Event {
@@ -149,14 +150,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         result = &mut connection => return Err(format!("connection ended before logon: {:?}", result?).into()),
     }
 
-    let mut order = NewOrderSingle::new(
-        "ORD1",
-        HandlInst::AutomatedExecutionNoIntervention,
-        "AAPL",
-        Side::Buy,
-        UtcTimestamp::now(),
-        OrdType::Limit,
-    );
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::now(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.order_qty = Some("100".parse()?);
     order.price = Some("150.25".parse()?);
     order.time_in_force = Some(TimeInForce::Day.into());
@@ -164,7 +165,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     reply(&mut events).await?;
 
     let (orig_cl_ord_id, cl_ord_id) = ("ORD1", "CXL1");
-    send(&session, OrderCancelRequest::new(orig_cl_ord_id, cl_ord_id, "AAPL", Side::Buy, UtcTimestamp::now()))?;
+    send(
+        &session,
+        OrderCancelRequest::new(OrderCancelRequestRequired {
+            orig_cl_ord_id: orig_cl_ord_id.into(),
+            cl_ord_id: cl_ord_id.into(),
+            symbol: "AAPL".into(),
+            side: Side::Buy.into(),
+            transact_time: UtcTimestamp::now(),
+        }),
+    )?;
     reply(&mut events).await?;
 
     session.logout(None)?;

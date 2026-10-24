@@ -17,7 +17,12 @@ fn raw(text: &str) -> turbojet::Message {
 }
 
 fn limit_order() -> NewOrderSingle {
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     // From the Instrument and OrderQtyData components.
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
@@ -58,16 +63,16 @@ fn parties_round_trip_with_their_nested_sub_ids() {
 #[test]
 fn execution_report_round_trips() {
     let (order_id, exec_id, leaves_qty, cum_qty, avg_px) = ("O1", "E1", 0.into(), 100.into(), "12.34".parse().unwrap());
-    let mut report = ExecutionReport::new(
-        order_id,
-        exec_id,
-        ExecType::Trade,
-        OrdStatus::Filled,
-        Side::Sell,
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: order_id.into(),
+        exec_id: exec_id.into(),
+        exec_type: ExecType::Trade.into(),
+        ord_status: OrdStatus::Filled.into(),
+        side: Side::Sell.into(),
         leaves_qty,
         cum_qty,
         avg_px,
-    );
+    });
     report.symbol = Some("AAPL".into());
     report.party_ids.push(Parties::new("FIRM"));
     let msg = report.to_message();
@@ -81,7 +86,12 @@ fn execution_report_round_trips() {
 
 #[test]
 fn order_cancel_request_round_trips() {
-    let mut cancel = OrderCancelRequest::new("ORD1", "ORD2", Side::Buy, time());
+    let mut cancel = OrderCancelRequest::new(OrderCancelRequestRequired {
+        orig_cl_ord_id: "ORD1".into(),
+        cl_ord_id: "ORD2".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+    });
     cancel.symbol = Some("AAPL".into());
     let msg = cancel.to_message();
     assert!(msg.to_string().starts_with("35=F|41=ORD1|"), "{msg}");

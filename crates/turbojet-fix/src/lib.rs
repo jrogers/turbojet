@@ -7,9 +7,16 @@
 ///
 /// ```
 /// use turbojet::FixMessage;
-/// use turbojet_fix::fix40::{HandlInst, OrdType, OrderSingle, Side};
+/// use turbojet_fix::fix40::{HandlInst, OrdType, OrderSingle, OrderSingleRequired, Side};
 ///
-/// let order = OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, 100, OrdType::Market);
+/// let order = OrderSingle::new(OrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+///     symbol: "AAPL".into(),
+///     side: Side::Buy.into(),
+///     order_qty: 100,
+///     ord_type: OrdType::Market.into(),
+/// });
 /// assert_eq!(order.to_message().parse::<OrderSingle>().unwrap(), order);
 /// ```
 #[cfg(feature = "fix40")]
@@ -20,9 +27,15 @@ pub mod fix40;
 ///
 /// ```
 /// use turbojet::FixMessage;
-/// use turbojet_fix::fix41::{HandlInst, OrdType, OrderSingle, Side};
+/// use turbojet_fix::fix41::{HandlInst, OrdType, OrderSingle, OrderSingleRequired, Side};
 ///
-/// let mut order = OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, OrdType::Market);
+/// let mut order = OrderSingle::new(OrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+///     symbol: "AAPL".into(),
+///     side: Side::Buy.into(),
+///     ord_type: OrdType::Market.into(),
+/// });
 /// order.order_qty = Some(100);
 /// assert_eq!(order.to_message().parse::<OrderSingle>().unwrap(), order);
 /// ```
@@ -39,10 +52,17 @@ pub mod fix41;
 /// ```
 /// use turbojet::FixMessage;
 /// use turbojet::fields::{FromFix, UtcTimestamp};
-/// use turbojet_fix::fix42::{HandlInst, NewOrderSingle, OrdType, Side};
+/// use turbojet_fix::fix42::{HandlInst, NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
 ///
 /// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-/// let order = NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, now, OrdType::Market);
+/// let order = NewOrderSingle::new(NewOrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+///     symbol: "AAPL".into(),
+///     side: Side::Buy.into(),
+///     transact_time: now,
+///     ord_type: OrdType::Market.into(),
+/// });
 /// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);
 /// ```
 #[cfg(feature = "fix42")]
@@ -54,10 +74,16 @@ pub mod fix42;
 /// ```
 /// use turbojet::FixMessage;
 /// use turbojet::fields::{FromFix, UtcTimestamp};
-/// use turbojet_fix::fix43::{HandlInst, NewOrderSingle, OrdType, Parties, Side};
+/// use turbojet_fix::fix43::{HandlInst, NewOrderSingle, NewOrderSingleRequired, OrdType, Parties, Side};
 ///
 /// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-/// let mut order = NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, Side::Buy, now, OrdType::Market);
+/// let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+///     side: Side::Buy.into(),
+///     transact_time: now,
+///     ord_type: OrdType::Market.into(),
+/// });
 /// order.symbol = Some("AAPL".into());
 /// order.party_ids.push(Parties::new("FIRM"));
 /// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);
@@ -76,10 +102,15 @@ pub mod fix44;
 /// ```
 /// use turbojet::FixMessage;
 /// use turbojet::fields::{FromFix, UtcTimestamp};
-/// use turbojet_fix::fix50::{NewOrderSingle, OrdType, Side};
+/// use turbojet_fix::fix50::{NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
 ///
 /// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-/// let order = NewOrderSingle::new("ORD1", Side::Buy, now, OrdType::Market);
+/// let order = NewOrderSingle::new(NewOrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     side: Side::Buy.into(),
+///     transact_time: now,
+///     ord_type: OrdType::Market.into(),
+/// });
 /// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);
 /// ```
 #[cfg(feature = "fix50")]
@@ -91,10 +122,15 @@ pub mod fix50;
 /// ```
 /// use turbojet::FixMessage;
 /// use turbojet::fields::{FromFix, UtcTimestamp};
-/// use turbojet_fix::fix50sp1::{NewOrderSingle, OrdType, Side};
+/// use turbojet_fix::fix50sp1::{NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
 ///
 /// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-/// let order = NewOrderSingle::new("ORD1", Side::Buy, now, OrdType::Market);
+/// let order = NewOrderSingle::new(NewOrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     side: Side::Buy.into(),
+///     transact_time: now,
+///     ord_type: OrdType::Market.into(),
+/// });
 /// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);
 /// ```
 #[cfg(feature = "fix50sp1")]
@@ -109,10 +145,15 @@ pub mod fix50sp1;
 /// ```
 /// use turbojet::FixMessage;
 /// use turbojet::fields::{FromFix, UtcTimestamp};
-/// use turbojet_fix::fix50sp2::{NewOrderSingle, OrdType, Parties, Side};
+/// use turbojet_fix::fix50sp2::{NewOrderSingle, NewOrderSingleRequired, OrdType, Parties, Side};
 ///
 /// let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-/// let mut order = NewOrderSingle::new("ORD1", Side::Buy, now, OrdType::Market);
+/// let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+///     cl_ord_id: "ORD1".into(),
+///     side: Side::Buy.into(),
+///     transact_time: now,
+///     ord_type: OrdType::Market.into(),
+/// });
 /// order.symbol = Some("AAPL".into());
 /// order.party_ids.push(Parties::new("FIRM"));
 /// assert_eq!(order.to_message().parse::<NewOrderSingle>().unwrap(), order);

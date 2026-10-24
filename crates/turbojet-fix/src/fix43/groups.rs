@@ -18,10 +18,11 @@ mod part0 {
     }
 
     impl SecAltIDGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(security_alt_id: impl Into<CompactString>) -> Self {
-            Self { security_alt_id: security_alt_id.into(), security_alt_id_source: None }
+            let security_alt_id = security_alt_id.into();
+            Self { security_alt_id, security_alt_id_source: None }
         }
     }
 
@@ -34,10 +35,11 @@ mod part0 {
     }
 
     impl IOIQualGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(ioi_qualifier: impl Into<Code<IOIQualifier>>) -> Self {
-            Self { ioi_qualifier: ioi_qualifier.into() }
+            let ioi_qualifier = ioi_qualifier.into();
+            Self { ioi_qualifier }
         }
     }
 
@@ -52,10 +54,11 @@ mod part0 {
     }
 
     impl RoutingGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(routing_type: impl Into<Code<RoutingType>>) -> Self {
-            Self { routing_type: routing_type.into(), routing_id: None }
+            let routing_type = routing_type.into();
+            Self { routing_type, routing_id: None }
         }
     }
 
@@ -74,10 +77,11 @@ mod part0 {
     }
 
     impl Parties {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(party_id: impl Into<CompactString>) -> Self {
-            Self { party_id: party_id.into(), party_id_source: None, party_role: None, party_sub_id: None }
+            let party_id = party_id.into();
+            Self { party_id, party_id_source: None, party_role: None, party_sub_id: None }
         }
     }
 
@@ -98,11 +102,12 @@ mod part0 {
     }
 
     impl ContraGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(contra_broker: impl Into<CompactString>) -> Self {
+            let contra_broker = contra_broker.into();
             Self {
-                contra_broker: contra_broker.into(),
+                contra_broker,
                 contra_trader: None,
                 contra_trade_qty: None,
                 contra_trade_time: None,
@@ -122,10 +127,11 @@ mod part0 {
     }
 
     impl Stipulations {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(stipulation_type: impl Into<Code<StipulationType>>) -> Self {
-            Self { stipulation_type: stipulation_type.into(), stipulation_value: None }
+            let stipulation_type = stipulation_type.into();
+            Self { stipulation_type, stipulation_value: None }
         }
     }
 
@@ -142,10 +148,11 @@ mod part0 {
     }
 
     impl ContAmtGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(cont_amt_type: impl Into<Code<ContAmtType>>) -> Self {
-            Self { cont_amt_type: cont_amt_type.into(), cont_amt_value: None, cont_amt_curr: None }
+            let cont_amt_type = cont_amt_type.into();
+            Self { cont_amt_type, cont_amt_value: None, cont_amt_curr: None }
         }
     }
 
@@ -236,11 +243,12 @@ mod part0 {
     }
 
     impl SecLstUpdRelSymsLegGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(leg_symbol: impl Into<CompactString>) -> Self {
+            let leg_symbol = leg_symbol.into();
             Self {
-                leg_symbol: leg_symbol.into(),
+                leg_symbol,
                 leg_symbol_sfx: None,
                 leg_security_id: None,
                 leg_security_id_source: None,
@@ -300,10 +308,11 @@ mod part1 {
     }
 
     impl LegSecAltIDGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(leg_security_alt_id: impl Into<CompactString>) -> Self {
-            Self { leg_security_alt_id: leg_security_alt_id.into(), leg_security_alt_id_source: None }
+            let leg_security_alt_id = leg_security_alt_id.into();
+            Self { leg_security_alt_id, leg_security_alt_id_source: None }
         }
     }
 
@@ -322,15 +331,11 @@ mod part1 {
     }
 
     impl NestedParties {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(nested_party_id: impl Into<CompactString>) -> Self {
-            Self {
-                nested_party_id: nested_party_id.into(),
-                nested_party_id_source: None,
-                nested_party_role: None,
-                nested_party_sub_id: None,
-            }
+            let nested_party_id = nested_party_id.into();
+            Self { nested_party_id, nested_party_id_source: None, nested_party_role: None, nested_party_sub_id: None }
         }
     }
 
@@ -413,11 +418,12 @@ mod part1 {
     }
 
     impl StrmAsgnRptInstrmtGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(symbol: impl Into<CompactString>) -> Self {
+            let symbol = symbol.into();
             Self {
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 security_id_source: None,
@@ -468,10 +474,11 @@ mod part1 {
     }
 
     impl LinesOfTextGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(text: impl Into<CompactString>) -> Self {
-            Self { text: text.into(), encoded_text: None }
+            let text = text.into();
+            Self { text, encoded_text: None }
         }
     }
 
@@ -488,10 +495,11 @@ mod part1 {
     }
 
     impl TrdAllocGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(alloc_account: impl Into<CompactString>) -> Self {
-            Self { alloc_account: alloc_account.into(), individual_alloc_id: None, alloc_qty: None }
+            let alloc_account = alloc_account.into();
+            Self { alloc_account, individual_alloc_id: None, alloc_qty: None }
         }
     }
 
@@ -506,10 +514,11 @@ mod part1 {
     }
 
     impl TrdSessLstGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(trading_session_id: impl Into<CompactString>) -> Self {
-            Self { trading_session_id: trading_session_id.into(), trading_session_sub_id: None }
+            let trading_session_id = trading_session_id.into();
+            Self { trading_session_id, trading_session_sub_id: None }
         }
     }
 
@@ -541,22 +550,32 @@ mod part1 {
         }
     }
 
+    /// [`OrdListStatGrp`]'s required fields and groups, for [`OrdListStatGrp::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct OrdListStatGrpRequired {
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// CumQty(14).
+        pub cum_qty: Decimal,
+        /// OrdStatus(39).
+        pub ord_status: Code<OrdStatus>,
+        /// LeavesQty(151).
+        pub leaves_qty: Decimal,
+        /// CxlQty(84).
+        pub cxl_qty: Decimal,
+        /// AvgPx(6).
+        pub avg_px: Decimal,
+    }
+
     impl OrdListStatGrp {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            cl_ord_id: impl Into<CompactString>,
-            cum_qty: Decimal,
-            ord_status: impl Into<Code<OrdStatus>>,
-            leaves_qty: Decimal,
-            cxl_qty: Decimal,
-            avg_px: Decimal,
-        ) -> Self {
+        pub fn new(required: OrdListStatGrpRequired) -> Self {
+            let OrdListStatGrpRequired { cl_ord_id, cum_qty, ord_status, leaves_qty, cxl_qty, avg_px } = required;
             Self {
-                cl_ord_id: cl_ord_id.into(),
+                cl_ord_id,
                 secondary_cl_ord_id: None,
                 cum_qty,
-                ord_status: ord_status.into(),
+                ord_status,
                 working_indicator: None,
                 leaves_qty,
                 cxl_qty,
@@ -585,8 +604,8 @@ mod part1 {
     }
 
     impl ExecCollGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(last_qty: Decimal) -> Self {
             Self { last_qty, exec_id: None, secondary_exec_id: None, last_px: None, last_capacity: None }
         }
@@ -606,10 +625,11 @@ mod part2 {
     }
 
     impl MDReqGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(md_entry_type: impl Into<Code<MDEntryType>>) -> Self {
-            Self { md_entry_type: md_entry_type.into() }
+            let md_entry_type = md_entry_type.into();
+            Self { md_entry_type }
         }
     }
 
@@ -764,11 +784,12 @@ mod part2 {
     }
 
     impl MDIncGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(md_update_action: impl Into<Code<MDUpdateAction>>) -> Self {
+            let md_update_action = md_update_action.into();
             Self {
-                md_update_action: md_update_action.into(),
+                md_update_action,
                 delete_reason: None,
                 md_entry_type: None,
                 md_entry_id: None,
@@ -961,11 +982,12 @@ mod part2 {
     }
 
     impl QuotEntryGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(quote_entry_id: impl Into<CompactString>) -> Self {
+            let quote_entry_id = quote_entry_id.into();
             Self {
-                quote_entry_id: quote_entry_id.into(),
+                quote_entry_id,
                 symbol: None,
                 symbol_sfx: None,
                 security_id: None,
@@ -1102,16 +1124,23 @@ mod part2 {
         }
     }
 
+    /// [`QuotSetGrp`]'s required fields and groups, for [`QuotSetGrp::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct QuotSetGrpRequired {
+        /// QuoteSetID(302).
+        pub quote_set_id: CompactString,
+        /// TotQuoteEntries(304).
+        pub tot_quote_entries: i64,
+        /// NoQuoteEntries(295).
+        pub quote_entries: Vec<QuotEntryGrp>,
+    }
+
     impl QuotSetGrp {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(
-            quote_set_id: impl Into<CompactString>,
-            tot_quote_entries: i64,
-            quote_entries: Vec<QuotEntryGrp>,
-        ) -> Self {
+        pub fn new(required: QuotSetGrpRequired) -> Self {
+            let QuotSetGrpRequired { quote_set_id, tot_quote_entries, quote_entries } = required;
             Self {
-                quote_set_id: quote_set_id.into(),
+                quote_set_id,
                 underlying_symbol: None,
                 underlying_symbol_sfx: None,
                 underlying_security_id: None,
@@ -1162,13 +1191,11 @@ mod part2 {
     }
 
     impl UndSecAltIDGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(underlying_security_alt_id: impl Into<CompactString>) -> Self {
-            Self {
-                underlying_security_alt_id: underlying_security_alt_id.into(),
-                underlying_security_alt_id_source: None,
-            }
+            let underlying_security_alt_id = underlying_security_alt_id.into();
+            Self { underlying_security_alt_id, underlying_security_alt_id_source: None }
         }
     }
 
@@ -1201,11 +1228,12 @@ mod part2 {
     }
 
     impl BidDescReqGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(bid_descriptor_type: impl Into<Code<BidDescriptorType>>) -> Self {
+            let bid_descriptor_type = bid_descriptor_type.into();
             Self {
-                bid_descriptor_type: bid_descriptor_type.into(),
+                bid_descriptor_type,
                 bid_descriptor: None,
                 side_value_ind: None,
                 liquidity_value: None,
@@ -1261,8 +1289,8 @@ mod part2 {
     }
 
     impl BidCompRspGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(commission: Decimal) -> Self {
             Self {
                 commission,
@@ -1370,12 +1398,21 @@ mod part2 {
         }
     }
 
+    /// [`InstrmtStrkPxGrp`]'s required fields and groups, for [`InstrmtStrkPxGrp::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct InstrmtStrkPxGrpRequired {
+        /// Symbol(55).
+        pub symbol: CompactString,
+        /// Price(44).
+        pub price: Decimal,
+    }
+
     impl InstrmtStrkPxGrp {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(symbol: impl Into<CompactString>, price: Decimal) -> Self {
+        pub fn new(required: InstrmtStrkPxGrpRequired) -> Self {
+            let InstrmtStrkPxGrpRequired { symbol, price } = required;
             Self {
-                symbol: symbol.into(),
+                symbol,
                 symbol_sfx: None,
                 security_id: None,
                 security_id_source: None,
@@ -1446,11 +1483,12 @@ mod part3 {
     }
 
     impl RgstDtlsGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(regist_detls: impl Into<CompactString>) -> Self {
+            let regist_detls = regist_detls.into();
             Self {
-                regist_detls: regist_detls.into(),
+                regist_detls,
                 regist_email: None,
                 mailing_dtls: None,
                 mailing_inst: None,
@@ -1483,8 +1521,8 @@ mod part3 {
     }
 
     impl RgstDistInstGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(distrib_payment_method: i64) -> Self {
             Self {
                 distrib_payment_method,
@@ -1511,10 +1549,11 @@ mod part3 {
     }
 
     impl AffectedOrdGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(orig_cl_ord_id: impl Into<CompactString>) -> Self {
-            Self { orig_cl_ord_id: orig_cl_ord_id.into(), affected_order_id: None, affected_secondary_order_id: None }
+            let orig_cl_ord_id = orig_cl_ord_id.into();
+            Self { orig_cl_ord_id, affected_order_id: None, affected_secondary_order_id: None }
         }
     }
 
@@ -1612,13 +1651,22 @@ mod part3 {
         }
     }
 
+    /// [`TrdCapRptAckSideGrp`]'s required fields and groups, for [`TrdCapRptAckSideGrp::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct TrdCapRptAckSideGrpRequired {
+        /// Side(54).
+        pub side: Code<Side>,
+        /// OrderID(37).
+        pub order_id: CompactString,
+    }
+
     impl TrdCapRptAckSideGrp {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(side: impl Into<Code<Side>>, order_id: impl Into<CompactString>) -> Self {
+        pub fn new(required: TrdCapRptAckSideGrpRequired) -> Self {
+            let TrdCapRptAckSideGrpRequired { side, order_id } = required;
             Self {
-                side: side.into(),
-                order_id: order_id.into(),
+                side,
+                order_id,
                 secondary_order_id: None,
                 cl_ord_id: None,
                 party_ids: Vec::new(),
@@ -1674,10 +1722,11 @@ mod part3 {
     }
 
     impl ClrInstGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(clearing_instruction: impl Into<Code<ClearingInstruction>>) -> Self {
-            Self { clearing_instruction: clearing_instruction.into() }
+            let clearing_instruction = clearing_instruction.into();
+            Self { clearing_instruction }
         }
     }
 
@@ -1694,8 +1743,8 @@ mod part3 {
     }
 
     impl MiscFeesGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(misc_fee_amt: Decimal) -> Self {
             Self { misc_fee_amt, misc_fee_curr: None, misc_fee_type: None }
         }
@@ -1714,10 +1763,11 @@ mod part3 {
     }
 
     impl SecTypesGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(security_type: impl Into<Code<SecurityType>>) -> Self {
-            Self { security_type: security_type.into(), product: None, cfi_code: None }
+            let security_type = security_type.into();
+            Self { security_type, product: None, cfi_code: None }
         }
     }
 
@@ -1732,8 +1782,8 @@ mod part3 {
     }
 
     impl TrdCapDtGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(trade_date: NaiveDate) -> Self {
             Self { trade_date, transact_time: None }
         }

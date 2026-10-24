@@ -104,10 +104,11 @@ turbojet::fix_group! {
 }
 
 impl PreAllocGrp {
-    /// With the required fields and groups; optional ones empty.
-    #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+    /// With its required field; optional ones empty.
+    #[allow(clippy::new_without_default)]
     pub fn new(alloc_account: impl Into<CompactString>) -> Self {
-        Self { alloc_account: alloc_account.into(), alloc_shares: None }
+        let alloc_account = alloc_account.into();
+        Self { alloc_account, alloc_shares: None }
     }
 }
 
@@ -123,11 +124,20 @@ turbojet::fix_group! {
     }
 }
 
+/// [`AllocGrp`]'s required fields and groups, for [`AllocGrp::new`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct AllocGrpRequired {
+    /// AllocAccount(79).
+    pub alloc_account: CompactString,
+    /// AllocShares(80).
+    pub alloc_shares: Decimal,
+}
+
 impl AllocGrp {
     /// With the required fields and groups; optional ones empty.
-    #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_account: impl Into<CompactString>, alloc_shares: Decimal) -> Self {
-        Self { alloc_account: alloc_account.into(), alloc_shares, misc_fees: Vec::new() }
+    pub fn new(required: AllocGrpRequired) -> Self {
+        let AllocGrpRequired { alloc_account, alloc_shares } = required;
+        Self { alloc_account, alloc_shares, misc_fees: Vec::new() }
     }
 }
 
@@ -145,8 +155,8 @@ turbojet::fix_group! {
 }
 
 impl MiscFeesGrp {
-    /// With the required fields and groups; optional ones empty.
-    #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+    /// With its required field; optional ones empty.
+    #[allow(clippy::new_without_default)]
     pub fn new(misc_fee_amt: Decimal) -> Self {
         Self { misc_fee_amt }
     }
@@ -216,11 +226,36 @@ turbojet::fix_message! {
     }
 }
 
+/// [`NewOrderSingle`]'s required fields and groups, for [`NewOrderSingle::new`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewOrderSingleRequired {
+    /// ClOrdID(11).
+    ///
+    /// Unique identifier for Order as assigned by institution. Uniqueness must be guaranteed within a single trading day.
+    pub cl_ord_id: CompactString,
+    /// HandlInst(21).
+    ///
+    /// Instructions for order handling on Broker trading floor
+    pub handl_inst: Code<HandlInst>,
+    /// Symbol(55).
+    ///
+    /// Ticker symbol. Use "\[N/A\]" for products which do not have a symbol.
+    pub symbol: CompactString,
+    /// Side(54).
+    ///
+    /// Side of order
+    pub side: Code<Side>,
+    /// TransactTime(60).
+    ///
+    /// Time of execution/order creation (expressed in UTC (Universal Time Coordinated, also known as "GMT")
+    pub transact_time: UtcTimestamp,
+}
+
 impl NewOrderSingle {
     /// With the required fields and groups; optional ones empty.
-    #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(cl_ord_id: impl Into<CompactString>, handl_inst: impl Into<Code<HandlInst>>, symbol: impl Into<CompactString>, side: impl Into<Code<Side>>, transact_time: UtcTimestamp) -> Self {
-        Self { cl_ord_id: cl_ord_id.into(), allocs: Vec::new(), handl_inst: handl_inst.into(), symbol: symbol.into(), security_id: None, id_source: None, side: side.into(), transact_time, order_qty: None, sending_date: None }
+    pub fn new(required: NewOrderSingleRequired) -> Self {
+        let NewOrderSingleRequired { cl_ord_id, handl_inst, symbol, side, transact_time } = required;
+        Self { cl_ord_id, allocs: Vec::new(), handl_inst, symbol, security_id: None, id_source: None, side, transact_time, order_qty: None, sending_date: None }
     }
 }
 
@@ -244,11 +279,26 @@ turbojet::fix_message! {
     }
 }
 
+/// [`Allocation`]'s required fields and groups, for [`Allocation::new`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct AllocationRequired {
+    /// AllocID(70).
+    pub alloc_id: CompactString,
+    /// Side(54).
+    ///
+    /// Side of order
+    pub side: Code<Side>,
+    /// NoAllocs(78).
+    ///
+    /// Number of repeating AllocAccount/AllocPrice entries.
+    pub allocs: Vec<AllocGrp>,
+}
+
 impl Allocation {
     /// With the required fields and groups; optional ones empty.
-    #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-    pub fn new(alloc_id: impl Into<CompactString>, side: impl Into<Code<Side>>, allocs: Vec<AllocGrp>) -> Self {
-        Self { alloc_id: alloc_id.into(), side: side.into(), allocs, text: None }
+    pub fn new(required: AllocationRequired) -> Self {
+        let AllocationRequired { alloc_id, side, allocs } = required;
+        Self { alloc_id, side, allocs, text: None }
     }
 }
 }

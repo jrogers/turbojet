@@ -6,8 +6,14 @@ use turbojet_fix::fix40::*;
 
 #[test]
 fn order_single_round_trips() {
-    let mut order =
-        OrderSingle::new("ORD1", HandlInst::AutomatedExecutionNoIntervention, "AAPL", Side::Buy, 100, OrdType::Limit);
+    let mut order = OrderSingle::new(OrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        order_qty: 100,
+        ord_type: OrdType::Limit.into(),
+    });
     order.price = Some("12.34".parse().unwrap());
     let msg = order.to_message();
     let text = msg.to_string();
@@ -30,19 +36,19 @@ fn news_lines_of_text_are_a_group() {
 #[test]
 fn execution_report_round_trips() {
     let (px, avg_px) = ("12.34".parse().unwrap(), "12.34".parse().unwrap());
-    let report = ExecutionReport::new(
-        "O1",
-        1,
-        ExecTransType::New,
-        OrdStatus::Filled,
-        "AAPL",
-        Side::Sell,
-        100,
-        100,
-        px,
-        100,
+    let report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: 1,
+        exec_trans_type: ExecTransType::New.into(),
+        ord_status: OrdStatus::Filled.into(),
+        symbol: "AAPL".into(),
+        side: Side::Sell.into(),
+        order_qty: 100,
+        last_shares: 100,
+        last_px: px,
+        cum_qty: 100,
         avg_px,
-    );
+    });
     let msg = report.to_message();
     let text = msg.to_string();
     for field in ["|37=O1|", "|17=1|", "|20=0|", "|39=2|", "|54=2|", "|32=100|", "|31=12.34|", "|14=100|"] {

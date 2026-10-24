@@ -190,15 +190,15 @@ mod tests {
     }
 
     fn limit_order(cl_ord_id: &str) -> Message {
-        use turbojet_fix::fix42::{HandlInst, NewOrderSingle, OrdType, Side};
-        let mut order = NewOrderSingle::new(
-            cl_ord_id,
-            HandlInst::AutomatedExecutionNoIntervention,
-            "AAPL",
-            Side::Buy,
-            turbojet::fields::UtcTimestamp::now(),
-            OrdType::Limit,
-        );
+        use turbojet_fix::fix42::{HandlInst, NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
+        let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+            cl_ord_id: cl_ord_id.into(),
+            handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+            symbol: "AAPL".into(),
+            side: Side::Buy.into(),
+            transact_time: turbojet::fields::UtcTimestamp::now(),
+            ord_type: OrdType::Limit.into(),
+        });
         order.order_qty = Some(100u64.into());
         order.price = Some("150.25".parse().unwrap());
         order.into()
@@ -209,7 +209,7 @@ mod tests {
     #[test]
     fn cancel_on_disconnect_cancels_only_that_sessions_orders() {
         use turbojet::FixMessage;
-        use turbojet_fix::fix42::{ExecType, ExecutionReport, OrderStatusRequest, Side};
+        use turbojet_fix::fix42::{ExecType, ExecutionReport, OrderStatusRequest, OrderStatusRequestRequired, Side};
 
         let orders = Arc::new(OrderManager::new());
         let app = GatewayApp::new(orders.clone());
@@ -227,7 +227,17 @@ mod tests {
         assert_eq!(orders.order(&order_ids[0]).unwrap().status, OrdStatus::Canceled);
         assert_eq!(orders.order(&order_ids[1]).unwrap().status, OrdStatus::New, "another session's order");
 
-        let status = orders.status("C1", OrderStatusRequest::new("A", "AAPL", Side::Buy).to_message().parse().unwrap());
+        let status = orders.status(
+            "C1",
+            OrderStatusRequest::new(OrderStatusRequestRequired {
+                cl_ord_id: "A".into(),
+                symbol: "AAPL".into(),
+                side: Side::Buy.into(),
+            })
+            .to_message()
+            .parse()
+            .unwrap(),
+        );
         assert_eq!((status.exec_type, status.ord_status), (ExecType::Canceled.into(), OrdStatus::Canceled.into()));
         assert_eq!(status.leaves_qty, 0u64.into());
 
@@ -239,26 +249,35 @@ mod tests {
     fn order_outcomes_are_counted() {
         use metrics_util::debugging::{DebugValue, DebuggingRecorder};
         use turbojet::Context;
-        use turbojet_fix::fix42::{HandlInst, NewOrderSingle, OrdType, OrderCancelRequest, Side};
+        use turbojet_fix::fix42::{
+            HandlInst, NewOrderSingle, NewOrderSingleRequired, OrdType, OrderCancelRequest, OrderCancelRequestRequired,
+            Side,
+        };
 
         let recorder = DebuggingRecorder::new();
         metrics::with_local_recorder(&recorder, || {
             let app = app(false);
             let session = session("C1");
             let order = |id: &str, qty: u64| {
-                let mut order = NewOrderSingle::new(
-                    id,
-                    HandlInst::AutomatedExecutionNoIntervention,
-                    "AAPL",
-                    Side::Buy,
-                    turbojet::fields::UtcTimestamp::now(),
-                    OrdType::Market,
-                );
+                let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+                    cl_ord_id: id.into(),
+                    handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+                    symbol: "AAPL".into(),
+                    side: Side::Buy.into(),
+                    transact_time: turbojet::fields::UtcTimestamp::now(),
+                    ord_type: OrdType::Market.into(),
+                });
                 order.order_qty = Some(qty.into());
                 order
             };
             let cancel = |id: &str, orig: &str| {
-                OrderCancelRequest::new(orig, id, "AAPL", Side::Buy, turbojet::fields::UtcTimestamp::now())
+                OrderCancelRequest::new(OrderCancelRequestRequired {
+                    orig_cl_ord_id: orig.into(),
+                    cl_ord_id: id.into(),
+                    symbol: "AAPL".into(),
+                    side: Side::Buy.into(),
+                    transact_time: turbojet::fields::UtcTimestamp::now(),
+                })
             };
             let mut ctx = Context::new(&session);
             let messages: [Message; 4] =

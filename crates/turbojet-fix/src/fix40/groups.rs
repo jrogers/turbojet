@@ -20,8 +20,8 @@ mod part0 {
     }
 
     impl MiscFeesGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(misc_fee_amt: Decimal) -> Self {
             Self { misc_fee_amt, misc_fee_curr: None, misc_fee_type: None }
         }
@@ -36,10 +36,11 @@ mod part0 {
     }
 
     impl LinesOfTextGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(text: impl Into<CompactString>) -> Self {
-            Self { text: text.into() }
+            let text = text.into();
+            Self { text }
         }
     }
 
@@ -57,11 +58,24 @@ mod part0 {
         }
     }
 
+    /// [`OrdListStatGrp`]'s required fields and groups, for [`OrdListStatGrp::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct OrdListStatGrpRequired {
+        /// ClOrdID(11).
+        pub cl_ord_id: CompactString,
+        /// CumQty(14).
+        pub cum_qty: i64,
+        /// CxlQty(84).
+        pub cxl_qty: i64,
+        /// AvgPx(6).
+        pub avg_px: Decimal,
+    }
+
     impl OrdListStatGrp {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(cl_ord_id: impl Into<CompactString>, cum_qty: i64, cxl_qty: i64, avg_px: Decimal) -> Self {
-            Self { cl_ord_id: cl_ord_id.into(), cum_qty, cxl_qty, avg_px }
+        pub fn new(required: OrdListStatGrpRequired) -> Self {
+            let OrdListStatGrpRequired { cl_ord_id, cum_qty, cxl_qty, avg_px } = required;
+            Self { cl_ord_id, cum_qty, cxl_qty, avg_px }
         }
     }
 
@@ -80,8 +94,8 @@ mod part0 {
     }
 
     impl ExecCollGrp {
-        /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
+        /// With its required field; optional ones empty.
+        #[allow(clippy::new_without_default)]
         pub fn new(exec_id: i64) -> Self {
             Self { exec_id, last_shares: None, last_px: None, last_mkt: None }
         }
@@ -113,12 +127,21 @@ mod part0 {
         }
     }
 
+    /// [`TrdAllocGrp`]'s required fields and groups, for [`TrdAllocGrp::new`].
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct TrdAllocGrpRequired {
+        /// AllocAccount(79).
+        pub alloc_account: CompactString,
+        /// AllocShares(80).
+        pub alloc_shares: i64,
+    }
+
     impl TrdAllocGrp {
         /// With the required fields and groups; optional ones empty.
-        #[allow(clippy::too_many_arguments, clippy::new_without_default)]
-        pub fn new(alloc_account: impl Into<CompactString>, alloc_shares: i64) -> Self {
+        pub fn new(required: TrdAllocGrpRequired) -> Self {
+            let TrdAllocGrpRequired { alloc_account, alloc_shares } = required;
             Self {
-                alloc_account: alloc_account.into(),
+                alloc_account,
                 alloc_shares,
                 process_code: None,
                 exec_broker: None,

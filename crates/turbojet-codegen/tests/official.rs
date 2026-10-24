@@ -122,6 +122,12 @@ fn generated(paragraph: &str) -> bool {
         || paragraph.strip_prefix("An entry of ").is_some_and(reference)
         || paragraph == "Deprecated in the FIX standard."
         || paragraph == "With the required fields and groups; optional ones empty."
+        || paragraph == "With its required field; optional ones empty."
+        || paragraph == "No required fields; optional ones empty."
+        || paragraph
+            .strip_prefix("[`")
+            .and_then(|p| p.split_once("`]'s required fields and groups, for [`"))
+            .is_some_and(|(name, rest)| rest == format!("{name}::new`]."))
 }
 
 /// Every doc comment generated from an official file reads, in rustdoc, as plain text: the

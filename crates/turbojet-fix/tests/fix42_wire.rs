@@ -23,14 +23,14 @@ const ORDER: &str = "8=FIX.4.2|35=D|49=C|56=G|34=2|52=20260927-03:20:48.544|\
     11=ORD1|21=1|55=AAPL|54=1|60=20260927-03:20:48.544|38=100|40=2|44=150.25|59=0|";
 
 fn order() -> NewOrderSingle {
-    let mut order = NewOrderSingle::new(
-        "ORD1",
-        HandlInst::AutomatedExecutionNoIntervention,
-        "AAPL",
-        Side::Buy,
-        UtcTimestamp::from_fix("20260927-03:20:48.544").unwrap(),
-        OrdType::Limit,
-    );
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::from_fix("20260927-03:20:48.544").unwrap(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.order_qty = Some(Decimal::from_fix("100").unwrap());
     order.price = Some(Decimal::from_fix("150.25").unwrap());
     order.time_in_force = Some(TimeInForce::Day.into());
@@ -123,18 +123,18 @@ fn replace_and_status_requests_parse_from_the_wire() {
 }
 
 fn order_report() -> ExecutionReport {
-    let mut report = ExecutionReport::new(
-        "O1",
-        "E1",
-        ExecTransType::New,
-        ExecType::Rejected,
-        OrdStatus::Rejected,
-        "AAPL",
-        Side::Sell,
-        Decimal::ZERO,
-        Decimal::ZERO,
-        Decimal::ZERO,
-    );
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_trans_type: ExecTransType::New.into(),
+        exec_type: ExecType::Rejected.into(),
+        ord_status: OrdStatus::Rejected.into(),
+        symbol: "AAPL".into(),
+        side: Side::Sell.into(),
+        leaves_qty: Decimal::ZERO,
+        cum_qty: Decimal::ZERO,
+        avg_px: Decimal::ZERO,
+    });
     report.cl_ord_id = Some("ORD1".into());
     report.ord_rej_reason = Some(OrdRejReason::DuplicateOrder.into());
     report.order_qty = Some(Decimal::from_fix("10").unwrap());

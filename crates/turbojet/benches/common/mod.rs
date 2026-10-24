@@ -14,20 +14,20 @@ use turbojet::registry::CommandReceiver;
 use turbojet::store::{SessionStorage, StoredSession};
 use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
 use turbojet_fix::fix42::{
-    ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, NewOrderSingleRef, OrdStatus, OrdType, Side,
-    TimeInForce,
+    ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, HandlInst, NewOrderSingle, NewOrderSingleRef,
+    NewOrderSingleRequired, OrdStatus, OrdType, Side, TimeInForce,
 };
 
 /// A typical limit order (~150 bytes on the wire).
 pub fn new_order_single(cl_ord_id: u64) -> NewOrderSingle {
-    let mut order = NewOrderSingle::new(
-        format!("ORD{cl_ord_id}"),
-        HandlInst::AutomatedExecutionNoIntervention,
-        "AAPL",
-        Side::Buy,
-        UtcTimestamp::now(),
-        OrdType::Limit,
-    );
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: format!("ORD{cl_ord_id}").into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::now(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.account = Some("ACCT-001".into());
     order.order_qty = Some(Decimal::new(100, 0));
     order.price = Some(Decimal::new(15025, 2));
@@ -42,18 +42,18 @@ pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
     let leaves_qty = order.order_qty.unwrap_or_default();
     let cum_qty = Decimal::ZERO;
     let avg_px = Decimal::ZERO;
-    let mut report = ExecutionReport::new(
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
         order_id,
         exec_id,
-        ExecTransType::New,
-        ExecType::New,
-        OrdStatus::New,
-        order.symbol,
-        order.side,
+        exec_trans_type: ExecTransType::New.into(),
+        exec_type: ExecType::New.into(),
+        ord_status: OrdStatus::New.into(),
+        symbol: order.symbol.into(),
+        side: order.side.into(),
         leaves_qty,
         cum_qty,
         avg_px,
-    );
+    });
     report.cl_ord_id = Some(order.cl_ord_id.into());
     report.account = order.account.map(Into::into);
     report.order_qty = order.order_qty;

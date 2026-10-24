@@ -18,9 +18,9 @@ use turbojet::fields::{CodeRef, FixEnum, UtcTimestamp};
 use turbojet::fields::{CompactString, Decimal, format_compact};
 use turbojet::message::tags;
 use turbojet_fix::fix42::{
-    CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, NewOrderSingleRef, OrdRejReason,
-    OrdStatus, OrdType, OrderCancelReject, OrderCancelReplaceRequestRef, OrderCancelRequestRef, OrderStatusRequestRef,
-    Side, TimeInForce,
+    CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired,
+    NewOrderSingleRef, OrdRejReason, OrdStatus, OrdType, OrderCancelReject, OrderCancelRejectRequired,
+    OrderCancelReplaceRequestRef, OrderCancelRequestRef, OrderStatusRequestRef, Side, TimeInForce,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -157,13 +157,13 @@ impl OrderManager {
     ) -> Result<ExecutionReport, OrderCancelReject> {
         let cancel_reject = |order_id: &str, status: OrdStatus, reason: CxlRejReason, text: String| {
             info!(owner, cl_ord_id = %request.cl_ord_id, orig_cl_ord_id = %request.orig_cl_ord_id, %text, "cancel rejected");
-            let mut reject = OrderCancelReject::new(
-                order_id,
-                request.cl_ord_id,
-                request.orig_cl_ord_id,
-                status,
-                CxlRejResponseTo::OrderCancelRequest,
-            );
+            let mut reject = OrderCancelReject::new(OrderCancelRejectRequired {
+                order_id: order_id.into(),
+                cl_ord_id: request.cl_ord_id.into(),
+                orig_cl_ord_id: request.orig_cl_ord_id.into(),
+                ord_status: status.into(),
+                cxl_rej_response_to: CxlRejResponseTo::OrderCancelRequest.into(),
+            });
             reject.cxl_rej_reason = Some(reason.into());
             reject.text = Some(text.into());
             reject
@@ -224,15 +224,15 @@ impl OrderManager {
         let qty = request.order_qty.ok_or(MessageReject::conditionally_required_field_missing(tags::ORDER_QTY))?;
         let replace_reject = |order_id: &str, status: OrdStatus, reason: CxlRejReason, text: String| {
             info!(owner, cl_ord_id = %request.cl_ord_id, orig_cl_ord_id = %request.orig_cl_ord_id, %text, "replace rejected");
-            let mut reject = OrderCancelReject::new(
-                order_id,
-                request.cl_ord_id,
-                request.orig_cl_ord_id,
-                status,
+            let mut reject = OrderCancelReject::new(OrderCancelRejectRequired {
+                order_id: order_id.into(),
+                cl_ord_id: request.cl_ord_id.into(),
+                orig_cl_ord_id: request.orig_cl_ord_id.into(),
+                ord_status: status.into(),
                 // Code 2, Order Cancel/Replace Request; the FIX 4.2 repository names it
                 // OrderCancel.
-                CxlRejResponseTo::OrderCancel,
-            );
+                cxl_rej_response_to: CxlRejResponseTo::OrderCancel.into(),
+            });
             reject.cxl_rej_reason = Some(reason.into());
             reject.text = Some(text.into());
             reject
@@ -321,18 +321,18 @@ impl OrderManager {
                 let leaves_qty = Decimal::ZERO;
                 let cum_qty = Decimal::ZERO;
                 let avg_px = Decimal::ZERO;
-                let mut report = ExecutionReport::new(
-                    order_id,
-                    exec_id,
-                    ExecTransType::Status,
-                    ExecType::Rejected,
-                    OrdStatus::Rejected,
-                    request.symbol,
-                    request.side,
+                let mut report = ExecutionReport::new(ExecutionReportRequired {
+                    order_id: order_id.into(),
+                    exec_id: exec_id.into(),
+                    exec_trans_type: ExecTransType::Status.into(),
+                    exec_type: ExecType::Rejected.into(),
+                    ord_status: OrdStatus::Rejected.into(),
+                    symbol: request.symbol.into(),
+                    side: request.side.into(),
                     leaves_qty,
                     cum_qty,
                     avg_px,
-                );
+                });
                 report.ord_rej_reason = Some(OrdRejReason::UnknownOrder.into());
                 report.account = request.account.map(CompactString::from);
                 report.transact_time = Some(UtcTimestamp::now());
@@ -352,18 +352,18 @@ impl OrderManager {
         // Orders are never filled.
         let cum_qty = Decimal::ZERO;
         let avg_px = Decimal::ZERO;
-        let mut report = ExecutionReport::new(
-            &order.order_id,
-            exec_id,
-            ExecTransType::New,
-            exec_type,
-            order.status,
-            &order.symbol,
-            order.side,
+        let mut report = ExecutionReport::new(ExecutionReportRequired {
+            order_id: order.order_id.as_str().into(),
+            exec_id: exec_id.into(),
+            exec_trans_type: ExecTransType::New.into(),
+            exec_type: exec_type.into(),
+            ord_status: order.status.into(),
+            symbol: order.symbol.as_str().into(),
+            side: order.side.into(),
             leaves_qty,
             cum_qty,
             avg_px,
-        );
+        });
         report.cl_ord_id = Some(order.cl_ord_id.as_str().into());
         report.orig_cl_ord_id = orig_cl_ord_id.map(CompactString::from);
         report.account = order.account.as_deref().map(CompactString::from);
@@ -410,7 +410,9 @@ mod tests {
     use turbojet::FixMessage;
     use turbojet::fields::Code;
     use turbojet_fix::fix42::{
-        HandlInst, NewOrderSingle, OrderCancelReplaceRequest, OrderCancelRequest, OrderStatusRequest,
+        HandlInst, NewOrderSingle, NewOrderSingleRequired, OrderCancelReplaceRequest,
+        OrderCancelReplaceRequestRequired, OrderCancelRequest, OrderCancelRequestRequired, OrderStatusRequest,
+        OrderStatusRequestRequired,
     };
 
     // Requests are built owned, then parsed from their message into the borrowed form the
@@ -421,21 +423,27 @@ mod tests {
     }
 
     fn limit_order(cl_ord_id: &str) -> NewOrderSingle {
-        let mut order = NewOrderSingle::new(
-            cl_ord_id,
-            HandlInst::AutomatedExecutionNoIntervention,
-            "AAPL",
-            Side::Buy,
-            UtcTimestamp::now(),
-            OrdType::Limit,
-        );
+        let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+            cl_ord_id: cl_ord_id.into(),
+            handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+            symbol: "AAPL".into(),
+            side: Side::Buy.into(),
+            transact_time: UtcTimestamp::now(),
+            ord_type: OrdType::Limit.into(),
+        });
         order.order_qty = Some(dec("100"));
         order.price = Some(dec("150.25"));
         order
     }
 
     fn cancel(cl_ord_id: &str, orig: &str) -> OrderCancelRequest {
-        OrderCancelRequest::new(orig, cl_ord_id, "AAPL", Side::Buy, UtcTimestamp::now())
+        OrderCancelRequest::new(OrderCancelRequestRequired {
+            orig_cl_ord_id: orig.into(),
+            cl_ord_id: cl_ord_id.into(),
+            symbol: "AAPL".into(),
+            side: Side::Buy.into(),
+            transact_time: UtcTimestamp::now(),
+        })
     }
 
     #[test]
@@ -560,22 +568,26 @@ mod tests {
 
     fn replace(orig: &str, cl_ord_id: &str, qty: &str, price: &str) -> OrderCancelReplaceRequest {
         let order = limit_order("unused");
-        let mut request = OrderCancelReplaceRequest::new(
-            orig,
-            cl_ord_id,
-            order.handl_inst,
-            order.symbol,
-            order.side,
-            UtcTimestamp::now(),
-            order.ord_type,
-        );
+        let mut request = OrderCancelReplaceRequest::new(OrderCancelReplaceRequestRequired {
+            orig_cl_ord_id: orig.into(),
+            cl_ord_id: cl_ord_id.into(),
+            handl_inst: order.handl_inst,
+            symbol: order.symbol,
+            side: order.side,
+            transact_time: UtcTimestamp::now(),
+            ord_type: order.ord_type,
+        });
         request.order_qty = Some(dec(qty));
         request.price = Some(dec(price));
         request
     }
 
     fn status(cl_ord_id: &str) -> OrderStatusRequest {
-        OrderStatusRequest::new(cl_ord_id, "AAPL", Side::Buy)
+        OrderStatusRequest::new(OrderStatusRequestRequired {
+            cl_ord_id: cl_ord_id.into(),
+            symbol: "AAPL".into(),
+            side: Side::Buy.into(),
+        })
     }
 
     #[test]

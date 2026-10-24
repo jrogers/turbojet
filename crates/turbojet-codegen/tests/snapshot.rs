@@ -56,7 +56,11 @@ fn snapshot_compiles_and_round_trips() {
     use turbojet::message::FixMessage;
 
     let time = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time,
+    });
     order.party_ids.push(PartyID::new("FIRM"));
     order.allocs.push(NewOrderSingleAlloc { alloc_account: "ACC".into(), alloc_qty: Some(10.into()) });
     order.text = Some("hi".into());
@@ -65,7 +69,11 @@ fn snapshot_compiles_and_round_trips() {
     assert_eq!(msg.parse::<NewOrderSingle>().unwrap(), order);
 
     // A required group is a new() parameter, in slot order, and must have an entry.
-    let mut trade = TradeReport::new("T1", vec![SideEntry::new(Side::Sell)], 5.into());
+    let mut trade = TradeReport::new(TradeReportRequired {
+        trade_report_id: "T1".into(),
+        sides: vec![SideEntry::new(Side::Sell)],
+        last_qty: 5.into(),
+    });
     trade.r#yield = Some("1.5".parse().unwrap());
     assert!(format!("{trade:?}").contains("yield: Some(1.5)"), "raw identifiers print plain");
     let msg = trade.to_message();
@@ -111,7 +119,11 @@ fn lenient_snapshot_keeps_unknown_codes() {
 
     let time = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
     // A known value still goes straight into new().
-    let order = mini::NewOrderSingle::new("ORD1", mini::Side::Buy, time);
+    let order = mini::NewOrderSingle::new(mini::NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: mini::Side::Buy.into(),
+        transact_time: time,
+    });
     assert_eq!(order.side, mini::Side::Buy);
 
     // A code Side doesn't list: the strict message refuses it, the lenient one keeps it.
@@ -130,8 +142,13 @@ fn orchestra_snapshot_compiles_and_round_trips() {
     use turbojet::message::FixMessage;
 
     let time = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-    let mut order =
-        NewOrderSingle::new("ORD1", HandlInst::AutomatedExecutionInterventionOK, "IBM", Side::SellShort, time);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        handl_inst: HandlInst::AutomatedExecutionInterventionOK.into(),
+        symbol: "IBM".into(),
+        side: Side::SellShort.into(),
+        transact_time: time,
+    });
     order.allocs.push(PreAllocGrp::new("ACC"));
     order.id_source = Some(IDSource::CUSIP.into());
     order.sending_date = Some("20260928".into());
@@ -140,9 +157,10 @@ fn orchestra_snapshot_compiles_and_round_trips() {
     assert_eq!(msg.parse::<NewOrderSingle>().unwrap(), order);
 
     // A nested group, in a required one.
-    let mut alloc = AllocGrp::new("ACC", 10.into());
+    let mut alloc = AllocGrp::new(AllocGrpRequired { alloc_account: "ACC".into(), alloc_shares: 10.into() });
     alloc.misc_fees.push(MiscFeesGrp::new("1.5".parse().unwrap()));
-    let allocation = Allocation::new("A1", Side::Buy, vec![alloc]);
+    let allocation =
+        Allocation::new(AllocationRequired { alloc_id: "A1".into(), side: Side::Buy.into(), allocs: vec![alloc] });
     let msg = allocation.to_message();
     assert_eq!(msg.to_string(), "35=J|70=A1|54=1|78=1|79=ACC|80=10|136=1|137=1.5|");
     assert_eq!(msg.parse::<Allocation>().unwrap(), allocation);

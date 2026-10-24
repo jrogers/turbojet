@@ -17,9 +17,10 @@ use turbojet::{
     Acceptor, AcceptorConfig, DiskStorage, MemoryStorage, MsgType, SessionConfig, SessionId, SessionStorage,
 };
 use turbojet_fix::fix42::{
-    CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle, OrdRejReason,
-    OrdStatus, OrdType, OrderCancelReject, OrderCancelReplaceRequest, OrderCancelRequest, OrderStatusRequest,
-    PreAllocGrp, Side,
+    CxlRejReason, CxlRejResponseTo, ExecTransType, ExecType, ExecutionReport, HandlInst, NewOrderSingle,
+    NewOrderSingleRequired, OrdRejReason, OrdStatus, OrdType, OrderCancelReject, OrderCancelReplaceRequest,
+    OrderCancelReplaceRequestRequired, OrderCancelRequest, OrderCancelRequestRequired, OrderStatusRequest,
+    OrderStatusRequestRequired, PreAllocGrp, Side,
 };
 
 use crate::app::GatewayApp;
@@ -135,21 +136,27 @@ fn logon(reset: bool) -> Logon {
 }
 
 fn limit_order(cl_ord_id: &str, qty: &str, price: &str) -> NewOrderSingle {
-    let mut order = NewOrderSingle::new(
-        cl_ord_id,
-        HandlInst::AutomatedExecutionNoIntervention,
-        "AAPL",
-        Side::Buy,
-        UtcTimestamp::now(),
-        OrdType::Limit,
-    );
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: cl_ord_id.into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::now(),
+        ord_type: OrdType::Limit.into(),
+    });
     order.order_qty = Some(qty.parse().unwrap());
     order.price = Some(price.parse().unwrap());
     order
 }
 
 fn cancel(cl_ord_id: &str, orig_cl_ord_id: &str) -> OrderCancelRequest {
-    OrderCancelRequest::new(orig_cl_ord_id, cl_ord_id, "AAPL", Side::Buy, UtcTimestamp::now())
+    OrderCancelRequest::new(OrderCancelRequestRequired {
+        orig_cl_ord_id: orig_cl_ord_id.into(),
+        cl_ord_id: cl_ord_id.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::now(),
+    })
 }
 
 #[tokio::test]
@@ -250,22 +257,26 @@ async fn orders_with_repeating_groups() {
 
 fn replace(orig: &str, cl_ord_id: &str, qty: &str, price: &str) -> OrderCancelReplaceRequest {
     let order = limit_order(cl_ord_id, qty, price);
-    let mut request = OrderCancelReplaceRequest::new(
-        orig,
-        order.cl_ord_id,
-        order.handl_inst,
-        order.symbol,
-        order.side,
-        order.transact_time,
-        order.ord_type,
-    );
+    let mut request = OrderCancelReplaceRequest::new(OrderCancelReplaceRequestRequired {
+        orig_cl_ord_id: orig.into(),
+        cl_ord_id: order.cl_ord_id,
+        handl_inst: order.handl_inst,
+        symbol: order.symbol,
+        side: order.side,
+        transact_time: order.transact_time,
+        ord_type: order.ord_type,
+    });
     request.order_qty = order.order_qty;
     request.price = order.price;
     request
 }
 
 fn status(cl_ord_id: &str) -> OrderStatusRequest {
-    OrderStatusRequest::new(cl_ord_id, "AAPL", Side::Buy)
+    OrderStatusRequest::new(OrderStatusRequestRequired {
+        cl_ord_id: cl_ord_id.into(),
+        symbol: "AAPL".into(),
+        side: Side::Buy.into(),
+    })
 }
 
 #[tokio::test]

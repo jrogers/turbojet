@@ -10,7 +10,12 @@ fn time() -> UtcTimestamp {
 }
 
 fn limit_order() -> NewOrderSingle {
-    let mut order = NewOrderSingle::new("ORD1", Side::Buy, time(), OrdType::Limit);
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "ORD1".into(),
+        side: Side::Buy.into(),
+        transact_time: time(),
+        ord_type: OrdType::Limit.into(),
+    });
     // From the Instrument and OrderQtyData components.
     order.symbol = Some("AAPL".into());
     order.order_qty = Some(100.into());
@@ -34,8 +39,15 @@ fn new_order_single_round_trips() {
 #[test]
 fn execution_report_round_trips() {
     // AvgPx became optional in FIX 5.0.
-    let mut report =
-        ExecutionReport::new("O1", "E1", ExecType::Trade, OrdStatus::Filled, Side::Sell, 0.into(), 100.into());
+    let mut report = ExecutionReport::new(ExecutionReportRequired {
+        order_id: "O1".into(),
+        exec_id: "E1".into(),
+        exec_type: ExecType::Trade.into(),
+        ord_status: OrdStatus::Filled.into(),
+        side: Side::Sell.into(),
+        leaves_qty: 0.into(),
+        cum_qty: 100.into(),
+    });
     report.symbol = Some("AAPL".into());
     report.avg_px = Some("12.34".parse().unwrap());
     let msg = report.to_message();

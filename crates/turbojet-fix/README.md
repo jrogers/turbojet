@@ -14,10 +14,15 @@ turbojet-fix = { version = "0.4", features = ["fix44"] }
 ```rust
 use turbojet::{FixMessage, FixMessageRef};
 use turbojet::fields::{FromFix, UtcTimestamp};
-use turbojet_fix::fix44::{NewOrderSingle, NewOrderSingleRef, OrdType, Parties, PartyRole, Side};
+use turbojet_fix::fix44::{NewOrderSingle, NewOrderSingleRequired, NewOrderSingleRef, OrdType, Parties, PartyRole, Side};
 
 let now = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
-let mut order = NewOrderSingle::new("ORD1", Side::Buy, now, OrdType::Market);
+let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+    cl_ord_id: "ORD1".into(),
+    side: Side::Buy.into(),
+    transact_time: now,
+    ord_type: OrdType::Market.into(),
+});
 order.symbol = Some("AAPL".into());
 let mut firm = Parties::new("FIRM");
 firm.party_role = Some(PartyRole::ExecutingFirm.into());
