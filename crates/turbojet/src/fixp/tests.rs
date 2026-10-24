@@ -535,7 +535,7 @@ fn a_terminate_is_answered_and_both_ends_close() {
     assert!(net.server.session().is_closed());
     let finished = m::TerminationCode::Finished;
     assert_eq!(net.client.app.ended(), [Ended::TerminatedByUs(finished)]);
-    assert_eq!(net.server.app.ended(), [Ended::TerminatedByPeer(finished)]);
+    assert_eq!(net.server.app.ended(), [Ended::TerminatedByCounterparty(finished)]);
 }
 
 #[test]

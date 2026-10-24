@@ -499,7 +499,8 @@ impl FixpSession {
 
     fn on_negotiate(&mut self, negotiate: &m::NegotiateRef<'_>) {
         let (session_id, timestamp) = (negotiate.session_id(), negotiate.timestamp());
-        let login = ClientLogin { session_id, credentials: negotiate.credentials(), connection: &self.connection };
+        let login =
+            ClientLogin { uuid: session_id, credentials: negotiate.credentials(), connection: &self.connection };
         let reject = if self.state != State::AwaitingClient {
             Some((m::NegotiationRejectCode::Unspecified, "already negotiated on this connection"))
         } else if !self.timestamp_ok(timestamp) {
@@ -561,7 +562,8 @@ impl FixpSession {
     fn on_establish(&mut self, establish: &m::EstablishRef<'_>) {
         let (session_id, timestamp) = (establish.session_id(), establish.timestamp());
         let keepalive = Duration::from_millis(u64::from(establish.keepalive_interval()));
-        let login = ClientLogin { session_id, credentials: establish.credentials(), connection: &self.connection };
+        let login =
+            ClientLogin { uuid: session_id, credentials: establish.credentials(), connection: &self.connection };
         let reject = match self.state {
             State::Negotiated if session_id != self.uuid() => {
                 Some((m::EstablishmentRejectCode::Unnegotiated, "another session was negotiated"))
@@ -708,7 +710,7 @@ impl FixpSession {
         info!(?code, "the counterparty terminated the FIXP connection");
         let terminate = m::Terminate { session_id: self.uuid(), code, reason: b"" };
         self.send(&terminate);
-        self.close(if self.finalized { Ended::Finalized } else { Ended::TerminatedByPeer(code) });
+        self.close(if self.finalized { Ended::Finalized } else { Ended::TerminatedByCounterparty(code) });
     }
 
     /// An application message: numbered, if the counterparty's flow is sequenced, and handed to
@@ -1381,7 +1383,7 @@ impl FixpSession {
         self.now = now;
         match command {
             Command::Send(msg, receipt) if self.state == State::Established && !self.done_sending() => {
-                self.send_application(msg.bytes(), receipt);
+                self.send_application(msg.as_bytes(), receipt);
             }
             Command::Send(_, receipt) => {
                 if let Some(receipt) = receipt {

@@ -129,7 +129,7 @@ async fn a_client_and_server_exchange_orders_over_the_driver() {
     handle.logout(None).unwrap();
     let finished = TerminationCode::Finished;
     assert_eq!(next(&mut client_events).await, Event::Ended(Ended::TerminatedByUs(finished)));
-    assert_eq!(next(&mut server_events).await, Event::Ended(Ended::TerminatedByPeer(finished)));
+    assert_eq!(next(&mut server_events).await, Event::Ended(Ended::TerminatedByCounterparty(finished)));
     client_task.await.unwrap().unwrap();
     server_task.await.unwrap().unwrap();
 }
@@ -172,7 +172,7 @@ async fn a_client_reconnects_over_tcp_and_reestablishes_the_session() {
     // The server shuts down, terminating the session; a new one takes its port and store.
     first.shutdown().await;
     let finished = TerminationCode::Finished;
-    assert_eq!(next(&mut client_received).await, Event::Ended(Ended::TerminatedByPeer(finished)));
+    assert_eq!(next(&mut client_received).await, Event::Ended(Ended::TerminatedByCounterparty(finished)));
     assert_eq!(next(&mut server_received).await, Event::Ended(Ended::TerminatedByUs(finished)));
     let second = serve(tokio::net::TcpListener::bind(addr).await.unwrap());
 

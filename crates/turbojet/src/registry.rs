@@ -391,10 +391,20 @@ impl<T> CommandReceiver<T> {
     }
 
     /// Waits for the next command: a logout or operator command that's due, before anything
-    /// else, or, if `sends`, an application message. Cancel-safe: a Logout that has arrived but
-    /// isn't due yet is kept for later.
-    pub async fn next(&mut self, sends: bool) -> Option<Command<T>> {
-        match self.next_with(if sends { Sends::Take } else { Sends::Ignore }).await? {
+    /// else, or an application message. Cancel-safe: a Logout that has arrived but isn't due yet
+    /// is kept for later.
+    pub async fn next(&mut self) -> Option<Command<T>> {
+        self.next_taking(Sends::Take).await
+    }
+
+    /// As [`next`](Self::next), leaving application messages queued: for while the session
+    /// can't take them.
+    pub async fn next_control(&mut self) -> Option<Command<T>> {
+        self.next_taking(Sends::Ignore).await
+    }
+
+    async fn next_taking(&mut self, sends: Sends) -> Option<Command<T>> {
+        match self.next_with(sends).await? {
             Next::Command(command) => Some(command),
             Next::Noticed => unreachable!("sends are only noticed when asked to be"),
         }

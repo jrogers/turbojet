@@ -111,7 +111,13 @@ impl SbeMessage {
 
     /// The encoded message.
     #[must_use]
-    pub fn bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl AsRef<[u8]> for SbeMessage {
+    fn as_ref(&self) -> &[u8] {
         &self.0
     }
 }
@@ -302,8 +308,8 @@ impl FixpConfig {
 /// the credentials as `***`.
 #[non_exhaustive]
 pub struct ClientLogin<'a> {
-    /// The session ID it names.
-    pub session_id: [u8; 16],
+    /// The session it names: its UUID, as [`FixpSession::uuid`].
+    pub uuid: [u8; 16],
     /// Its credentials, as sent.
     pub credentials: &'a [u8],
     /// The connection it came on: the client's address and, over TLS with client certificates,
@@ -314,7 +320,7 @@ pub struct ClientLogin<'a> {
 impl fmt::Debug for ClientLogin<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ClientLogin")
-            .field("session_id", &self.session_id)
+            .field("uuid", &self.uuid)
             .field("credentials", &format_args!("***"))
             .field("connection", &self.connection)
             .finish()
@@ -348,7 +354,7 @@ pub enum Ended {
     /// We sent `Terminate` with this code (and the counterparty answered, or didn't in time).
     TerminatedByUs(TerminationCode),
     /// The counterparty sent `Terminate` with this code.
-    TerminatedByPeer(TerminationCode),
+    TerminatedByCounterparty(TerminationCode),
     /// The logical session was finalized (`FinishedSending` answered), and the connection ended:
     /// the next connection negotiates a new session.
     Finalized,
@@ -507,7 +513,7 @@ mod mask_tests {
         let mut server = ServerConfig::new("S");
         server.credentials = b"user:secret".to_vec();
         let connection = ConnectionInfo::default();
-        let login = ClientLogin { session_id: [7; 16], credentials: b"user:secret", connection: &connection };
+        let login = ClientLogin { uuid: [7; 16], credentials: b"user:secret", connection: &connection };
         let negotiate = messages::Negotiate {
             session_id: [7; 16],
             timestamp: 1,
