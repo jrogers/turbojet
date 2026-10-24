@@ -16,6 +16,15 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** parsing a configuration value returns `ConfigError`, a `std::error::Error`, not a
+  `String`: `FromStr` for `RateLimit`, `Proxy`, `ScheduleTimeZone`, `HolidayCalendar` and
+  `SessionSchedule`, and `AllowedIps::new`. `ConfigError` no longer converts from any `String`.
+- **Changed:** the sans-IO `Session::acceptor`, `Session::initiator`, `FixpSession::client` and
+  `FixpSession::server` return a `ConfigError` for an invalid configuration rather than
+  panicking, as `Acceptor::new` and the other constructors do. `replay` returns it as an
+  `InvalidInput` error.
+- `ValueError` and `validation::Invalid` implement `Display` and `Error`, and
+  `SequenceError::Storage`'s `io::Error` is its `source()`.
 - **Changed:** what was set on an `Acceptor` or `Initiator` after making it is now in its
   configuration, so clones can't disagree about it. `AcceptorConfig` wraps the sessions'
   `SessionConfig` with `max_connections`, `max_connections_per_ip`, `allowed_ips` and
@@ -71,6 +80,8 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- **Changed:** `SessionsFile::server_tls` returns `Error`, as the crate's other methods do, not
+  `io::Error`.
 - `validation` takes `application_values`.
 - `refuse_expired_crl = true` in an initiator's `tls`, and `refuse_expired_client_crl = true` in
   `[acceptor.tls]`, refuse a CRL past its next update, failing the load or reload.
