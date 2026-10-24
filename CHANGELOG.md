@@ -12,6 +12,10 @@ Notable changes to the published crates.
 
 ### `turbojet-codegen` and `turbojet-fix`
 
+- **Changed:** a generated message or group with two or more required fields takes them by name:
+  `ExecutionReport::new(ExecutionReportRequired { order_id: "O1".into(), .. })`. Positional
+  arguments of one type (the IDs; LeavesQty, CumQty and AvgPx) could be swapped and still
+  compile. One required field is still taken as it is.
 - **Changed:** an ID ending an acronym is a word of its own in generated names: IOIID(23) is the
   field `ioi_id` and the tag `IOI_ID`, not `ioiid` and `IOIID`.
 - A deprecated code's enum variant says so in its docs, as a deprecated field's does: OrdStatus
