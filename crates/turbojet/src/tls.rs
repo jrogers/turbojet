@@ -1,7 +1,7 @@
 //! TLS transport (feature `tls`), using rustls with the `ring` crypto provider.
 //!
 //! Build a [`TlsAcceptor`] for [`Acceptor::serve_tls`](crate::Acceptor::serve_tls) or a
-//! [`TlsConnector`] for [`Initiator::with_tls`](crate::Initiator::with_tls):
+//! [`TlsConnector`] for an initiator's [`InitiatorTls`](crate::InitiatorTls):
 //!
 //! - with [`ServerTls`] and [`ClientTls`], from certificates given in memory or read from files
 //!   ([`Identity`], [`Trust`]), as PEM or (feature `pkcs12`) a PKCS#12 bundle, which can be
@@ -437,7 +437,7 @@ impl fmt::Debug for ServerTls {
 
 /// TLS for an [`Initiator`](crate::Initiator) whose trusted CAs and client certificate can be
 /// replaced while it runs: [`connector`](Self::connector) is for
-/// [`with_tls`](crate::Initiator::with_tls), and a change applies from the next handshake, which
+/// [`InitiatorTls`](crate::InitiatorTls), and a change applies from the next handshake, which
 /// is always a full one (sessions aren't resumed). Cheap to clone; clones share the certificates.
 #[derive(Clone)]
 pub struct ClientTls {

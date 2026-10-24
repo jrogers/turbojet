@@ -197,7 +197,7 @@
 //!
 //! None is on by default.
 //!
-//! - `tls`: TLS transport through rustls, with `Acceptor::serve_tls` and `Initiator::with_tls`.
+//! - `tls`: TLS transport through rustls, with `Acceptor::serve_tls` and `InitiatorConfig::tls`.
 //!   Certificates presented by counterparties reach [`Application::verify_logon`].
 //! - `pkcs12`: TLS certificates and keys from PKCS#12 bundles as well as PEM
 //!   (`tls::Identity::from_pkcs12`). Turns on `tls`.

@@ -207,7 +207,7 @@ pub struct Endpoint {
     /// `host:port`.
     pub addr: String,
     /// Name to verify the server's TLS certificate against, overriding
-    /// [`InitiatorTls::server_name`]. Ignored without TLS.
+    /// `InitiatorTls::server_name` (feature `tls`). Ignored without TLS.
     pub tls_server_name: Option<String>,
 }
 

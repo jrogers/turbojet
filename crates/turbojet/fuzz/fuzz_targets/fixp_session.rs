@@ -11,8 +11,7 @@ use std::time::{Duration, Instant};
 use libfuzzer_sys::fuzz_target;
 use turbojet::MemoryStorage;
 use turbojet::fixp::{
-    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, FlowType, Received,
-    ServerConfig,
+    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, FlowType, Received, ServerConfig,
 };
 use turbojet::registry::Command;
 

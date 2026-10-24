@@ -16,6 +16,25 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** what was set on an `Acceptor` or `Initiator` after making it is now in its
+  configuration, so clones can't disagree about it. `AcceptorConfig` wraps the sessions'
+  `SessionConfig` with `max_connections`, `max_connections_per_ip`, `allowed_ips` and
+  `counterparties`; `Acceptor::new` takes it, or a `SessionConfig` as before.
+  `InitiatorConfig` has `endpoints` (`with_endpoint`) and, with feature `tls`, `tls`
+  (`InitiatorTls`); `Initiator::new(config, storage, app)` and `reconfigure(config)` take it
+  whole, and `check` refuses no endpoints or an invalid TLS server name. `Initiator::with_registry`
+  is a constructor taking the registry in place of storage, refusing one on another clock.
+  Removed: `Acceptor::with_max_connections`, `with_max_connections_per_ip`, `with_allowed_ips`,
+  `with_counterparties`, `Initiator::with_failover`, `with_tls`. The default limits are
+  `AcceptorConfig::DEFAULT_MAX_CONNECTIONS` and `DEFAULT_MAX_CONNECTIONS_PER_IP`.
+- **Changed:** FIXP likewise: `FixpConfig` no longer holds the role; `FixpAcceptorConfig` adds
+  the server's identity and connection limits, and `FixpInitiatorConfig` the client's identity,
+  endpoints, connect timeout, proxy, reconnect policy and TLS. `FixpSession::new` is
+  `FixpSession::client` and `FixpSession::server`; `FixpAcceptor::session` is `handle`. Removed:
+  `fixp::Role`, `FixpAcceptor::with_max_connections`, `with_allowed_ips`,
+  `FixpInitiator::with_failover`, `with_tls`, `with_proxy`, `with_reconnect`.
+- `Clock::system()` returns the same clock each time, so configurations and registries left on
+  the default agree; `SessionRegistry::clock` returns a registry's.
 - **Changed:** `MsgType::Other` holds a `CompactString`, not a `Cow<'static, str>`. Reading the
   type of a message without a variant of its own (MarketDataRequest, say) allocated a string each
   time, and the engine reads it several times per message each way; it now allocates nothing.
