@@ -361,7 +361,7 @@ impl Output {
             }
         }
         lines.push(format!(
-            "connect = [{}]",
+            "endpoints = [{}]",
             connect(&mut session, problems).iter().map(|a| quote(a)).collect::<Vec<_>>().join(", ")
         ));
         if let Some(interval) = session.seconds("HeartBtInt", problems) {

@@ -32,7 +32,7 @@ cancel_grace = "5s"
 
 [initiator.LSE]                     # we log on to LSE, as VENUE
 target_comp_id = "LSE"
-connect = ["primary.lse:9876", "dr.lse:9876"]
+endpoints = ["primary.lse:9876", "dr.lse:9876"]
 username = "venue"
 password_env = "LSE_PASSWORD"       # passwords come from the environment, not the file
 ```

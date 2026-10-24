@@ -98,7 +98,7 @@ async fn an_initiators_tls_is_checked_when_the_file_loads() {
     let initiator = |tls: &str| {
         format!(
             "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
-             connect = [\"localhost:1\"]\ntls = {tls}\n"
+             endpoints = [\"localhost:1\"]\ntls = {tls}\n"
         )
     };
     let path = dir.path().join("sessions.toml");
@@ -156,7 +156,7 @@ fn crl_files_are_checked_when_the_file_loads() {
     let initiator = |crl: &str| {
         format!(
             "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
-             connect = [\"localhost:1\"]\ntls = {{ ca = \"ca.pem\", crl = \"{crl}\" }}\n"
+             endpoints = [\"localhost:1\"]\ntls = {{ ca = \"ca.pem\", crl = \"{crl}\" }}\n"
         )
     };
     std::fs::write(&path, initiator("ca.crl.pem")).unwrap();
@@ -179,26 +179,26 @@ fn expired_crls_are_refused_if_asked() {
         |extra: &str| format!(r#"{{ cert = "server.pem", key = "server.key", client_ca = "ca.pem"{extra} }}"#);
     let path = write(dir.path(), &acceptor(r#", client_crl = "expired.crl.pem""#));
     assert!(SessionsFile::load(&path).unwrap().server_tls().unwrap().is_some());
-    let path = write(dir.path(), &acceptor(r#", client_crl = "expired.crl.pem", refuse_expired_client_crl = true"#));
+    let path = write(dir.path(), &acceptor(r#", client_crl = "expired.crl.pem", refuse_expired_client_crls = true"#));
     let loaded = SessionsFile::load(&path).unwrap_err().to_string();
     assert!(loaded.contains("acceptor: tls: ") && loaded.contains("expired at"), "{loaded}");
-    let path = write(dir.path(), &acceptor(r#", client_crl = "ca.crl.pem", refuse_expired_client_crl = true"#));
+    let path = write(dir.path(), &acceptor(r#", client_crl = "ca.crl.pem", refuse_expired_client_crls = true"#));
     assert!(SessionsFile::load(&path).is_ok());
-    let path = write(dir.path(), &acceptor(", refuse_expired_client_crl = true"));
+    let path = write(dir.path(), &acceptor(", refuse_expired_client_crls = true"));
     let loaded = SessionsFile::load(&path).unwrap_err().to_string();
-    assert!(loaded.contains("refuse_expired_client_crl needs a client_crl"), "{loaded}");
+    assert!(loaded.contains("refuse_expired_client_crls needs a client_crl"), "{loaded}");
 
     let initiator = |tls: &str| {
         format!(
             "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
-             connect = [\"localhost:1\"]\ntls = {{ ca = \"ca.pem\"{tls} }}\n"
+             endpoints = [\"localhost:1\"]\ntls = {{ ca = \"ca.pem\"{tls} }}\n"
         )
     };
     for (tls, error) in [
         (r#", crl = "expired.crl.pem""#, None),
-        (r#", crl = "expired.crl.pem", refuse_expired_crl = true"#, Some("expired at")),
-        (r#", crl = "ca.crl.pem", refuse_expired_crl = true"#, None),
-        (", refuse_expired_crl = true", Some("refuse_expired_crl needs a crl")),
+        (r#", crl = "expired.crl.pem", refuse_expired_crls = true"#, Some("expired at")),
+        (r#", crl = "ca.crl.pem", refuse_expired_crls = true"#, None),
+        (", refuse_expired_crls = true", Some("refuse_expired_crls needs a crl")),
     ] {
         std::fs::write(&path, initiator(tls)).unwrap();
         match (SessionsFile::load(&path), error) {
@@ -289,7 +289,7 @@ async fn an_initiators_certificate_can_come_from_a_bundle() {
     let initiator = |tls: &str| {
         format!(
             "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
-             connect = [\"localhost:1\"]\ntls = {tls}\n"
+             endpoints = [\"localhost:1\"]\ntls = {tls}\n"
         )
     };
     std::fs::write(&path, initiator(r#"{ ca = "ca.pem", pkcs12 = "firm.p12", pkcs12_password_env = "PATH" }"#))

@@ -146,10 +146,41 @@ pub(crate) struct Context<'a> {
     pub previous_defined: Option<&'a BTreeMap<String, RawStore>>,
 }
 
+/// Keys renamed to the engine's names, and what they're called now: a file using one is refused
+/// with that, rather than as an unknown key.
+const RENAMED_KEYS: [(&str, &str); 6] = [
+    ("connect", "endpoints"),
+    ("local_address", "local_addr"),
+    ("send_queue", "max_queued_sends"),
+    ("allow", "allowed_ips"),
+    ("refuse_expired_crl", "refuse_expired_crls"),
+    ("refuse_expired_client_crl", "refuse_expired_client_crls"),
+];
+
 /// Parses `text` and loads it.
 pub(crate) fn parse(text: &str, context: &Context<'_>) -> Result<Loaded, Error> {
+    // Parsed once to look for old keys, then into what the file holds, for errors with lines.
+    let table: toml::Table = toml::from_str(text).map_err(Error::file)?;
+    refuse_renamed_keys(&table, "")?;
     let raw: RawFile = toml::from_str(text).map_err(Error::file)?;
     load(raw, context)
+}
+
+/// Refuses any key in `table` (at `path`), or in tables within it, that [`RENAMED_KEYS`] renamed.
+/// The nesting is the file's, a few levels deep.
+fn refuse_renamed_keys(table: &toml::Table, path: &str) -> Result<(), Error> {
+    for (key, value) in table {
+        if let Some((_, new)) = RENAMED_KEYS.iter().find(|(old, _)| old == key) {
+            // Named as the other errors name sections: `initiator LSE`, `acceptor tls`.
+            let section = if path.is_empty() { "the file".to_string() } else { path.replacen('.', " ", 1) };
+            return Err(Error::at(&section, key, format!("renamed: it's `{new}` now")));
+        }
+        if let toml::Value::Table(inner) = value {
+            let path = if path.is_empty() { key.clone() } else { format!("{path}.{key}") };
+            refuse_renamed_keys(inner, &path)?;
+        }
+    }
+    Ok(())
 }
 
 fn load(raw: RawFile, context: &Context<'_>) -> Result<Loaded, Error> {
@@ -249,8 +280,8 @@ fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
         None if tls.client_crl.is_some() => {
             return Err(Error::at("acceptor", "tls", "client_crl needs a client_ca"));
         }
-        _ if tls.refuse_expired_client_crl && tls.client_crl.is_none() => {
-            return Err(Error::at("acceptor", "tls", "refuse_expired_client_crl needs a client_crl"));
+        _ if tls.refuse_expired_client_crls && tls.client_crl.is_none() => {
+            return Err(Error::at("acceptor", "tls", "refuse_expired_client_crls needs a client_crl"));
         }
         None => ClientTrust::None,
         Some(ca) => {
@@ -260,7 +291,7 @@ fn tls(acceptor: &RawAcceptor, dir: &Path) -> Result<Tls, Error> {
                 let crl = dir.join(crl);
                 trust = trust.with_crls_pem_files(&crl).map_err(|e| at(&crl, e))?;
             }
-            if tls.refuse_expired_client_crl {
+            if tls.refuse_expired_client_crls {
                 trust = trust.refuse_expired_crls();
             }
             match tls.client_certificate {
@@ -328,19 +359,19 @@ fn refuse_tls(set: bool, section: &str) -> Result<(), Error> {
     }
 }
 
-/// Session settings fixed until a restart: `logon_timeout` and `send_queue`.
+/// Session settings fixed until a restart: `logon_timeout` and `max_queued_sends`.
 fn fixed_keys(
     config: &mut SessionConfig,
     section: &str,
     logon_timeout: Option<&String>,
-    send_queue: Option<usize>,
+    max_queued_sends: Option<usize>,
 ) -> Result<(), Error> {
     if let Some(timeout) = logon_timeout {
         config.logon_timeout = parse_duration(timeout).map_err(|e| Error::at(section, "logon_timeout", e))?;
     }
-    if let Some(queue) = send_queue {
+    if let Some(queue) = max_queued_sends {
         if queue == 0 {
-            return Err(Error::at(section, "send_queue", "must be at least 1"));
+            return Err(Error::at(section, "max_queued_sends", "must be at least 1"));
         }
         config.max_queued_sends = queue;
     }
@@ -352,7 +383,7 @@ fn fixed(acceptor: &RawAcceptor, context: &Context<'_>) -> Result<SessionConfig,
     let mut config = SessionConfig::new(&acceptor.begin_string, &acceptor.sender_comp_id);
     config.clock = context.clock.clone();
     config.message_log = context.message_log.cloned();
-    fixed_keys(&mut config, "acceptor", acceptor.logon_timeout.as_ref(), acceptor.send_queue)?;
+    fixed_keys(&mut config, "acceptor", acceptor.logon_timeout.as_ref(), acceptor.max_queued_sends)?;
     for (key, limit) in
         [("max_connections", acceptor.max_connections), ("max_connections_per_ip", acceptor.max_connections_per_ip)]
     {
@@ -360,11 +391,11 @@ fn fixed(acceptor: &RawAcceptor, context: &Context<'_>) -> Result<SessionConfig,
             return Err(Error::at("acceptor", key, "must be at least 1"));
         }
     }
-    acceptor.allowed().map_err(|e| Error::at("acceptor", "allow", e))?;
+    acceptor.allowed().map_err(|e| Error::at("acceptor", "allowed_ips", e))?;
     Ok(config)
 }
 
-/// How an initiator connects: its `connect_timeout`, `local_address`, and `proxy` with its
+/// How an initiator connects: its `connect_timeout`, `local_addr`, and `proxy` with its
 /// password from `proxy_password_env`.
 fn connection_keys(
     own: &RawInitiatorKeys,
@@ -374,10 +405,10 @@ fn connection_keys(
     if let Some(timeout) = &own.connect_timeout {
         config.connect_timeout = parse_duration(timeout).map_err(|e| at("connect_timeout", e))?;
     }
-    if let Some(local) = &own.local_address {
+    if let Some(local) = &own.local_addr {
         // An address alone leaves the port to the system.
         let parsed = local.parse().or_else(|_| local.parse::<IpAddr>().map(|ip| SocketAddr::new(ip, 0)));
-        config.local_addr = Some(parsed.map_err(|_| at("local_address", format!("'{local}' isn't an IP address")))?);
+        config.local_addr = Some(parsed.map_err(|_| at("local_addr", format!("'{local}' isn't an IP address")))?);
     }
     let Some(url) = &own.proxy else {
         return match own.proxy_password_env {
@@ -421,7 +452,7 @@ fn resolve_initiator(
     let mut session = SessionConfig::new(begin_string, sender_comp_id);
     session.clock = context.clock.clone();
     session.message_log = context.message_log.cloned();
-    fixed_keys(&mut session, &section, own.logon_timeout.as_ref(), own.send_queue)?;
+    fixed_keys(&mut session, &section, own.logon_timeout.as_ref(), own.max_queued_sends)?;
     let merged = settings.or(&raw.defaults);
     grace_needs_cancel(settings, &merged, &section)?;
     apply(&merged, &mut session, &section, context.dir, dictionaries)?;
@@ -450,10 +481,10 @@ fn resolve_initiator(
         policy.jitter = reconnect.jitter.unwrap_or(policy.jitter);
         config.reconnect = policy;
     }
-    if own.connect.is_empty() {
-        return Err(at("connect", "needs an address".into()));
+    if own.endpoints.is_empty() {
+        return Err(at("endpoints", "needs an address".into()));
     }
-    config.endpoints = own.connect.iter().map(Endpoint::new).collect();
+    config.endpoints = own.endpoints.iter().map(Endpoint::new).collect();
     config.check().map_err(|e| at("settings", e.to_string()))?;
     let store = merged.store.clone().unwrap_or_else(|| MEMORY.into());
     if !stores.contains_key(&store) {
@@ -482,8 +513,8 @@ fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Optio
         let crl = dir.join(crl);
         trust = trust.with_crls_pem_files(&crl).map_err(|e| file_error(&crl, e))?;
     }
-    match (tls.refuse_expired_crl, &tls.crl) {
-        (true, None) => return Err(at("refuse_expired_crl needs a crl".into())),
+    match (tls.refuse_expired_crls, &tls.crl) {
+        (true, None) => return Err(at("refuse_expired_crls needs a crl".into())),
         (true, Some(_)) => trust = trust.refuse_expired_crls(),
         (false, _) => {}
     }
@@ -492,7 +523,7 @@ fn client_tls(own: &RawInitiatorKeys, section: &str, dir: &Path) -> Result<Optio
     let identity = identity(cert, key, pkcs12, password_env, dir).map_err(at)?;
     let server_name = match &tls.server_name {
         Some(name) => name.clone(),
-        None => host(&own.connect[0]).to_string(),
+        None => host(&own.endpoints[0]).to_string(),
     };
     ServerName::try_from(server_name.clone()).map_err(|e| at(format!("invalid server_name '{server_name}': {e}")))?;
     ClientTls::new(trust.clone(), identity.clone()).map_err(|e| at(e.to_string()))?;
@@ -1045,8 +1076,8 @@ mod tests {
         assert!(error.starts_with("defaults: settings: a FIXT session needs an application version"), "{error}");
         let loaded = parse(&format!("{fixt}\n[defaults]\nappl_versions = [\"9\"]"), &context).unwrap();
         assert_eq!(loaded.acceptor().base.appl_versions.len(), 1);
-        let zero = ACCEPTOR.replace("listen", "send_queue = 0\nlisten");
-        assert!(parse(&zero, &context).err().unwrap().to_string().starts_with("acceptor: send_queue"));
+        let zero = ACCEPTOR.replace("listen", "max_queued_sends = 0\nlisten");
+        assert!(parse(&zero, &context).err().unwrap().to_string().starts_with("acceptor: max_queued_sends"));
     }
 
     #[test]
@@ -1142,14 +1173,14 @@ mod tests {
     const INITIATOR: &str = r#"
         [initiator.LSE]
         target_comp_id = "LSE"
-        connect = ["primary:9876", "backup:9876"]
+        endpoints = ["primary:9876", "backup:9876"]
     "#;
 
     #[test]
     fn initiators_to_one_counterparty_are_told_apart_by_their_ids() {
         let loaded = load_text(&format!(
             "{INITIATOR}sender_sub_id = \"DESK1\"\ntarget_location_id = \"LDN\"\n\
-             [initiator.LSE2]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"DESK2\"\nqualifier = \"b\"\nconnect = [\"x:1\"]"
+             [initiator.LSE2]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"DESK2\"\nqualifier = \"b\"\nendpoints = [\"x:1\"]"
         ))
         .unwrap();
         assert_eq!(loaded.initiators["LSE"].id().to_string(), "FIX.4.4:VENUE/DESK1->LSE//LDN");
@@ -1157,9 +1188,16 @@ mod tests {
     }
 
     #[test]
+    fn a_renamed_key_is_refused_naming_its_new_name() {
+        let err = error(&format!("{INITIATOR}local_address = \"10.0.0.5\""));
+        assert_eq!(err, "initiator LSE: local_address: renamed: it's `local_addr` now");
+        assert_eq!(error("allow = []"), "acceptor: allow: renamed: it's `allowed_ips` now");
+    }
+
+    #[test]
     fn an_initiator_takes_the_acceptors_identity_and_the_defaults() {
         let loaded = load_text(&format!(
-            "[defaults]\nmax_latency = \"30s\"\nstore = \"memory\"\n{INITIATOR}heartbeat_interval = \"20s\"\nreset_on_logon = true\nusername = \"firm\"\npassword_env = \"PATH\"\nreconnect = {{ initial = \"100ms\", max = \"5s\", jitter = false }}\nlocal_address = \"10.0.0.5\""
+            "[defaults]\nmax_latency = \"30s\"\nstore = \"memory\"\n{INITIATOR}heartbeat_interval = \"20s\"\nreset_on_logon = true\nusername = \"firm\"\npassword_env = \"PATH\"\nreconnect = {{ initial = \"100ms\", max = \"5s\", jitter = false }}\nlocal_addr = \"10.0.0.5\""
         ))
         .unwrap();
         let lse = &loaded.initiators["LSE"];
@@ -1173,7 +1211,7 @@ mod tests {
         assert!(!lse.config.reconnect.jitter);
         assert_eq!(lse.config.endpoints, [Endpoint::new("primary:9876"), Endpoint::new("backup:9876")]);
         assert_eq!(lse.config.local_addr, Some("10.0.0.5:0".parse().unwrap()));
-        let loaded = load_text(&format!("{INITIATOR}local_address = \"[::1]:4000\"")).unwrap();
+        let loaded = load_text(&format!("{INITIATOR}local_addr = \"[::1]:4000\"")).unwrap();
         assert_eq!(loaded.initiators["LSE"].config.local_addr, Some("[::1]:4000".parse().unwrap()));
     }
 
@@ -1289,22 +1327,19 @@ mod tests {
                 "initiator LSE: proxy: 'http://firm:pw@proxy:3128' has a password",
             ),
             (format!("{INITIATOR}proxy_password_env = \"PATH\""), "initiator LSE: proxy_password_env: needs a proxy"),
-            (
-                format!("{INITIATOR}local_address = \"eth0\""),
-                "initiator LSE: local_address: 'eth0' isn't an IP address",
-            ),
+            (format!("{INITIATOR}local_addr = \"eth0\""), "initiator LSE: local_addr: 'eth0' isn't an IP address"),
             (
                 INITIATOR.replace("[\"primary:9876\", \"backup:9876\"]", "[]"),
-                "initiator LSE: connect: needs an address",
+                "initiator LSE: endpoints: needs an address",
             ),
             (format!("{INITIATOR}conect = []"), "conect"),
             (
-                format!("{INITIATOR}\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nconnect = [\"x:1\"]"),
+                format!("{INITIATOR}\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nendpoints = [\"x:1\"]"),
                 "initiator LSE: target_comp_id: initiator AGAIN already logs on to FIX.4.4:VENUE->LSE",
             ),
             (
                 format!(
-                    "{INITIATOR}sender_sub_id = \"D\"\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"D\"\nconnect = [\"x:1\"]"
+                    "{INITIATOR}sender_sub_id = \"D\"\n[initiator.AGAIN]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"D\"\nendpoints = [\"x:1\"]"
                 ),
                 "initiator LSE: target_comp_id: initiator AGAIN already logs on to FIX.4.4:VENUE/D->LSE",
             ),

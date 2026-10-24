@@ -95,7 +95,7 @@ const INITIATOR_TOML: &str = r#"
 begin_string = "FIX.4.2"
 sender_comp_id = "BANZAI"
 target_comp_id = "EXEC"
-connect = ["localhost:9880", "backup.example:9881"]
+endpoints = ["localhost:9880", "backup.example:9881"]
 heartbeat_interval = "30s"
 reconnect = { initial = "5s", max = "5s" }
 reset_on_logon = true

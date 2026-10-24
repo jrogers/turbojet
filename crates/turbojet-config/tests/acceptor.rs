@@ -239,7 +239,8 @@ fn a_missing_file_is_named() {
 
 #[tokio::test]
 async fn allow_limits_where_connections_come_from_and_reloads() {
-    let elsewhere = FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nallow = [\"10.0.0.0/8\"]");
+    let elsewhere =
+        FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nallowed_ips = [\"10.0.0.0/8\"]");
     let mut venue = Venue::start(&elsewhere).await;
     let refused = venue.initiator("BROKER", 30).connect_once().await.unwrap_err();
     assert!(venue.events.try_recv().is_err(), "closed before a Logon: {refused}");
@@ -248,8 +249,10 @@ async fn allow_limits_where_connections_come_from_and_reloads() {
     venue.reload().unwrap();
     venue.log_on("BROKER").await;
 
-    venue.rewrite(&FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nallow = [\"10.1.2.0/16\"]"));
-    assert!(venue.reload().unwrap_err().contains("acceptor: allow: '10.1.2.0/16' has bits set past its prefix"));
+    venue.rewrite(
+        &FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nallowed_ips = [\"10.1.2.0/16\"]"),
+    );
+    assert!(venue.reload().unwrap_err().contains("acceptor: allowed_ips: '10.1.2.0/16' has bits set past its prefix"));
 }
 
 /// The acceptor's store is durable only while every store a counterparty can log on to is.

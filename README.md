@@ -851,7 +851,7 @@ address (a NAT, or a hub serving several firms) share its limit.
 `AcceptorConfig::allowed_ips` (and `FixpAcceptorConfig`'s) accepts connections only from the addresses
 and CIDR ranges given, closing any other as soon as it's accepted, before a TLS handshake or a
 Logon. `set_allowed_ips` replaces the list while serving; connections already open stay. In a
-sessions file it's `allow` in `[acceptor]`, reloaded with the rest.
+sessions file it's `allowed_ips` in `[acceptor]`, reloaded with the rest.
 
 ```rust
 use turbojet::AllowedIps;
@@ -867,7 +867,7 @@ sites), so sequence numbers carry over and the `SessionHandle` stays valid acros
 `InitiatorConfig::local_addr` makes every connection come from one local address, for a host with
 several networks or a counterparty that only accepts known source addresses: an IP address, and
 a port or 0 to let the system choose one. Only endpoint addresses of the same family (IPv4 or
-IPv6) are tried. In configuration files it's an initiator's `local_address`.
+IPv6) are tried. In configuration files it's an initiator's `local_addr`.
 
 `InitiatorConfig::proxy` reaches every endpoint through an HTTP proxy (with `CONNECT`) or a SOCKS5
 one, for a network that only connects out that way; `FixpInitiatorConfig::proxy` does the same
@@ -974,7 +974,7 @@ use and at each handshake it covers, since a certificate revoked after it was is
 `Trust::refuse_expired_crls()` refuses it instead: putting the trust in use is then an error, and
 a CRL that expires while in use fails each handshake until you give a current one. In a sessions
 file, `client_crl` in `[acceptor.tls]` and `crl` in an initiator's `tls` name a PEM file of
-CRLs, and `refuse_expired_client_crl = true` and `refuse_expired_crl = true` refuse expired ones;
+CRLs, and `refuse_expired_client_crls = true` and `refuse_expired_crls = true` refuse expired ones;
 the gateway takes `--tls-client-crl FILE`.
 
 For other setups (system roots, custom verifiers, other protocol versions or cipher suites), build a

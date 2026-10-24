@@ -100,7 +100,7 @@ fn check_acceptor(old: &RawAcceptor, new: &RawAcceptor) -> Result<(), Error> {
         ("sender_comp_id", old.sender_comp_id == new.sender_comp_id),
         ("listen", old.listen == new.listen),
         ("logon_timeout", old.logon_timeout == new.logon_timeout),
-        ("send_queue", old.send_queue == new.send_queue),
+        ("max_queued_sends", old.max_queued_sends == new.max_queued_sends),
         ("max_connections", old.max_connections == new.max_connections),
         ("max_connections_per_ip", old.max_connections_per_ip == new.max_connections_per_ip),
         ("tls", old.tls.is_some() == new.tls.is_some()),

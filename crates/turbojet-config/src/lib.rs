@@ -25,7 +25,7 @@
 //!
 //! [initiator.LSE]                     # we log on to LSE, as VENUE (the acceptor's CompID)
 //! target_comp_id = "LSE"
-//! connect = ["primary.lse:9876", "dr.lse:9876"]
+//! endpoints = ["primary.lse:9876", "dr.lse:9876"]
 //! username = "venue"
 //! password_env = "LSE_PASSWORD"
 //! ```
@@ -49,15 +49,15 @@
 //!
 //! # Keys
 //!
-//! `[acceptor]`, fixed until a restart except `unknown`, `allow` and the TLS files: `begin_string`,
+//! `[acceptor]`, fixed until a restart except `unknown`, `allowed_ips` and the TLS files: `begin_string`,
 //! `sender_comp_id`, `listen`, `unknown` (`refuse`, the default, or `admit`), `logon_timeout`,
-//! `send_queue`, `max_connections`, `max_connections_per_ip`, `allow` (the IP addresses and CIDR
+//! `max_queued_sends`, `max_connections`, `max_connections_per_ip`, `allowed_ips` (the IP addresses and CIDR
 //! ranges connections are accepted from, `["10.1.0.0/16", "203.0.113.5"]`; any, if it's left
 //! out), and `tls = { cert, key, client_ca,
 //! client_crl, client_certificate }` (feature `tls`; `client_certificate` is `optional`, the
 //! default, or `required`; `client_crl`, a PEM file of CRLs, checks client certificates for
 //! revocation; one past its next update is used and logged as a warning, or refused with
-//! `refuse_expired_client_crl = true`). In place of `cert` and `key`, `pkcs12` names a PKCS#12 bundle (feature `pkcs12`),
+//! `refuse_expired_client_crls = true`). In place of `cert` and `key`, `pkcs12` names a PKCS#12 bundle (feature `pkcs12`),
 //! with `pkcs12_password_env` the environment variable holding its password (none, and it has
 //! none).
 //!
@@ -89,20 +89,20 @@
 //! cancelling. Durations are a whole number and `ms`, `s`, `m` or `h`. Paths are relative to
 //! the file.
 //!
-//! `[initiator.NAME]`, NAME being for logs and errors: `target_comp_id`, `connect` (addresses,
+//! `[initiator.NAME]`, NAME being for logs and errors: `target_comp_id`, `endpoints` (addresses,
 //! the primary first, then failover), `sender_sub_id`, `sender_location_id`, `target_sub_id`,
 //! `target_location_id` and `qualifier` (part of the session's ID, the first four sent on every
 //! message; see [`SessionId`]), `begin_string` and `sender_comp_id` (the acceptor's by default;
 //! needed without one), `heartbeat_interval`, `reset_on_logon`,
 //! `next_expected_msg_seq_num`, `username`, `password_env` (the environment variable holding the
-//! password: a password isn't kept in the file), `connect_timeout`, `local_address` (the IP address
+//! password: a password isn't kept in the file), `connect_timeout`, `local_addr` (the IP address
 //! to connect from, with or without a port), `proxy` (`"http://host:port"` or
 //! `"socks5://user@host:port"`, to connect through) and `proxy_password_env` (its password, the
-//! same way), `logon_timeout`, `send_queue`,
+//! same way), `logon_timeout`, `max_queued_sends`,
 //! `reconnect = { initial, max, multiplier, jitter }`, `tls = { ca, crl, cert, key, server_name }`
 //! (feature `tls`; `server_name` is the first address's host by default; `crl`, a PEM file of
 //! CRLs, checks the server's certificate for revocation, used past its next update with a
-//! warning unless `refuse_expired_crl = true`; `pkcs12` and `pkcs12_password_env` in
+//! warning unless `refuse_expired_crls = true`; `pkcs12` and `pkcs12_password_env` in
 //! place of `cert` and `key`, as in `[acceptor]`), and every session key
 //! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators
 //! may log on to one session, nor to one the acceptor serves for a listed counterparty.

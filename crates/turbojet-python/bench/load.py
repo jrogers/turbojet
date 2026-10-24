@@ -52,9 +52,9 @@ async def run(args):
 begin_string = "FIX.4.2"
 sender_comp_id = "PYLOAD"
 target_comp_id = "GATEWAY"
-connect = ["{args.addr}"]
+endpoints = ["{args.addr}"]
 reset_on_logon = true
-send_queue = 65536
+max_queued_sends = 65536
 """
             )
         async with turbojet.load(path) as engine:

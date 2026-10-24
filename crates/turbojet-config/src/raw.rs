@@ -40,7 +40,7 @@ pub(crate) struct RawInitiatorKeys {
     pub target_sub_id: Option<String>,
     pub target_location_id: Option<String>,
     pub qualifier: Option<String>,
-    pub connect: Vec<String>,
+    pub endpoints: Vec<String>,
     pub tls: Option<RawClientTls>,
     pub heartbeat_interval: Option<String>,
     pub reset_on_logon: Option<bool>,
@@ -48,11 +48,11 @@ pub(crate) struct RawInitiatorKeys {
     pub username: Option<String>,
     pub password_env: Option<String>,
     pub connect_timeout: Option<String>,
-    pub local_address: Option<String>,
+    pub local_addr: Option<String>,
     pub proxy: Option<String>,
     pub proxy_password_env: Option<String>,
     pub logon_timeout: Option<String>,
-    pub send_queue: Option<usize>,
+    pub max_queued_sends: Option<usize>,
     pub reconnect: Option<RawReconnect>,
 }
 
@@ -67,7 +67,7 @@ const INITIATOR_KEYS: &[&str] = &[
     "target_sub_id",
     "target_location_id",
     "qualifier",
-    "connect",
+    "endpoints",
     "tls",
     "heartbeat_interval",
     "reset_on_logon",
@@ -75,11 +75,11 @@ const INITIATOR_KEYS: &[&str] = &[
     "username",
     "password_env",
     "connect_timeout",
-    "local_address",
+    "local_addr",
     "proxy",
     "proxy_password_env",
     "logon_timeout",
-    "send_queue",
+    "max_queued_sends",
     "reconnect",
 ];
 
@@ -105,7 +105,7 @@ pub(crate) struct RawClientTls {
     pub crl: Option<PathBuf>,
     /// Refuses `crl` past its next update rather than using it (and logging a warning).
     #[serde(default)]
-    pub refuse_expired_crl: bool,
+    pub refuse_expired_crls: bool,
     pub cert: Option<PathBuf>,
     pub key: Option<PathBuf>,
     /// A PKCS#12 bundle, in place of `cert` and `key`.
@@ -135,17 +135,17 @@ pub(crate) struct RawAcceptor {
     #[serde(default)]
     pub unknown: Unknown,
     pub logon_timeout: Option<String>,
-    pub send_queue: Option<usize>,
+    pub max_queued_sends: Option<usize>,
     pub max_connections: Option<usize>,
     pub max_connections_per_ip: Option<usize>,
-    pub allow: Option<Vec<String>>,
+    pub allowed_ips: Option<Vec<String>>,
     pub tls: Option<RawTls>,
 }
 
 impl RawAcceptor {
-    /// `allow`, the addresses connections are accepted from: `None` for any.
+    /// `allowed_ips`, the addresses connections are accepted from: `None` for any.
     pub(crate) fn allowed(&self) -> Result<Option<turbojet::AllowedIps>, turbojet::ConfigError> {
-        self.allow.as_ref().map(turbojet::AllowedIps::new).transpose()
+        self.allowed_ips.as_ref().map(turbojet::AllowedIps::new).transpose()
     }
 }
 
@@ -175,7 +175,7 @@ pub(crate) struct RawTls {
     pub client_crl: Option<PathBuf>,
     /// Refuses `client_crl` past its next update rather than using it (and logging a warning).
     #[serde(default)]
-    pub refuse_expired_client_crl: bool,
+    pub refuse_expired_client_crls: bool,
     #[serde(default)]
     pub client_certificate: ClientCertificate,
 }
@@ -390,7 +390,7 @@ mod tests {
             r#"
             unknown = "admit"
             logon_timeout = "5s"
-            send_queue = 100
+            max_queued_sends = 100
             max_connections = 10
             max_connections_per_ip = 2
             tls = { cert = "c.pem", key = "k.pem", client_ca = "ca.pem", client_certificate = "required" }

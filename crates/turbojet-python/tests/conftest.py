@@ -56,7 +56,7 @@ def sessions_file(tmp_path, port, extra=""):
 begin_string = "FIX.4.2"
 sender_comp_id = "CLIENT1"
 target_comp_id = "GATEWAY"
-connect = ["127.0.0.1:{port}"]
+endpoints = ["127.0.0.1:{port}"]
 {extra}
 """
     )

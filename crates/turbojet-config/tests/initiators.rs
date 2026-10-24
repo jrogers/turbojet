@@ -54,7 +54,7 @@ fn file(initiators: &[(&str, &str)]) -> String {
     for (name, addr) in initiators {
         text += &format!(
             "[initiator.{name}]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"{name}\"\ntarget_comp_id = \"VENUE\"\n\
-             connect = [\"{addr}\"]\nreconnect = {{ initial = \"100ms\", max = \"500ms\" }}\n\n"
+             endpoints = [\"{addr}\"]\nreconnect = {{ initial = \"100ms\", max = \"500ms\" }}\n\n"
         );
     }
     text
