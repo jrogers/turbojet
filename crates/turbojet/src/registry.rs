@@ -298,7 +298,7 @@ impl Ending {
 /// sends, bounded by [`SessionConfig::send_queue`](crate::SessionConfig::send_queue), and
 /// logout and operator commands, bounded by [`CONTROL_QUEUE`].
 #[derive(Debug)]
-pub struct CommandSender<T = Message> {
+pub(crate) struct CommandSender<T = Message> {
     sends: mpsc::Sender<(T, ReceiptSender)>,
     control: mpsc::Sender<Control>,
     /// Sends queued so far, for a Logout to wait behind.
@@ -325,7 +325,7 @@ impl<T> CommandSender<T> {
     }
 }
 
-/// A connection task's end of a [`CommandSender`]. A driver takes [`control`](Self::try_control)
+/// A connection task's end of its session's command queues. A driver takes [`control`](Self::try_control)
 /// commands whenever it can, and [`sends`](Self::try_send) when the session can take them; a
 /// Logout comes out of the control queue only once every send queued before it has been taken,
 /// so a message sent before logging out still goes out first.
@@ -364,7 +364,7 @@ pub(crate) enum Next<T = Message> {
 }
 
 /// A session's command queues, sends holding up to `send_queue` messages.
-pub fn command_queues<T>(send_queue: usize) -> (CommandSender<T>, CommandReceiver<T>) {
+pub(crate) fn command_queues<T>(send_queue: usize) -> (CommandSender<T>, CommandReceiver<T>) {
     assert!(send_queue > 0, "a send queue holds at least one message");
     let (sends, sends_rx) = mpsc::channel(send_queue);
     let (control, control_rx) = mpsc::channel(CONTROL_QUEUE);

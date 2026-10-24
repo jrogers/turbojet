@@ -964,7 +964,7 @@ impl Session {
     }
 
     /// Whether a commit from [`take_commit`](Self::take_commit) is under way.
-    pub fn is_committing(&self) -> bool {
+    pub(crate) fn is_committing(&self) -> bool {
         self.committing
     }
 
