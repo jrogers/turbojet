@@ -608,7 +608,7 @@ fix_enum! {
 
 fix_enum! {
     /// ApplVerID(1128) and DefaultApplVerID(1137): the application version on a FIXT session.
-    ApplVerId {
+    ApplVerID {
         /// FIX 2.7.
         Fix27 = "0",
         /// FIX 3.0.
@@ -747,9 +747,9 @@ mod tests {
 
     #[test]
     fn application_versions_use_fixt_codes() {
-        assert_eq!(ApplVerId::Fix50Sp2.to_fix(), "9");
-        assert_eq!(ApplVerId::from_fix("10"), Ok(ApplVerId::FixLatest));
-        assert_eq!(ApplVerId::from_fix("11"), Err(ValueError::Incorrect));
+        assert_eq!(ApplVerID::Fix50Sp2.to_fix(), "9");
+        assert_eq!(ApplVerID::from_fix("10"), Ok(ApplVerID::FixLatest));
+        assert_eq!(ApplVerID::from_fix("11"), Err(ValueError::Incorrect));
         assert_eq!(SessionRejectReason::from_fix("18"), Ok(SessionRejectReason::InvalidUnsupportedApplicationVersion));
     }
 

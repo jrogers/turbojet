@@ -15,7 +15,7 @@ use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::validation::{ValidationOptions, Validator};
 use turbojet::{
-    ApplVerId, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message, MessageReject, Session,
+    ApplVerID, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message, MessageReject, Session,
     SessionConfig, SessionHandle, SessionRegistry,
 };
 use turbojet_dictionary::Dictionary;
@@ -248,9 +248,9 @@ impl Version {
                     Self::Fix42 => (load("OrchestraFIX42.xml"), None),
                     Self::Fix43 => (load("OrchestraFIX43.xml"), None),
                     Self::Fix44 => (load("OrchestraFIX44.xml"), None),
-                    Self::Fix50 => fixt("OrchestraFIX50.xml", ApplVerId::Fix50),
-                    Self::Fix50Sp1 => fixt("OrchestraFIX50SP1.xml", ApplVerId::Fix50Sp1),
-                    Self::Fix50Sp2 => fixt("OrchestraFIX50SP2.xml", ApplVerId::Fix50Sp2),
+                    Self::Fix50 => fixt("OrchestraFIX50.xml", ApplVerID::Fix50),
+                    Self::Fix50Sp1 => fixt("OrchestraFIX50SP1.xml", ApplVerID::Fix50Sp1),
+                    Self::Fix50Sp2 => fixt("OrchestraFIX50SP2.xml", ApplVerID::Fix50Sp2),
                 };
                 let begin_string = match self {
                     Self::Fix40 => "FIX.4.0",

@@ -12,7 +12,7 @@ use tracing::{info, warn};
 
 use crate::application::{Application, Disconnect};
 use crate::cancel::{CancelTracker, CancelTrigger};
-use crate::fields::ApplVerId;
+use crate::fields::ApplVerID;
 use crate::message::Message;
 use crate::peer::ConnectionInfo;
 use crate::schedule::Clock;
@@ -496,7 +496,7 @@ pub(crate) struct Binding {
     pub since: DateTime<Utc>,
     pub connection: ConnectionInfo,
     /// FIXT sessions: the application version in use on this connection.
-    pub appl_ver_id: Option<ApplVerId>,
+    pub appl_ver_id: Option<ApplVerID>,
     /// What the session updates as it runs.
     pub live: Option<Arc<LiveStatus>>,
 }
@@ -694,7 +694,7 @@ pub struct SessionStatus {
     /// The connection: the remote address and the peer's verified certificates.
     pub connection: ConnectionInfo,
     /// FIXT sessions: the default application version on this connection.
-    pub appl_ver_id: Option<ApplVerId>,
+    pub appl_ver_id: Option<ApplVerID>,
     /// Whether an operator has paused it, to be logged out (see [`SessionHandle::pause`]).
     pub paused: bool,
     /// Its state, sequence numbers and last messages.
@@ -951,7 +951,7 @@ impl<T> SessionRegistry<T> {
         self.lock().get(id).map(|e| e.commands.clone())
     }
 
-    fn appl_ver_id(&self, id: &SessionId) -> Option<ApplVerId> {
+    fn appl_ver_id(&self, id: &SessionId) -> Option<ApplVerID> {
         self.lock().get(id).and_then(|e| e.bound.as_ref()?.appl_ver_id)
     }
 
@@ -1202,7 +1202,7 @@ impl<T> SessionHandle<T> {
     /// another ends the connection), or the one an acceptor chose from the counterparty's Logon.
     /// Messages may name another the session supports (see [`send`](Self::send)). `None`
     /// when disconnected, and always for FIX 4.x sessions.
-    pub fn appl_ver_id(&self) -> Option<ApplVerId> {
+    pub fn appl_ver_id(&self) -> Option<ApplVerID> {
         self.registry.appl_ver_id(&self.id)
     }
 

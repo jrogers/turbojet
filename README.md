@@ -137,7 +137,7 @@ alongside `turbojet` with the versions you use, `fix40`, `fix41`, `fix42`, `fix4
 `fix50`, `fix50sp1` or `fix50sp2` (`turbojet-fix = { version = "0.4", features = ["fix44"] }`), and use
 `turbojet_fix::fix44::NewOrderSingle`. FIX 5.0, 5.0 SP1 and 5.0 SP2 run over the FIXT 1.1 session
 protocol: give the session BeginString `FIXT.1.1` and its application version,
-`SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerId::Fix50Sp2)`, and the engine
+`SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerID::Fix50Sp2)`, and the engine
 negotiates DefaultApplVerID(1137) at logon (an acceptor may support several), and reports the
 agreed version through `SessionHandle::appl_ver_id()`. With more than one `with_appl_ver_id`, a
 message in either direction may name another supported version in ApplVerID(1128), and is
@@ -203,7 +203,7 @@ Layers, from the bottom up — each is public, so you can stop at any level:
 - `Message` – the raw tag/value message, with typed access (`msg.field::<Decimal>(tags::PRICE)?`)
 - `fields` – `FromFix`/`ToFix` for FIX data types (strict `Decimal` prices/quantities, UTC
   timestamps, `Y`/`N`, integers) and session-level enums (`MsgType`, `SessionRejectReason`,
-  `ApplVerId`, …)
+  `ApplVerID`, …)
 - `admin` – typed session messages (Logon, Heartbeat, ResendRequest, Reject, …)
 - `turbojet-fix` (a separate crate) – every FIX 4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1 and 5.0 SP2
   application message, group and enum, generated from the official FIX data, a module and feature per version

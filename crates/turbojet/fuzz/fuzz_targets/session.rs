@@ -18,7 +18,7 @@ use turbojet::codec::{Decoded, decode};
 use turbojet::message::{tags, utc_timestamp};
 use turbojet::registry::{Command, SequenceCommand};
 use turbojet::{
-    ApplVerId, Application, CancelOnDisconnect, CancelTrigger, Context, InitiatorConfig, MemoryStorage, Message,
+    ApplVerID, Application, CancelOnDisconnect, CancelTrigger, Context, InitiatorConfig, MemoryStorage, Message,
     MessageReject, MsgType, Session, SessionConfig, SessionRegistry,
 };
 use turbojet_fuzz::{frame, round_trip};
@@ -243,7 +243,7 @@ fn inbound(begin_string: &str, msg_type: &str, seq: u64, poss_dup: bool, omit: u
 fuzz_target!(|input: Input| {
     let mut config = SessionConfig::new(if input.fixt { "FIXT.1.1" } else { "FIX.4.4" }, "TJ");
     if input.fixt {
-        config = config.with_appl_ver_id(ApplVerId::Fix50Sp2);
+        config = config.with_appl_ver_id(ApplVerID::Fix50Sp2);
     }
     config.cancel_on_disconnect = input.cancel_on_disconnect.map(|(logouts, grace)| {
         let trigger = if logouts { CancelTrigger::DisconnectOrLogout } else { CancelTrigger::Disconnect };

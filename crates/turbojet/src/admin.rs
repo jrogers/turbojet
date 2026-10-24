@@ -3,7 +3,7 @@
 //! that added it.
 
 use crate::fields::{
-    ApplVerId, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Secret, SessionRejectReason,
+    ApplVerID, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Secret, SessionRejectReason,
 };
 use crate::message::tags::*;
 
@@ -92,7 +92,7 @@ fix_message! {
         /// DefaultApplVerID(1137).
         /// FIXT.1.1 only: the session's application version (DefaultApplVerID); see
         /// [`SessionConfig::with_appl_ver_id`](crate::SessionConfig::with_appl_ver_id).
-        default_appl_ver_id: opt ApplVerId = DEFAULT_APPL_VER_ID,
+        default_appl_ver_id: opt ApplVerID = DEFAULT_APPL_VER_ID,
     }
 }
 

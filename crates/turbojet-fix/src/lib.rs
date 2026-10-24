@@ -71,7 +71,7 @@ pub mod fix43;
 pub mod fix44;
 
 /// FIX 5.0 (feature `fix50`), converted from the FIX Unified Repository. It runs over the FIXT
-/// 1.1 session protocol: give the session BeginString `FIXT.1.1` and `ApplVerId::Fix50`.
+/// 1.1 session protocol: give the session BeginString `FIXT.1.1` and `ApplVerID::Fix50`.
 ///
 /// ```
 /// use turbojet::FixMessage;
@@ -86,7 +86,7 @@ pub mod fix44;
 pub mod fix50;
 
 /// FIX 5.0 SP1 (feature `fix50sp1`), converted from the FIX Unified Repository. It runs over the
-/// FIXT 1.1 session protocol: give the session BeginString `FIXT.1.1` and `ApplVerId::Fix50Sp1`.
+/// FIXT 1.1 session protocol: give the session BeginString `FIXT.1.1` and `ApplVerID::Fix50Sp1`.
 ///
 /// ```
 /// use turbojet::FixMessage;
@@ -103,7 +103,7 @@ pub mod fix50sp1;
 /// FIX 5.0 SP2 (feature `fix50sp2`), converted from the FIX Unified Repository: the base SP2
 /// specification, as extension packs after it are in FIX Latest. It runs over the FIXT 1.1
 /// session protocol, whose official Orchestra file gives the header and trailer; give the session
-/// BeginString `FIXT.1.1` and `ApplVerId::Fix50Sp2`. Generate your own with a venue's dictionary
+/// BeginString `FIXT.1.1` and `ApplVerID::Fix50Sp2`. Generate your own with a venue's dictionary
 /// with `turbojet-codegen OrchestraFIX50SP2.xml --transport FIXTSession.xml --merge venue.xml`.
 ///
 /// ```

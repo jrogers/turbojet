@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use turbojet::fields::{ApplVerId, FromFix, Precision};
+use turbojet::fields::{ApplVerID, FromFix, Precision};
 use turbojet::{
     CancelOnDisconnect, CancelTrigger, Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar, InboundLimit,
     InitiatorConfig, MAX_CANCEL_GRACE, MemoryStorage, MessageLog, RateLimit, ReconnectPolicy, SessionConfig, SessionId,
@@ -713,7 +713,7 @@ fn validation(
                 RawApplVersion::Code(code) => (code, None),
                 RawApplVersion::WithDictionary { id, dictionary } => (id, Some(dictionary)),
             };
-            let id = ApplVerId::from_fix(code)
+            let id = ApplVerID::from_fix(code)
                 .map_err(|_| Error::at(section, "appl_versions", format!("'{code}' isn't an ApplVerID code")))?;
             update(config, |c| c.with_appl_ver_id(id));
             if let Some(path) = dictionary {

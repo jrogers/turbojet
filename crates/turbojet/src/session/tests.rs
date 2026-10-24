@@ -4,7 +4,7 @@ use super::*;
 use crate::application::Hold;
 use crate::cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 use crate::codec::{decode, decode_stored, encode};
-use crate::fields::{ApplVerId, FromFix};
+use crate::fields::{ApplVerID, FromFix};
 use crate::message::utc_timestamp;
 use crate::peer::{ConnectionInfo, PeerCertificate};
 use crate::registry::{SendError, SessionHandle};
@@ -4394,12 +4394,12 @@ fn on_timer_at_the_deadline_always_makes_progress() {
 
 // ---- FIXT.1.1 ----
 
-fn fixt_config(versions: &[ApplVerId]) -> SessionConfig {
+fn fixt_config(versions: &[ApplVerID]) -> SessionConfig {
     versions.iter().fold(SessionConfig::new("FIXT.1.1", "GATEWAY"), |c, v| c.with_appl_ver_id(*v))
 }
 
 impl Harness {
-    fn fixt(versions: &[ApplVerId]) -> Self {
+    fn fixt(versions: &[ApplVerID]) -> Self {
         let mut h = Self::new();
         h.config = fixt_config(versions);
         h
@@ -4417,12 +4417,12 @@ fn fixt_logon(seq: u64, version: Option<&str>) -> Message {
 
 #[test]
 fn fixt_configs_are_checked() {
-    assert_eq!(fixt_config(&[ApplVerId::Fix50Sp2]).check(), Ok(()));
-    assert_eq!(fixt_config(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]).check(), Ok(()));
+    assert_eq!(fixt_config(&[ApplVerID::Fix50Sp2]).check(), Ok(()));
+    assert_eq!(fixt_config(&[ApplVerID::Fix50Sp1, ApplVerID::Fix50Sp2]).check(), Ok(()));
     let err = |c: SessionConfig| c.check().unwrap_err().to_string();
     assert!(err(fixt_config(&[])).contains("with_appl_ver_id"));
-    assert!(err(fixt_config(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp2])).contains("twice"));
-    assert!(err(SessionConfig::new("FIX.4.4", "GATEWAY").with_appl_ver_id(ApplVerId::Fix44)).contains("FIXT"));
+    assert!(err(fixt_config(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp2])).contains("twice"));
+    assert!(err(SessionConfig::new("FIX.4.4", "GATEWAY").with_appl_ver_id(ApplVerID::Fix44)).contains("FIXT"));
     assert_eq!(SessionConfig::new("FIX.4.4", "GATEWAY").check(), Ok(()));
 }
 
@@ -4436,7 +4436,7 @@ fn a_fixt_session_without_a_version_panics() {
 /// An initiator with several versions offers the first as DefaultApplVerID.
 #[test]
 fn a_fixt_initiator_offers_its_first_version() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp1]);
     let mut s = h.initiator(false);
     let out = s.connect(h.t0);
     assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), Some("9"));
@@ -4444,12 +4444,12 @@ fn a_fixt_initiator_offers_its_first_version() {
 
 #[test]
 fn handles_report_the_application_version_while_connected() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
     let handle = h.registry.handle(SessionId::new("FIXT.1.1", "GATEWAY", "CLIENT"));
     assert_eq!(handle.appl_ver_id(), None);
     let mut s = h.initiator(false);
     s.connect(h.t0);
-    assert_eq!(handle.appl_ver_id(), Some(ApplVerId::Fix50Sp2));
+    assert_eq!(handle.appl_ver_id(), Some(ApplVerID::Fix50Sp2));
     drop(s);
     assert_eq!(handle.appl_ver_id(), None);
 }
@@ -4466,7 +4466,7 @@ fn fix4_handles_have_no_application_version() {
 
 #[test]
 fn fixt_initiator_sends_its_version_and_logs_on_when_echoed() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
     let mut s = h.initiator(false);
     let out = s.connect(h.t0);
     assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), Some("9"));
@@ -4478,7 +4478,7 @@ fn fixt_initiator_sends_its_version_and_logs_on_when_echoed() {
 #[test]
 fn fixt_initiator_refuses_a_reply_with_another_or_no_version() {
     for version in [Some("8"), None] {
-        let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+        let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
         let mut s = h.initiator(false);
         s.connect(h.t0);
         let out = s.recv(fixt_logon(1, version), h.t0);
@@ -4489,14 +4489,14 @@ fn fixt_initiator_refuses_a_reply_with_another_or_no_version() {
 
 #[test]
 fn fixt_acceptor_echoes_a_supported_version() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp1, ApplVerID::Fix50Sp2]);
     for (comp_id, version) in [("A", "8"), ("B", "9")] {
         let mut s = h.session();
         let out = s.recv(fixt_logon(1, Some(version)).with(tags::SENDER_COMP_ID, comp_id), h.t0);
         assert_eq!(sent(&out)[0].get(tags::DEFAULT_APPL_VER_ID), Some(version));
         assert!(s.is_logged_on());
         let handle = h.registry.handle(s.session_id().unwrap().clone());
-        assert_eq!(handle.appl_ver_id().map(ApplVerId::code), Some(version));
+        assert_eq!(handle.appl_ver_id().map(ApplVerID::code), Some(version));
     }
 }
 
@@ -4504,7 +4504,7 @@ fn fixt_acceptor_echoes_a_supported_version() {
 fn fixt_acceptor_refuses_missing_unknown_or_unsupported_versions() {
     // "42" is not an ApplVerID code, so the Logon itself fails to parse.
     for version in [None, Some("42"), Some("6")] {
-        let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+        let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
         let mut s = h.session();
         let out = s.recv(fixt_logon(1, version), h.t0);
         assert_eq!(types(&out), ["DISCONNECT"], "{version:?}");
@@ -4514,14 +4514,14 @@ fn fixt_acceptor_refuses_missing_unknown_or_unsupported_versions() {
 
 #[test]
 fn fixt_acceptor_refusals_name_the_supported_versions() {
-    let refusal = |versions: &[ApplVerId]| {
+    let refusal = |versions: &[ApplVerID]| {
         let s = Harness::fixt(versions).session();
         let request = s.validate_logon_request(&fixt_logon(1, Some("6"))).ok().unwrap();
         s.logon_terms(request.heartbeat, request.appl_ver_id).err().unwrap()
     };
-    assert_eq!(refusal(&[ApplVerId::Fix50Sp2]), "DefaultApplVerID(1137) must be '9', not '6'");
+    assert_eq!(refusal(&[ApplVerID::Fix50Sp2]), "DefaultApplVerID(1137) must be '9', not '6'");
     assert_eq!(
-        refusal(&[ApplVerId::Fix50Sp1, ApplVerId::Fix50Sp2]),
+        refusal(&[ApplVerID::Fix50Sp1, ApplVerID::Fix50Sp2]),
         "DefaultApplVerID(1137) must be one of '8', '9', not '6'"
     );
 }
@@ -4568,7 +4568,7 @@ fn fixt_order(seq: u64, cl_ord_id: &str) -> Message {
 /// A message may name, with ApplVerID(1128), any version the session supports.
 #[test]
 fn a_message_may_name_another_supported_version() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp1]);
     let mut s = fixt_session(&h);
     let out = s.recv(with_header(fixt_order(2, "A"), &[(tags::APPL_VER_ID, "8")]), h.t0);
     assert_eq!(types(&out), ["ExecutionReport"]);
@@ -4583,7 +4583,7 @@ fn a_message_may_name_another_supported_version() {
 /// A Reject or BusinessMessageReject names the version fields of the message it answers.
 #[test]
 fn rejects_name_the_version_of_the_message_they_answer() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp1]);
     let mut s = fixt_session(&h);
     let versioned = |msg| {
         with_header(msg, &[(tags::APPL_VER_ID, "8"), (tags::CSTM_APPL_VER_ID, "VENUE1"), (tags::APPL_EXT_ID, "99")])
@@ -4607,7 +4607,7 @@ fn rejects_name_the_version_of_the_message_they_answer() {
 /// the session doesn't support is dropped. CstmApplVerID and ApplExtID pass through.
 #[test]
 fn the_application_may_send_in_another_supported_version() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp1]);
     let mut s = fixt_session(&h);
     let report =
         |version| Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E").with(tags::APPL_VER_ID, version);
@@ -4633,7 +4633,7 @@ fn the_application_may_send_in_another_supported_version() {
 /// with another default.
 #[test]
 fn resends_keep_the_version_they_were_sent_in() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp1]);
     let mut s = h.session();
     s.recv(fixt_logon(1, Some("8")), h.t0); // SP1 is the default this time
     let out = s.recv(fixt_order(2, "A"), h.t0); // our 2: an ExecutionReport in SP1
@@ -4657,7 +4657,7 @@ fn resends_keep_the_version_they_were_sent_in() {
 /// leaves it unstated is, so a resend after the default changes keeps it.
 #[test]
 fn a_message_stating_the_default_is_resent_in_it_after_the_default_changes() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50Sp1]);
     let mut s = h.session();
     s.recv(fixt_logon(1, Some("9")), h.t0); // our 1
     let report = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E").with(tags::APPL_VER_ID, "9");
@@ -4678,7 +4678,7 @@ fn a_message_stating_the_default_is_resent_in_it_after_the_default_changes() {
 
 #[test]
 fn messages_in_another_application_version_are_rejected() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
     let mut s = fixt_session(&h);
     let out = s.recv(with_header(fixt_order(2, "A"), &[(tags::APPL_VER_ID, "8")]), h.t0);
     assert_eq!(types(&out), ["Reject"]);
@@ -4695,7 +4695,7 @@ fn messages_in_another_application_version_are_rejected() {
 
 #[test]
 fn session_messages_are_handled_whatever_their_appl_ver_id() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
     let mut s = fixt_session(&h);
     let request = client(2, MsgType::TestRequest).with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::TEST_REQ_ID, "T1");
     let request = with_header(request, &[(tags::APPL_VER_ID, "8")]);
@@ -4718,7 +4718,7 @@ fn fix4_sessions_ignore_appl_ver_id() {
 /// version, which would change what it means.
 #[test]
 fn outbound_messages_in_an_unsupported_version_are_dropped() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2]);
     let mut s = fixt_session(&h);
     let out = s.command(Command::send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "8")), h.t0);
     assert!(out.is_empty());
@@ -4790,7 +4790,7 @@ fn frame_into_writes_what_frame_and_encode_do() {
 
 #[test]
 fn frame_into_writes_what_frame_and_encode_do_on_fixt() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50]);
     let mut s = fixt_session(&h);
     let bodies = [
         app_order(),
@@ -4807,7 +4807,7 @@ fn frame_into_writes_what_frame_and_encode_do_on_fixt() {
 /// it's the default.
 #[test]
 fn frame_into_can_state_the_default_version() {
-    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50]);
+    let h = Harness::fixt(&[ApplVerID::Fix50Sp2, ApplVerID::Fix50]);
     let mut s = fixt_session(&h);
     let bytes = framed_into(&mut s, &app_order(), 12, "20260930-12:00:01.000", None, true);
     let Decoded::Message(msg, len) = decode(&bytes) else { panic!("didn't decode: {bytes:?}") };
@@ -5500,15 +5500,15 @@ mod validation {
     fn dictionaries_bind_to_the_preceding_version() {
         let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
         let config = SessionConfig::new("FIXT.1.1", "GATEWAY")
-            .with_appl_ver_id(ApplVerId::Fix50Sp2)
+            .with_appl_ver_id(ApplVerID::Fix50Sp2)
             .with_dictionary(&dict)
-            .with_appl_ver_id(ApplVerId::Fix50Sp1);
+            .with_appl_ver_id(ApplVerID::Fix50Sp1);
         assert!(config.validator.is_none());
         assert!(config.appl_versions[0].validator.is_some());
         assert!(config.appl_versions[1].validator.is_none());
         // A dictionary before any version is the bare validator, which FIXT sessions refuse.
         let early =
-            SessionConfig::new("FIXT.1.1", "GATEWAY").with_dictionary(&dict).with_appl_ver_id(ApplVerId::Fix50Sp2);
+            SessionConfig::new("FIXT.1.1", "GATEWAY").with_dictionary(&dict).with_appl_ver_id(ApplVerID::Fix50Sp2);
         assert!(early.check().unwrap_err().to_string().contains("before"));
     }
 
@@ -5518,9 +5518,9 @@ mod validation {
         // SP1 has the dictionary, SP2 none.
         let mut h = Harness::new();
         h.config = SessionConfig::new("FIXT.1.1", "GATEWAY")
-            .with_appl_ver_id(ApplVerId::Fix50Sp1)
+            .with_appl_ver_id(ApplVerID::Fix50Sp1)
             .with_dictionary(&dict)
-            .with_appl_ver_id(ApplVerId::Fix50Sp2);
+            .with_appl_ver_id(ApplVerID::Fix50Sp2);
         let bad = |seq| order(seq, "A").with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::ORDER_QTY, "ten");
 
         let mut sp1 = h.session();

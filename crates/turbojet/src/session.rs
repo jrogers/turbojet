@@ -29,7 +29,7 @@ use crate::cancel::{CancelOnDisconnect, MAX_CANCEL_GRACE};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::counterparty::{Counterparties, Counterparty};
 use crate::fields::{
-    ApplVerId, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason,
+    ApplVerID, BusinessRejectReason, CompactString, EncryptMethod, MsgType, Precision, Secret, SessionRejectReason,
     ToFix, UtcTimestamp,
 };
 use crate::initiator::InitiatorConfig;
@@ -52,7 +52,7 @@ use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 #[non_exhaustive]
 pub struct ApplVersion {
     /// DefaultApplVerID(1137): the version, as sent and accepted at logon.
-    pub id: ApplVerId,
+    pub id: ApplVerID,
     /// Checks this version's inbound application messages; see
     /// [`SessionConfig::with_dictionary`].
     #[cfg(feature = "validation")]
@@ -293,13 +293,13 @@ impl SessionConfig {
     /// [`Application::to_admin`].
     ///
     /// ```
-    /// # use turbojet::{SessionConfig, ApplVerId};
+    /// # use turbojet::{SessionConfig, ApplVerID};
     /// let config = SessionConfig::new("FIXT.1.1", "VENUE")
-    ///     .with_appl_ver_id(ApplVerId::Fix50Sp2)
-    ///     .with_appl_ver_id(ApplVerId::Fix50Sp1);
+    ///     .with_appl_ver_id(ApplVerID::Fix50Sp2)
+    ///     .with_appl_ver_id(ApplVerID::Fix50Sp1);
     /// ```
     #[must_use]
-    pub fn with_appl_ver_id(mut self, id: ApplVerId) -> Self {
+    pub fn with_appl_ver_id(mut self, id: ApplVerID) -> Self {
         self.appl_versions.push(ApplVersion {
             id,
             #[cfg(feature = "validation")]
@@ -456,7 +456,7 @@ struct LogonRequest {
     seq_num: u64,
     their_next: Option<u64>,
     /// FIXT sessions: their DefaultApplVerID(1137).
-    appl_ver_id: Option<ApplVerId>,
+    appl_ver_id: Option<ApplVerID>,
 }
 
 /// Most messages kept while waiting for a gap to be filled. Beyond it they're dropped, and come
@@ -1673,8 +1673,8 @@ impl Session {
             return self.close(Disconnect::Error, now);
         }
         if self.config.is_fixt() && reply.default_appl_ver_id != self.appl_ver_id() {
-            let expected = self.appl_ver_id().map_or("none", ApplVerId::code);
-            let received = reply.default_appl_ver_id.map_or("none", ApplVerId::code);
+            let expected = self.appl_ver_id().map_or("none", ApplVerID::code);
+            let received = reply.default_appl_ver_id.map_or("none", ApplVerID::code);
             warn!("refusing Logon reply: DefaultApplVerID(1137) must be '{expected}', not '{received}'");
             return self.close(Disconnect::Error, now);
         }
@@ -1808,7 +1808,7 @@ impl Session {
 
     /// Acceptor: whether the counterparty's HeartBtInt and, on FIXT sessions, DefaultApplVerID
     /// are acceptable, and if so the application version they choose.
-    fn logon_terms(&self, heartbeat: Duration, appl_ver_id: Option<ApplVerId>) -> Result<Option<ApplVersion>, String> {
+    fn logon_terms(&self, heartbeat: Duration, appl_ver_id: Option<ApplVerID>) -> Result<Option<ApplVersion>, String> {
         let range = &self.heartbeat_range;
         if !range.contains(&heartbeat) {
             let (low, high) = (range.start().as_secs(), range.end().as_secs());
@@ -1833,7 +1833,7 @@ impl Session {
     }
 
     /// FIXT sessions: the application version in use.
-    fn appl_ver_id(&self) -> Option<ApplVerId> {
+    fn appl_ver_id(&self) -> Option<ApplVerID> {
         self.appl_version.as_ref().map(|v| v.id)
     }
 
@@ -3478,7 +3478,7 @@ fn logon_message(
     heartbeat: Duration,
     reset: bool,
     next_expected: Option<u64>,
-    appl_ver_id: Option<ApplVerId>,
+    appl_ver_id: Option<ApplVerID>,
 ) -> Logon {
     Logon {
         encrypt_method: EncryptMethod::None,

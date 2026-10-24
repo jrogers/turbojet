@@ -12,7 +12,7 @@ use tracing_subscriber::EnvFilter;
 use turbojet::message::tags;
 use turbojet::tls::{ClientTls, ClientTrust, Identity, ServerTls, Trust};
 use turbojet::{
-    Acceptor, ApplVerId, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
+    Acceptor, ApplVerID, Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
     MessageReject, MsgType, SessionConfig, SessionHandle, SessionId,
 };
 
@@ -239,7 +239,7 @@ impl Setup {
     fn session_config(self, options: &Options) -> SessionConfig {
         let mut session = SessionConfig::new(self.version.begin_string(), TJ);
         if self.version == Version::Fixt {
-            session = session.with_appl_ver_id(ApplVerId::Fix50Sp2);
+            session = session.with_appl_ver_id(ApplVerID::Fix50Sp2);
         }
         session.max_latency = Some(Duration::from_secs(options.max_latency_secs.into()));
         session

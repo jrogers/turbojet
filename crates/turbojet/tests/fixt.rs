@@ -9,7 +9,7 @@ use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
-use turbojet::fields::{ApplVerId, FromFix, UtcTimestamp};
+use turbojet::fields::{ApplVerID, FromFix, UtcTimestamp};
 use turbojet::message::tags;
 use turbojet::{
     Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
@@ -82,8 +82,8 @@ async fn fix50sp2_orders_are_validated_and_filled_over_fixt() {
     // The acceptor supports two versions and validates FIX 5.0 SP2 against its dictionary.
     let (server_app, mut server) = recorder(true);
     let config = SessionConfig::new("FIXT.1.1", "SERVER")
-        .with_appl_ver_id(ApplVerId::Fix50Sp1)
-        .with_appl_ver_id(ApplVerId::Fix50Sp2)
+        .with_appl_ver_id(ApplVerID::Fix50Sp1)
+        .with_appl_ver_id(ApplVerID::Fix50Sp2)
         .with_dictionary(&dictionary());
     let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), server_app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -91,7 +91,7 @@ async fn fix50sp2_orders_are_validated_and_filled_over_fixt() {
     tokio::spawn(acceptor.clone().serve(listener));
 
     let (client_app, mut client) = recorder(false);
-    let session = SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerId::Fix50Sp2);
+    let session = SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerID::Fix50Sp2);
     let initiator = Initiator::new(
         InitiatorConfig::new(session, "SERVER").with_endpoint(&addr),
         Arc::new(MemoryStorage::new()),
@@ -103,8 +103,8 @@ async fn fix50sp2_orders_are_validated_and_filled_over_fixt() {
     // Both sides agree on the version the initiator asked for.
     let client_handle = logged_on(&mut client).await;
     let server_handle = logged_on(&mut server).await;
-    assert_eq!(client_handle.appl_ver_id(), Some(ApplVerId::Fix50Sp2));
-    assert_eq!(server_handle.appl_ver_id(), Some(ApplVerId::Fix50Sp2));
+    assert_eq!(client_handle.appl_ver_id(), Some(ApplVerID::Fix50Sp2));
+    assert_eq!(server_handle.appl_ver_id(), Some(ApplVerID::Fix50Sp2));
 
     let time = UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap();
     let mut order = NewOrderSingle::new("ORD1", Side::Buy, time, OrdType::Market);
