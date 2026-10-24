@@ -118,7 +118,7 @@ async fn exchange(orders: u64, snapshotter: &Snapshotter) -> (Totals, String) {
     let mut server = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
     server.session.keepalive = Duration::from_secs(30);
     server.session.latency_metrics = true;
-    let storage = Arc::new(DiskStorage::new(dir.path(), true).unwrap());
+    let storage = Arc::new(DiskStorage::new(dir.path()).unwrap());
     let acceptor = FixpAcceptor::new(server, storage, Arc::new(Server)).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();

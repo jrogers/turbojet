@@ -82,19 +82,26 @@ impl DiskStorage {
     /// the oldest going takes a small part of the budget with it.
     pub const DEFAULT_SEGMENT_BYTES: u64 = 64 << 20;
 
-    /// Stores sessions under `dir`, creating it if needed, with the default sizes.
-    ///
-    /// With `sync`, every write is followed by `fsync`, so state survives power loss at the cost
-    /// of latency. Without it, writes survive a process crash but not an OS crash.
+    /// Stores sessions under `dir`, creating it if needed, with the default sizes. Every commit
+    /// is followed by `fsync`, so state survives power loss; see
+    /// [`with_fsync`](Self::with_fsync).
     ///
     /// # Errors
     ///
     /// Any failure creating `dir`.
-    pub fn new(dir: impl Into<PathBuf>, sync: bool) -> io::Result<Self> {
+    pub fn new(dir: impl Into<PathBuf>) -> io::Result<Self> {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
         let sizes = Sizes { segment: Self::DEFAULT_SEGMENT_BYTES, max: Self::DEFAULT_MAX_SESSION_BYTES };
-        Ok(Self { dir, sync, sizes })
+        Ok(Self { dir, sync: true, sizes })
+    }
+
+    /// Follows every commit with `fsync` (the default) or not. Without it, commits take less
+    /// latency, and writes survive a process crash but not an OS crash or power loss.
+    #[must_use]
+    pub fn with_fsync(mut self, fsync: bool) -> Self {
+        self.sync = fsync;
+        self
     }
 
     /// Keeps at most `bytes` of each session's messages, deleting the oldest segments past it;
@@ -976,7 +983,7 @@ mod tests {
     use super::*;
 
     fn storage(dir: &tempfile::TempDir) -> DiskStorage {
-        DiskStorage::new(dir.path(), false).unwrap()
+        DiskStorage::new(dir.path()).unwrap().with_fsync(false)
     }
 
     fn body_path(dir: &tempfile::TempDir, target: &str) -> PathBuf {
@@ -987,7 +994,7 @@ mod tests {
     fn conforms() {
         let dir = tempfile::tempdir().unwrap();
         check_blocking(&storage(&dir));
-        check_blocking(&DiskStorage::new(dir.path().join("synced"), true).unwrap());
+        check_blocking(&DiskStorage::new(dir.path().join("synced")).unwrap());
     }
 
     #[test]
@@ -1343,7 +1350,7 @@ mod tests {
     #[test]
     fn a_synced_store_hands_back_its_commit() {
         let dir = tempfile::tempdir().unwrap();
-        let synced = DiskStorage::new(dir.path(), true).unwrap();
+        let synced = DiskStorage::new(dir.path()).unwrap();
         let mut log = synced.open(&id("A")).unwrap();
         for seq in 1..=3 {
             log.record_outgoing(seq, Some(&app_message(seq))).unwrap();
@@ -1529,7 +1536,7 @@ mod tests {
     fn conforms_with_small_segments() {
         let dir = tempfile::tempdir().unwrap();
         check_blocking(&storage(&dir).with_segment_bytes(300).with_max_session_bytes(1 << 20));
-        check_blocking(&DiskStorage::new(dir.path().join("synced"), true).unwrap().with_segment_bytes(300));
+        check_blocking(&DiskStorage::new(dir.path().join("synced")).unwrap().with_segment_bytes(300));
     }
 
     #[test]

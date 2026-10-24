@@ -29,8 +29,8 @@ fn stores(runtime: &Runtime, dir: &std::path::Path) -> Vec<(&'static str, Arc<dy
         Arc::new(storage) as Arc<dyn SessionStorage>
     };
     let mut stores: Vec<(&'static str, Arc<dyn SessionStorage>)> = vec![
-        ("disk", Arc::new(DiskStorage::new(dir.join("disk"), false).unwrap())),
-        ("disk + fsync", Arc::new(DiskStorage::new(dir.join("disk-sync"), true).unwrap())),
+        ("disk", Arc::new(DiskStorage::new(dir.join("disk")).unwrap().with_fsync(false))),
+        ("disk + fsync", Arc::new(DiskStorage::new(dir.join("disk-sync")).unwrap())),
         ("sqlite (synchronous normal)", sqlite("normal", false)),
         ("sqlite (synchronous full)", sqlite("full", true)),
     ];

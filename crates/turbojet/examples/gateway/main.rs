@@ -480,7 +480,7 @@ async fn run_seqnums(args: &[String]) -> Result<String, String> {
         return Err(format!("store directory {} does not exist", store_dir.display()));
     }
     // Operator edits are rare and should survive a crash: fsync them.
-    let storage = DiskStorage::new(&store_dir, true).map_err(|e| e.to_string())?;
+    let storage = DiskStorage::new(&store_dir).map_err(|e| e.to_string())?;
     let id = SessionId::new("FIX.4.2", comp_id, target);
     if !storage.contains(&id) {
         return Err(format!("no stored session {id} in {}", store_dir.display()));
@@ -572,8 +572,9 @@ async fn main() -> ExitCode {
     let mut config = config;
     config.message_log = message_log;
     let storage: Arc<dyn SessionStorage> = match &store_dir {
-        Some(dir) => match DiskStorage::new(dir, fsync) {
+        Some(dir) => match DiskStorage::new(dir) {
             Ok(storage) => {
+                let storage = storage.with_fsync(fsync);
                 info!(dir = %dir.display(), fsync, "persisting sessions to disk");
                 Arc::new(storage)
             }

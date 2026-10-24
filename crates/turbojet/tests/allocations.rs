@@ -355,7 +355,7 @@ const DISK_BUDGET: Budget =
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
     let dir = tempfile::tempdir().unwrap();
-    let disk = DiskStorage::new(dir.path(), false).unwrap();
+    let disk = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     check_budgets([
         ("memory", order_to_ack(MemoryStorage::new()), MEMORY_BUDGET),
         ("disk", order_to_ack(disk), DISK_BUDGET),
@@ -515,7 +515,7 @@ const FIXP_DISK_BUDGET: Budget =
 #[test]
 fn fixp_order_to_ack_allocates_exactly_its_budget() {
     let dir = tempfile::tempdir().unwrap();
-    let disk = DiskStorage::new(dir.path(), false).unwrap();
+    let disk = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     check_budgets([
         ("FIXP, memory", fixp_order_to_ack(MemoryStorage::new()), FIXP_MEMORY_BUDGET),
         ("FIXP, disk", fixp_order_to_ack(disk), FIXP_DISK_BUDGET),

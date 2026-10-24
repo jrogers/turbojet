@@ -262,7 +262,7 @@ fn stores(disk: bool, slow: bool, early: bool) -> (Option<tempfile::TempDir>, [A
             None => (Arc::new(MemoryStorage::new()), None),
             Some(dir) => {
                 let path = dir.path().join(name);
-                let store = DiskStorage::new(&path, false).expect("a store directory");
+                let store = DiskStorage::new(&path).expect("a store directory").with_fsync(false);
                 (Arc::new(store), Some(DiskFiles::new(path)))
             }
         };

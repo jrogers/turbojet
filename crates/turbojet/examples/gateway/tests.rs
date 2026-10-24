@@ -393,7 +393,7 @@ async fn resend_request_replays_execution_reports() {
 #[tokio::test]
 async fn disk_store_survives_gateway_restart() {
     let dir = tempfile::tempdir().unwrap();
-    let disk_gateway = || gateway(Arc::new(DiskStorage::new(dir.path(), false).unwrap()));
+    let disk_gateway = || gateway(Arc::new(DiskStorage::new(dir.path()).unwrap().with_fsync(false)));
 
     let (addr, server) = serve(disk_gateway()).await;
     let mut client = Client::logged_on(addr, "CLIENT1").await;
@@ -457,7 +457,7 @@ async fn operator_tool_views_and_changes_stored_sequence_numbers() {
     let dir = tempfile::tempdir().unwrap();
     {
         // A session that has sent 4 messages and received 2.
-        let mut log = DiskStorage::new(dir.path(), false).unwrap().open(&client1()).unwrap();
+        let mut log = DiskStorage::new(dir.path()).unwrap().with_fsync(false).open(&client1()).unwrap();
         log.record_outgoing(4, None).unwrap();
         log.set_next_incoming(3).unwrap();
         // Without fsync the store commits at once.
@@ -488,7 +488,7 @@ async fn operator_tool_views_and_changes_stored_sequence_numbers() {
 #[tokio::test]
 async fn operator_tool_refuses_unknown_and_connected_sessions() {
     let dir = tempfile::tempdir().unwrap();
-    let storage = DiskStorage::new(dir.path(), false).unwrap();
+    let storage = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
 
     let (ok, out) = seqnums(dir.path(), &["--session", "NOBODY"]).await;
     assert!(!ok);

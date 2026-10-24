@@ -2117,8 +2117,11 @@ fn a_resend_gap_fills_messages_the_disk_store_evicted() {
     let dir = tempfile::tempdir().unwrap();
     // A report and the record of the commit that stores it.
     let len = u64::try_from(report_len() + crate::store::disk::JOURNAL_RECORD).unwrap();
-    let disk =
-        crate::DiskStorage::new(dir.path(), false).unwrap().with_max_session_bytes(2 * len).with_segment_bytes(len);
+    let disk = crate::DiskStorage::new(dir.path())
+        .unwrap()
+        .with_fsync(false)
+        .with_max_session_bytes(2 * len)
+        .with_segment_bytes(len);
     let h = Harness::with_storage(Arc::new(disk));
     let mut s = with_reports(&h, 4, 256); // one report a segment; 2 and 3 deleted with theirs
     assert_eq!(s.peer().log.evicted_through(), Some(3));
@@ -2813,7 +2816,7 @@ fn venue_data_fields_are_sent_when_configured() {
 #[test]
 fn venue_data_fields_are_resent_intact_from_disk() {
     let dir = tempfile::tempdir().unwrap();
-    let mut h = Harness::with_storage(Arc::new(crate::store::DiskStorage::new(dir.path(), false).unwrap()));
+    let mut h = Harness::with_storage(Arc::new(crate::store::DiskStorage::new(dir.path()).unwrap().with_fsync(false)));
     h.config = h.config.with_data_field(5000, 5001);
     let report = Message::new(MsgType::ExecutionReport).with_data(5000, 5001, b"\xfe\x0110=000\x01");
     let mut first = h.logged_on(); // our 1: Logon

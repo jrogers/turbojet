@@ -136,7 +136,7 @@ fn session(c: &mut Criterion) {
                 iters,
                 |n| {
                     let dir = tempfile::tempdir().unwrap();
-                    let storage = Arc::new(DiskStorage::new(dir.path(), false).unwrap());
+                    let storage = Arc::new(DiskStorage::new(dir.path()).unwrap().with_fsync(false));
                     (common::logged_on(storage, Arc::new(common::Acker::default())), common::orders(n), dir)
                 },
                 |(mut session, orders, _dir)| {
@@ -222,7 +222,7 @@ fn resend(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let stores: [(&str, Arc<dyn SessionStorage>); 2] = [
         ("memory store", Arc::new(MemoryStorage::new())),
-        ("disk store", Arc::new(DiskStorage::new(dir.path(), false).unwrap())),
+        ("disk store", Arc::new(DiskStorage::new(dir.path()).unwrap().with_fsync(false))),
     ];
     for (name, storage) in stores {
         let mut session = common::logged_on(storage, Arc::new(common::Acker::default()));
@@ -284,7 +284,7 @@ fn storage(c: &mut Criterion) {
     group.throughput(Throughput::Elements(1));
     let memory = MemoryStorage::new();
     let dir = tempfile::tempdir().unwrap();
-    let disk = DiskStorage::new(dir.path(), false).unwrap();
+    let disk = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     for (name, storage) in [("memory", &memory as &dyn SessionStorage), ("disk", &disk as &dyn SessionStorage)] {
         let mut log: Box<dyn StoredSession> = storage.open(&id).unwrap();
         for per_commit in [1, 100] {
@@ -313,7 +313,7 @@ fn storage(c: &mut Criterion) {
     let mut group = c.benchmark_group("storage record_outgoing");
     group.sample_size(10).measurement_time(Duration::from_secs(10));
     let dir = tempfile::tempdir().unwrap();
-    let mut log = DiskStorage::new(dir.path(), true).unwrap().open(&id).unwrap();
+    let mut log = DiskStorage::new(dir.path()).unwrap().open(&id).unwrap();
     let mut seq = 1;
     for per_commit in [1, 100] {
         let name =

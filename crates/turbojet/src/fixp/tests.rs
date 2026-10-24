@@ -608,7 +608,7 @@ fn a_client_on_disk_establishes_the_session_it_negotiated() {
     let dir = tempfile::tempdir().unwrap();
     let mut net = Net::new();
     net.wall.advance(Duration::from_nanos(123_456_789));
-    let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
+    let disk = crate::DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
     net.connect();
     let first = net.client.session().uuid();
@@ -782,7 +782,7 @@ fn a_message_handed_over_but_not_recorded_comes_again_marked() {
     // over, before the commit, loses the record of it, but not the window marked in flight.
     let dir = tempfile::tempdir().unwrap();
     let mut net = Net::new();
-    let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
+    let disk = crate::DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
     net.connect();
     net.server_sends(1);
@@ -807,7 +807,7 @@ fn a_clean_close_keeps_a_recovered_window_still_to_come() {
     // again, so the marker must survive for the one after.
     let dir = tempfile::tempdir().unwrap();
     let mut net = Net::new();
-    let disk = crate::DiskStorage::new(dir.path(), false).unwrap();
+    let disk = crate::DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(disk)));
     net.connect();
     net.server_sends(1);
@@ -843,7 +843,7 @@ fn nothing_is_committed_once_the_store_has_failed() {
     let dir = tempfile::tempdir().unwrap();
     let echo = Recorder { echo: true, ..Recorder::default() };
     let mut net = Net::with(echo, Recorder::default(), |_| {});
-    let flaky = Flaky::over(Arc::new(crate::DiskStorage::new(dir.path(), false).unwrap()));
+    let flaky = Flaky::over(Arc::new(crate::DiskStorage::new(dir.path()).unwrap().with_fsync(false)));
     net.client.registry = Arc::new(FixpRegistry::with_storage(Arc::new(flaky.clone())));
     net.connect();
     net.server_sends(1);

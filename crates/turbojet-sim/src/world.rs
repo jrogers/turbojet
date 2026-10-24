@@ -512,7 +512,7 @@ fn stores(
         match &dir {
             None => Arc::new(MemoryStorage::new()),
             Some(dir) => {
-                let disk = DiskStorage::new(dir.path().join(name), false).expect("a store directory");
+                let disk = DiskStorage::new(dir.path().join(name)).expect("a store directory").with_fsync(false);
                 Arc::new(match segments {
                     Some((segment, max)) => disk.with_max_session_bytes(max).with_segment_bytes(segment),
                     None => disk,

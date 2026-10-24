@@ -744,7 +744,7 @@ let counterparties = CounterpartyMap::new()
     })
     .refuse_unknown(); // or admit others with the acceptor's own settings
 let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
-    .with("FUND", Arc::new(DiskStorage::new("./store", true)?));
+    .with("FUND", Arc::new(DiskStorage::new("./store")?));
 let mut config = AcceptorConfig::new(config);
 config.counterparties = Some(Arc::new(counterparties));
 let acceptor = Acceptor::new(config, Arc::new(storage), app)?;
@@ -1058,7 +1058,7 @@ A session waiting for a release logs a warning, once per connection, and sets th
   `with_segment_bytes`): past it the oldest segments are deleted, and a resend gap-fills their
   messages, as with `MemoryStorage`. On open it truncates a torn trailing write, takes the latest
   whole record from either file, and advances the outgoing sequence number past the last stored
-  message. Without `fsync`, commits are written in the call and survive a process crash but not an
+  message. Every commit is followed by `fsync` unless `with_fsync(false)`; without it, commits are written in the call and survive a process crash but not an
   OS crash; with it, each commit costs one `fsync`. Stores from Turbojet 0.1 open as they were; 0.1
   can't open a store once it has a journal record.
 - `SqlStorage` (`turbojet-sql`): a row per session in `turbojet_sessions` and its messages in

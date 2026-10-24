@@ -21,7 +21,7 @@ use super::{Opened, SessionId, SessionStorage, StoredSession};
 /// # use turbojet::store::StorageByCounterparty;
 /// # let dir = tempfile::tempdir().unwrap();
 /// let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
-///     .with("BROKER", Arc::new(DiskStorage::new(dir.path(), true).unwrap()));
+///     .with("BROKER", Arc::new(DiskStorage::new(dir.path()).unwrap()));
 /// ```
 pub struct StorageByCounterparty {
     default: Arc<dyn SessionStorage>,

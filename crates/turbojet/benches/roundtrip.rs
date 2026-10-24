@@ -352,7 +352,7 @@ fn roundtrip(c: &mut Criterion) {
     #[cfg(feature = "tls")]
     transport(c, "tls", true, Arc::new(common::DiscardStorage), WINDOW);
     let dir = tempfile::tempdir().unwrap();
-    let disk = |sync| Arc::new(DiskStorage::new(dir.path().join(format!("sync-{sync}")), sync).unwrap());
+    let disk = |sync| Arc::new(DiskStorage::new(dir.path().join(format!("sync-{sync}"))).unwrap().with_fsync(sync));
     transport(c, "tcp, disk store", false, disk(false), WINDOW);
     // An fsync takes milliseconds, so fewer orders are in flight.
     transport(c, "tcp, disk store + fsync", false, disk(true), FSYNC_WINDOW);

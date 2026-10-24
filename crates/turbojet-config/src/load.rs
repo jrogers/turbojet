@@ -800,8 +800,9 @@ fn stores(
             RawStore::Memory => Arc::new(MemoryStorage::new()),
             RawStore::Disk { dir, fsync } => {
                 let dir = context.dir.join(dir);
-                let disk = DiskStorage::new(&dir, *fsync)
-                    .map_err(|e| Error::at(&section, "dir", format!("{}: {e}", dir.display())))?;
+                let disk = DiskStorage::new(&dir)
+                    .map_err(|e| Error::at(&section, "dir", format!("{}: {e}", dir.display())))?
+                    .with_fsync(*fsync);
                 Arc::new(disk)
             }
         };

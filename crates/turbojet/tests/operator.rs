@@ -48,7 +48,7 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
     let (server_tx, mut server) = mpsc::unbounded_channel();
     let acceptor = Acceptor::new(
         SessionConfig::new("FIX.4.2", "SERVER"),
-        Arc::new(DiskStorage::new(dir.path(), false).unwrap()),
+        Arc::new(DiskStorage::new(dir.path()).unwrap().with_fsync(false)),
         Arc::new(Recorder(server_tx)),
     )
     .unwrap();
@@ -97,7 +97,7 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
 
     // The same stored state, seen by a fresh registry over the same directory (as the gateway's
     // `seqnums` tool does).
-    let registry = Arc::new(SessionRegistry::new(Arc::new(DiskStorage::new(dir.path(), false).unwrap())));
+    let registry = Arc::new(SessionRegistry::new(Arc::new(DiskStorage::new(dir.path()).unwrap().with_fsync(false))));
     let offline = registry.handle(operator.id().clone());
     assert_eq!(offline.sequence_numbers().await.unwrap(), numbers(7, 1));
 }
