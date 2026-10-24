@@ -140,7 +140,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   session when its buffer is full (16 MiB by default) or a write fails. It doesn't `fsync`, so a
   machine's crash can lose its last records. Records reach the file about a millisecond after
   they're logged, so a file may hold the last moments of the previous UTC day (the record's time
-  is when it was logged, the file's day when it was written). A file can pass `file_bytes_max` by up to one batch. Two logs must not share a
+  is when it was logged, the file's day when it was written). A file can pass `max_file_bytes` by up to one batch. Two logs must not share a
   directory. Dropping the log waits for its threads to write what it holds and to compress and
   hand over the last file, a second or so for a full one. After a crash, the `on_finished` hook
   can be called again for a file it was called for before (with `compress`, which redoes what the

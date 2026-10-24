@@ -226,8 +226,8 @@ pub struct FixpConfig {
     /// a gap is asked for in parts no larger (receiver).
     pub max_retransmit: u32,
     /// Most application sends waiting for the connection; see
-    /// [`SessionConfig::send_queue`](crate::SessionConfig::send_queue).
-    pub send_queue: usize,
+    /// [`SessionConfig::max_queued_sends`](crate::SessionConfig::max_queued_sends).
+    pub max_queued_sends: usize,
     /// The clock for timestamps and session IDs.
     pub clock: Clock,
     /// Records the latency histograms (feature `metrics`), as
@@ -261,7 +261,7 @@ impl FixpConfig {
             timestamp_window: Duration::from_secs(120),
             handshake_timeout: Duration::from_secs(10),
             max_retransmit: 1000,
-            send_queue: 1024,
+            max_queued_sends: 1024,
             clock: Clock::system(),
             #[cfg(feature = "metrics")]
             latency_metrics: false,
@@ -291,8 +291,8 @@ impl FixpConfig {
         if self.keepalive_misses == 0 || self.handshake_timeout.is_zero() || self.max_retransmit == 0 {
             return fail("keepalive_misses, handshake_timeout and max_retransmit must be more than zero");
         }
-        if self.send_queue == 0 {
-            return fail("send_queue must be more than zero");
+        if self.max_queued_sends == 0 {
+            return fail("max_queued_sends must be more than zero");
         }
         Ok(())
     }

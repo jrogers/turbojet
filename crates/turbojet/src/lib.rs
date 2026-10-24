@@ -262,7 +262,7 @@ pub use initiator::InitiatorTls;
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
 pub use message_log::{
-    DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, Direction, FileLogOptions, FileMessageLog, FinishedHook, LogFile,
+    DEFAULT_MAX_BUFFER_BYTES, DEFAULT_MAX_FILE_BYTES, Direction, FileLogOptions, FileMessageLog, FinishedHook, LogFile,
     LogFilter, LogRecord, LogRecords, MessageLog, Replayed, mask_secrets, replay,
 };
 pub use peer::{ConnectionInfo, PeerCertificate};

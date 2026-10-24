@@ -2400,7 +2400,7 @@ mod tests {
         let (ours, mut peer) = duplex(4 * 1024);
         let registry = Arc::new(SessionRegistry::default());
         let mut config = SessionConfig::new("FIX.4.2", "US");
-        config.send_queue = 100;
+        config.max_queued_sends = 100;
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));

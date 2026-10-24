@@ -193,7 +193,7 @@ let seq = initiator.handle().send(msg)?.await?; // its MsgSeqNum, once stored
 `send` queues the message and returns a `Receipt`, a future that resolves to the message's
 MsgSeqNum once the session has stored it (from then on it's resent if the counterparty misses it),
 or to why it was dropped, such as the connection ending first. Ignore it for fire-and-forget. The
-queue holds `SessionConfig::send_queue` messages (10,000 by default): past that, `send` hands the
+queue holds `SessionConfig::max_queued_sends` messages (10,000 by default): past that, `send` hands the
 message back (`SendError::Full`) and `send_when_ready` waits for room. Logout and operator
 commands have a queue of their own, so a full send queue doesn't hold them up.
 
@@ -1140,14 +1140,14 @@ config.message_log = Some(Arc::new(Audit(sender)));
 
 **Message log files.** `turbojet::FileMessageLog` is a `MessageLog` that writes both directions to
 files in one directory, kept apart from the store and from diagnostic logging. A new file is
-started each UTC day, when the current one reaches `file_bytes_max` (256 MiB by default), and when
+started each UTC day, when the current one reaches `max_file_bytes` (256 MiB by default), and when
 the log is opened; files are named `messages-YYYYMMDD-NNNNNN.log`. With `retention` set, files whose
 day ended longer ago than that are deleted. Each message is a line
 `<time> <in|out> <length> <session>` (the time in UTC to the microsecond, the session `-` until
 it's known), then the message's bytes and a newline, so FIX messages read as they stand and
 binary FIXP ones by their length. The calls copy each message into a buffer that a thread of the
 log's own writes out, so they don't wait for the disk. A message that would pass the buffer's
-limit (`buffer_bytes_max`, 16 MiB by default) is dropped, and a line `<time> dropped <count>`
+limit (`max_buffer_bytes`, 16 MiB by default) is dropped, and a line `<time> dropped <count>`
 shows the gap. A message ignored as garbled is a record `<time> garbled <length> "<reason>"
 <session>`, read back as `LogRecord::Garbled`. The example gateway writes one with `--message-log DIR` (and
 `--message-log-days N`, `--message-log-gzip`).

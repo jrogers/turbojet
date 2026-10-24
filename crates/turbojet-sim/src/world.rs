@@ -169,7 +169,7 @@ struct Faults {
     hostile: Option<u32>,
     /// Each side's send queue, small on some seeds so bursts fill it; and the mean time between
     /// bursts of orders, if any.
-    send_queue: usize,
+    max_queued_sends: usize,
     burst_every: Option<Duration>,
 }
 
@@ -209,7 +209,7 @@ impl Faults {
             reset_both_every: rng.pick(&[None, None, Some(secs(60))]),
             scheduled: rng.chance(250_000),
             hostile: rng.chance(200_000).then(|| rng.pick(&[10_000, 50_000])),
-            send_queue: rng.pick(&[10_000, 10_000, 50, 5]),
+            max_queued_sends: rng.pick(&[10_000, 10_000, 50, 5]),
             burst_every: rng.pick(&[None, Some(secs(10)), Some(secs(3))]),
         }
     }
@@ -642,7 +642,7 @@ impl World {
             let mut config = SessionConfig::new("FIX.4.4", sender);
             config.clock = clocks.wall_clock();
             config.schedule.clone_from(&schedule);
-            config.send_queue = faults.send_queue;
+            config.max_queued_sends = faults.max_queued_sends;
             config
         };
         let ids = session_ids(options.seed);

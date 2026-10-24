@@ -122,8 +122,10 @@ tested, and fuzzed, without sockets or real time.
 
 - Say what a thing is or does, without abbreviations, in the terms FIX itself uses (`MsgSeqNum`,
   `ResendRequest`).
-- Put qualifiers and units last, most significant first: `seq_num_next`, `timeout_logout`. Use
-  `Duration` rather than a unit suffix where possible.
+- Name a limit `max_` then what it limits, and put units last: `max_connections`,
+  `max_session_bytes`, `MAX_BODY_LENGTH`; a timeout by what it times, `logon_timeout`. One
+  pattern everywhere, public or not, so a name can be guessed. Use `Duration` rather than a unit
+  suffix where possible.
 - An index, a count and a size are different things. Name them differently, and convert between
   them explicitly.
 - Don't give one name two meanings in different contexts.

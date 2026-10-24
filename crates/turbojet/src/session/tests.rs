@@ -2640,7 +2640,7 @@ fn counterparty_logout_is_acknowledged() {
 /// A logged-on acceptor whose send queue holds `capacity` messages, its command queues, and a
 /// handle on it.
 fn with_send_queue(h: &mut Harness, capacity: usize) -> (Session, CommandReceiver, SessionHandle) {
-    h.config.send_queue = capacity;
+    h.config.max_queued_sends = capacity;
     let (mut s, commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0).unwrap();
     s.recv(logon(1), h.t0);
     let handle = h.app.handles.lock().unwrap()[0].clone();

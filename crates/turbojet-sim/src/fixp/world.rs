@@ -56,7 +56,7 @@ struct Faults {
     give_up: Duration,
     disk: bool,
     terminate_every: Option<Duration>,
-    send_queue: usize,
+    max_queued_sends: usize,
     burst_every: Option<Duration>,
     /// Mean time between process crashes (of either node), if any, and the longest a restart takes.
     crash_every: Option<Duration>,
@@ -109,7 +109,7 @@ impl Faults {
             give_up: secs(rng.between(60, 300)),
             disk: rng.chance(500_000),
             terminate_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
-            send_queue: rng.pick(&[10_000, 10_000, 50, 5]),
+            max_queued_sends: rng.pick(&[10_000, 10_000, 50, 5]),
             burst_every: rng.pick(&[None, Some(secs(10)), Some(secs(3))]),
             crash_every: rng.pick(&[None, Some(secs(60)), Some(secs(15))]),
             restart_max: rng.pick(&[ms(100), secs(5), secs(30)]),
@@ -281,7 +281,7 @@ fn nodes(faults: &Faults, storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, pl
         config.server_flow = faults.server_flow;
         config.keepalive = faults.keepalive;
         config.max_retransmit = faults.max_retransmit;
-        config.send_queue = faults.send_queue;
+        config.max_queued_sends = faults.max_queued_sends;
         config.clock = clocks.wall_clock();
         config
     };

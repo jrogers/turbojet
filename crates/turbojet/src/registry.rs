@@ -295,7 +295,7 @@ impl Ending {
 }
 
 /// The queues that carry [`SessionHandle`] commands to a session's connection task: application
-/// sends, bounded by [`SessionConfig::send_queue`](crate::SessionConfig::send_queue), and
+/// sends, bounded by [`SessionConfig::max_queued_sends`](crate::SessionConfig::max_queued_sends), and
 /// logout and operator commands, bounded by [`CONTROL_QUEUE`].
 #[derive(Debug)]
 pub(crate) struct CommandSender<T = Message> {
@@ -339,7 +339,7 @@ pub struct CommandReceiver<T = Message> {
     held: Option<(Ending, u64)>,
     /// A send taken off its queue only to notice it (see [`Sends::Notice`]), first in line. It
     /// isn't counted in `taken` until it's handed out, so a Logout queued after it still waits.
-    /// It has left the bounded queue, so while it's here one more send than `send_queue` waits.
+    /// It has left the bounded queue, so while it's here one more send than `max_queued_sends` waits.
     noticed: Option<(T, ReceiptSender)>,
 }
 
@@ -363,10 +363,10 @@ pub(crate) enum Next<T = Message> {
     Noticed,
 }
 
-/// A session's command queues, sends holding up to `send_queue` messages.
-pub(crate) fn command_queues<T>(send_queue: usize) -> (CommandSender<T>, CommandReceiver<T>) {
-    assert!(send_queue > 0, "a send queue holds at least one message");
-    let (sends, sends_rx) = mpsc::channel(send_queue);
+/// A session's command queues, sends holding up to `max_queued_sends` messages.
+pub(crate) fn command_queues<T>(max_queued_sends: usize) -> (CommandSender<T>, CommandReceiver<T>) {
+    assert!(max_queued_sends > 0, "a send queue holds at least one message");
+    let (sends, sends_rx) = mpsc::channel(max_queued_sends);
     let (control, control_rx) = mpsc::channel(CONTROL_QUEUE);
     let sender = CommandSender { sends, control, queued: Arc::default() };
     (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None, noticed: None })
@@ -1212,7 +1212,7 @@ impl<T> SessionHandle<T> {
     /// unstated), and a message naming another is dropped (and logged); CstmApplVerID(1129) and
     /// ApplExtID(1156) pass through. On FIX 4.x sessions, ApplVerID(1128) is dropped.
     ///
-    /// The queue holds up to [`SessionConfig::send_queue`](crate::SessionConfig::send_queue)
+    /// The queue holds up to [`SessionConfig::max_queued_sends`](crate::SessionConfig::max_queued_sends)
     /// messages; when it's full, as when the counterparty reads more slowly than the application
     /// sends, the message comes back in [`SendError::Full`] rather than waiting.
     /// [`send_when_ready`](Self::send_when_ready) waits for room instead.

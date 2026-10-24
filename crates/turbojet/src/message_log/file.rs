@@ -18,12 +18,12 @@ use crate::message_log::MessageLog;
 use crate::{Clock, SessionId};
 
 /// Where a [`FileMessageLog`] rotates to a new file. A batch is written whole, so a file can pass
-/// it by up to [`FileLogOptions::buffer_bytes_max`].
-pub const DEFAULT_FILE_BYTES_MAX: u64 = 256 * 1024 * 1024;
+/// it by up to [`FileLogOptions::max_buffer_bytes`].
+pub const DEFAULT_MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
 
 /// How many bytes a [`FileMessageLog`] holds for its writer by default: about a second of a
 /// busy session's traffic at 100,000 messages of 160 bytes, so a slow disk write doesn't drop any.
-pub const DEFAULT_BUFFER_BYTES_MAX: usize = 16 * 1024 * 1024;
+pub const DEFAULT_MAX_BUFFER_BYTES: usize = 16 * 1024 * 1024;
 
 /// How long the writer thread gathers records before writing them. Waking it for every message
 /// would cost each one a system call on the session's task; a millisecond keeps that to one per
@@ -38,10 +38,10 @@ pub type FinishedHook = Arc<dyn Fn(&Path) + Send + Sync>;
 #[non_exhaustive]
 pub struct FileLogOptions {
     /// A new file is started once the current one reaches this size (and at each UTC midnight).
-    pub file_bytes_max: u64,
+    pub max_file_bytes: u64,
     /// The bytes held for the writer thread. A message that would pass it is dropped, counted,
     /// and the count written to the file in its place, so the gap shows.
-    pub buffer_bytes_max: usize,
+    pub max_buffer_bytes: usize,
     /// Files whose day ended longer ago than this are deleted, at open and at each new file.
     /// `None`, the default, keeps them.
     pub retention: Option<Duration>,
@@ -61,8 +61,8 @@ pub struct FileLogOptions {
 impl fmt::Debug for FileLogOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FileLogOptions")
-            .field("file_bytes_max", &self.file_bytes_max)
-            .field("buffer_bytes_max", &self.buffer_bytes_max)
+            .field("max_file_bytes", &self.max_file_bytes)
+            .field("max_buffer_bytes", &self.max_buffer_bytes)
             .field("retention", &self.retention)
             .field("clock", &self.clock)
             .field("compress", &self.compress)
@@ -75,8 +75,8 @@ impl fmt::Debug for FileLogOptions {
 impl Default for FileLogOptions {
     fn default() -> Self {
         Self {
-            file_bytes_max: DEFAULT_FILE_BYTES_MAX,
-            buffer_bytes_max: DEFAULT_BUFFER_BYTES_MAX,
+            max_file_bytes: DEFAULT_MAX_FILE_BYTES,
+            max_buffer_bytes: DEFAULT_MAX_BUFFER_BYTES,
             retention: None,
             clock: Clock::system(),
             compress: false,
@@ -92,7 +92,7 @@ impl Default for FileLogOptions {
 /// The calls copy each message into a buffer, and a thread of the log's own writes it out, so
 /// they don't wait for the disk. Files are named `messages-YYYYMMDD-NNNNNN.log`, by UTC day and a
 /// number within it; a new one is started each UTC day, when the current one reaches
-/// [`FileLogOptions::file_bytes_max`], and when the log is opened (an old file is never appended
+/// [`FileLogOptions::max_file_bytes`], and when the log is opened (an old file is never appended
 /// to). Each message is a record: a line `<time> <in|out> <length> <session>`, with the time in
 /// UTC to the microsecond and the session `-` until it's known, then the message's bytes, then a
 /// newline. Input ignored as garbled that framed as a message (see [`MessageLog::garbled`]) is a
@@ -128,7 +128,7 @@ impl Default for FileLogOptions {
 pub struct FileMessageLog {
     shared: Arc<Shared>,
     clock: Clock,
-    buffer_bytes_max: usize,
+    max_buffer_bytes: usize,
     writer: Option<JoinHandle<()>>,
     /// Compresses finished files and calls the hook, if either is asked for.
     finisher: Option<JoinHandle<()>>,
@@ -144,8 +144,8 @@ impl FileMessageLog {
     /// retention period is too long to compute with, or [`compress`](FileLogOptions::compress) is
     /// asked for without the `gzip` feature ([`Unsupported`](io::ErrorKind::Unsupported)).
     pub fn open(dir: impl Into<PathBuf>, options: FileLogOptions) -> io::Result<Self> {
-        assert!(options.file_bytes_max > 0, "file_bytes_max must be positive");
-        assert!(options.buffer_bytes_max > 0, "buffer_bytes_max must be positive");
+        assert!(options.max_file_bytes > 0, "max_file_bytes must be positive");
+        assert!(options.max_buffer_bytes > 0, "max_buffer_bytes must be positive");
         if options.compress && !cfg!(feature = "gzip") {
             return Err(io::Error::new(
                 io::ErrorKind::Unsupported,
@@ -169,7 +169,7 @@ impl FileMessageLog {
             }
             false => (None, None),
         };
-        let mut files = Files { dir, file_bytes_max: options.file_bytes_max, retention, current: None, finished };
+        let mut files = Files { dir, max_file_bytes: options.max_file_bytes, retention, current: None, finished };
         files.rotate(options.clock.now())?;
         let shared = Arc::new(Shared::default());
         let writer = {
@@ -183,7 +183,7 @@ impl FileMessageLog {
         Ok(Self {
             shared,
             clock: options.clock,
-            buffer_bytes_max: options.buffer_bytes_max,
+            max_buffer_bytes: options.max_buffer_bytes,
             writer: Some(writer),
             finisher,
         })
@@ -211,7 +211,7 @@ impl FileMessageLog {
                 None => writeln!(state.pending, "-"),
             });
         debug_assert!(header.is_ok(), "writing to a Vec doesn't fail");
-        if state.pending.len() + frame.len() + 1 > self.buffer_bytes_max {
+        if state.pending.len() + frame.len() + 1 > self.max_buffer_bytes {
             state.pending.truncate(start);
             state.dropped += 1;
         } else {
@@ -260,7 +260,7 @@ impl Drop for FileMessageLog {
 
 impl fmt::Debug for FileMessageLog {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FileMessageLog").field("buffer_bytes_max", &self.buffer_bytes_max).finish_non_exhaustive()
+        f.debug_struct("FileMessageLog").field("max_buffer_bytes", &self.max_buffer_bytes).finish_non_exhaustive()
     }
 }
 
@@ -361,7 +361,7 @@ fn mask_records(batch: &mut [u8]) {
 /// The log's directory and the file being written.
 struct Files {
     dir: PathBuf,
-    file_bytes_max: u64,
+    max_file_bytes: u64,
     retention: Option<TimeDelta>,
     current: Option<Current>,
     /// Where finished files go to be compressed and handed to the hook, if either is asked for.
@@ -380,7 +380,7 @@ impl Files {
     /// Writes `bytes` to the current file, starting a new one first if the day has changed or the
     /// file is full. After a failure, the next write starts a new file.
     fn write(&mut self, now: DateTime<Utc>, bytes: &[u8]) -> io::Result<()> {
-        let full = self.current.as_ref().is_none_or(|c| c.day != now.date_naive() || c.bytes >= self.file_bytes_max);
+        let full = self.current.as_ref().is_none_or(|c| c.day != now.date_naive() || c.bytes >= self.max_file_bytes);
         if full {
             self.rotate(now)?;
         }
@@ -542,7 +542,7 @@ mod tests {
 
     fn files(dir: &Path, retention: Option<Duration>) -> Files {
         let retention = retention.map(|r| TimeDelta::from_std(r).unwrap());
-        Files { dir: dir.to_owned(), file_bytes_max: 10, retention, current: None, finished: None }
+        Files { dir: dir.to_owned(), max_file_bytes: 10, retention, current: None, finished: None }
     }
 
     #[test]
@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn a_full_buffer_drops_messages_and_says_how_many() {
         let dir = tempfile::tempdir().unwrap();
-        let options = FileLogOptions { buffer_bytes_max: 10, clock: fixed_clock(at(7, 12)), ..Default::default() };
+        let options = FileLogOptions { max_buffer_bytes: 10, clock: fixed_clock(at(7, 12)), ..Default::default() };
         let log = Arc::new(FileMessageLog::open(dir.path(), options).unwrap());
         for _ in 0..3 {
             log.inbound(None, b"too long for the buffer");
@@ -657,7 +657,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (hook, called) = recording_hook();
         let options = FileLogOptions {
-            file_bytes_max: 1,
+            max_file_bytes: 1,
             clock: fixed_clock(at(7, 12)),
             on_finished: Some(hook),
             ..Default::default()

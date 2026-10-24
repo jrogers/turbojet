@@ -236,7 +236,7 @@ impl FixpSession {
         now: Instant,
     ) -> Result<(Self, CommandReceiver<SbeMessage>), ConfigError> {
         config.check()?;
-        let (commands, receiver) = command_queues(config.send_queue);
+        let (commands, receiver) = command_queues(config.max_queued_sends);
         let state = if matches!(role, Role::Server(_)) { State::AwaitingClient } else { State::Starting };
         let session = Self {
             peer_keepalive: config.keepalive,

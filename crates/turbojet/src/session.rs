@@ -126,7 +126,7 @@ pub struct SessionConfig {
     /// ([`SendError::Full`](crate::SendError::Full)) rather than queue it without limit. One more
     /// may wait while the [`outbound_limit`](Self::outbound_limit)'s window is full: the
     /// connection holds the first to arrive, to know that one waits. 10,000 by default.
-    pub send_queue: usize,
+    pub max_queued_sends: usize,
     /// At most this many messages to ask for in one ResendRequest, for a counterparty that
     /// caps them: a gap is then asked for a chunk at a time, the next once the last has arrived,
     /// and the last chunk to the end (EndSeqNo 0). `None` (the default) asks for the whole gap at
@@ -250,7 +250,7 @@ impl SessionConfig {
             check_empty_values: true,
             timestamp_precision: Precision::Millis,
             data_fields: DataFields::standard(),
-            send_queue: 10_000,
+            max_queued_sends: 10_000,
             resend_request_chunk: None,
             max_sessions_per_counterparty: 16,
             outbound_limit: None,
@@ -727,7 +727,7 @@ impl Session {
         let initiator = matches!(role, Role::Initiator { .. });
         config.check()?;
         let appl_version = if initiator { config.appl_versions.first().cloned() } else { None };
-        let (commands, receiver) = command_queues(config.send_queue);
+        let (commands, receiver) = command_queues(config.max_queued_sends);
         let outbound = config.outbound_limit.map(Window::new);
         let inbound = config.inbound_limit.map(Inbound::new);
         let session = Self {
@@ -740,7 +740,7 @@ impl Session {
             connection: ConnectionInfo::default(),
             live: None,
             counterparties: None,
-            heartbeat_range: Counterparty::DEFAULT_HEARTBEAT,
+            heartbeat_range: Counterparty::MAX_HEARTBEAT_RANGE,
             status: Status::AwaitingLogon,
             peer: None,
             app_logged_on: false,

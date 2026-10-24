@@ -342,7 +342,7 @@ fn fixed_keys(
         if queue == 0 {
             return Err(Error::at(section, "send_queue", "must be at least 1"));
         }
-        config.send_queue = queue;
+        config.max_queued_sends = queue;
     }
     Ok(())
 }

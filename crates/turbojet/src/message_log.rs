@@ -10,7 +10,7 @@ mod filter;
 mod read;
 mod replay;
 
-pub use file::{DEFAULT_BUFFER_BYTES_MAX, DEFAULT_FILE_BYTES_MAX, FileLogOptions, FileMessageLog, FinishedHook};
+pub use file::{DEFAULT_MAX_BUFFER_BYTES, DEFAULT_MAX_FILE_BYTES, FileLogOptions, FileMessageLog, FinishedHook};
 pub use filter::LogFilter;
 pub use read::{Direction, LogFile, LogRecord, LogRecords};
 pub use replay::{Replayed, replay};

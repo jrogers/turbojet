@@ -88,7 +88,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   each other at once never each wait for the other to read, and it disconnects a counterparty that
   has stopped reading altogether (16 MiB of output waiting for it). The simulator found the write
   deadlock this replaced.
-- **Bounded commands.** Application sends wait in a queue of `SessionConfig::send_queue` messages
+- **Bounded commands.** Application sends wait in a queue of `SessionConfig::max_queued_sends` messages
   (a full one hands the message back, or `send_when_ready` waits for room), logout and operator
   commands in a small one of their own that a full send queue never holds up, and each send
   returns a `Receipt` saying whether the message was stored, with its MsgSeqNum, or dropped and
@@ -135,10 +135,10 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   variable when there's nothing to write, and an append wakes it only if it's waiting; after
   waking, it sleeps a millisecond (`GATHER_INTERVAL`) to gather a batch. So a busy log costs the
   session's task no system call per message, only about one wake-up per millisecond per log.
-  The buffer is bounded (`buffer_bytes_max`), and over it messages are counted and dropped rather
+  The buffer is bounded (`max_buffer_bytes`), and over it messages are counted and dropped rather
   than block the session, with a `dropped` line written in their place; a failed write counts
   its batch the same way, and the next write starts a new file. Files are rotated by UTC day and
-  size between batches, so a file can pass `file_bytes_max` by one batch. A file is never
+  size between batches, so a file can pass `max_file_bytes` by one batch. A file is never
   appended to after reopening: the log starts the next number, so a file that a crash cut short
   stays as it was. Retention deletes only files whose names the log would have made, by the day
   in the name, so a file's last record is past retention before the file goes. Passwords and

@@ -42,27 +42,27 @@ pub trait Counterparties: Send + Sync {
 #[non_exhaustive]
 pub struct Counterparty {
     /// The session's configuration. It must keep the acceptor's `begin_string`,
-    /// `sender_comp_id`, `clock` (or a clone of it), `logon_timeout` and `send_queue`, which
+    /// `sender_comp_id`, `clock` (or a clone of it), `logon_timeout` and `max_queued_sends`, which
     /// are in use before Logon, and pass [`SessionConfig::check`]; otherwise the logon is
     /// refused.
     pub config: SessionConfig,
     /// The HeartBtInt(108) the counterparty may ask for, within
-    /// [`DEFAULT_HEARTBEAT`](Self::DEFAULT_HEARTBEAT); a Logon outside it is refused.
+    /// [`MAX_HEARTBEAT_RANGE`](Self::MAX_HEARTBEAT_RANGE); a Logon outside it is refused.
     pub heartbeat: RangeInclusive<Duration>,
     /// Refuse the logon unless the connection presented a TLS client certificate.
     pub require_client_certificate: bool,
 }
 
 impl Counterparty {
-    /// The HeartBtInt range an acceptor allows by default, and the widest it may allow: 1 second
+    /// The widest HeartBtInt range an acceptor may allow, and what it allows by default: 1 second
     /// to an hour.
-    pub const DEFAULT_HEARTBEAT: RangeInclusive<Duration> =
+    pub const MAX_HEARTBEAT_RANGE: RangeInclusive<Duration> =
         RangeInclusive::new(Duration::from_secs(1), Duration::from_secs(3600));
 
-    /// `config`, any HeartBtInt in [`DEFAULT_HEARTBEAT`](Self::DEFAULT_HEARTBEAT), and no
+    /// `config`, any HeartBtInt in [`MAX_HEARTBEAT_RANGE`](Self::MAX_HEARTBEAT_RANGE), and no
     /// client certificate required.
     pub fn new(config: SessionConfig) -> Self {
-        Self { config, heartbeat: Self::DEFAULT_HEARTBEAT, require_client_certificate: false }
+        Self { config, heartbeat: Self::MAX_HEARTBEAT_RANGE, require_client_certificate: false }
     }
 
     /// Why these settings can't be used on an acceptor configured with `base`, if they can't:
@@ -73,7 +73,7 @@ impl Counterparty {
     ///
     /// The first problem found: a field in use before Logon that differs from `base`'s, the
     /// config failing [`SessionConfig::check`], or a heartbeat range outside
-    /// [`DEFAULT_HEARTBEAT`](Self::DEFAULT_HEARTBEAT).
+    /// [`MAX_HEARTBEAT_RANGE`](Self::MAX_HEARTBEAT_RANGE).
     pub fn check(&self, base: &SessionConfig) -> Result<(), crate::ConfigError> {
         self.first_problem(base).map_err(crate::ConfigError::new)
     }
@@ -86,14 +86,14 @@ impl Counterparty {
             ("sender_comp_id", config.sender_comp_id == base.sender_comp_id),
             ("clock", config.clock.same_as(&base.clock)),
             ("logon_timeout", config.logon_timeout == base.logon_timeout),
-            ("send_queue", config.send_queue == base.send_queue),
+            ("max_queued_sends", config.max_queued_sends == base.max_queued_sends),
         ];
         if let Some((field, _)) = fixed.iter().find(|(_, same)| !same) {
             return Err(format!("the counterparty's {field} differs from the acceptor's"));
         }
         config.first_problem()?;
         let (low, high) = (*self.heartbeat.start(), *self.heartbeat.end());
-        let widest = Self::DEFAULT_HEARTBEAT;
+        let widest = Self::MAX_HEARTBEAT_RANGE;
         if low > high || low < *widest.start() || high > *widest.end() {
             return Err(format!("heartbeat range {low:?}..={high:?} isn't within {widest:?}"));
         }
@@ -219,7 +219,7 @@ mod tests {
             ("sender_comp_id", |c| c.sender_comp_id = "OTHER".into()),
             ("clock", |c| c.clock = Clock::from_fn(chrono::Utc::now)),
             ("logon_timeout", |c| c.logon_timeout = Duration::from_secs(1)),
-            ("send_queue", |c| c.send_queue = 1),
+            ("max_queued_sends", |c| c.max_queued_sends = 1),
         ];
         for (field, change) in changes {
             let mut counterparty = Counterparty::new(base.clone());
@@ -286,7 +286,7 @@ mod tests {
         let map = CounterpartyMap::new().with("BROKER", |c| c.config.max_latency = None);
         let other = resolve(&map, "OTHER").unwrap();
         assert_eq!(other.config.max_latency, base().max_latency);
-        assert_eq!(other.heartbeat, Counterparty::DEFAULT_HEARTBEAT);
+        assert_eq!(other.heartbeat, Counterparty::MAX_HEARTBEAT_RANGE);
         let map = map.refuse_unknown();
         assert_eq!(resolve(&map, "OTHER").unwrap_err(), "unknown counterparty 'OTHER'");
         assert!(resolve(&map, "BROKER").is_ok());
