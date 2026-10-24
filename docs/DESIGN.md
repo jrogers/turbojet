@@ -590,6 +590,16 @@ invariants, and tests that look for bugs rather than confirm what already works.
   deadlock in the connection driver, torn sequence-number records in `DiskStorage`, and an
   operator's skip ahead making a counterparty abandon a gap, all since fixed. It exercises outbound
   limits and inbound `Delay`, but not `Reject` (see [CAVEATS.md](CAVEATS.md)).
+- **Concurrency tests** with [shuttle](https://github.com/awslabs/shuttle), on every push. Built
+  with `--cfg shuttle`, the registry's and the holds' locks and atomics are shuttle's
+  (`src/sync.rs`), and the tests run each protocol threads share in thousands of interleavings:
+  a hold released on another thread is either seen or wakes the session; two Logons at once bind
+  the session once; a pause racing a Logon either refuses it or finds it connected, to log it
+  out; a send queued before a logout goes out first. A bug planted in each shows its test
+  catches it. What shuttle doesn't model, and these tests can't find: orderings weaker than
+  `SeqCst`, since it runs every atomic as `SeqCst`; and races inside tokio's `mpsc`, `oneshot`
+  and `Notify`, where it never switches threads. A lost wake-up planted in waiting for a resume,
+  between our lock and tokio's `Notify`, goes unfound for that reason.
 
 ## Performance
 
