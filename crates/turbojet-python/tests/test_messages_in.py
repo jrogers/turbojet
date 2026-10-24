@@ -64,7 +64,7 @@ async def test_reject(gateway, tmp_path):
         logon = await expect(events, Logon)
         await logon.session.send(order())
         report = await expect(events, AppMessage)
-        assert await logon.session.reject(report.msg, 0, "not ours") > 2
+        assert await logon.session.reject(report.msg, 0, "not ours", ref_id=report.msg[11]) > 2
         report.done()
 
 

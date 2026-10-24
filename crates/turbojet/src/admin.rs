@@ -104,6 +104,8 @@ fix_message! {
         ref_seq_num: opt u64 = REF_SEQ_NUM,
         /// RefMsgType(372).
         ref_msg_type: req MsgType = REF_MSG_TYPE,
+        /// BusinessRejectRefID(379): the referenced message's business ID, its ClOrdID say.
+        business_reject_ref_id: opt CompactString = BUSINESS_REJECT_REF_ID,
         /// BusinessRejectReason(380).
         business_reject_reason: req BusinessRejectReason = BUSINESS_REJECT_REASON,
         /// Text(58).

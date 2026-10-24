@@ -162,6 +162,8 @@ pub mod tags {
     pub const SESSION_REJECT_REASON: u32 = 373;
     /// ContraBroker(375).
     pub const CONTRA_BROKER: u32 = 375;
+    /// BusinessRejectRefID(379).
+    pub const BUSINESS_REJECT_REF_ID: u32 = 379;
     /// BusinessRejectReason(380).
     pub const BUSINESS_REJECT_REASON: u32 = 380;
     /// NoContraBrokers(382).

@@ -38,7 +38,7 @@ Each application message arrives as an `AppMessage` and counts as received only 
 called: until then, a restart has the counterparty send it again, with `maybe_redelivered` set.
 An event dropped without `done()`, by an exception say, stays unfinished. A session reads nothing
 more once it's 256 messages past one that isn't finished, so call `done()` for every message,
-rejected ones included (`session.reject(msg, reason, text)` sends a BusinessMessageReject).
+rejected ones included (`session.reject(msg, reason, text, ref_id)` sends a BusinessMessageReject).
 
 Messages are untyped: fields by tag, values as text, `turbojet.tags` naming the tags, and
 `msg.group(count_tag, member_tags)` reading a repeating group. Sessions also have

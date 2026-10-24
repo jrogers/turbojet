@@ -110,7 +110,11 @@ impl Application for TestApp {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         self.redelivered.lock().unwrap().push(ctx.maybe_redelivered());
         if msg.msg_type() != MsgType::NewOrderSingle {
-            return Err(MessageReject::unsupported_message_type());
+            let reject = MessageReject::unsupported_message_type();
+            return Err(match msg.get(tags::CL_ORD_ID) {
+                Some(id) => reject.with_ref_id(id),
+                None => reject,
+            });
         }
         msg.get(tags::SYMBOL).ok_or_else(|| MessageReject::required_tag_missing(tags::SYMBOL))?;
         if self.panic_in == Some("on_message") && msg.get(tags::CL_ORD_ID) == Some("PANIC") {
@@ -2414,6 +2418,12 @@ fn unsupported_message_type_gets_business_reject() {
     assert_eq!(reject.msg_type(), MsgType::BusinessMessageReject);
     assert_eq!(reject.get(tags::REF_SEQ_NUM), Some("2"));
     assert_eq!(reject.get(tags::REF_MSG_TYPE), Some("G"));
+    assert_eq!(reject.get(tags::BUSINESS_REJECT_REASON), Some("3"));
+    assert_eq!(reject.get(tags::BUSINESS_REJECT_REF_ID), None, "the application named no ID");
+
+    let out = s.recv(client(3, MsgType::from_code("G")).with(tags::CL_ORD_ID, "C1"), h.t0);
+    let reject = sent(&out)[0];
+    assert_eq!(reject.get(tags::BUSINESS_REJECT_REF_ID), Some("C1"));
     assert_eq!(reject.get(tags::BUSINESS_REJECT_REASON), Some("3"));
 }
 

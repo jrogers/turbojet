@@ -5,7 +5,7 @@ use std::sync::{Arc, Weak};
 
 use tracing::error;
 
-use crate::fields::{BusinessRejectReason, SessionRejectReason};
+use crate::fields::{BusinessRejectReason, CompactString, SessionRejectReason};
 use crate::message::{FieldError, FixMessage, Message};
 use crate::peer::ConnectionInfo;
 use crate::registry::{CommandSender, SessionHandle};
@@ -470,6 +470,10 @@ pub enum MessageReject {
     /// The message is well-formed but cannot be processed: answered with a
     /// BusinessMessageReject(j).
     Business {
+        /// The referenced message's business ID, its ClOrdID say, sent as
+        /// BusinessRejectRefID(379). FIX requires it whenever the message has one: set it with
+        /// [`with_ref_id`](MessageReject::with_ref_id).
+        ref_id: Option<CompactString>,
         /// Sent as BusinessRejectReason(380).
         reason: BusinessRejectReason,
         /// Sent as Text(58).
@@ -495,6 +499,7 @@ impl MessageReject {
     /// A field required in this context (e.g. Price on a limit order) is missing.
     pub fn conditionally_required_field_missing(tag: u32) -> Self {
         Self::Business {
+            ref_id: None,
             reason: BusinessRejectReason::ConditionallyRequiredFieldMissing,
             text: format!("Conditionally required tag {tag} missing"),
         }
@@ -503,7 +508,21 @@ impl MessageReject {
     /// The application doesn't handle this MsgType: a BusinessMessageReject(j) with reason
     /// UnsupportedMessageType.
     pub fn unsupported_message_type() -> Self {
-        Self::Business { reason: BusinessRejectReason::UnsupportedMessageType, text: "Unsupported message type".into() }
+        Self::Business {
+            ref_id: None,
+            reason: BusinessRejectReason::UnsupportedMessageType,
+            text: "Unsupported message type".into(),
+        }
+    }
+
+    /// A Business reject naming the rejected message's business ID, its ClOrdID say, as
+    /// BusinessRejectRefID(379). A Session reject has no such field, and is returned unchanged.
+    #[must_use]
+    pub fn with_ref_id(mut self, id: impl Into<CompactString>) -> Self {
+        if let Self::Business { ref_id, .. } = &mut self {
+            *ref_id = Some(id.into());
+        }
+        self
     }
 }
 
@@ -513,7 +532,10 @@ impl std::fmt::Display for MessageReject {
         match self {
             Self::Session { ref_tag: Some(tag), reason, text } => write!(f, "Reject(3) {reason:?}, tag {tag}: {text}"),
             Self::Session { ref_tag: None, reason, text } => write!(f, "Reject(3) {reason:?}: {text}"),
-            Self::Business { reason, text } => write!(f, "BusinessMessageReject(j) {reason:?}: {text}"),
+            Self::Business { ref_id: Some(id), reason, text } => {
+                write!(f, "BusinessMessageReject(j) {reason:?}, ID {id}: {text}")
+            }
+            Self::Business { ref_id: None, reason, text } => write!(f, "BusinessMessageReject(j) {reason:?}: {text}"),
         }
     }
 }

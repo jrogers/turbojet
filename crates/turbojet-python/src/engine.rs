@@ -329,15 +329,17 @@ impl Session {
     }
 
     /// Sends a BusinessMessageReject for `msg`, a message received on this session, with
-    /// BusinessRejectReason `reason` and Text `text`, as `send` does. Then call the event's
-    /// `done()`, as for any message.
-    #[pyo3(signature = (msg, reason, text = None))]
+    /// BusinessRejectReason `reason`, Text `text` and BusinessRejectRefID `ref_id` (the message's
+    /// business ID, its ClOrdID say, which FIX requires whenever it has one), as `send` does. Then
+    /// call the event's `done()`, as for any message.
+    #[pyo3(signature = (msg, reason, text = None, ref_id = None))]
     fn reject<'py>(
         &self,
         py: Python<'py>,
         msg: PyRef<'py, PyMessage>,
         reason: u32,
         text: Option<&str>,
+        ref_id: Option<&str>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let id = self.0.id();
         if id.begin_string == "FIX.4.0" || id.begin_string == "FIX.4.1" {
@@ -349,6 +351,9 @@ impl Session {
         let mut reply = Message::new(MsgType::from_code("j")).with_reverse_route(received);
         reply.push(45, seq_num);
         reply.push(372, received.msg_type());
+        if let Some(ref_id) = ref_id {
+            reply.push(379, ref_id);
+        }
         reply.push(380, reason);
         if let Some(text) = text {
             reply.push(58, text);

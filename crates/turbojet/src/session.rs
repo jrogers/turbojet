@@ -2391,7 +2391,7 @@ impl Session {
             // The limit's first warning on the connection says it's being reached.
             debug!(msg_type = %msg.msg_type(), seq_num, "rejecting a message over the inbound rate limit");
             let text = "throttle limit exceeded".into();
-            return self.send_business_reject(msg, seq_num, BusinessRejectReason::Other, text, now);
+            return self.send_business_reject(msg, seq_num, None, BusinessRejectReason::Other, text, now);
         }
         let redelivered =
             resent && self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
@@ -2424,14 +2424,16 @@ impl Session {
         let Some(result) = result else {
             // The message counts as received, so say it wasn't processed.
             let reason = BusinessRejectReason::ApplicationNotAvailable;
-            return self.business_reject(msg, seq_num, reason, "Application error".into(), now);
+            return self.business_reject(msg, seq_num, None, reason, "Application error".into(), now);
         };
         match result {
             Ok(()) => {}
             Err(MessageReject::Session { ref_tag, reason, text }) => {
                 self.reject(msg, ref_tag, Some(reason), &text, now)
             }
-            Err(MessageReject::Business { reason, text }) => self.business_reject(msg, seq_num, reason, text, now),
+            Err(MessageReject::Business { ref_id, reason, text }) => {
+                self.business_reject(msg, seq_num, ref_id, reason, text, now)
+            }
         }
     }
 
@@ -2490,12 +2492,13 @@ impl Session {
         &mut self,
         msg: &Message,
         seq_num: u64,
+        ref_id: Option<CompactString>,
         reason: BusinessRejectReason,
         text: String,
         now: Instant,
     ) {
-        warn!(msg_type = %msg.msg_type(), %reason, %text, "business reject");
-        self.send_business_reject(msg, seq_num, reason, text, now);
+        warn!(msg_type = %msg.msg_type(), ?ref_id, %reason, %text, "business reject");
+        self.send_business_reject(msg, seq_num, ref_id, reason, text, now);
     }
 
     /// [`business_reject`](Self::business_reject), without the warning.
@@ -2503,6 +2506,7 @@ impl Session {
         &mut self,
         msg: &Message,
         seq_num: u64,
+        ref_id: Option<CompactString>,
         reason: BusinessRejectReason,
         text: String,
         now: Instant,
@@ -2522,6 +2526,7 @@ impl Session {
         let reply = BusinessMessageReject {
             ref_seq_num: Some(seq_num),
             ref_msg_type: msg.msg_type(),
+            business_reject_ref_id: ref_id,
             business_reject_reason: reason,
             text: Some(text.into()),
         };
