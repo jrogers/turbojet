@@ -459,6 +459,7 @@ impl Outbox {
 #[non_exhaustive]
 pub enum MessageReject {
     /// The message is malformed: answered with a session-level Reject(3).
+    #[non_exhaustive]
     Session {
         /// The offending field, sent as RefTagID(371).
         ref_tag: Option<u32>,
@@ -469,6 +470,7 @@ pub enum MessageReject {
     },
     /// The message is well-formed but cannot be processed: answered with a
     /// BusinessMessageReject(j).
+    #[non_exhaustive]
     Business {
         /// The referenced message's business ID, its ClOrdID say, sent as
         /// BusinessRejectRefID(379). FIX requires it whenever the message has one: set it with
@@ -482,6 +484,17 @@ pub enum MessageReject {
 }
 
 impl MessageReject {
+    /// A session-level Reject(3) with `reason` and `text`, naming `ref_tag` if given.
+    pub fn session(ref_tag: Option<u32>, reason: SessionRejectReason, text: impl Into<String>) -> Self {
+        Self::Session { ref_tag, reason, text: text.into() }
+    }
+
+    /// A BusinessMessageReject(j) with `reason` and `text`; name the message's business ID with
+    /// [`with_ref_id`](Self::with_ref_id).
+    pub fn business(reason: BusinessRejectReason, text: impl Into<String>) -> Self {
+        Self::Business { ref_id: None, reason, text: text.into() }
+    }
+
     /// A required field is missing: a Reject(3) with reason RequiredTagMissing.
     pub fn required_tag_missing(tag: u32) -> Self {
         Self::Session {

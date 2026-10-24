@@ -13,6 +13,7 @@ use super::{FromFix, ToFix, ValueError};
 
 /// How many digits of a second a time is written with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+#[non_exhaustive]
 pub enum Precision {
     /// Whole seconds: `HH:MM:SS`.
     Seconds,

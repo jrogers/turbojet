@@ -481,6 +481,7 @@ macro_rules! msg_types {
     ($(#[$meta:meta])* $( $variant:ident = $code:literal, )+) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        #[non_exhaustive]
         pub enum MsgType {
             $( #[doc = concat!(stringify!($variant), "(", $code, ").")] $variant, )+
             /// A code without a variant of its own, such as a venue's custom message type. Codes
