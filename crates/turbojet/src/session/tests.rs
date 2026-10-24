@@ -3789,6 +3789,31 @@ fn malformed_sequence_resets_are_rejected_not_applied() {
     assert_eq!(types(&s.recv(order(3, "A"), h.t0)), ["ExecutionReport"]);
 }
 
+/// A gap fill whose NewSeqNo isn't past its own MsgSeqNum is rejected, and only its own number
+/// is used: the next expected never goes back.
+#[test]
+fn a_gap_fill_not_past_its_own_number_is_rejected() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    for (seq, new_seq_no) in [(2u64, 2u64), (3, 2)] {
+        let fill =
+            client(seq, MsgType::SequenceReset).with(tags::GAP_FILL_FLAG, "Y").with(tags::NEW_SEQ_NO, new_seq_no);
+        assert_eq!(types(&s.recv(fill, h.t0)), ["Reject"]);
+        assert_eq!(s.peer().log.next_incoming(), seq + 1);
+    }
+}
+
+#[test]
+fn a_resend_request_from_zero_is_rejected() {
+    let h = Harness::new();
+    let mut s = h.logged_on(); // our seq 1: Logon
+    s.recv(order(2, "A"), h.t0); // our 2: ExecutionReport
+    let req = client(3, MsgType::ResendRequest).with(tags::BEGIN_SEQ_NO, "0").with(tags::END_SEQ_NO, "0");
+    let out = s.recv(req, h.t0);
+    assert_eq!(types(&out), ["Reject"]);
+    assert_eq!(sent(&out)[0].get(tags::REF_TAG_ID), Some("7"));
+}
+
 #[test]
 fn a_malformed_logon_is_refused_on_both_roles() {
     let h = Harness::new();

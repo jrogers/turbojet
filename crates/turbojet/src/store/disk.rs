@@ -1236,6 +1236,62 @@ mod tests {
         assert_eq!(numbers(&dir), (8, 8, None), "generation 42 is later than 41");
     }
 
+    /// A slot's bytes are fixed, with the checksum worked out apart from the code: a change to
+    /// the format or the checksum that kept writer and reader agreeing would still make every
+    /// existing store unreadable.
+    #[test]
+    fn the_slot_format_is_fixed() {
+        let numbers_text = format!("{:020} {:020} {:020} {:020}", 7, 12, 34, 30);
+        let mut golden = format!("S2 {numbers_text} f030a0df02d99a39").into_bytes();
+        golden.resize(SLOT - 1, b' ');
+        golden.push(b'\n');
+        assert_eq!(slot_record(7, 12, 34, 30), golden.as_slice());
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(seqnums_path(&dir), &golden).unwrap();
+        assert_eq!(numbers(&dir), (12, 34, Some(30)));
+    }
+
+    /// A record whose next outgoing or next incoming is zero isn't valid, whichever form it's in:
+    /// the other slot's, or a fresh start, is read instead.
+    #[test]
+    fn a_record_with_a_zero_number_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        for zero in [slot_record(41, 0, 8, 0), slot_record(41, 7, 0, 0)] {
+            let mut slots = slot_record(40, 6, 8, 0).to_vec();
+            slots.extend_from_slice(&zero);
+            fs::write(seqnums_path(&dir), &slots).unwrap();
+            assert_eq!(numbers(&dir), (6, 8, None));
+        }
+        for old in ["0 9\n", "5 0\n", "0 9 3\n", "5 0 3\n"] {
+            fs::write(seqnums_path(&dir), old).unwrap();
+            assert_eq!(numbers(&dir), (1, 1, None), "{old:?}");
+        }
+        fs::write(seqnums_path(&dir), "5 9 3\n").unwrap();
+        assert_eq!(numbers(&dir), (5, 9, Some(3)));
+        fs::write(seqnums_path(&dir), "5 9 0\n").unwrap();
+        assert_eq!(numbers(&dir), (5, 9, None), "an in-flight 0 is none");
+    }
+
+    /// A seqnums file longer than a slot that holds no record isn't a torn first write: opening it
+    /// fails, rather than starting both numbers again at 1.
+    #[test]
+    fn a_corrupt_seqnums_file_fails_to_open() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(seqnums_path(&dir), [b'x'; SLOT + 1]).unwrap();
+        let err = storage(&dir).open(&id("A")).err().expect("open should fail");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn contains_only_opened_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = storage(&dir);
+        assert!(!storage.contains(&id("A")));
+        drop(storage.open(&id("A")).unwrap());
+        assert!(storage.contains(&id("A")));
+        assert!(!storage.contains(&id("B")));
+    }
+
     /// Nothing reaches the files until a commit, and a crash before one loses what it would have
     /// written (none of which has been sent).
     #[test]
