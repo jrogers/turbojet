@@ -61,7 +61,7 @@
 //!
 //! Callbacks run on the session's connection task and must not block: hand slow work to another
 //! task, and send its result through a [`SessionHandle`]. The application gets one in
-//! [`Application::on_logon`], and [`Acceptor::session`] and [`Initiator::handle`] give one at any
+//! [`Application::on_logon`], and [`Acceptor::handle_for`] and [`Initiator::handle`] give one at any
 //! time. Other hooks check a counterparty's Logon ([`Application::verify_logon`], with its
 //! credentials and TLS certificate), add to outbound session messages
 //! ([`Application::to_admin`]), show inbound ones, such as a counterparty's Reject

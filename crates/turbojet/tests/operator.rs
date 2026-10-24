@@ -55,7 +55,7 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.clone().serve(listener));
-    let operator = acceptor.session("CLIENT");
+    let operator = acceptor.handle_for("CLIENT");
 
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let initiator = Initiator::new(
@@ -178,7 +178,7 @@ async fn operators_ask_for_processed_messages_again() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.clone().serve(listener));
-    let operator = acceptor.session("CLIENT");
+    let operator = acceptor.handle_for("CLIENT");
     assert!(operator.request_resend(1).await.is_err(), "not logged on");
 
     let (client_tx, mut client) = mpsc::unbounded_channel();
@@ -244,7 +244,7 @@ async fn operators_pause_and_resume_sessions() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     tokio::spawn(acceptor.clone().serve(listener));
-    let at_acceptor = acceptor.session("CLIENT");
+    let at_acceptor = acceptor.handle_for("CLIENT");
 
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
@@ -326,13 +326,13 @@ async fn operators_follow_sessions_through_events() {
     };
     expect(&[SessionEventKind::Connected, SessionEventKind::LoggedOn]).await;
 
-    acceptor.session("CLIENT").pause(None);
+    acceptor.handle_for("CLIENT").pause(None);
     expect(&[SessionEventKind::Paused, SessionEventKind::LoggingOut, SessionEventKind::Disconnected]).await;
     // The initiator tries again, and is turned away.
     let refused = SessionEventKind::Refused("FIX.4.2:SERVER->CLIENT is paused".into());
     expect(&[refused]).await;
 
-    acceptor.session("CLIENT").resume();
+    acceptor.handle_for("CLIENT").resume();
     // A refusal or two may come before the resume takes.
     let mut seen = Vec::new();
     while seen.last() != Some(&SessionEventKind::LoggedOn) {

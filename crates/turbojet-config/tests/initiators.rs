@@ -125,7 +125,7 @@ async fn a_new_address_applies_from_the_next_connection() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(second.events.try_recv().is_err(), "the working session is left alone");
     // When the session ends, it reconnects to the new address.
-    first.acceptor.session("ALPHA").logout(Some("moving")).unwrap();
+    first.acceptor.handle_for("ALPHA").logout(Some("moving")).unwrap();
     assert_eq!(first.next().await, "logout ALPHA");
     assert_eq!(second.next().await, "logon ALPHA");
     assert!(handle.is_connected(), "the handle from before still works");

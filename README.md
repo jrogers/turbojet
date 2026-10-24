@@ -180,7 +180,7 @@ impl Application for MyApp {
 // Acceptor: many counterparties log on to us.
 let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), storage.clone(), Arc::new(MyApp))?;
 tokio::spawn(acceptor.clone().serve(listener));
-acceptor.session("CLIENT").send(msg)?;          // queue for a connected counterparty
+acceptor.handle_for("CLIENT").send(msg)?;          // queue for a connected counterparty
 
 // Initiator: we log on to one counterparty and reconnect as needed.
 let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
@@ -464,11 +464,11 @@ checked against the specification's examples and against another implementation,
 
 ## Operating on sequence numbers
 
-Every `SessionHandle` (e.g. `acceptor.session("CLIENT1")` or `initiator.handle()`) can inspect and
+Every `SessionHandle` (e.g. `acceptor.handle_for("CLIENT1")` or `initiator.handle()`) can inspect and
 correct its session's sequence numbers, connected or not:
 
 ```rust
-let session = acceptor.session("CLIENT1");
+let session = acceptor.handle_for("CLIENT1");
 let SequenceNumbers { next_incoming, next_outgoing } = session.sequence_numbers().await?;
 session.set_next_incoming(42).await?;   // either direction
 session.set_next_outgoing(100).await?;  // forward only
@@ -511,7 +511,7 @@ while let Ok(SessionEvent { id, kind, .. }) = events.recv().await {
     // Resumed, Refused(reason)
 }
 
-let session = acceptor.session("CLIENT1");
+let session = acceptor.handle_for("CLIENT1");
 session.pause(Some("maintenance")); // log out, and refuse its Logons until resumed
 session.resume();
 session.request_resend(1200).await?; // have it send 1200 onwards again
@@ -714,7 +714,7 @@ config.sender_sub_id = Some("DESK1".into());
 config.target_location_id = Some("LDN".into());
 
 let id = SessionId::new("FIX.4.4", "SERVER", "CLIENT").with_target_sub_id("DESK1");
-acceptor.handle(&id).send(msg)?; // acceptor.session("CLIENT") is the session without them
+acceptor.handle(&id).send(msg)?; // acceptor.handle_for("CLIENT") is the session without them
 ```
 
 Every message a session sends carries its SubIDs and LocationIDs, unless the application set its

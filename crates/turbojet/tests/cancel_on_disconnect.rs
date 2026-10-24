@@ -186,7 +186,7 @@ async fn logging_back_on_within_the_grace_period_stops_the_cancel() {
     // Long past the grace period, though short of a heartbeat the client would have to answer.
     sleep(GRACE * 4).await;
     events.assert_none();
-    assert!(acceptor.session("CLIENT").is_connected());
+    assert!(acceptor.handle_for("CLIENT").is_connected());
 }
 
 /// The client logs out, and the acceptor answers. `trigger` says whether that counts. The

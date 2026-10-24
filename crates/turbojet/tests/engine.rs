@@ -107,7 +107,7 @@ async fn initiator_and_acceptor_exchange_messages_both_ways() {
     assert_eq!(ack.get(tags::SENDER_COMP_ID), Some("SERVER"));
 
     // The server pushes an unsolicited message by counterparty name.
-    acceptor.session("CLIENT").send(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "pushed")).unwrap();
+    acceptor.handle_for("CLIENT").send(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "pushed")).unwrap();
     assert_eq!(message(&mut client).await.get(tags::TEXT), Some("pushed"));
 
     // Orderly logout from the client side notifies both applications.
@@ -131,7 +131,7 @@ async fn initiator_reconnects_and_continues_the_sequence() {
     let first = message(&mut client).await;
 
     // The server ends the session; the initiator reconnects on its own.
-    acceptor.session("CLIENT").logout(Some("maintenance")).unwrap();
+    acceptor.handle_for("CLIENT").logout(Some("maintenance")).unwrap();
     assert!(matches!(next(&mut server).await, Event::LoggedOut));
     assert!(matches!(next(&mut client).await, Event::LoggedOut));
     logged_on(&mut client).await;

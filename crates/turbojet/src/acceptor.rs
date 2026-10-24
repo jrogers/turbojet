@@ -155,7 +155,7 @@ impl Acceptor {
     /// A handle to the session with counterparty `target_comp_id` and no SubIDs, LocationIDs or
     /// qualifier, usable whenever it is connected. For one with them, see
     /// [`handle`](Self::handle).
-    pub fn session(&self, target_comp_id: &str) -> SessionHandle {
+    pub fn handle_for(&self, target_comp_id: &str) -> SessionHandle {
         self.registry.handle(SessionId::new(
             self.config.begin_string.clone(),
             self.config.sender_comp_id.clone(),

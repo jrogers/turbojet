@@ -154,7 +154,7 @@ async fn fails_back_to_the_primary_once_it_is_available() {
 
     // The primary comes back; the live session on the backup is left alone until it ends.
     let (_primary, _) = h.acceptor("primary", Some(&primary_addr), false).await;
-    backup.session("CLIENT").logout(Some("maintenance")).unwrap();
+    backup.handle_for("CLIENT").logout(Some("maintenance")).unwrap();
     h.logged_on("primary").await;
     // The client may still be awaiting the Logon reply here; the send is queued until it arrives.
 
