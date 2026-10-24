@@ -131,9 +131,9 @@
 //!
 //!     let (logons, mut logged_on) = mpsc::unbounded_channel();
 //!     let (messages, mut received) = mpsc::unbounded_channel();
-//!     let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
+//!     let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER").with_endpoint(addr);
 //!     let app = Arc::new(Client { logons, messages });
-//!     let client = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app)?;
+//!     let client = Initiator::new(config, Arc::new(MemoryStorage::new()), app)?;
 //!     tokio::spawn(client.clone().run());
 //!
 //!     let session = logged_on.recv().await.expect("logged on");
@@ -162,8 +162,10 @@
 //!   timeouts, the checks on inbound messages' SendingTime and header, and a
 //!   [`SessionSchedule`] to confine the session to trading hours, with sequence numbers reset
 //!   between periods.
-//! - [`InitiatorConfig`] adds the counterparty's CompID, the heartbeat interval, logon credentials
-//!   and reconnection; [`Initiator::with_failover`] adds backup endpoints.
+//! - [`InitiatorConfig`] adds the counterparty's CompID, the endpoints to connect to (a primary,
+//!   then any backups), the heartbeat interval, logon credentials, TLS and reconnection.
+//! - [`AcceptorConfig`] adds an acceptor's connection limits, allowed addresses and
+//!   per-counterparty settings.
 //! - FIX 5.0 SP2 runs over FIXT.1.1: give the session BeginString `FIXT.1.1` and its application
 //!   versions with [`SessionConfig::with_appl_ver_id`], and the engine agrees DefaultApplVerID at
 //!   logon.
@@ -255,6 +257,8 @@ pub use application::{Application, Context, Disconnect, Hold, MessageReject};
 pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerId, MsgType};
+#[cfg(feature = "tls")]
+pub use initiator::InitiatorTls;
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
 pub use message_log::{

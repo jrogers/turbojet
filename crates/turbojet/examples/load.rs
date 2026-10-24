@@ -229,7 +229,7 @@ fn connect(args: &Args, app: &Arc<LoadApp>) -> Result<Vec<SessionHandle>, Box<dy
         let mut config =
             InitiatorConfig::new(SessionConfig::new(args.begin_string.clone(), format!("LOAD{i}")), &args.target);
         config.reset_on_logon = true;
-        let initiator = Initiator::new(args.addr.clone(), config, storage.clone(), app.clone())?;
+        let initiator = Initiator::new(config.with_endpoint(args.addr.clone()), storage.clone(), app.clone())?;
         sessions.push(initiator.handle());
         tokio::spawn(async move {
             if let Err(e) = initiator.connect_once().await {

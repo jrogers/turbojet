@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
-use turbojet::{Application, Endpoint, Initiator, SessionEvent, SessionHandle, SessionId, SessionRegistry};
+use turbojet::{Application, Initiator, SessionEvent, SessionHandle, SessionId, SessionRegistry};
 
 use crate::Error;
 use crate::load::{Loaded, ResolvedInitiator};
@@ -82,30 +82,20 @@ impl Initiators {
     pub(crate) fn start(&self, name: &str, resolved: &ResolvedInitiator) -> Result<(), Error> {
         #[cfg(feature = "tls")]
         let section = format!("initiator {name}");
-        let endpoints = endpoints(resolved);
-        let mut initiator = Initiator::new(
-            endpoints[0].clone(),
-            resolved.config.clone(),
-            Arc::new(turbojet::MemoryStorage::new()),
-            self.app.clone(),
-        )
-        .expect("checked when the file loaded")
-        .with_registry(self.registry.clone());
-        for backup in &endpoints[1..] {
-            initiator = initiator.with_failover(backup.clone());
-        }
         #[cfg(feature = "tls")]
         let tls = match &resolved.tls {
-            Some(files) => {
-                let tls = turbojet::tls::ClientTls::new(files.trust.clone(), files.identity.clone())
-                    .map_err(|e| Error::at(&section, "tls", e))?;
-                initiator = initiator
-                    .with_tls(tls.connector(), &files.server_name)
-                    .map_err(|e| Error::at(&section, "tls", e))?;
-                Some(tls)
-            }
+            Some(files) => Some(
+                turbojet::tls::ClientTls::new(files.trust.clone(), files.identity.clone())
+                    .map_err(|e| Error::at(&section, "tls", e))?,
+            ),
             None => None,
         };
+        #[cfg(feature = "tls")]
+        let config = config(resolved, tls.as_ref());
+        #[cfg(not(feature = "tls"))]
+        let config = resolved.config.clone();
+        let initiator = Initiator::with_registry(config, self.registry.clone(), self.app.clone())
+            .expect("checked when the file loaded");
         let task = tokio::spawn(initiator.clone().run());
         info!(initiator = name, session = %initiator.session_id(), "initiator started");
 
@@ -141,10 +131,11 @@ impl Initiators {
             tls.set_trust(files.trust.clone()).map_err(|e| Error::at(&section, "tls", e))?;
             tls.set_identity(files.identity.clone());
         }
-        running
-            .initiator
-            .reconfigure(resolved.config.clone(), endpoints(resolved))
-            .map_err(|e| Error::at(&section, "settings", e))?;
+        #[cfg(feature = "tls")]
+        let config = config(resolved, running.tls.as_ref());
+        #[cfg(not(feature = "tls"))]
+        let config = resolved.config.clone();
+        running.initiator.reconfigure(config).map_err(|e| Error::at(&section, "settings", e))?;
         info!(initiator = name, "initiator reconfigured; applies from its next connection");
         Ok(())
     }
@@ -176,12 +167,15 @@ impl Initiators {
 }
 
 /// An initiator's endpoints, each naming the server its TLS certificate must be for.
-fn endpoints(resolved: &ResolvedInitiator) -> Vec<Endpoint> {
+/// The initiator's configuration, with its TLS settings over `tls`.
+#[cfg(feature = "tls")]
+fn config(resolved: &ResolvedInitiator, tls: Option<&turbojet::tls::ClientTls>) -> turbojet::InitiatorConfig {
+    let mut config = resolved.config.clone();
     #[cfg(feature = "tls")]
-    if let Some(files) = &resolved.tls {
-        return resolved.endpoints.iter().map(|e| e.clone().with_tls_server_name(&files.server_name)).collect();
+    if let (Some(tls), Some(files)) = (tls, &resolved.tls) {
+        config.tls = Some(turbojet::InitiatorTls::new(tls.connector(), &files.server_name));
     }
-    resolved.endpoints.clone()
+    config
 }
 
 impl Drop for Initiators {

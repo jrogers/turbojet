@@ -783,6 +783,11 @@ impl<T> SessionRegistry<T> {
         self
     }
 
+    /// The clock given to [`with_clock`](Self::with_clock), or the system's.
+    pub fn clock(&self) -> &Clock {
+        &self.clock
+    }
+
     /// A handle for `id`. It can be created before the session connects and stays valid across
     /// reconnects; sends succeed while the session is connected.
     pub fn handle(self: &Arc<Self>, id: SessionId) -> SessionHandle<T> {

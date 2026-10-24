@@ -230,7 +230,7 @@ fn initiator(addr: &str, reconnect: Duration) -> (Initiator, mpsc::UnboundedRece
     let (app, events) = recorder();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.reconnect = turbojet::ReconnectPolicy::fixed(reconnect);
-    (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap(), events)
+    (Initiator::new(config.with_endpoint(addr), Arc::new(MemoryStorage::new()), app).unwrap(), events)
 }
 
 #[tokio::test]

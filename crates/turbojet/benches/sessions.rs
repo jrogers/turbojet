@@ -95,7 +95,7 @@ async fn connect(count: usize) -> Vec<Sender> {
         let client = Arc::new(Client { logged_on: logged_on.clone(), acked, events: Arc::clone(&events) });
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", format!("CLIENT{i}")), "GATEWAY");
         config.reset_on_logon = true;
-        let initiator = Initiator::new(addr.clone(), config, storage.clone(), client).unwrap();
+        let initiator = Initiator::new(config.with_endpoint(addr.clone()), storage.clone(), client).unwrap();
         senders.push(Sender { handle: initiator.handle(), acks, events });
         tokio::spawn(initiator.run());
     }

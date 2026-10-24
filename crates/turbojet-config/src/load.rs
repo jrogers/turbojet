@@ -68,11 +68,10 @@ impl AcceptorPart {
     }
 }
 
-/// An initiator's settings: its configuration, endpoints, store and TLS.
+/// An initiator's settings: its configuration (with its endpoints), store and TLS.
 #[derive(Clone)]
 pub(crate) struct ResolvedInitiator {
     pub config: InitiatorConfig,
-    pub endpoints: Vec<Endpoint>,
     pub store: String,
     /// The CAs to trust, the certificate to present if any, and the server name to check.
     #[cfg(feature = "tls")]
@@ -451,11 +450,11 @@ fn resolve_initiator(
         policy.jitter = reconnect.jitter.unwrap_or(policy.jitter);
         config.reconnect = policy;
     }
-    config.check().map_err(|e| at("settings", e.to_string()))?;
     if own.connect.is_empty() {
         return Err(at("connect", "needs an address".into()));
     }
-    let endpoints = own.connect.iter().map(Endpoint::new).collect();
+    config.endpoints = own.connect.iter().map(Endpoint::new).collect();
+    config.check().map_err(|e| at("settings", e.to_string()))?;
     let store = merged.store.clone().unwrap_or_else(|| MEMORY.into());
     if !stores.contains_key(&store) {
         return Err(at("store", format!("no store named '{store}'")));
@@ -464,7 +463,6 @@ fn resolve_initiator(
     refuse_tls(own.tls.is_some(), &section)?;
     Ok(ResolvedInitiator {
         config,
-        endpoints,
         store,
         #[cfg(feature = "tls")]
         tls: client_tls(own, &section, context.dir)?,
@@ -1171,7 +1169,7 @@ mod tests {
         assert_eq!(lse.config.password.as_ref().map(|p| p.expose().to_string()), std::env::var("PATH").ok());
         assert_eq!(lse.config.reconnect.initial, Duration::from_millis(100));
         assert!(!lse.config.reconnect.jitter);
-        assert_eq!(lse.endpoints, [Endpoint::new("primary:9876"), Endpoint::new("backup:9876")]);
+        assert_eq!(lse.config.endpoints, [Endpoint::new("primary:9876"), Endpoint::new("backup:9876")]);
         assert_eq!(lse.config.local_addr, Some("10.0.0.5:0".parse().unwrap()));
         let loaded = load_text(&format!("{INITIATOR}local_address = \"[::1]:4000\"")).unwrap();
         assert_eq!(loaded.initiators["LSE"].config.local_addr, Some("[::1]:4000".parse().unwrap()));

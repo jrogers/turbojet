@@ -65,7 +65,8 @@ async fn a_reconnected_client_gets_its_reports_resent_from_the_database() {
     let (sender, mut events) = mpsc::unbounded_channel();
     let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE");
     let initiator =
-        Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), Arc::new(Client(sender))).unwrap();
+        Initiator::new(config.with_endpoint(addr.as_str()), Arc::new(MemoryStorage::new()), Arc::new(Client(sender)))
+            .unwrap();
     let handle = initiator.handle();
 
     let first = tokio::spawn({

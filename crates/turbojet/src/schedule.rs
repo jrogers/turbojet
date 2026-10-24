@@ -48,9 +48,11 @@ const _: () = assert!(MAX_CANDIDATES > 366 + 2);
 pub struct Clock(Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>);
 
 impl Clock {
-    /// The system clock.
+    /// The system clock. Every call gives the same clock, so configurations and registries
+    /// left on the default agree on it.
     pub fn system() -> Self {
-        Self(Arc::new(Utc::now))
+        static SYSTEM: std::sync::LazyLock<Clock> = std::sync::LazyLock::new(|| Clock(Arc::new(Utc::now)));
+        SYSTEM.clone()
     }
 
     /// A clock that reads the time from `now`.

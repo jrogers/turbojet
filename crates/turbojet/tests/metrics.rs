@@ -97,8 +97,7 @@ async fn both_ends_agree_on_messages_and_bytes() {
     let (logged_on, mut logons) = mpsc::unbounded_channel();
     let (acks_tx, mut acks) = mpsc::unbounded_channel();
     let initiator = Initiator::new(
-        addr,
-        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
+        (InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER")).with_endpoint(addr),
         Arc::new(MemoryStorage::new()),
         Arc::new(Client { logged_on, acks: acks_tx }),
     )

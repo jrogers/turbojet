@@ -33,6 +33,10 @@ pub struct InitiatorConfig {
     pub session: SessionConfig,
     /// The counterparty's CompID.
     pub target_comp_id: String,
+    /// Where to connect, in the order tried: the primary, then backups in priority order. At
+    /// least one. All are assumed to serve the same FIX session (a counterparty's primary and
+    /// disaster-recovery sites, say), so sequence numbers carry over when failing over.
+    pub endpoints: Vec<Endpoint>,
     /// Our SenderSubID(50), sent on every message unless the application sets its own.
     pub sender_sub_id: Option<String>,
     /// Our SenderLocationID(142), sent on every message unless the application sets its own.
@@ -71,6 +75,10 @@ pub struct InitiatorConfig {
     /// [`ConnectionInfo`] then has the proxy's address, not the counterparty's. `None` (the
     /// default) connects directly.
     pub proxy: Option<Proxy>,
+    /// Connects over TLS, verifying each server's certificate. `None` (the default) connects
+    /// in plain TCP.
+    #[cfg(feature = "tls")]
+    pub tls: Option<InitiatorTls>,
     /// How long [`Initiator::run`] waits after a session ends, or after every endpoint has
     /// failed, before connecting again.
     pub reconnect: ReconnectPolicy,
@@ -80,11 +88,13 @@ impl InitiatorConfig {
     /// A configuration for logging on to `target_comp_id`: a 30-second heartbeat, no sequence
     /// reset, NextExpectedMsgSeqNum or credentials on logon, a 10-second connect timeout, and
     /// reconnection after 1 second, backing off to 60 with jitter while attempts fail (see
-    /// [`ReconnectPolicy`]).
+    /// [`ReconnectPolicy`]). It has no endpoints yet: add them with
+    /// [`with_endpoint`](Self::with_endpoint).
     pub fn new(session: SessionConfig, target_comp_id: impl Into<String>) -> Self {
         Self {
             session,
             target_comp_id: target_comp_id.into(),
+            endpoints: Vec::new(),
             sender_sub_id: None,
             sender_location_id: None,
             target_sub_id: None,
@@ -98,8 +108,18 @@ impl InitiatorConfig {
             connect_timeout: Duration::from_secs(10),
             local_addr: None,
             proxy: None,
+            #[cfg(feature = "tls")]
+            tls: None,
             reconnect: ReconnectPolicy::default(),
         }
+    }
+
+    /// Adds an endpoint, tried after those added before: the first is the primary, the rest
+    /// backups.
+    #[must_use]
+    pub fn with_endpoint(mut self, endpoint: impl Into<Endpoint>) -> Self {
+        self.endpoints.push(endpoint.into());
+        self
     }
 
     /// The session this configuration logs on to: its BeginString, our CompID and the target's,
@@ -116,9 +136,10 @@ impl InitiatorConfig {
     }
 
     /// Checks the configuration: the session's ([`SessionConfig::check`]), the reconnect
-    /// policy's ([`ReconnectPolicy::check`]), and a heartbeat interval of whole seconds from 1 to
-    /// 3600. HeartBtInt(108) is a whole number of seconds, so anything else would promise the
-    /// counterparty a different interval from the one kept.
+    /// policy's ([`ReconnectPolicy::check`]), a heartbeat interval of whole seconds from 1 to
+    /// 3600, at least one endpoint, and TLS server names that are DNS names or IP addresses.
+    /// HeartBtInt(108) is a whole number of seconds, so any other interval would promise the
+    /// counterparty a different one from the one kept.
     ///
     /// # Errors
     ///
@@ -129,6 +150,23 @@ impl InitiatorConfig {
 
     /// [`check`](Self::check), as text.
     pub(crate) fn first_problem(&self) -> Result<(), String> {
+        self.session_problem()?;
+        if self.endpoints.is_empty() {
+            return Err("an initiator needs an endpoint".into());
+        }
+        #[cfg(feature = "tls")]
+        if let Some(tls) = &self.tls {
+            let overrides = self.endpoints.iter().filter_map(|e| e.tls_server_name.as_deref());
+            for name in std::iter::once(tls.server_name.as_str()).chain(overrides) {
+                tls_server_name(name).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// [`check`](Self::check) of what a session uses, leaving out where it connects: a sans-IO
+    /// [`Session`] is given its connection.
+    fn session_problem(&self) -> Result<(), String> {
         self.session.first_problem()?;
         self.reconnect.first_problem()?;
         let interval = self.heartbeat_interval;
@@ -141,9 +179,10 @@ impl InitiatorConfig {
         Ok(())
     }
 
-    /// Panics with [`check`](Self::check)'s message if this configuration is invalid.
+    /// Panics with [`check`](Self::check)'s message if this configuration is invalid for a
+    /// session, endpoints aside.
     pub(crate) fn assert_valid(&self) {
-        if let Err(e) = self.first_problem() {
+        if let Err(e) = self.session_problem() {
             panic!("invalid initiator configuration: {e}");
         }
     }
@@ -155,8 +194,8 @@ impl InitiatorConfig {
 pub struct Endpoint {
     /// `host:port`.
     pub addr: String,
-    /// Name to verify the server's TLS certificate against, overriding the one given to
-    /// `Initiator::with_tls`. Ignored without TLS.
+    /// Name to verify the server's TLS certificate against, overriding
+    /// [`InitiatorTls::server_name`]. Ignored without TLS.
     pub tls_server_name: Option<String>,
 }
 
@@ -192,6 +231,34 @@ impl From<&String> for Endpoint {
     }
 }
 
+/// How an initiator connects over TLS ([`InitiatorConfig::tls`]).
+#[cfg(feature = "tls")]
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct InitiatorTls {
+    /// Makes the TLS connections: from [`ClientTls::connector`](crate::tls::ClientTls::connector),
+    /// say.
+    pub connector: crate::tls::TlsConnector,
+    /// The name (a DNS name or IP address) to verify each server's certificate against, unless
+    /// its endpoint sets its own ([`Endpoint::tls_server_name`]).
+    pub server_name: String,
+}
+
+#[cfg(feature = "tls")]
+impl InitiatorTls {
+    /// TLS through `connector`, verifying servers' certificates against `server_name`.
+    pub fn new(connector: crate::tls::TlsConnector, server_name: impl Into<String>) -> Self {
+        Self { connector, server_name: server_name.into() }
+    }
+}
+
+#[cfg(feature = "tls")]
+impl std::fmt::Debug for InitiatorTls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InitiatorTls").field("server_name", &self.server_name).finish_non_exhaustive()
+    }
+}
+
 /// A FIX initiator for one session, with a primary endpoint and optional backups.
 /// Cheap to clone; clones share the session and [shutdown](Initiator::shutdown).
 ///
@@ -201,11 +268,9 @@ impl From<&String> for Endpoint {
 pub struct Initiator {
     /// What it connects to and with, shared by clones and replaced whole by
     /// [`reconfigure`](Self::reconfigure); each connection attempt takes the one current then.
-    plan: Arc<RwLock<Arc<Plan>>>,
+    config: Arc<RwLock<Arc<InitiatorConfig>>>,
     registry: Arc<SessionRegistry>,
     app: Arc<dyn Application>,
-    #[cfg(feature = "tls")]
-    tls: Option<(crate::tls::TlsConnector, String)>,
     shutdown: Arc<Shutdown>,
     /// Addresses whose TCP connect never completes, as with a host that silently drops packets,
     /// which a real socket can't reliably be made to do.
@@ -222,13 +287,6 @@ impl std::fmt::Debug for Initiator {
     }
 }
 
-/// An initiator's endpoints and configuration.
-struct Plan {
-    /// Primary first, then backups in priority order.
-    endpoints: Vec<Endpoint>,
-    config: InitiatorConfig,
-}
-
 /// How a connection attempt to one endpoint ended.
 enum Attempt {
     /// The session logged on; holds how it eventually ended.
@@ -238,132 +296,95 @@ enum Attempt {
 }
 
 impl Initiator {
-    /// An initiator whose primary endpoint is `addr` (`host:port`).
+    /// An initiator connecting as `config` says, keeping session state in `storage`.
     ///
     /// # Errors
     ///
     /// If `config` is invalid; see [`InitiatorConfig::check`].
     pub fn new(
-        addr: impl Into<Endpoint>,
         config: InitiatorConfig,
         storage: Arc<dyn SessionStorage>,
         app: Arc<dyn Application>,
     ) -> Result<Self, ConfigError> {
-        config.check()?;
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.session.clock.clone()));
+        Self::with_registry(config, registry, app)
+    }
+
+    /// An initiator keeping the session's state in `registry` (and its storage) rather than a
+    /// registry of its own, so that [`SessionHandle`]s from it stay valid if this initiator is
+    /// replaced by another for the same session (with different settings, say), and operator
+    /// changes go through it.
+    ///
+    /// # Errors
+    ///
+    /// If `config` is invalid ([`InitiatorConfig::check`]), or its clock isn't the registry's.
+    pub fn with_registry(
+        config: InitiatorConfig,
+        registry: Arc<SessionRegistry>,
+        app: Arc<dyn Application>,
+    ) -> Result<Self, ConfigError> {
+        config.check()?;
+        if !config.session.clock.same_as(registry.clock()) {
+            return Err(ConfigError::from("the configuration's clock isn't the registry's".to_string()));
+        }
         Ok(Self {
-            plan: Arc::new(RwLock::new(Arc::new(Plan { endpoints: vec![addr.into()], config }))),
+            config: Arc::new(RwLock::new(Arc::new(config))),
             registry,
             app,
-            #[cfg(feature = "tls")]
-            tls: None,
             shutdown: Arc::new(Shutdown::new()),
             #[cfg(test)]
             unreachable: Vec::new(),
         })
     }
 
-    /// Adds a backup endpoint, tried after the primary and any earlier backups.
-    #[must_use]
-    pub fn with_failover(self, endpoint: impl Into<Endpoint>) -> Self {
-        let plan = self.plan();
-        let mut endpoints = plan.endpoints.clone();
-        endpoints.push(endpoint.into());
-        self.set_plan(Plan { endpoints, config: plan.config.clone() });
-        self
-    }
-
-    /// Keeps the session's state in `registry` rather than one of its own, so that
-    /// [`SessionHandle`]s from it stay valid if this initiator is replaced by another for the same
-    /// session (with different settings, say), and operator changes go through it. The registry's
-    /// storage is used in place of the one given to [`new`](Self::new). Set it before running or
-    /// cloning.
-    #[must_use]
-    pub fn with_registry(mut self, registry: Arc<SessionRegistry>) -> Self {
-        self.registry = registry;
-        self
-    }
-
-    /// Connects with `config` and to `endpoints` (primary first) from the next connection
-    /// attempt on, here and in clones; a session already connected carries on with the settings
-    /// it connected with. The reconnect policy applies from the next wait.
+    /// Connects with `config` (its endpoints, TLS and the rest) from the next connection attempt
+    /// on, here and in clones; a session already connected carries on with the settings it
+    /// connected with. The reconnect policy applies from the next wait.
     ///
     /// # Errors
     ///
-    /// If `config` is invalid ([`InitiatorConfig::check`]), `endpoints` is empty, a TLS server
-    /// name in it is invalid, or `config` names another session (any part of its [`SessionId`])
-    /// or another clock than the one this initiator was made with: those make another initiator.
-    pub fn reconfigure(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), ConfigError> {
-        self.reconfigure_or(config, endpoints).map_err(ConfigError::from)
+    /// If `config` is invalid ([`InitiatorConfig::check`]), or names another session (any part
+    /// of its [`SessionId`]) or another clock than the one this initiator was made with: those
+    /// make another initiator.
+    pub fn reconfigure(&self, config: InitiatorConfig) -> Result<(), ConfigError> {
+        self.reconfigure_or(config).map_err(ConfigError::from)
     }
 
-    fn reconfigure_or(&self, config: InitiatorConfig, endpoints: Vec<Endpoint>) -> Result<(), String> {
+    fn reconfigure_or(&self, config: InitiatorConfig) -> Result<(), String> {
         config.first_problem()?;
-        if endpoints.is_empty() {
-            return Err("an initiator needs an endpoint".into());
-        }
-        let current = self.plan();
-        let (now, then) = (&config.session, &current.config.session);
+        let current = self.config();
+        let (now, then) = (&config.session, &current.session);
         let fixed = [
             ("begin_string", now.begin_string == then.begin_string),
             ("sender_comp_id", now.sender_comp_id == then.sender_comp_id),
-            ("target_comp_id", config.target_comp_id == current.config.target_comp_id),
-            ("sender_sub_id", config.sender_sub_id == current.config.sender_sub_id),
-            ("sender_location_id", config.sender_location_id == current.config.sender_location_id),
-            ("target_sub_id", config.target_sub_id == current.config.target_sub_id),
-            ("target_location_id", config.target_location_id == current.config.target_location_id),
-            ("qualifier", config.qualifier == current.config.qualifier),
+            ("target_comp_id", config.target_comp_id == current.target_comp_id),
+            ("sender_sub_id", config.sender_sub_id == current.sender_sub_id),
+            ("sender_location_id", config.sender_location_id == current.sender_location_id),
+            ("target_sub_id", config.target_sub_id == current.target_sub_id),
+            ("target_location_id", config.target_location_id == current.target_location_id),
+            ("qualifier", config.qualifier == current.qualifier),
             ("clock", now.clock.same_as(&then.clock)),
         ];
         if let Some((field, _)) = fixed.iter().find(|(_, same)| !same) {
             return Err(format!("{field} can't change: that's another initiator"));
         }
-        #[cfg(feature = "tls")]
-        if self.tls.is_some() {
-            for name in endpoints.iter().filter_map(|e| e.tls_server_name.as_deref()) {
-                tls_server_name(name).map_err(|e| e.to_string())?;
-            }
-        }
-        self.set_plan(Plan { endpoints, config });
+        *self.config.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(config);
         Ok(())
     }
 
-    /// The endpoints and configuration current now.
-    fn plan(&self) -> Arc<Plan> {
-        self.plan.read().unwrap_or_else(PoisonError::into_inner).clone()
-    }
-
-    fn set_plan(&self, plan: Plan) {
-        *self.plan.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(plan);
-    }
-
-    /// Connects over TLS, verifying each server's certificate against `server_name` (a DNS name
-    /// or IP address) unless the endpoint sets its own.
-    ///
-    /// # Errors
-    ///
-    /// [`InvalidInput`](io::ErrorKind::InvalidInput) if `server_name` isn't a DNS name or IP
-    /// address.
-    #[cfg(feature = "tls")]
-    pub fn with_tls(mut self, connector: crate::tls::TlsConnector, server_name: &str) -> io::Result<Self> {
-        tls_server_name(server_name)?;
-        for endpoint in &self.plan().endpoints {
-            if let Some(name) = &endpoint.tls_server_name {
-                tls_server_name(name)?;
-            }
-        }
-        self.tls = Some((connector, server_name.to_string()));
-        Ok(self)
+    /// The configuration current now.
+    fn config(&self) -> Arc<InitiatorConfig> {
+        self.config.read().unwrap_or_else(PoisonError::into_inner).clone()
     }
 
     /// The endpoints in the order they are tried, as of now.
     pub fn endpoints(&self) -> Vec<Endpoint> {
-        self.plan().endpoints.clone()
+        self.config().endpoints.clone()
     }
 
     /// The session this initiator logs on to (see [`InitiatorConfig::session_id`]).
     pub fn session_id(&self) -> SessionId {
-        self.plan().config.session_id()
+        self.config().session_id()
     }
 
     /// A handle for sending on the session; valid across reconnects and failovers.
@@ -385,14 +406,14 @@ impl Initiator {
         let span = tracing::info_span!("initiator", session = %self.session_id());
         async {
             let mut waiting = false;
-            let mut backoff = Backoff::new(self.plan().config.reconnect);
+            let mut backoff = Backoff::new(self.config().reconnect);
             while !self.shutdown.is_started() {
                 let session = self.session_id();
                 if self.registry.is_paused(&session) {
                     info!("paused; waiting to be resumed");
                     self.unless_shutdown(self.registry.wait_resumed(&session)).await.ok();
                     // Resumed: connect at once, not after the backoff from before the pause.
-                    backoff = Backoff::new(self.plan().config.reconnect);
+                    backoff = Backoff::new(self.config().reconnect);
                     continue;
                 }
                 if let Some((wait, reason)) = self.schedule_wait() {
@@ -411,7 +432,7 @@ impl Initiator {
                     Err(e) if self.shutdown.is_started() => info!("{e}"),
                     Err(e) => warn!("{e}"),
                 }
-                backoff.set_policy(self.plan().config.reconnect);
+                backoff.set_policy(self.config().reconnect);
                 let delay = backoff.next_delay(logged_on);
                 if !self.shutdown.is_started() {
                     info!(?delay, "reconnecting after a delay");
@@ -448,19 +469,19 @@ impl Initiator {
         if self.registry.is_paused(&self.session_id()) {
             return (false, Err(io::Error::new(io::ErrorKind::NotConnected, "the session is paused")));
         }
-        // One plan for the whole attempt, even if reconfigured meanwhile.
-        let plan = self.plan();
-        let mut errors = Vec::with_capacity(plan.endpoints.len());
-        for (index, endpoint) in plan.endpoints.iter().enumerate() {
+        // One configuration for the whole attempt, even if reconfigured meanwhile.
+        let config = self.config();
+        let mut errors = Vec::with_capacity(config.endpoints.len());
+        for (index, endpoint) in config.endpoints.iter().enumerate() {
             if self.shutdown.is_started() {
                 return (false, Err(shutting_down()));
             }
             let role = if index == 0 { "primary" } else { "backup" };
             let span = tracing::info_span!("endpoint", addr = %endpoint.addr, role);
-            match self.attempt(endpoint, &plan.config).instrument(span).await {
+            match self.attempt(endpoint, &config).instrument(span).await {
                 Attempt::Established(result) => return (true, result),
                 Attempt::Failed(e) => {
-                    let next = plan.endpoints.get(index + 1).map_or("none left", |next| next.addr.as_str());
+                    let next = config.endpoints.get(index + 1).map_or("none left", |next| next.addr.as_str());
                     warn!(addr = %endpoint.addr, role, next, "endpoint failed: {e}");
                     errors.push(format!("{}: {e}", endpoint.addr));
                 }
@@ -483,7 +504,7 @@ impl Initiator {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let _open = self.shutdown.track();
-        let (session, commands) = self.session(&self.plan().config, info);
+        let (session, commands) = self.session(&self.config(), info);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
     }
 
@@ -500,7 +521,7 @@ impl Initiator {
     {
         let _runtime = runtime.enter();
         let _open = self.shutdown.track();
-        let (session, commands) = self.session(&self.plan().config, info);
+        let (session, commands) = self.session(&self.config(), info);
         connection::run_spinning_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal()))
     }
 
@@ -521,7 +542,7 @@ impl Initiator {
     ///
     /// Shutdown is permanent. Calling it again waits for the same shutdown.
     pub async fn shutdown(&self, text: Option<&str>) {
-        self.shutdown.run(text, self.plan().config.session.logout_timeout).await;
+        self.shutdown.run(text, self.config().session.logout_timeout).await;
         // Every connection has closed, so no more countdowns start here.
         let session = self.session_id();
         self.registry.run_cancels_now(|id| *id == session);
@@ -538,9 +559,9 @@ impl Initiator {
 
     /// How long until the schedule allows a session, and why, if it doesn't now.
     fn schedule_wait(&self) -> Option<(Duration, String)> {
-        let plan = self.plan();
-        let schedule = plan.config.session.schedule.as_ref()?;
-        let now = plan.config.session.clock.now();
+        let config = self.config();
+        let schedule = config.session.schedule.as_ref()?;
+        let now = config.session.clock.now();
         let reason = schedule.closed_reason(now)?;
         let wait =
             schedule.next_start(now).and_then(|next| (next - now).to_std().ok()).unwrap_or(Duration::from_secs(60));
@@ -574,8 +595,8 @@ impl Initiator {
         info!("connected");
 
         #[cfg(feature = "tls")]
-        if let Some((connector, default_name)) = &self.tls {
-            let name = match tls_server_name(endpoint.tls_server_name.as_deref().unwrap_or(default_name)) {
+        if let Some(InitiatorTls { connector, server_name, .. }) = &config.tls {
+            let name = match tls_server_name(endpoint.tls_server_name.as_deref().unwrap_or(server_name)) {
                 Ok(name) => name,
                 Err(e) => return Attempt::Failed(e),
             };
@@ -686,9 +707,9 @@ mod tests {
 
     /// An initiator of `primary`, its config adjusted by `adjust`.
     fn initiator_with(primary: &str, adjust: impl FnOnce(&mut InitiatorConfig)) -> Initiator {
-        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint(primary);
         adjust(&mut config);
-        let mut initiator = Initiator::new(primary, config, Arc::new(MemoryStorage::new()), Arc::new(Nothing)).unwrap();
+        let mut initiator = Initiator::new(config, Arc::new(MemoryStorage::new()), Arc::new(Nothing)).unwrap();
         initiator.unreachable.push(UNREACHABLE.to_string());
         initiator
     }
@@ -697,7 +718,8 @@ mod tests {
     fn an_invalid_config_is_an_error_not_a_panic() {
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
         config.heartbeat_interval = Duration::ZERO;
-        let made = Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), Arc::new(Nothing));
+        let made =
+            Initiator::new(config.with_endpoint("127.0.0.1:1"), Arc::new(MemoryStorage::new()), Arc::new(Nothing));
         assert!(made.unwrap_err().to_string().contains("heartbeat_interval"));
         let acceptor =
             crate::Acceptor::new(SessionConfig::new("", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(Nothing));
@@ -724,7 +746,10 @@ mod tests {
         let backup = listener.local_addr().unwrap().to_string();
         let proxy = Proxy::http(crate::proxy::forwarding_proxy().await);
         // Nothing listens on the primary, so the proxy refuses it and the backup is tried.
-        let initiator = initiator_with("127.0.0.1:1", |config| config.proxy = Some(proxy)).with_failover(&backup);
+        let initiator = initiator_with("127.0.0.1:1", |config| {
+            config.proxy = Some(proxy);
+            config.endpoints.push(Endpoint::new(&backup));
+        });
         let connecting = tokio::spawn(async move { initiator.connect_once().await });
         let (mut stream, _) = listener.accept().await.unwrap();
         let mut logon = [0; 9];
@@ -753,7 +778,10 @@ mod tests {
             Instant::now()
         });
         let connect_timeout = Duration::from_millis(200);
-        let initiator = initiator(UNREACHABLE, connect_timeout).with_failover(backup_addr.as_str());
+        let initiator = initiator_with(UNREACHABLE, |config| {
+            config.connect_timeout = connect_timeout;
+            config.endpoints.push(Endpoint::new(&backup_addr));
+        });
 
         let started = Instant::now();
         let err = tokio::time::timeout(Duration::from_secs(5), initiator.connect_once())
@@ -806,13 +834,13 @@ mod tests {
         let err = initiator.connect_once().await.unwrap_err().to_string();
         assert!(err.contains(&first), "{err}");
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
-        config.session.clock = initiator.plan().config.session.clock.clone();
+        config.session.clock = initiator.config().session.clock.clone();
         config.heartbeat_interval = Duration::from_secs(10);
-        initiator.reconfigure(config, vec![Endpoint::new(&second)]).unwrap();
+        initiator.reconfigure(config.with_endpoint(&second)).unwrap();
         assert_eq!(clone.endpoints(), [Endpoint::new(&second)], "clones share it");
         let err = clone.connect_once().await.unwrap_err().to_string();
         assert!(err.contains(&second) && !err.contains(&first), "{err}");
-        assert_eq!(clone.plan().config.heartbeat_interval, Duration::from_secs(10));
+        assert_eq!(clone.config().heartbeat_interval, Duration::from_secs(10));
     }
 
     #[test]
@@ -820,34 +848,45 @@ mod tests {
         let initiator = initiator("127.0.0.1:1", Duration::from_secs(5));
         let same = || {
             let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
-            config.session.clock = initiator.plan().config.session.clock.clone();
-            config
+            config.session.clock = initiator.config().session.clock.clone();
+            config.with_endpoint("127.0.0.1:2")
         };
         type Change = fn(&mut InitiatorConfig);
         let changes: [(&str, Change); 4] = [
             ("begin_string", |c| c.session.begin_string = "FIX.4.4".into()),
             ("sender_comp_id", |c| c.session.sender_comp_id = "OTHER".into()),
             ("target_comp_id", |c| c.target_comp_id = "OTHER".into()),
-            ("clock", |c| c.session.clock = crate::Clock::system()),
+            ("clock", |c| c.session.clock = crate::Clock::from_fn(chrono::Utc::now)),
         ];
         for (field, change) in changes {
             let mut config = same();
             change(&mut config);
-            let err = initiator.reconfigure(config, vec![Endpoint::new("127.0.0.1:2")]).unwrap_err().to_string();
+            let err = initiator.reconfigure(config).unwrap_err().to_string();
             assert_eq!(err, format!("{field} can't change: that's another initiator"));
         }
-        assert!(initiator.reconfigure(same(), Vec::new()).is_err(), "no endpoint");
+        let mut no_endpoint = same();
+        no_endpoint.endpoints.clear();
+        assert!(initiator.reconfigure(no_endpoint).is_err(), "no endpoint");
         let mut invalid = same();
         invalid.heartbeat_interval = Duration::ZERO;
-        assert!(initiator.reconfigure(invalid, vec![Endpoint::new("127.0.0.1:2")]).is_err());
+        assert!(initiator.reconfigure(invalid).is_err());
         assert_eq!(initiator.endpoints(), [Endpoint::new("127.0.0.1:1")], "unchanged by refusals");
     }
 
     #[tokio::test]
     async fn a_shared_registry_holds_the_session() {
         let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
-        let initiator = initiator("127.0.0.1:1", Duration::from_secs(5)).with_registry(registry.clone());
+        let config =
+            InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint("127.0.0.1:1");
+        let initiator = Initiator::with_registry(config, registry.clone(), Arc::new(Nothing)).unwrap();
         registry.handle(initiator.session_id()).set_next_outgoing(5).await.unwrap();
         assert_eq!(initiator.handle().sequence_numbers().await.unwrap().next_outgoing, 5);
+
+        // A registry on another clock would record operator resets by the wrong time.
+        let mut config =
+            InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint("127.0.0.1:1");
+        config.session.clock = crate::Clock::from_fn(chrono::Utc::now);
+        let err = Initiator::with_registry(config, registry, Arc::new(Nothing)).unwrap_err().to_string();
+        assert!(err.contains("clock"), "{err}");
     }
 }

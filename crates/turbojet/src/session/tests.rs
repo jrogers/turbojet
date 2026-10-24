@@ -2846,7 +2846,8 @@ fn sending_time_is_whole_seconds_before_fix42() {
 
 #[test]
 fn reset_on_logon_is_refused_for_fix40() {
-    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.0", "GATEWAY"), "CLIENT");
+    let mut config =
+        InitiatorConfig::new(SessionConfig::new("FIX.4.0", "GATEWAY"), "CLIENT").with_endpoint("127.0.0.1:1");
     config.reset_on_logon = true;
     assert!(config.check().unwrap_err().to_string().contains("ResetSeqNumFlag"));
     config.session.begin_string = "FIX.4.1".into();
@@ -4241,7 +4242,8 @@ fn a_timeout_of_duration_max_has_no_deadline() {
 #[test]
 fn initiator_heartbeat_interval_is_whole_seconds_from_1_to_3600() {
     let config = |interval| {
-        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "GATEWAY"), "CLIENT");
+        let mut config =
+            InitiatorConfig::new(SessionConfig::new("FIX.4.4", "GATEWAY"), "CLIENT").with_endpoint("127.0.0.1:1");
         config.heartbeat_interval = interval;
         config
     };
@@ -5360,8 +5362,11 @@ fn an_initiator_with_an_invalid_inbound_limit_is_refused_when_built() {
     let mut session = SessionConfig::new("FIX.4.4", "CLIENT");
     session.inbound_limit = Some(InboundLimit::Reject(RateLimit { messages: 1, per: Duration::ZERO }));
     let config = InitiatorConfig::new(session, "GATEWAY");
-    let made =
-        crate::Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), Arc::new(TestApp::default()));
+    let made = crate::Initiator::new(
+        config.with_endpoint("127.0.0.1:1"),
+        Arc::new(MemoryStorage::new()),
+        Arc::new(TestApp::default()),
+    );
     assert!(made.unwrap_err().to_string().starts_with("inbound_limit"));
 }
 

@@ -75,7 +75,9 @@ async fn round_trip_logging(filter: &str) -> Vec<String> {
     let (events, mut rx) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.password = Some("hunter2".into());
-    let initiator = Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(Client { events })).unwrap();
+    let initiator =
+        Initiator::new(config.with_endpoint(addr), Arc::new(MemoryStorage::new()), Arc::new(Client { events }))
+            .unwrap();
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
 

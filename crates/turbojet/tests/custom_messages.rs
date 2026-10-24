@@ -158,8 +158,7 @@ async fn custom_messages_travel_through_a_session() {
 
     let (events, mut rx) = mpsc::unbounded_channel();
     let initiator = Initiator::new(
-        addr,
-        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE"),
+        (InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE")).with_endpoint(addr),
         Arc::new(MemoryStorage::new()),
         Arc::new(Client { events }),
     )

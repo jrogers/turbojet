@@ -268,11 +268,12 @@ fn initiator(target: &str, registry: Option<&Arc<SessionRegistry>>) -> (Initiato
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), target);
     config.session.logout_timeout = Duration::from_secs(2);
     cancelling(&mut config.session, CancelTrigger::Disconnect);
-    let initiator = Initiator::new("127.0.0.1:1", config, Arc::new(MemoryStorage::new()), app).unwrap();
+    let config = config.with_endpoint("127.0.0.1:1");
     let initiator = match registry {
-        Some(registry) => initiator.with_registry(registry.clone()),
-        None => initiator,
+        Some(registry) => Initiator::with_registry(config, registry.clone(), app),
+        None => Initiator::new(config, Arc::new(MemoryStorage::new()), app),
     };
+    let initiator = initiator.unwrap();
     (initiator, events)
 }
 

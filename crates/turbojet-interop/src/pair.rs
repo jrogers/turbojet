@@ -197,12 +197,12 @@ impl Setup {
                     addr = started.addr();
                     proxy = Some(started);
                 }
-                let config = initiator_config(session, &id, &options);
-                let mut initiator = Initiator::new(addr.to_string(), config, storage, app).unwrap();
+                let mut config = initiator_config(session, &id, &options).with_endpoint(addr.to_string());
                 if let (Some(tls), Some(pki)) = (options.tls, &pki) {
-                    initiator =
-                        initiator.with_tls(tj_client_tls(pki, tls, self.engine).connector(), "localhost").unwrap();
+                    let connector = tj_client_tls(pki, tls, self.engine).connector();
+                    config.tls = Some(turbojet::InitiatorTls::new(connector, "localhost"));
                 }
+                let initiator = Initiator::new(config, storage, app).unwrap();
                 let handle = initiator.handle();
                 (peer, handle, tokio::spawn(initiator.run()))
             }

@@ -20,7 +20,7 @@ use turbojet::fixp::{
 use turbojet::message::tags;
 use turbojet::tls;
 use turbojet::{
-    Acceptor, AcceptorConfig, Application, ConnectionInfo, Context, Endpoint, Initiator, InitiatorConfig,
+    Acceptor, AcceptorConfig, Application, ConnectionInfo, Context, Endpoint, Initiator, InitiatorConfig, InitiatorTls,
     MemoryStorage, Message, MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 
@@ -239,18 +239,38 @@ async fn start_acceptor_with(
     (addr, events, app)
 }
 
-fn initiator(addr: impl Into<Endpoint>) -> (Initiator, mpsc::UnboundedReceiver<Event>) {
-    let (initiator, events, _) = initiator_with(addr);
-    (initiator, events)
-}
-
-fn initiator_with(addr: impl Into<Endpoint>) -> (Initiator, mpsc::UnboundedReceiver<Event>, Arc<Recorder>) {
-    let (app, events) = recorder();
-    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+fn config(addr: impl Into<Endpoint>) -> InitiatorConfig {
+    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint(addr);
     config.session.logon_timeout = Duration::from_secs(2);
     // Each test initiator starts with fresh storage, so reset rather than resume sequence numbers.
     config.reset_on_logon = true;
-    (Initiator::new(addr, config, Arc::new(MemoryStorage::new()), app.clone()).unwrap(), events, app)
+    config
+}
+
+fn initiator(addr: impl Into<Endpoint>) -> (Initiator, mpsc::UnboundedReceiver<Event>) {
+    let (initiator, events, _) = initiator_from(config(addr));
+    (initiator, events)
+}
+
+/// An initiator connecting to `addr` over TLS through `connector`, verifying `server_name`.
+fn tls_initiator(
+    addr: impl Into<Endpoint>,
+    connector: tls::TlsConnector,
+    server_name: &str,
+) -> (Initiator, mpsc::UnboundedReceiver<Event>) {
+    let (initiator, events, _) = initiator_from(tls_config(addr, connector, server_name));
+    (initiator, events)
+}
+
+fn tls_config(addr: impl Into<Endpoint>, connector: tls::TlsConnector, server_name: &str) -> InitiatorConfig {
+    let mut config = config(addr);
+    config.tls = Some(InitiatorTls::new(connector, server_name));
+    config
+}
+
+fn initiator_from(config: InitiatorConfig) -> (Initiator, mpsc::UnboundedReceiver<Event>, Arc<Recorder>) {
+    let (app, events) = recorder();
+    (Initiator::new(config, Arc::new(MemoryStorage::new()), app.clone()).unwrap(), events, app)
 }
 
 /// Runs one connection attempt to completion and returns its result.
@@ -262,8 +282,7 @@ async fn attempt(initiator: &Initiator) -> io::Result<()> {
 async fn session_runs_over_tls() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::None)).await;
-    let (initiator, mut client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let (initiator, mut client) = tls_initiator(&addr, pki.connector("ca.pem", None), "localhost");
     tokio::spawn(initiator.clone().run());
 
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
@@ -280,8 +299,7 @@ async fn session_runs_over_tls() {
 async fn mutual_tls_admits_clients_with_a_certificate() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::Required)).await;
-    let (initiator, mut client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("ca.pem", Some("client")), "localhost").unwrap();
+    let (initiator, mut client) = tls_initiator(&addr, pki.connector("ca.pem", Some("client")), "localhost");
     tokio::spawn(initiator.run());
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
@@ -291,8 +309,7 @@ async fn mutual_tls_admits_clients_with_a_certificate() {
 async fn mutual_tls_refuses_clients_without_a_certificate() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::Required)).await;
-    let (initiator, _client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(&addr, pki.connector("ca.pem", None), "localhost");
     // TLS 1.3 completes the client side of the handshake first; the server's refusal arrives
     // as an alert on the first read.
     let err = attempt(&initiator).await.unwrap_err();
@@ -304,8 +321,7 @@ async fn mutual_tls_refuses_clients_without_a_certificate() {
 async fn mutual_tls_refuses_certificates_from_an_untrusted_ca() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::Required)).await;
-    let (initiator, _client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("ca.pem", Some("stranger")), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(&addr, pki.connector("ca.pem", Some("stranger")), "localhost");
     assert!(attempt(&initiator).await.is_err());
     assert!(server.try_recv().is_err());
 }
@@ -315,8 +331,7 @@ async fn optional_client_auth_admits_clients_with_or_without_a_certificate() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::Optional)).await;
     for client_cert in [None, Some("client")] {
-        let (initiator, mut client) = initiator(&addr);
-        let initiator = initiator.with_tls(pki.connector("ca.pem", client_cert), "localhost").unwrap();
+        let (initiator, mut client) = tls_initiator(&addr, pki.connector("ca.pem", client_cert), "localhost");
         let handle = initiator.handle();
         let connection = tokio::spawn(async move { initiator.connect_once().await });
         assert!(matches!(next(&mut client).await, Event::LoggedOn), "{client_cert:?}");
@@ -330,8 +345,7 @@ async fn optional_client_auth_admits_clients_with_or_without_a_certificate() {
 async fn optional_client_auth_still_refuses_an_invalid_certificate() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::Optional)).await;
-    let (initiator, _client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("ca.pem", Some("stranger")), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(&addr, pki.connector("ca.pem", Some("stranger")), "localhost");
     assert!(attempt(&initiator).await.is_err());
     assert!(server.try_recv().is_err());
 }
@@ -340,8 +354,7 @@ async fn optional_client_auth_still_refuses_an_invalid_certificate() {
 async fn client_refuses_untrusted_server_certificate() {
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::None)).await;
-    let (initiator, _client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("other-ca.pem", None), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(&addr, pki.connector("other-ca.pem", None), "localhost");
     let err = attempt(&initiator).await.unwrap_err();
     assert!(err.to_string().contains("TLS handshake failed"), "{err}");
     assert!(server.try_recv().is_err());
@@ -351,8 +364,7 @@ async fn client_refuses_untrusted_server_certificate() {
 async fn client_refuses_wrong_server_name() {
     let pki = Pki::new();
     let (addr, _server) = start_acceptor(pki.acceptor(Auth::None)).await;
-    let (initiator, _client) = initiator(&addr);
-    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "gateway.example").unwrap();
+    let (initiator, _client) = tls_initiator(&addr, pki.connector("ca.pem", None), "gateway.example");
     let err = attempt(&initiator).await.unwrap_err();
     assert!(err.to_string().contains("TLS handshake failed"), "{err}");
 }
@@ -394,9 +406,8 @@ async fn failover_endpoints_verify_their_own_server_names() {
     // The primary is verified against a name its certificate doesn't carry, so its handshake
     // fails; the backup (the same server here) uses the default name and succeeds.
     let primary = Endpoint::new(addr.clone()).with_tls_server_name("primary.example");
-    let (initiator, mut client) = initiator(primary);
-    let initiator =
-        initiator.with_failover(addr.as_str()).with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let config = tls_config(primary, pki.connector("ca.pem", None), "localhost").with_endpoint(addr.as_str());
+    let (initiator, mut client, _) = initiator_from(config);
     tokio::spawn(initiator.run());
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
@@ -405,11 +416,19 @@ async fn failover_endpoints_verify_their_own_server_names() {
 #[test]
 fn invalid_server_names_are_rejected_up_front() {
     let pki = Pki::new();
-    let (default_name, _) = initiator("127.0.0.1:1");
-    assert!(default_name.with_tls(pki.connector("ca.pem", None), "not a hostname!").is_err());
+    let default_name = tls_config("127.0.0.1:1", pki.connector("ca.pem", None), "not a hostname!");
+    assert!(default_name.check().is_err());
 
-    let (endpoint_name, _) = initiator(Endpoint::new("127.0.0.1:1").with_tls_server_name("bad name"));
-    assert!(endpoint_name.with_tls(pki.connector("ca.pem", None), "localhost").is_err());
+    let endpoint = Endpoint::new("127.0.0.1:1").with_tls_server_name("bad name");
+    let endpoint_name = tls_config(endpoint, pki.connector("ca.pem", None), "localhost");
+    assert!(endpoint_name.check().is_err());
+
+    // A backup added after TLS is set is checked too.
+    let backup = Endpoint::new("127.0.0.1:2").with_tls_server_name("bad name");
+    let backup_name = tls_config("127.0.0.1:1", pki.connector("ca.pem", None), "localhost").with_endpoint(backup);
+    assert!(backup_name.check().is_err());
+    let (app, _) = recorder();
+    assert!(Initiator::new(backup_name, Arc::new(MemoryStorage::new()), app).is_err());
 }
 
 // ---- Peer certificates in verify_logon ----
@@ -418,8 +437,8 @@ fn invalid_server_names_are_rejected_up_front() {
 async fn verify_logon_sees_each_sides_peer_certificate() {
     let pki = Pki::new();
     let (addr, mut server_events, server) = start_acceptor_with(pki.acceptor(Auth::Required), recorder()).await;
-    let (initiator, mut client_events, client) = initiator_with(addr.as_str());
-    let initiator = initiator.with_tls(pki.connector("ca.pem", Some("client")), "localhost").unwrap();
+    let config = tls_config(addr.as_str(), pki.connector("ca.pem", Some("client")), "localhost");
+    let (initiator, mut client_events, client) = initiator_from(config);
     tokio::spawn(initiator.run());
     assert!(matches!(next(&mut server_events).await, Event::LoggedOn));
     assert!(matches!(next(&mut client_events).await, Event::LoggedOn));
@@ -444,8 +463,8 @@ async fn verify_logon_sees_each_sides_peer_certificate() {
 async fn verify_logon_sees_no_certificate_when_none_was_presented() {
     let pki = Pki::new();
     let (addr, mut events, server) = start_acceptor_with(pki.acceptor(Auth::Optional), recorder()).await;
-    let (initiator, _client) = initiator(addr.as_str());
-    tokio::spawn(initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap().run());
+    let (initiator, _client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", None), "localhost");
+    tokio::spawn(initiator.run());
     assert!(matches!(next(&mut events).await, Event::LoggedOn));
     let seen = &server.verified()[0];
     assert!(seen.peer_certificates.is_empty());
@@ -459,16 +478,15 @@ async fn application_can_refuse_a_trusted_certificate_for_the_wrong_identity() {
         start_acceptor_with(pki.acceptor(Auth::Required), recorder_requiring(Some("client"))).await;
 
     // Mallory's certificate passes TLS verification, but the application rejects the logon.
-    let (mallory, _client) = initiator(addr.as_str());
-    let mallory = mallory.with_tls(pki.connector("ca.pem", Some("mallory")), "localhost").unwrap();
+    let (mallory, _client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", Some("mallory")), "localhost");
     let _ = attempt(&mallory).await;
     assert!(events.try_recv().is_err(), "mallory must not log on");
     let cn = server.verified()[0].peer_certificate().and_then(|c| c.subject_common_name());
     assert_eq!(cn.as_deref(), Some("mallory"));
 
     // The expected identity logs on.
-    let (initiator, _client) = initiator(addr.as_str());
-    tokio::spawn(initiator.with_tls(pki.connector("ca.pem", Some("client")), "localhost").unwrap().run());
+    let (initiator, _client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", Some("client")), "localhost");
+    tokio::spawn(initiator.run());
     assert!(matches!(next(&mut events).await, Event::LoggedOn));
 }
 
@@ -496,8 +514,7 @@ async fn pipelined_bursts_over_tls_do_not_stall() {
     const BURST: usize = 1_000;
     let pki = Pki::new();
     let (addr, mut server) = start_acceptor(pki.acceptor(Auth::None)).await;
-    let (initiator, mut client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let (initiator, mut client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", None), "localhost");
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
@@ -557,8 +574,7 @@ async fn initiator_shutdown_abandons_a_tls_handshake() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
     let silent = tokio::spawn(async move { listener.accept().await.unwrap() });
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", None), "localhost");
     let connecting = tokio::spawn({
         let initiator = initiator.clone();
         async move { initiator.connect_once().await }
@@ -589,8 +605,7 @@ async fn a_connection_past_the_limit_gets_no_handshake() {
     let _held = tokio::net::TcpStream::connect(&addr).await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(pki.connector("ca.pem", None), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", None), "localhost");
     let started = std::time::Instant::now();
     let err = attempt(&initiator).await.expect_err("refused");
     assert!(started.elapsed() < Duration::from_secs(1), "refused at once, not after {:?}: {err}", started.elapsed());
@@ -628,9 +643,8 @@ async fn a_new_server_certificate_is_presented_from_the_next_handshake() {
     let pki = Pki::new();
     let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
     let (addr, mut events) = serve(&server).await;
-    let (initiator, mut client) = initiator(addr.as_str());
     let client_tls = tls::ClientTls::new(pki.trust("ca"), None).unwrap();
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, mut client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
@@ -664,8 +678,7 @@ async fn an_initiator_trusts_a_new_ca_once_given_it() {
     let server = tls::ServerTls::new(pki.identity("server-other"), tls::ClientTrust::None).unwrap();
     let (addr, _events) = serve(&server).await;
     let client_tls = tls::ClientTls::new(pki.trust("ca"), None).unwrap();
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     assert!(attempt(&initiator).await.is_err(), "the server's CA isn't trusted");
 
     client_tls.set_trust(pki.trust("other-ca")).unwrap();
@@ -680,8 +693,7 @@ async fn an_acceptor_trusts_new_client_cas_once_given_them() {
     let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::Required(pki.trust("ca"))).unwrap();
     let (addr, _events) = serve(&server).await;
     let client_tls = tls::ClientTls::new(pki.trust("ca"), Some(pki.identity("stranger"))).unwrap();
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     assert!(attempt(&initiator).await.is_err(), "the client's CA isn't trusted");
 
     server.set_client_trust(tls::ClientTrust::Required(pki.trust("other-ca"))).unwrap();
@@ -835,9 +847,8 @@ async fn an_acceptor_refuses_a_revoked_client_certificate() {
     let trust = tls::ClientTrust::Required(pki.trust_with_crl("ca", "ca-revokes-client"));
     let server = tls::ServerTls::new(pki.identity("server"), trust).unwrap();
     let (addr, mut events) = serve(&server).await;
-    let (initiator, _client) = initiator(addr.as_str());
     let revoked = tls::ClientTls::new(pki.trust("ca"), Some(pki.identity("client"))).unwrap();
-    let initiator = initiator.with_tls(revoked.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), revoked.connector(), "localhost");
     assert!(attempt(&initiator).await.is_err(), "the client's certificate is revoked");
     assert!(events.try_recv().is_err());
 
@@ -853,8 +864,7 @@ async fn an_initiator_refuses_a_revoked_server_certificate() {
     let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
     let (addr, mut events) = serve(&server).await;
     let client_tls = tls::ClientTls::new(pki.trust_with_crl("ca", "ca-revokes-server"), None).unwrap();
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     let err = attempt(&initiator).await.unwrap_err();
     assert!(err.to_string().contains("Revoked"), "{err}");
     assert!(events.try_recv().is_err());
@@ -867,8 +877,7 @@ async fn a_certificate_no_crl_covers_is_refused() {
     let server = tls::ServerTls::new(pki.identity("server"), tls::ClientTrust::None).unwrap();
     let (addr, _events) = serve(&server).await;
     let client_tls = tls::ClientTls::new(pki.trust_with_crl("ca", "other-ca"), None).unwrap();
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     let err = attempt(&initiator).await.unwrap_err();
     assert!(err.to_string().contains("UnknownRevocationStatus"), "{err}");
 }
@@ -884,8 +893,7 @@ async fn a_new_crl_applies_from_the_next_handshake() {
     assert_eq!(presented(&addr, &client_tls.connector()).await, der(&pki.pem("server.pem")));
 
     client_tls.set_trust(pki.trust_with_crl("ca", "ca-revokes-server")).unwrap();
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     assert!(attempt(&initiator).await.unwrap_err().to_string().contains("Revoked"));
 }
 
@@ -962,8 +970,7 @@ async fn a_refused_crl_that_expires_in_use_fails_the_next_handshake() {
 
     tokio::time::sleep(soon.duration_since(SystemTime::now()).unwrap_or_default()).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let (initiator, _client) = initiator(addr.as_str());
-    let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+    let (initiator, _client) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
     let err = attempt(&initiator).await.unwrap_err();
     assert!(err.to_string().contains("certificate revocation list expired"), "{err}");
 }
@@ -1037,8 +1044,7 @@ mod pkcs12 {
         let (addr, mut events) = serve(&server).await;
         let client = identity(&bundle(&pki, &["client"], "secret"), "secret").unwrap();
         let client_tls = tls::ClientTls::new(pki.trust("ca"), Some(client)).unwrap();
-        let (initiator, mut client_events) = initiator(addr.as_str());
-        let initiator = initiator.with_tls(client_tls.connector(), "localhost").unwrap();
+        let (initiator, mut client_events) = tls_initiator(addr.as_str(), client_tls.connector(), "localhost");
         tokio::spawn(initiator.run());
         assert!(matches!(next(&mut client_events).await, Event::LoggedOn));
         assert!(matches!(next(&mut events).await, Event::LoggedOn));

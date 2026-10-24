@@ -59,8 +59,7 @@ async fn operators_adjust_live_and_stored_sequence_numbers() {
 
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let initiator = Initiator::new(
-        addr,
-        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
+        (InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER")).with_endpoint(addr),
         Arc::new(turbojet::MemoryStorage::new()),
         Arc::new(Recorder(client_tx)),
     )
@@ -121,8 +120,8 @@ async fn operators_see_connected_sessions_with_their_connections() {
 
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let initiator = Initiator::new(
-        server_addr.to_string(),
-        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
+        (InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"))
+            .with_endpoint(server_addr.to_string()),
         Arc::new(turbojet::MemoryStorage::new()),
         Arc::new(Recorder(client_tx)),
     )
@@ -184,8 +183,7 @@ async fn operators_ask_for_processed_messages_again() {
 
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let initiator = Initiator::new(
-        addr,
-        InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER"),
+        (InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER")).with_endpoint(addr),
         Arc::new(turbojet::MemoryStorage::new()),
         Arc::new(Recorder(client_tx)),
     )
@@ -251,8 +249,12 @@ async fn operators_pause_and_resume_sessions() {
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
-    let initiator =
-        Initiator::new(addr, config, Arc::new(turbojet::MemoryStorage::new()), Arc::new(Recorder(client_tx))).unwrap();
+    let initiator = Initiator::new(
+        config.with_endpoint(addr),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(client_tx)),
+    )
+    .unwrap();
     let at_initiator = initiator.handle();
     tokio::spawn(initiator.clone().run());
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
@@ -302,8 +304,12 @@ async fn operators_follow_sessions_through_events() {
     let (client_tx, mut client) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
     config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(200));
-    let initiator =
-        Initiator::new(addr, config, Arc::new(turbojet::MemoryStorage::new()), Arc::new(Recorder(client_tx))).unwrap();
+    let initiator = Initiator::new(
+        config.with_endpoint(addr),
+        Arc::new(turbojet::MemoryStorage::new()),
+        Arc::new(Recorder(client_tx)),
+    )
+    .unwrap();
     tokio::spawn(initiator.clone().run());
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));

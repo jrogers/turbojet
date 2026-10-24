@@ -17,8 +17,8 @@ use tokio::sync::mpsc;
 use turbojet::fields::UtcTimestamp;
 use turbojet::tls;
 use turbojet::{
-    Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle,
+    Application, Context, Disconnect, Endpoint, Initiator, InitiatorConfig, InitiatorTls, MemoryStorage, Message,
+    MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 use turbojet_fix::fix42::{
     ExecutionReportRef, HandlInst, NewOrderSingle, OrdType, OrderCancelRejectRef, OrderCancelRequest, Side, TimeInForce,
@@ -122,13 +122,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let addr = args.addr.unwrap_or_else(|| "127.0.0.1:9876".into());
     let (tx, mut events) = mpsc::unbounded_channel();
 
-    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT1"), "GATEWAY");
+    let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT1"), "GATEWAY").with_endpoint(addr);
     config.reset_on_logon = true;
-    let mut initiator =
-        Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(ClientApp { events: tx }))?;
-    for backup in args.failover {
-        initiator = initiator.with_failover(backup);
-    }
+    config.endpoints.extend(args.failover.into_iter().map(Endpoint::from));
     if let Some(ca) = &args.tls_ca {
         let identity = match (&args.tls_cert, &args.tls_key) {
             (Some(cert), Some(key)) => Some((cert.as_path(), key.as_path())),
@@ -136,8 +132,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => return Err("--tls-cert and --tls-key must be given together".into()),
         };
         let server_name = args.tls_server_name.as_deref().unwrap_or("localhost");
-        initiator = initiator.with_tls(tls::connector(ca, identity)?, server_name)?;
+        config.tls = Some(InitiatorTls::new(tls::connector(ca, identity)?, server_name));
     }
+    let initiator = Initiator::new(config, Arc::new(MemoryStorage::new()), Arc::new(ClientApp { events: tx }))?;
     let session = initiator.handle();
 
     let mut connection = tokio::spawn({

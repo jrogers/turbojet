@@ -78,11 +78,13 @@ impl Harness {
         (acceptor, addr)
     }
 
-    fn initiator(&self, primary: &str) -> Initiator {
+    /// An initiator with `endpoints`, primary first.
+    fn initiator<E: Into<Endpoint>>(&self, endpoints: impl IntoIterator<Item = E>) -> Initiator {
         let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+        config.endpoints = endpoints.into_iter().map(Into::into).collect();
         config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
         config.connect_timeout = Duration::from_secs(2);
-        Initiator::new(primary, config, Arc::new(MemoryStorage::new()), self.app("client", false)).unwrap()
+        Initiator::new(config, Arc::new(MemoryStorage::new()), self.app("client", false)).unwrap()
     }
 
     async fn next(&mut self) -> Event {
@@ -110,7 +112,7 @@ async fn fails_over_when_the_primary_is_down() {
     let mut h = Harness::new();
     let primary = dead_address().await;
     let (_backup, backup_addr) = h.acceptor("backup", None, false).await;
-    let initiator = h.initiator(&primary).with_failover(backup_addr.as_str());
+    let initiator = h.initiator([primary.as_str(), backup_addr.as_str()]);
     tokio::spawn(initiator.run());
 
     h.logged_on("backup").await;
@@ -122,7 +124,7 @@ async fn fails_over_when_the_primary_refuses_logon() {
     let mut h = Harness::new();
     let (_primary, primary_addr) = h.acceptor("primary", None, true).await;
     let (_backup, backup_addr) = h.acceptor("backup", None, false).await;
-    let initiator = h.initiator(&primary_addr).with_failover(backup_addr.as_str());
+    let initiator = h.initiator([primary_addr.as_str(), backup_addr.as_str()]);
     tokio::spawn(initiator.run());
 
     h.logged_on("backup").await;
@@ -133,10 +135,7 @@ async fn tries_backups_in_order() {
     let mut h = Harness::new();
     let (_second, second_addr) = h.acceptor("second-backup", None, false).await;
     let (_first, first_addr) = h.acceptor("first-backup", None, false).await;
-    let initiator = h
-        .initiator(&dead_address().await)
-        .with_failover(Endpoint::new(first_addr))
-        .with_failover(Endpoint::new(second_addr));
+    let initiator = h.initiator([dead_address().await, first_addr, second_addr]);
     assert_eq!(initiator.endpoints().len(), 3);
     tokio::spawn(initiator.run());
 
@@ -148,7 +147,7 @@ async fn fails_back_to_the_primary_once_it_is_available() {
     let mut h = Harness::new();
     let primary_addr = dead_address().await;
     let (backup, backup_addr) = h.acceptor("backup", None, false).await;
-    let initiator = h.initiator(&primary_addr).with_failover(backup_addr.as_str());
+    let initiator = h.initiator([primary_addr.as_str(), backup_addr.as_str()]);
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
     h.logged_on("backup").await;
@@ -174,7 +173,7 @@ async fn fails_back_to_the_primary_once_it_is_available() {
 async fn connect_once_reports_every_failed_endpoint() {
     let h = Harness::new();
     let (primary, backup) = (dead_address().await, dead_address().await);
-    let initiator = h.initiator(&primary).with_failover(backup.as_str());
+    let initiator = h.initiator([primary.as_str(), backup.as_str()]);
     let err = timeout(Duration::from_secs(5), initiator.connect_once()).await.unwrap().unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::NotConnected);
     let text = err.to_string();
@@ -185,7 +184,7 @@ async fn connect_once_reports_every_failed_endpoint() {
 async fn keeps_retrying_until_an_endpoint_comes_up() {
     let mut h = Harness::new();
     let (primary_addr, backup_addr) = (dead_address().await, dead_address().await);
-    let initiator = h.initiator(&primary_addr).with_failover(backup_addr.as_str());
+    let initiator = h.initiator([primary_addr.as_str(), backup_addr.as_str()]);
     tokio::spawn(initiator.run());
 
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -211,7 +210,8 @@ async fn failing_attempts_back_off() {
     config.reconnect = turbojet::ReconnectPolicy::exponential(Duration::from_millis(100), Duration::from_millis(400));
     config.reconnect.jitter = false;
     let initiator =
-        Initiator::new(addr.as_str(), config, Arc::new(MemoryStorage::new()), h.app("client", false)).unwrap();
+        Initiator::new(config.with_endpoint(addr.as_str()), Arc::new(MemoryStorage::new()), h.app("client", false))
+            .unwrap();
     tokio::spawn(initiator.run());
     let mut at = Vec::new();
     for _ in 0..5 {

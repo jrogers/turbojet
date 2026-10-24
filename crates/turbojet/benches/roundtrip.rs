@@ -100,22 +100,21 @@ async fn connect(
 
     let (logged_on, mut logons) = mpsc::unbounded_channel();
     let (received, acks) = mpsc::unbounded_channel();
-    let mut config = InitiatorConfig::new(config("CLIENT", tweak), "GATEWAY");
+    let mut config = InitiatorConfig::new(config("CLIENT", tweak), "GATEWAY").with_endpoint(addr);
     config.reset_on_logon = true;
     let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
-    let initiator = Initiator::new(addr, config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
 
     #[cfg(feature = "tls")]
-    let initiator = if tls {
+    if tls {
         let pki = tls_pki::Pki::new();
         tokio::spawn(acceptor.serve_tls(listener, pki.acceptor()));
-        initiator.with_tls(pki.connector(), "localhost").unwrap()
+        config.tls = Some(turbojet::InitiatorTls::new(pki.connector(), "localhost"));
     } else {
         tokio::spawn(acceptor.serve(listener));
-        initiator
-    };
+    }
     #[cfg(not(feature = "tls"))]
     tokio::spawn(acceptor.serve(listener));
+    let initiator = Initiator::new(config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
 
     let handle = initiator.handle();
     tokio::spawn(initiator.run());
@@ -137,7 +136,9 @@ async fn connect_spinning() -> (Connection, Initiator) {
     let mut config = InitiatorConfig::new(config("CLIENT", |_| {}), "GATEWAY");
     config.reset_on_logon = true;
     let client = Arc::new(Client { logged_on, received, chain: AtomicU64::new(0), next_id: AtomicU64::new(0) });
-    let initiator = Initiator::new(addr.to_string(), config, Arc::new(common::DiscardStorage), client.clone()).unwrap();
+    let initiator =
+        Initiator::new(config.with_endpoint(addr.to_string()), Arc::new(common::DiscardStorage), client.clone())
+            .unwrap();
 
     let runtime = Handle::current();
     std::thread::spawn({

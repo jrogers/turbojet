@@ -92,9 +92,12 @@ async fn fix50sp2_orders_are_validated_and_filled_over_fixt() {
 
     let (client_app, mut client) = recorder(false);
     let session = SessionConfig::new("FIXT.1.1", "CLIENT").with_appl_ver_id(ApplVerId::Fix50Sp2);
-    let initiator =
-        Initiator::new(&addr, InitiatorConfig::new(session, "SERVER"), Arc::new(MemoryStorage::new()), client_app)
-            .unwrap();
+    let initiator = Initiator::new(
+        InitiatorConfig::new(session, "SERVER").with_endpoint(&addr),
+        Arc::new(MemoryStorage::new()),
+        client_app,
+    )
+    .unwrap();
     tokio::spawn(initiator.clone().run());
 
     // Both sides agree on the version the initiator asked for.

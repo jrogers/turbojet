@@ -217,7 +217,7 @@ mod tests {
         let changes: [(&str, Change); 5] = [
             ("begin_string", |c| c.begin_string = "FIX.4.2".into()),
             ("sender_comp_id", |c| c.sender_comp_id = "OTHER".into()),
-            ("clock", |c| c.clock = Clock::system()),
+            ("clock", |c| c.clock = Clock::from_fn(chrono::Utc::now)),
             ("logon_timeout", |c| c.logon_timeout = Duration::from_secs(1)),
             ("send_queue", |c| c.send_queue = 1),
         ];

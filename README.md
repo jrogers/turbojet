@@ -184,7 +184,8 @@ acceptor.session("CLIENT").send(msg)?;          // queue for a connected counter
 
 // Initiator: we log on to one counterparty and reconnect as needed.
 let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
-let initiator = Initiator::new("host:9876", config, storage, Arc::new(MyApp))?;
+let config = config.with_endpoint("host:9876");
+let initiator = Initiator::new(config, storage, Arc::new(MyApp))?;
 tokio::spawn(initiator.clone().run());
 let seq = initiator.handle().send(msg)?.await?; // its MsgSeqNum, once stored
 ```
@@ -817,13 +818,17 @@ A venue that negotiates cancel on disconnect at logon, in Logon fields of its ow
 
 ## Initiator failover
 
-An initiator has a primary endpoint and any number of backups, tried in order:
+An initiator has a primary endpoint and any number of backups, `InitiatorConfig::endpoints`,
+tried in order:
 
 ```rust
-let initiator = Initiator::new("primary.example.com:9876", config, storage, app)?
-    .with_failover("dr.example.com:9876")
-    .with_failover(Endpoint::new("10.1.2.3:9876").with_tls_server_name("dr2.example.com"))
-    .with_tls(connector, "primary.example.com")?; // default TLS name; endpoints may override
+let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER")
+    .with_endpoint("primary.example.com:9876")
+    .with_endpoint("dr.example.com:9876")
+    .with_endpoint(Endpoint::new("10.1.2.3:9876").with_tls_server_name("dr2.example.com"));
+// The default TLS name; endpoints may override it.
+config.tls = Some(InitiatorTls::new(connector, "primary.example.com"));
+let initiator = Initiator::new(config, storage, app)?;
 ```
 
 Each connection attempt starts at the primary. An endpoint fails over to the next when the TCP
@@ -879,9 +884,9 @@ config.proxy = Some(Proxy::socks5("proxy.internal:1080").with_username("firm").w
 //   proxy_password_env = "PROXY_PASSWORD"
 ```
 
-`Initiator::reconfigure` replaces an initiator's configuration and endpoints from its next
-connection attempt, leaving a session that's connected alone, and `with_registry` lets
-initiators share a `SessionRegistry`, so handles from it outlive an initiator replaced by
+`Initiator::reconfigure` replaces an initiator's configuration, endpoints and TLS included, from
+its next connection attempt, leaving a session that's connected alone, and
+`Initiator::with_registry` lets initiators share a `SessionRegistry`, so handles from it outlive an initiator replaced by
 another for the same session. `turbojet-config` uses both to run `[initiator.NAME]` sections
 from a file and apply a reload to them.
 
@@ -916,7 +921,7 @@ tokio::spawn(acceptor.serve_tls(listener, tls));
 
 // Initiator: trust a CA, verify the server name, optionally present a client certificate.
 let tls = turbojet::tls::connector("ca.pem".as_ref(), Some(("client.pem".as_ref(), "client.key".as_ref())))?;
-let initiator = initiator.with_tls(tls, "gateway.example.com")?;
+config.tls = Some(InitiatorTls::new(tls, "gateway.example.com"));
 ```
 
 Certificates can also come from memory (a secrets manager, say) and be replaced while running.

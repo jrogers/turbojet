@@ -55,7 +55,7 @@ fn initiator(addr: &str, comp_id: &str, heartbeat: u64) -> Initiator {
     let (tx, _) = mpsc::unbounded_channel();
     let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", comp_id), "SERVER");
     config.heartbeat_interval = Duration::from_secs(heartbeat);
-    Initiator::new(addr, config, Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx))).unwrap()
+    Initiator::new(config.with_endpoint(addr), Arc::new(MemoryStorage::new()), Arc::new(Recorder(tx))).unwrap()
 }
 
 #[tokio::test]
