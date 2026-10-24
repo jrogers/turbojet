@@ -279,7 +279,9 @@ fn fastlib_decodes_what_we_encode() {
         let mut rest = bytes.as_slice();
         while !rest.is_empty() {
             let decoded = decoder.decode_into(rest, &mut msg).expect("decodes");
-            encoder.encode(decoded.template_id, &msg, &mut ours_encoded).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
+            encoder
+                .encode_into(decoded.template_id, &msg, &mut ours_encoded)
+                .unwrap_or_else(|e| panic!("seed {seed}: {e}"));
             expected.push(ours(&msg));
             rest = decoded.rest;
         }

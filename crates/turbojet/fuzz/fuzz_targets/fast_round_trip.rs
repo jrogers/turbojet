@@ -22,7 +22,7 @@ fuzz_target!(|bytes: &[u8]| {
     let mut rest = bytes;
     while let Ok(decoded) = decoder.decode_into(rest, &mut msg) {
         encoded.clear();
-        match encoder.encode(decoded.template_id, &msg, &mut encoded) {
+        match encoder.encode_into(decoded.template_id, &msg, &mut encoded) {
             Ok(()) => {}
             // A message from a dynamic template reference doesn't say which template it used.
             Err(e) if e.kind() == ErrorKind::Unsupported => return,

@@ -35,11 +35,11 @@ fn decode(c: &mut Criterion) {
         let refresh = common::refresh(2, entries);
         let mut encoder = Encoder::new(common::templates());
         let mut out = Vec::new();
-        encoder.encode(1, &common::refresh(1, entries), &mut out).unwrap();
+        encoder.encode_into(1, &common::refresh(1, entries), &mut out).unwrap();
         group.bench_function(format!("encode refresh of {entries}, following the previous"), |b| {
             b.iter(|| {
                 out.clear();
-                encoder.encode(1, black_box(&refresh), &mut out).unwrap()
+                encoder.encode_into(1, black_box(&refresh), &mut out).unwrap()
             })
         });
     }

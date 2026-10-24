@@ -456,7 +456,7 @@ template's constant field with `id` 35. A decoder that has decoded a message onc
 nothing for the next. Errors carry the FAST specification's error codes.
 
 `Encoder` does the reverse, from a message whose fields are in the template's order, as a decoder
-writes them: `encoder.encode(template_id, &msg, &mut out)`.
+writes them: `encoder.encode_into(template_id, &msg, &mut out)`.
 
 It's a codec only: receiving the feed (multicast, line arbitration, gap recovery from a snapshot or
 replay channel) is the application's. FAST 1.1 is supported, not 1.2's extensions. Decoding is

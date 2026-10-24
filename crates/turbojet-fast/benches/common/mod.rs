@@ -60,7 +60,7 @@ pub fn refresh(seq: u32, entries: usize) -> Message {
 pub fn encoded(entries: usize) -> (Vec<u8>, Vec<u8>) {
     let mut encoder = Encoder::new(templates());
     let (mut first, mut second) = (Vec::new(), Vec::new());
-    encoder.encode(1, &refresh(1, entries), &mut first).expect("encodes");
-    encoder.encode(1, &refresh(2, entries), &mut second).expect("encodes");
+    encoder.encode_into(1, &refresh(1, entries), &mut first).expect("encodes");
+    encoder.encode_into(1, &refresh(2, entries), &mut second).expect("encodes");
     (first, second)
 }

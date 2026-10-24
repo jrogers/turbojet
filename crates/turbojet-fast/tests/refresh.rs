@@ -98,6 +98,6 @@ fn encoding_the_decoded_refresh_gives_the_same_bytes() {
     let decoded = decoder.decode_into(&input, &mut msg).expect("decodes");
     let mut encoder = turbojet_fast::Encoder::new(templates);
     let mut out = Vec::new();
-    encoder.encode(decoded.template_id, &msg, &mut out).expect("encodes");
+    encoder.encode_into(decoded.template_id, &msg, &mut out).expect("encodes");
     assert_eq!(out, input);
 }

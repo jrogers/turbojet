@@ -53,7 +53,7 @@ impl Encoder {
     /// value that doesn't parse as its type, and R1, R3 or R4 for one out of its type's range;
     /// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported) for a dynamic template
     /// reference. Nothing is appended then, but the previous values may have changed: reset.
-    pub fn encode(&mut self, template_id: u32, msg: &Message, out: &mut Vec<u8>) -> Result<(), Error> {
+    pub fn encode_into(&mut self, template_id: u32, msg: &Message, out: &mut Vec<u8>) -> Result<(), Error> {
         let template = self
             .templates
             .get(template_id)
@@ -454,7 +454,7 @@ mod tests {
         let mut encoder = Encoder::new(Arc::clone(&templates));
         let mut out = Vec::new();
         for msg in messages {
-            encoder.encode(1, msg, &mut out).expect("encodes");
+            encoder.encode_into(1, msg, &mut out).expect("encodes");
         }
         let mut decoder = Decoder::new(templates);
         let mut rest = out.as_slice();
@@ -547,16 +547,16 @@ mod tests {
         let mut encoder = Encoder::new(templates);
         let mut out = Vec::new();
         let error = |encoder: &mut Encoder, fields: &[(u32, &str)]| {
-            encoder.encode(1, &msg(fields), &mut Vec::new()).unwrap_err()
+            encoder.encode_into(1, &msg(fields), &mut Vec::new()).unwrap_err()
         };
         assert_eq!(error(&mut encoder, &[]).kind(), ErrorKind::InvalidValue);
         assert_eq!(error(&mut encoder, &[(1, "1"), (2, "Y")]).kind(), ErrorKind::InvalidValue);
         assert_eq!(error(&mut encoder, &[(2, "X"), (1, "1")]).kind(), ErrorKind::InvalidValue);
         assert_eq!(error(&mut encoder, &[(1, "x")]).code(), Some(Code::D11));
         assert_eq!(error(&mut encoder, &[(1, "4294967296")]).code(), Some(Code::R4));
-        assert_eq!(encoder.encode(9, &msg(&[]), &mut out).unwrap_err().code(), Some(Code::D9));
+        assert_eq!(encoder.encode_into(9, &msg(&[]), &mut out).unwrap_err().code(), Some(Code::D9));
         // A tail can lengthen a value but not shorten it.
-        encoder.encode(1, &msg(&[(1, "1"), (3, "ABC")]), &mut out).expect("encodes");
+        encoder.encode_into(1, &msg(&[(1, "1"), (3, "ABC")]), &mut out).expect("encodes");
         assert_eq!(error(&mut encoder, &[(1, "1"), (3, "AB")]).kind(), ErrorKind::InvalidValue);
         assert!(!out.is_empty());
     }

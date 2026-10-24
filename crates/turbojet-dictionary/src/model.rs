@@ -164,9 +164,10 @@ pub enum FieldType {
     Other(String),
 }
 
-impl FieldType {
-    /// From the dictionary's `type` attribute, e.g. `UTCTIMESTAMP`.
-    pub fn parse(name: &str) -> Self {
+/// From the dictionary's `type` attribute, e.g. `UTCTIMESTAMP`; a type it doesn't know is kept by
+/// name.
+impl From<&str> for FieldType {
+    fn from(name: &str) -> Self {
         match name {
             "INT" => Self::Int,
             "LENGTH" => Self::Length,

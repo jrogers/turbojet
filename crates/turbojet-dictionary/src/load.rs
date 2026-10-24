@@ -284,7 +284,7 @@ impl Parser<'_, '_> {
             if let Some(other) = tags.insert(tag, name.clone()) {
                 return Err(self.error(el, format!("tag {tag} is both {other} and {name}")));
             }
-            let ty = FieldType::parse(self.attr(el, "type")?);
+            let ty = FieldType::from(self.attr(el, "type")?);
             self.check_against_base(el, &name, tag, &ty)?;
             let mut values = Vec::new();
             let mut codes = HashSet::new();
