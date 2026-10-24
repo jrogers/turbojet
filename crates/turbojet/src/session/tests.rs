@@ -318,6 +318,19 @@ fn misplaced_header_field(msg: &Message) -> Option<u32> {
     misplaced_header_and_empty_field(msg, true).0
 }
 
+/// The scan for a misplaced header field and an empty one stops only once it has found all it
+/// looks for.
+#[test]
+fn the_field_scan_finds_both_wherever_they_are() {
+    let msg = |fields: &[(u32, &str)]| fields.iter().fold(Message::new(MsgType::Heartbeat), |m, (t, v)| m.with(*t, *v));
+    // An empty value in the header, a header field after the body.
+    let both = msg(&[(tags::SENDER_SUB_ID, ""), (tags::TEST_REQ_ID, "x"), (tags::TARGET_SUB_ID, "D")]);
+    assert_eq!(misplaced_header_and_empty_field(&both, true), (Some(tags::TARGET_SUB_ID), Some(tags::SENDER_SUB_ID)));
+    // Without the order check, an empty value after others.
+    let late = msg(&[(tags::TEST_REQ_ID, "x"), (tags::TEXT, "")]);
+    assert_eq!(misplaced_header_and_empty_field(&late, false), (None, Some(tags::TEXT)));
+}
+
 /// Message type names (e.g. "Logout") and "DISCONNECT", in order.
 fn types(actions: &[Action]) -> Vec<String> {
     actions
@@ -4590,6 +4603,29 @@ fn resends_keep_the_version_they_were_sent_in() {
     assert_eq!(resent.get(tags::POSS_DUP_FLAG), Some("Y"));
     assert_eq!(resent.get(tags::APPL_VER_ID), Some("8"), "stated, as it isn't the default now");
     assert_eq!(misplaced_header_field(resent), None);
+}
+
+/// A message the application states in the default version is stored stating it, as one that
+/// leaves it unstated is, so a resend after the default changes keeps it.
+#[test]
+fn a_message_stating_the_default_is_resent_in_it_after_the_default_changes() {
+    let h = Harness::fixt(&[ApplVerId::Fix50Sp2, ApplVerId::Fix50Sp1]);
+    let mut s = h.session();
+    s.recv(fixt_logon(1, Some("9")), h.t0); // our 1
+    let report = Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E").with(tags::APPL_VER_ID, "9");
+    let out = s.command(Command::send(report), h.t0); // our 2
+    assert_eq!(sent(&out)[0].get(tags::APPL_VER_ID), None, "the default goes unstated");
+    drop(s);
+
+    let mut s = h.session();
+    s.recv(fixt_logon(2, Some("8")), h.t0); // our 3; SP1 is the default now
+    let request = client(3, MsgType::ResendRequest)
+        .with(tags::BEGIN_STRING, "FIXT.1.1")
+        .with(tags::BEGIN_SEQ_NO, "2")
+        .with(tags::END_SEQ_NO, "2");
+    let out = s.recv(request, h.t0);
+    let resent = sent(&out).into_iter().find(|m| m.msg_type() == MsgType::ExecutionReport).expect("resent");
+    assert_eq!(resent.get(tags::APPL_VER_ID), Some("9"));
 }
 
 #[test]
