@@ -22,7 +22,7 @@ mod part0 {
             /// ApplResendFlag(1352).
             appl_resend_flag: opt bool = APPL_RESEND_FLAG,
             /// IOIID(23).
-            ioiid: req CompactString = IOIID,
+            ioi_id: req CompactString = IOI_ID,
             /// IOITransType(28).
             ioi_trans_type: req Code<IOITransType> = IOI_TRANS_TYPE,
             /// IOIRefID(26).
@@ -278,7 +278,7 @@ mod part0 {
         /// With the required fields and groups; optional ones empty.
         #[allow(clippy::too_many_arguments, clippy::new_without_default)]
         pub fn new(
-            ioiid: impl Into<CompactString>,
+            ioi_id: impl Into<CompactString>,
             ioi_trans_type: impl Into<Code<IOITransType>>,
             side: impl Into<Code<Side>>,
             ioi_qty: impl Into<Code<IOIQty>>,
@@ -288,7 +288,7 @@ mod part0 {
                 appl_seq_num: None,
                 appl_last_seq_num: None,
                 appl_resend_flag: None,
-                ioiid: ioiid.into(),
+                ioi_id: ioi_id.into(),
                 ioi_trans_type: ioi_trans_type.into(),
                 ioi_ref_id: None,
                 symbol: None,
@@ -2217,7 +2217,7 @@ mod part0 {
             /// SolicitedFlag(377).
             solicited_flag: opt bool = SOLICITED_FLAG,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// TimeInForce(59).
@@ -2526,7 +2526,7 @@ mod part0 {
                 currency: None,
                 compliance_id: None,
                 solicited_flag: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 time_in_force: None,
                 effective_time: None,
@@ -9708,7 +9708,7 @@ mod part5 {
             /// ComplianceID(376).
             compliance_id: opt CompactString = COMPLIANCE_ID,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// TimeInForce(59).
@@ -9935,7 +9935,7 @@ mod part5 {
                 yield_redemption_price_type: None,
                 currency: None,
                 compliance_id: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 time_in_force: None,
                 effective_time: None,
@@ -10271,7 +10271,7 @@ mod part5 {
             /// ComplianceID(376).
             compliance_id: opt CompactString = COMPLIANCE_ID,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// TimeInForce(59).
@@ -10502,7 +10502,7 @@ mod part5 {
                 yield_redemption_price_type: None,
                 currency: None,
                 compliance_id: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 time_in_force: None,
                 effective_time: None,
@@ -12440,7 +12440,7 @@ mod part6 {
             /// SolicitedFlag(377).
             solicited_flag: opt bool = SOLICITED_FLAG,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// RefOrderID(1080).
@@ -12709,7 +12709,7 @@ mod part6 {
                 currency: None,
                 compliance_id: None,
                 solicited_flag: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 ref_order_id: None,
                 ref_order_id_source: None,
@@ -13076,7 +13076,7 @@ mod part6 {
             /// SolicitedFlag(377).
             solicited_flag: opt bool = SOLICITED_FLAG,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// TimeInForce(59).
@@ -13343,7 +13343,7 @@ mod part6 {
                 currency: None,
                 compliance_id: None,
                 solicited_flag: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 time_in_force: None,
                 effective_time: None,
@@ -15455,7 +15455,7 @@ mod part7 {
             /// OrderRestrictions(529).
             order_restrictions: opt Vec<Code<OrderRestrictions>> = ORDER_RESTRICTIONS,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteType(537).
             quote_type: opt Code<QuoteType> = QUOTE_TYPE,
             /// PreTradeAnonymity(1091).
@@ -15789,7 +15789,7 @@ mod part7 {
                 cl_ord_id: None,
                 order_capacity: None,
                 order_restrictions: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_type: None,
                 pre_trade_anonymity: None,
                 quote_qualifiers: Vec::new(),

@@ -45,7 +45,7 @@ pub const HANDL_INST: u32 = 21;
 /// IDSource(22).
 pub const ID_SOURCE: u32 = 22;
 /// IOIID(23).
-pub const IOIID: u32 = 23;
+pub const IOI_ID: u32 = 23;
 /// IOIOthSvc(24).
 pub const IOI_OTH_SVC: u32 = 24;
 /// IOIQltyInd(25).

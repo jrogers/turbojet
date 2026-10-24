@@ -12,7 +12,7 @@ mod part0 {
         /// IOI(6).
         IOI / IOIRef = "6" {
             /// IOIID(23).
-            ioiid: req CompactString = IOIID,
+            ioi_id: req CompactString = IOI_ID,
             /// IOITransType(28).
             ioi_trans_type: req Code<IOITransType> = IOI_TRANS_TYPE,
             /// IOIRefID(26).
@@ -88,14 +88,14 @@ mod part0 {
         /// With the required fields and groups; optional ones empty.
         #[allow(clippy::too_many_arguments, clippy::new_without_default)]
         pub fn new(
-            ioiid: impl Into<CompactString>,
+            ioi_id: impl Into<CompactString>,
             ioi_trans_type: impl Into<Code<IOITransType>>,
             symbol: impl Into<CompactString>,
             side: impl Into<Code<Side>>,
             ioi_shares: impl Into<Code<IOIShares>>,
         ) -> Self {
             Self {
-                ioiid: ioiid.into(),
+                ioi_id: ioi_id.into(),
                 ioi_trans_type: ioi_trans_type.into(),
                 ioi_ref_id: None,
                 symbol: symbol.into(),
@@ -789,7 +789,7 @@ mod part0 {
             /// SolicitedFlag(377).
             solicited_flag: opt bool = SOLICITED_FLAG,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// TimeInForce(59).
@@ -896,7 +896,7 @@ mod part0 {
                 currency: None,
                 compliance_id: None,
                 solicited_flag: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 time_in_force: None,
                 effective_time: None,

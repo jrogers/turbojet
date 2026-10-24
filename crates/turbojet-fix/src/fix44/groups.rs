@@ -1367,7 +1367,7 @@ mod part3 {
             /// SolicitedFlag(377).
             solicited_flag: opt bool = SOLICITED_FLAG,
             /// IOIID(23).
-            ioiid: opt CompactString = IOIID,
+            ioi_id: opt CompactString = IOI_ID,
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// TimeInForce(59).
@@ -1560,7 +1560,7 @@ mod part3 {
                 currency: None,
                 compliance_id: None,
                 solicited_flag: None,
-                ioiid: None,
+                ioi_id: None,
                 quote_id: None,
                 time_in_force: None,
                 effective_time: None,

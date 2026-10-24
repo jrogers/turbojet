@@ -95,7 +95,12 @@ pub(crate) fn snake(name: &str) -> String {
             let prev = chars[i - 1];
             let plural = chars.get(i + 1) == Some(&'s') && !lower_at(i + 2);
             let word_follows = lower_at(i + 1) && !plural && !id_at(i + 1);
-            if prev.is_ascii_lowercase() || prev.is_ascii_digit() || (prev.is_ascii_uppercase() && word_follows) {
+            // An ID ending an acronym is a word of its own: IOIID is IOI ID.
+            let trailing_id = c == 'I' && chars.get(i + 1) == Some(&'D') && !lower_at(i + 2);
+            if prev.is_ascii_lowercase()
+                || prev.is_ascii_digit()
+                || (prev.is_ascii_uppercase() && (word_follows || trailing_id))
+            {
                 out.push('_');
             }
         } else if id_at(i) {
@@ -194,7 +199,8 @@ mod tests {
         assert_eq!(snake("ClOrdID"), "cl_ord_id");
         assert_eq!(snake("MDEntryType"), "md_entry_type");
         assert_eq!(snake("SecurityIDSource"), "security_id_source");
-        assert_eq!(snake("IOIID"), "ioiid");
+        assert_eq!(snake("IOIID"), "ioi_id");
+        assert_eq!(constant("IOIID"), "IOI_ID");
         assert_eq!(snake("Side"), "side");
         assert_eq!(snake("LegPrice2"), "leg_price2");
         assert_eq!(snake("NoPartyIDs"), "no_party_ids");

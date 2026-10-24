@@ -43,7 +43,7 @@ pub const HANDL_INST: u32 = 21;
 /// SecurityIDSource(22).
 pub const SECURITY_ID_SOURCE: u32 = 22;
 /// IOIID(23).
-pub const IOIID: u32 = 23;
+pub const IOI_ID: u32 = 23;
 /// IOIQltyInd(25).
 pub const IOI_QLTY_IND: u32 = 25;
 /// IOIRefID(26).
