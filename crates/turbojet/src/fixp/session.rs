@@ -12,7 +12,8 @@ use tracing::{debug, info, warn};
 use super::framing::{self, Framed};
 use super::messages::{self as m, Decoded, FlowType};
 use super::{
-    ClientLogin, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, Received, Role, SbeMessage,
+    ClientConfig, ClientLogin, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, Received,
+    Role, SbeMessage, ServerConfig,
 };
 use crate::application::guarded;
 use crate::connection::Driven;
@@ -121,6 +122,7 @@ struct Inbound {
 /// One FIXP session over one connection.
 pub struct FixpSession {
     config: FixpConfig,
+    role: Role,
     registry: Arc<FixpRegistry>,
     app: Arc<dyn FixpApplication>,
     commands: CommandSender<SbeMessage>,
@@ -193,15 +195,42 @@ fn sequenced(flow: FlowType) -> bool {
 }
 
 impl FixpSession {
-    /// A session for `config`'s role, for [`run`](super::run) or [`run_spinning`](super::run_spinning),
-    /// or a driver of your own (see [`on_connect`](Self::on_connect)). The receiver carries
-    /// [`FixpHandle`] commands.
+    /// A client session, `client` with settings `config`, for [`run`](super::run) or
+    /// [`run_spinning`](super::run_spinning), or a driver of your own (see
+    /// [`on_connect`](Self::on_connect)). The receiver carries [`FixpHandle`] commands.
     ///
     /// # Panics
     ///
     /// If `config` is invalid; see [`FixpConfig::check`].
-    pub fn new(
+    pub fn client(
         config: FixpConfig,
+        client: ClientConfig,
+        registry: Arc<FixpRegistry>,
+        app: Arc<dyn FixpApplication>,
+        now: Instant,
+    ) -> (Self, CommandReceiver<SbeMessage>) {
+        Self::new(config, Role::Client(client), registry, app, now)
+    }
+
+    /// A server session, `server` with settings `config`, as [`client`](Self::client) is a
+    /// client's.
+    ///
+    /// # Panics
+    ///
+    /// If `config` is invalid; see [`FixpConfig::check`].
+    pub fn server(
+        config: FixpConfig,
+        server: ServerConfig,
+        registry: Arc<FixpRegistry>,
+        app: Arc<dyn FixpApplication>,
+        now: Instant,
+    ) -> (Self, CommandReceiver<SbeMessage>) {
+        Self::new(config, Role::Server(server), registry, app, now)
+    }
+
+    fn new(
+        config: FixpConfig,
+        role: Role,
         registry: Arc<FixpRegistry>,
         app: Arc<dyn FixpApplication>,
         now: Instant,
@@ -210,10 +239,11 @@ impl FixpSession {
             panic!("invalid FIXP configuration: {e}");
         }
         let (commands, receiver) = command_queues(config.send_queue);
-        let state = if matches!(config.role, Role::Server(_)) { State::AwaitingClient } else { State::Starting };
+        let state = if matches!(role, Role::Server(_)) { State::AwaitingClient } else { State::Starting };
         let session = Self {
             peer_keepalive: config.keepalive,
             config,
+            role,
             registry,
             app,
             commands,
@@ -289,7 +319,7 @@ impl FixpSession {
     }
 
     fn is_server(&self) -> bool {
-        matches!(self.config.role, Role::Server(_))
+        matches!(self.role, Role::Server(_))
     }
 
     /// Our flow, and the counterparty's.
@@ -329,7 +359,7 @@ impl FixpSession {
 
     fn connect(&mut self) {
         self.waiting_since = self.now;
-        let Role::Client(client) = &self.config.role else { return };
+        let Role::Client(client) = &self.role else { return };
         let id = SessionId::new(BEGIN_STRING, client.name.clone(), client.server.clone());
         self.bind(id, [0; 16], None);
     }
@@ -379,7 +409,7 @@ impl FixpSession {
 
     /// A fresh log negotiates a new session; one already negotiated establishes it.
     fn client_start(&mut self) {
-        let Role::Client(client) = &self.config.role else { unreachable!("only a client starts") };
+        let Role::Client(client) = &self.role else { unreachable!("only a client starts") };
         let name = client.name.clone();
         let created = self.log().created_at();
         let (created, negotiate) = match created {
@@ -402,7 +432,7 @@ impl FixpSession {
     }
 
     fn send_negotiate(&mut self) {
-        let Role::Client(client) = &self.config.role else { unreachable!("only a client negotiates") };
+        let Role::Client(client) = &self.role else { unreachable!("only a client negotiates") };
         let credentials = client.credentials.clone();
         let negotiate = m::Negotiate {
             session_id: self.uuid(),
@@ -416,7 +446,7 @@ impl FixpSession {
     }
 
     fn send_establish(&mut self) {
-        let Role::Client(client) = &self.config.role else { unreachable!("only a client establishes") };
+        let Role::Client(client) = &self.role else { unreachable!("only a client establishes") };
         let credentials = client.credentials.clone();
         let next_seq_no = sequenced(self.config.client_flow).then(|| self.log().next_outgoing());
         let establish = m::Establish {
@@ -491,7 +521,7 @@ impl FixpSession {
     }
 
     fn server_id(&self, session_id: &Uuid) -> SessionId {
-        let Role::Server(server) = &self.config.role else { unreachable!("only a server names logs by session") };
+        let Role::Server(server) = &self.role else { unreachable!("only a server names logs by session") };
         SessionId::new(BEGIN_STRING, server.name.clone(), uuid_text(session_id))
     }
 
@@ -507,7 +537,7 @@ impl FixpSession {
             return self.storage_failed(e);
         }
         self.dirty = true;
-        let Role::Server(server) = &self.config.role else { unreachable!("only a server answers") };
+        let Role::Server(server) = &self.role else { unreachable!("only a server answers") };
         let credentials = server.credentials.clone();
         let response = m::NegotiationResponse {
             session_id,

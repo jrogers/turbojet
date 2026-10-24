@@ -109,20 +109,21 @@ struct End {
     registry: Arc<FixpRegistry>,
     app: Arc<Recorder>,
     config: FixpConfig,
+    role: Role,
     session: Option<(FixpSession, CommandReceiver<SbeMessage>)>,
 }
 
 impl End {
     fn new(role: Role, wall: &Wall, app: Recorder) -> Self {
-        let mut config = FixpConfig::new(role);
+        let mut config = FixpConfig::new();
         config.clock = wall.clock();
         let registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
-        Self { registry, app: Arc::new(app), config, session: None }
+        Self { registry, app: Arc::new(app), config, role, session: None }
     }
 
     fn connect(&mut self, now: Instant) {
         let (mut session, commands) =
-            FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), now);
+            FixpSession::new(self.config.clone(), self.role.clone(), self.registry.clone(), self.app.clone(), now);
         session.on_connect(now);
         self.session = Some((session, commands));
     }
@@ -1045,7 +1046,8 @@ async fn the_message_log_sees_both_directions_on_the_wire() {
     let start = |end: &End, stream, log: &Arc<Logged>| {
         let mut config = end.config.clone();
         config.message_log = Some(log.clone());
-        let (session, commands) = FixpSession::new(config, end.registry.clone(), end.app.clone(), Instant::now());
+        let (session, commands) =
+            FixpSession::new(config, end.role.clone(), end.registry.clone(), end.app.clone(), Instant::now());
         tokio::spawn(super::super::run(stream, session, commands))
     };
     let server_task = start(&net.server, server_stream, &server_log);

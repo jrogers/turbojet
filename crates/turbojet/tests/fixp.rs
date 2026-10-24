@@ -12,8 +12,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use turbojet::MemoryStorage;
 use turbojet::fixp::{
-    self, ClientConfig, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, FixpSession,
-    Received, Role, SbeMessage, ServerConfig, TerminationCode,
+    self, ClientConfig, Ended, FixpAcceptorConfig, FixpApplication, FixpConfig, FixpContext, FixpHandle,
+    FixpInitiatorConfig, FixpRegistry, FixpSession, Received, SbeMessage, ServerConfig, TerminationCode,
 };
 use turbojet::sbe::pad;
 
@@ -86,14 +86,17 @@ impl FixpApplication for Events {
     }
 }
 
-fn end(
-    role: Role,
-    server: bool,
-) -> (FixpSession, turbojet::registry::CommandReceiver<SbeMessage>, mpsc::UnboundedReceiver<Event>) {
+/// The server's end if `server`, else the client's.
+fn end(server: bool) -> (FixpSession, turbojet::registry::CommandReceiver<SbeMessage>, mpsc::UnboundedReceiver<Event>) {
     let (events, received) = mpsc::unbounded_channel();
     let registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
     let app = Arc::new(Events { server, events });
-    let (session, commands) = FixpSession::new(FixpConfig::new(role), registry, app, std::time::Instant::now());
+    let (config, now) = (FixpConfig::new(), std::time::Instant::now());
+    let (session, commands) = if server {
+        FixpSession::server(config, ServerConfig::new("SERVER"), registry, app, now)
+    } else {
+        FixpSession::client(config, ClientConfig::new("CLIENT", "SERVER"), registry, app, now)
+    };
     (session, commands, received)
 }
 
@@ -104,8 +107,8 @@ async fn next(events: &mut mpsc::UnboundedReceiver<Event>) -> Event {
 #[tokio::test]
 async fn a_client_and_server_exchange_orders_over_the_driver() {
     let (client_stream, server_stream) = tokio::io::duplex(64 * 1024);
-    let (server, server_commands, mut server_events) = end(Role::Server(ServerConfig::new("SERVER")), true);
-    let (client, client_commands, mut client_events) = end(Role::Client(ClientConfig::new("CLIENT", "SERVER")), false);
+    let (server, server_commands, mut server_events) = end(true);
+    let (client, client_commands, mut client_events) = end(false);
     let server_task = tokio::spawn(fixp::run(server_stream, server, server_commands));
     let client_task = tokio::spawn(fixp::run(client_stream, client, client_commands));
 
@@ -142,7 +145,7 @@ async fn a_client_reconnects_over_tcp_and_reestablishes_the_session() {
     let (server_events, mut server_received) = mpsc::unbounded_channel();
     let server_app: Arc<dyn FixpApplication> = Arc::new(Events { server: true, events: server_events });
     let serve = |listener: tokio::net::TcpListener| {
-        let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+        let config = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
         let acceptor = FixpAcceptor::new(config, server_store.clone(), server_app.clone()).unwrap();
         tokio::spawn(acceptor.clone().serve(listener));
         acceptor
@@ -152,12 +155,11 @@ async fn a_client_reconnects_over_tcp_and_reestablishes_the_session() {
     let first = serve(listener);
 
     let (client_events, mut client_received) = mpsc::unbounded_channel();
-    let client_config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let mut client_config =
+        FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER")).with_endpoint(addr.to_string());
+    client_config.reconnect = ReconnectPolicy::fixed(Duration::from_millis(50));
     let client_app = Arc::new(Events { server: false, events: client_events });
-    let initiator = FixpInitiator::new(addr.to_string(), client_config, Arc::new(MemoryStorage::new()), client_app)
-        .unwrap()
-        .with_reconnect(ReconnectPolicy::fixed(Duration::from_millis(50)))
-        .unwrap();
+    let initiator = FixpInitiator::new(client_config, Arc::new(MemoryStorage::new()), client_app).unwrap();
     tokio::spawn(initiator.clone().run());
 
     assert!(matches!(next(&mut client_received).await, Event::Established(_)));
@@ -204,7 +206,7 @@ fn fixp_server(
     } else {
         Arc::new(Events { server: true, events })
     };
-    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let config = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
     let acceptor = turbojet::fixp::FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     tokio::spawn(acceptor.clone().serve(listener));
     (acceptor, received)
@@ -215,12 +217,21 @@ fn fixp_client_with_backup(
     primary: &str,
     backup: &str,
 ) -> (turbojet::fixp::FixpInitiator, mpsc::UnboundedReceiver<Event>) {
+    fixp_client_configured(primary, backup, |_| {})
+}
+
+/// As `fixp_client_with_backup`, its configuration changed by `configure`.
+fn fixp_client_configured(
+    primary: &str,
+    backup: &str,
+    configure: impl FnOnce(&mut FixpInitiatorConfig),
+) -> (turbojet::fixp::FixpInitiator, mpsc::UnboundedReceiver<Event>) {
     let (events, received) = mpsc::unbounded_channel();
-    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let mut config =
+        FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER")).with_endpoint(primary).with_endpoint(backup);
+    configure(&mut config);
     let app = Arc::new(Events { server: false, events });
-    let initiator = turbojet::fixp::FixpInitiator::new(primary, config, Arc::new(MemoryStorage::new()), app)
-        .unwrap()
-        .with_failover(backup);
+    let initiator = turbojet::fixp::FixpInitiator::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     (initiator, received)
 }
 
@@ -270,7 +281,7 @@ async fn fixp_sessions_have_statuses_and_events() {
     use turbojet::{SessionEventKind, SessionState};
 
     let (server_events, mut server_received) = mpsc::unbounded_channel();
-    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let config = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
     let server_app = Arc::new(Events { server: true, events: server_events });
     let acceptor = FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), server_app).unwrap();
     let mut events = acceptor.subscribe();
@@ -279,10 +290,11 @@ async fn fixp_sessions_have_statuses_and_events() {
     tokio::spawn(acceptor.clone().serve(listener));
 
     let (client_events, mut client_received) = mpsc::unbounded_channel();
-    let client_config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+    let client_config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER"));
     let client_app = Arc::new(Events { server: false, events: client_events });
     let initiator =
-        FixpInitiator::new(addr.to_string(), client_config, Arc::new(MemoryStorage::new()), client_app).unwrap();
+        FixpInitiator::new(client_config.with_endpoint(addr.to_string()), Arc::new(MemoryStorage::new()), client_app)
+            .unwrap();
     tokio::spawn(initiator.clone().run());
     assert!(matches!(next(&mut client_received).await, Event::Established(_)));
     assert!(matches!(next(&mut server_received).await, Event::Established(_)));
@@ -342,8 +354,8 @@ async fn a_client_reaches_its_server_through_a_proxy_failing_over_as_directly() 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let backup = listener.local_addr().unwrap().to_string();
     let (_server, mut server_events) = fixp_server(listener, false);
-    let (client, mut client_events) = fixp_client_with_backup(&primary, &backup);
-    let client = client.with_proxy(turbojet::Proxy::http(forwarding_proxy().await));
+    let proxy = turbojet::Proxy::http(forwarding_proxy().await);
+    let (client, mut client_events) = fixp_client_configured(&primary, &backup, |c| c.proxy = Some(proxy));
     tokio::spawn(async move { client.connect_once().await });
     assert!(matches!(next(&mut client_events).await, Event::Established(_)));
     assert!(matches!(next(&mut server_events).await, Event::Established(_)));

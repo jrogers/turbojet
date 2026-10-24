@@ -31,10 +31,10 @@
 //! with a codec generated from its schema (see [`crate::sbe`]), and sends any generated message
 //! through its [`FixpContext`] or [`FixpHandle`].
 //!
-//! `FixpAcceptor::serve_tls` and `FixpInitiator::with_tls` run sessions over TLS (feature
+//! `FixpAcceptor::serve_tls` and [`FixpInitiatorConfig`]'s `tls` run sessions over TLS (feature
 //! `tls`), and [`FixpApplication::verify`] sees the client certificate a server asked for.
 //!
-//! A [`FixpInitiator`] fails over to backup endpoints ([`FixpInitiator::with_failover`]), and
+//! A [`FixpInitiator`] fails over to backup endpoints ([`FixpInitiatorConfig::endpoints`]), and
 //! sessions record the per-session metrics (feature `metrics`; see
 //! [`telemetry`](crate::telemetry)).
 //!
@@ -56,7 +56,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::runtime::Handle;
 
-pub use endpoints::{FixpAcceptor, FixpInitiator};
+pub use endpoints::{FixpAcceptor, FixpAcceptorConfig, FixpInitiator, FixpInitiatorConfig};
 pub use messages::{EstablishmentRejectCode, FlowType, NegotiationRejectCode, TerminationCode};
 pub use session::FixpSession;
 
@@ -142,8 +142,7 @@ pub type FixpRegistry = SessionRegistry<SbeMessage>;
 
 /// Which end of the session this is.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Role {
+pub(crate) enum Role {
     /// The client, which negotiates and establishes.
     Client(ClientConfig),
     /// The server, which clients negotiate and establish with.
@@ -207,8 +206,6 @@ impl fmt::Debug for ServerConfig {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct FixpConfig {
-    /// Client or server.
-    pub role: Role,
     /// The flow from client to server.
     pub client_flow: FlowType,
     /// The flow from server to client.
@@ -244,13 +241,18 @@ pub struct FixpConfig {
     pub message_log: Option<Arc<dyn MessageLog>>,
 }
 
+impl Default for FixpConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FixpConfig {
-    /// Settings for `role` with recoverable flows both ways: a keepalive of 1 s (at most 60 s from
-    /// a client) and 3 misses, a 120 s timestamp window, 10 s to negotiate and establish,
-    /// retransmissions of up to 1000 messages, and a send queue of 1024.
-    pub fn new(role: Role) -> Self {
+    /// Settings with recoverable flows both ways: a keepalive of 1 s (at most 60 s from a client)
+    /// and 3 misses, a 120 s timestamp window, 10 s to negotiate and establish, retransmissions
+    /// of up to 1000 messages, and a send queue of 1024.
+    pub fn new() -> Self {
         Self {
-            role,
             client_flow: FlowType::Recoverable,
             server_flow: FlowType::Recoverable,
             keepalive: Duration::from_secs(1),
@@ -518,7 +520,7 @@ mod mask_tests {
         for printed in [
             format!("{client:?}"),
             format!("{server:?}"),
-            format!("{:?}", FixpConfig::new(Role::Client(client.clone()))),
+            format!("{:?}", Role::Client(client.clone())),
             format!("{login:?}"),
             format!("{decoded:?}"),
         ] {

@@ -22,8 +22,8 @@ use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use turbojet::MemoryStorage;
 use turbojet::fixp::{
-    ClientConfig, FixpAcceptor, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpInitiator, Received, Role,
-    SbeMessage, ServerConfig,
+    ClientConfig, FixpAcceptor, FixpAcceptorConfig, FixpApplication, FixpContext, FixpHandle, FixpInitiator,
+    FixpInitiatorConfig, Received, SbeMessage, ServerConfig,
 };
 
 /// Orders in flight at once in the pipelined benchmark.
@@ -99,12 +99,13 @@ fn fixp(c: &mut Criterion) {
     let handle = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+        let config = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
         let acceptor = FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(Server)).unwrap();
         tokio::spawn(acceptor.serve(listener));
-        let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
+        let config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER"));
         let initiator =
-            FixpInitiator::new(addr.to_string(), config, Arc::new(MemoryStorage::new()), client.clone()).unwrap();
+            FixpInitiator::new(config.with_endpoint(addr.to_string()), Arc::new(MemoryStorage::new()), client.clone())
+                .unwrap();
         tokio::spawn(initiator.clone().run());
         established_rx.recv().await.unwrap();
         initiator.handle()

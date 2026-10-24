@@ -401,27 +401,28 @@ implicit, set by `Sequence` messages. Each direction's flow is recoverable (gaps
 idempotent (gaps reported as not applied), unsequenced or none, configured on both ends.
 
 ```rust
-let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "EXCHANGE")));
-let initiator = FixpInitiator::new("exchange:9000", config, storage, app)?;
+let config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "EXCHANGE")).with_endpoint("exchange:9000");
+let initiator = FixpInitiator::new(config, storage, app)?;
 tokio::spawn(initiator.clone().run());
 // Once established: any message from a generated SBE codec.
 initiator.handle().send(SbeMessage::encode(&order)?)?;
 ```
 
-A `FixpAcceptor` serves clients. The application sees each message as its SBE bytes, decoded with
+A `FixpAcceptor` serves clients, configured by a `FixpAcceptorConfig` (or just its
+`ServerConfig`). The application sees each message as its SBE bytes, decoded with
 the venue's codec, with its sequence number and whether it was retransmitted; it's told what the
 counterparty didn't apply on an idempotent flow. A client derives its session ID from when it
 negotiated, so it re-establishes the same session after a restart; a server keeps a log per
 session. Messages sent on a recoverable flow are stored for retransmission.
 
-`FixpAcceptor::serve_tls` and `FixpInitiator::with_tls` run sessions over TLS (feature `tls`), and
+`FixpAcceptor::serve_tls` and `FixpInitiatorConfig::tls` run sessions over TLS (feature `tls`), and
 a server asking for client certificates sees the one a client presented in `FixpApplication::verify`.
 `FixpHandle::finish` finishes sending, finalizing the session once the counterparty has everything.
 
 It's validated against itself, not a venue: a client and server in memory, each rule of the
 specification a test (every flow, gaps both ways, each reject), over TCP and TLS through reconnects,
 fuzzed, and run through the deterministic simulator. A client fails over to backup endpoints
-(`FixpInitiator::with_failover`), and sessions record the same metrics as FIX ones. Not supported:
+(`FixpInitiatorConfig::endpoints`), and sessions record the same metrics as FIX ones. Not supported:
 multiplexed or multicast sessions, throttling, and venues' own dialects (B3's, CME's iLink 3).
 
 ## FAST
@@ -847,7 +848,7 @@ until it closes, logged on or not. One past either is closed as soon as it's acc
 TLS handshake, and counted in `turbojet_connections_refused_total`. Counterparties behind one
 address (a NAT, or a hub serving several firms) share its limit.
 
-`AcceptorConfig::allowed_ips` (and `FixpAcceptor::with_allowed_ips`) accepts connections only from the addresses
+`AcceptorConfig::allowed_ips` (and `FixpAcceptorConfig`'s) accepts connections only from the addresses
 and CIDR ranges given, closing any other as soon as it's accepted, before a TLS handshake or a
 Logon. `set_allowed_ips` replaces the list while serving; connections already open stay. In a
 sessions file it's `allow` in `[acceptor]`, reloaded with the rest.
@@ -869,7 +870,7 @@ a port or 0 to let the system choose one. Only endpoint addresses of the same fa
 IPv6) are tried. In configuration files it's an initiator's `local_address`.
 
 `InitiatorConfig::proxy` reaches every endpoint through an HTTP proxy (with `CONNECT`) or a SOCKS5
-one, for a network that only connects out that way; `FixpInitiator::with_proxy` does the same
+one, for a network that only connects out that way; `FixpInitiatorConfig::proxy` does the same
 for FIXP. The proxy is asked for a tunnel to each endpoint by name, within the connect timeout,
 and TLS runs through the tunnel to the counterparty. A username and password are optional. In
 configuration files it's an initiator's `proxy`, with the password in the environment variable

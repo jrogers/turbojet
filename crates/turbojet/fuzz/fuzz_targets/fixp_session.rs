@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use libfuzzer_sys::fuzz_target;
 use turbojet::MemoryStorage;
 use turbojet::fixp::{
-    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, FlowType, Received, Role,
+    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, FlowType, Received,
     ServerConfig,
 };
 use turbojet::registry::Command;
@@ -38,10 +38,11 @@ impl turbojet::sbe::Encode for Raw {
 
 const FLOWS: [FlowType; 4] = [FlowType::Recoverable, FlowType::Idempotent, FlowType::Unsequenced, FlowType::None];
 
-fn run(role: Role, flows: u8, input: &[u8]) {
+/// Feeds `input` to a server session if `server`, else a client's.
+fn run(server: bool, flows: u8, input: &[u8]) {
     let registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
     let mut now = Instant::now();
-    let mut config = FixpConfig::new(role);
+    let mut config = FixpConfig::new();
     config.client_flow = FLOWS[usize::from(flows & 3)];
     config.server_flow = FLOWS[usize::from((flows >> 2) & 3)];
     if config.client_flow == FlowType::None && config.server_flow == FlowType::None {
@@ -51,7 +52,11 @@ fn run(role: Role, flows: u8, input: &[u8]) {
     // take several.
     config.timestamp_window = Duration::MAX;
     config.max_retransmit = 4;
-    let (mut session, _commands) = FixpSession::new(config, registry, Arc::new(Echo), now);
+    let (mut session, _commands) = if server {
+        FixpSession::server(config, ServerConfig::new("SERVER"), registry, Arc::new(Echo), now)
+    } else {
+        FixpSession::client(config, ClientConfig::new("CLIENT", "SERVER"), registry, Arc::new(Echo), now)
+    };
     session.on_connect(now);
     let mut buf = Vec::new();
     // Each chunk: a length byte, then up to that many bytes; a zero length is a second passing,
@@ -100,6 +105,6 @@ fn whole_frames(mut bytes: &[u8]) -> bool {
 
 fuzz_target!(|input: &[u8]| {
     let Some((&flows, input)) = input.split_first() else { return };
-    run(Role::Server(ServerConfig::new("SERVER")), flows, input);
-    run(Role::Client(ClientConfig::new("CLIENT", "SERVER")), flows, input);
+    run(true, flows, input);
+    run(false, flows, input);
 });

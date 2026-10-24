@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use turbojet::fixp::{FixpConfig, FixpRegistry, FixpSession, SbeMessage};
+use turbojet::fixp::{ClientConfig, FixpConfig, FixpRegistry, FixpSession, SbeMessage, ServerConfig};
 use turbojet::registry::CommandReceiver;
 use turbojet::store::{Commit, Job, SentMessages, SessionLog};
 
@@ -24,9 +24,16 @@ const COMMANDS_PAUSE_AT: usize = 256 * 1024;
 const MAX_UNWRITTEN: usize = 16 * 1024 * 1024;
 const MAX_UNPROCESSED: usize = 16 * 1024 * 1024;
 
+/// Who a node's sessions are: the client, or the server.
+pub enum End {
+    Client(ClientConfig),
+    Server(ServerConfig),
+}
+
 pub struct Node {
     pub side: Side,
     pub config: FixpConfig,
+    end: End,
     pub registry: Arc<FixpRegistry>,
     pub app: Arc<RecordingApp>,
     clocks: Clocks,
@@ -86,11 +93,12 @@ impl Node {
     pub fn new(
         side: Side,
         config: FixpConfig,
+        end: End,
         registry: Arc<FixpRegistry>,
         app: Arc<RecordingApp>,
         clocks: Clocks,
     ) -> Self {
-        Self { side, config, registry, app, clocks, running: BTreeMap::new(), established: BTreeSet::new() }
+        Self { side, config, end, registry, app, clocks, running: BTreeMap::new(), established: BTreeSet::new() }
     }
 
     pub fn conns(&self) -> impl Iterator<Item = ConnId> + '_ {
@@ -104,8 +112,11 @@ impl Node {
     /// A new connection: the driver starts with `on_connect`.
     pub fn start(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let instant = self.clocks.instant(now);
-        let (session, commands) =
-            FixpSession::new(self.config.clone(), self.registry.clone(), self.app.clone(), instant);
+        let (config, registry, app) = (self.config.clone(), self.registry.clone(), self.app.clone());
+        let (session, commands) = match &self.end {
+            End::Client(client) => FixpSession::client(config, client.clone(), registry, app, instant),
+            End::Server(server) => FixpSession::server(config, server.clone(), registry, app, instant),
+        };
         let running = Running {
             session,
             commands,

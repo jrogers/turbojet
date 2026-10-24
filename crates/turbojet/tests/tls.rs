@@ -14,8 +14,8 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use turbojet::fixp::{
-    ClientConfig, ClientLogin, FixpAcceptor, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpInitiator,
-    Received, Role, ServerConfig,
+    ClientConfig, ClientLogin, FixpAcceptor, FixpAcceptorConfig, FixpApplication, FixpContext, FixpHandle,
+    FixpInitiator, FixpInitiatorConfig, Received, ServerConfig,
 };
 use turbojet::message::tags;
 use turbojet::tls;
@@ -737,7 +737,7 @@ async fn start_fixp_server(
     required_cn: Option<&'static str>,
 ) -> (String, Arc<FixpRecorder>, mpsc::UnboundedReceiver<()>) {
     let (app, established) = fixp_recorder(required_cn);
-    let config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let config = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
     let server = FixpAcceptor::new(config, Arc::new(MemoryStorage::new()), app.clone()).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();
@@ -752,12 +752,9 @@ async fn start_fixp_server(
 /// establishments.
 fn fixp_client(addr: &str, connector: Option<tls::TlsConnector>) -> (FixpInitiator, mpsc::UnboundedReceiver<()>) {
     let (app, established) = fixp_recorder(None);
-    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
-    let client = FixpInitiator::new(addr, config, Arc::new(MemoryStorage::new()), app).unwrap();
-    let client = match connector {
-        Some(connector) => client.with_tls(connector, "localhost").unwrap(),
-        None => client,
-    };
+    let mut config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER")).with_endpoint(addr);
+    config.tls = connector.map(|connector| InitiatorTls::new(connector, "localhost"));
+    let client = FixpInitiator::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     (client, established)
 }
 
@@ -828,14 +825,13 @@ async fn fixp_failover_endpoints_verify_their_own_server_names() {
     let pki = Pki::new();
     let (addr, _, mut server) = start_fixp_server(Some(pki.acceptor(Auth::None)), None).await;
     let (app, mut client_established) = fixp_recorder(None);
-    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
     // The same server twice: verified as a name its certificate lacks, then as the default.
     let primary = Endpoint::new(&addr).with_tls_server_name("wrong.example");
-    let client = FixpInitiator::new(primary, config, Arc::new(MemoryStorage::new()), app)
-        .unwrap()
-        .with_failover(addr.as_str())
-        .with_tls(pki.connector("ca.pem", None), "localhost")
-        .unwrap();
+    let mut config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER"))
+        .with_endpoint(primary)
+        .with_endpoint(addr.as_str());
+    config.tls = Some(InitiatorTls::new(pki.connector("ca.pem", None), "localhost"));
+    let client = FixpInitiator::new(config, Arc::new(MemoryStorage::new()), app).unwrap();
     tokio::spawn(async move { client.connect_once().await });
     assert!(established(&mut client_established).await);
     assert!(established(&mut server).await);

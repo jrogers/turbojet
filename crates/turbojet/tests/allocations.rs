@@ -21,7 +21,7 @@ use counting::{Counts, Stage};
 use turbojet::codec::{DecodedInto, decode_into, encode};
 use turbojet::fields::{Decimal, UtcTimestamp};
 use turbojet::fixp::{
-    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, Received, Role, ServerConfig,
+    ClientConfig, FixpApplication, FixpConfig, FixpContext, FixpRegistry, FixpSession, Received, ServerConfig,
 };
 use turbojet::message::DataFields;
 use turbojet::store::{SessionLog, SessionStorage};
@@ -472,13 +472,15 @@ fn fixp_step(session: &mut FixpSession, bytes: &[u8], now: Instant) -> Vec<u8> {
 fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.len()] {
     let now = Instant::now();
     let server_registry = Arc::new(FixpRegistry::with_storage(Arc::new(StagedStorage(storage))));
-    let mut config = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
+    let mut config = FixpConfig::new();
     // `feed` shows each message to the log; `fixp_feed` shows it the answers.
     config.message_log = Some(Arc::new(NoLog));
-    let (mut server, _server_commands) = FixpSession::new(config, server_registry, Arc::new(FixpAcker), now);
+    let server = ServerConfig::new("SERVER");
+    let (mut server, _server_commands) = FixpSession::server(config, server, server_registry, Arc::new(FixpAcker), now);
     let client_registry = Arc::new(FixpRegistry::with_storage(Arc::new(MemoryStorage::new())));
-    let config = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
-    let (mut client, _client_commands) = FixpSession::new(config, client_registry, Arc::new(FixpAcker), now);
+    let client = ClientConfig::new("CLIENT", "SERVER");
+    let (mut client, _client_commands) =
+        FixpSession::client(FixpConfig::new(), client, client_registry, Arc::new(FixpAcker), now);
     server.on_connect(now);
     client.on_connect(now);
     let mut to_server = fixp_step(&mut client, &[], now);

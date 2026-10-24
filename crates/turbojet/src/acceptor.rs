@@ -422,12 +422,6 @@ impl Limits {
         Self { max_total, max_per_ip, allowed: RwLock::default(), open: Mutex::default() }
     }
 
-    /// New limits of `max_total` and `max_per_ip`, accepting the addresses these do.
-    pub(crate) fn resized(&self, max_total: usize, max_per_ip: usize) -> Self {
-        let allowed = self.allowed.read().expect("allowed addresses lock poisoned").clone();
-        Self { allowed: RwLock::new(allowed), ..Self::new(max_total, max_per_ip) }
-    }
-
     /// Accepts connections only from `allowed` from now on, or from anywhere if `None`.
     pub(crate) fn set_allowed(&self, allowed: Option<AllowedIps>) {
         *self.allowed.write().expect("allowed addresses lock poisoned") = allowed;

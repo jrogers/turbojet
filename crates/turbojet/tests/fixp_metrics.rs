@@ -14,8 +14,8 @@ use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::fixp::{
-    ClientConfig, FixpAcceptor, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpInitiator, Received, Role,
-    SbeMessage, ServerConfig,
+    ClientConfig, FixpAcceptor, FixpAcceptorConfig, FixpApplication, FixpContext, FixpHandle, FixpInitiator,
+    FixpInitiatorConfig, Received, SbeMessage, ServerConfig,
 };
 use turbojet::{DiskStorage, MemoryStorage};
 
@@ -115,9 +115,9 @@ impl FixpApplication for Client {
 async fn exchange(orders: u64, snapshotter: &Snapshotter) -> (Totals, String) {
     // Keepalives long enough that none goes out during the test.
     let dir = tempfile::tempdir().unwrap();
-    let mut server = FixpConfig::new(Role::Server(ServerConfig::new("SERVER")));
-    server.keepalive = Duration::from_secs(30);
-    server.latency_metrics = true;
+    let mut server = FixpAcceptorConfig::new(ServerConfig::new("SERVER"));
+    server.session.keepalive = Duration::from_secs(30);
+    server.session.latency_metrics = true;
     let storage = Arc::new(DiskStorage::new(dir.path(), true).unwrap());
     let acceptor = FixpAcceptor::new(server, storage, Arc::new(Server)).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -126,10 +126,10 @@ async fn exchange(orders: u64, snapshotter: &Snapshotter) -> (Totals, String) {
 
     let (established, mut establishments) = mpsc::unbounded_channel();
     let (answers_tx, mut answers) = mpsc::unbounded_channel();
-    let mut client = FixpConfig::new(Role::Client(ClientConfig::new("CLIENT", "SERVER")));
-    client.keepalive = Duration::from_secs(30);
+    let mut client = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "SERVER"));
+    client.session.keepalive = Duration::from_secs(30);
     let app = Arc::new(Client { established, answers: answers_tx });
-    let initiator = FixpInitiator::new(addr, client, Arc::new(MemoryStorage::new()), app).unwrap();
+    let initiator = FixpInitiator::new(client.with_endpoint(addr), Arc::new(MemoryStorage::new()), app).unwrap();
     let handle = initiator.handle();
     let connection = tokio::spawn(async move { initiator.connect_once().await });
 

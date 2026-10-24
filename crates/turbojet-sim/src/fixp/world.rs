@@ -7,13 +7,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use turbojet::fixp::{ClientConfig, FixpConfig, FixpRegistry, FlowType, Role, ServerConfig};
+use turbojet::fixp::{ClientConfig, FixpConfig, FixpRegistry, FlowType, ServerConfig};
 use turbojet::store::SessionStorage;
 use turbojet::{DiskStorage, MemoryStorage, ReconnectPolicy};
 
 use super::app::RecordingApp;
 use super::check::Checker;
-use super::node::{Effects, Node};
+use super::node::{Effects, End, Node};
 use crate::Side;
 use crate::app::Sent;
 use crate::check::Violation;
@@ -275,8 +275,8 @@ fn stores(disk: bool, slow: bool, early: bool) -> (Option<tempfile::TempDir>, [A
 
 /// The client and the server, configured as `faults` says, over `storage`.
 fn nodes(faults: &Faults, storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, plant: Option<Plant>) -> [Node; 2] {
-    let config = |role| {
-        let mut config = FixpConfig::new(role);
+    let config = || {
+        let mut config = FixpConfig::new();
         config.client_flow = faults.client_flow;
         config.server_flow = faults.server_flow;
         config.keepalive = faults.keepalive;
@@ -285,14 +285,14 @@ fn nodes(faults: &Faults, storage: &[Arc<LedgerStorage>; 2], clocks: &Clocks, pl
         config.clock = clocks.wall_clock();
         config
     };
-    let node = |side: Side, config, app| {
+    let node = |side: Side, end, app| {
         let store: Arc<dyn SessionStorage> = storage[side.index()].clone();
         let registry = Arc::new(FixpRegistry::with_storage(store).with_clock(clocks.wall_clock()));
-        Node::new(side, config, registry, app, clocks.clone())
+        Node::new(side, config(), end, registry, app, clocks.clone())
     };
     [
-        node(Side::Initiator, config(Role::Client(ClientConfig::new("CLIENT", "SERVER"))), RecordingApp::client()),
-        node(Side::Acceptor, config(Role::Server(ServerConfig::new("SERVER"))), RecordingApp::server(plant)),
+        node(Side::Initiator, End::Client(ClientConfig::new("CLIENT", "SERVER")), RecordingApp::client()),
+        node(Side::Acceptor, End::Server(ServerConfig::new("SERVER")), RecordingApp::server(plant)),
     ]
 }
 

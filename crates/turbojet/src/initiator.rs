@@ -151,17 +151,10 @@ impl InitiatorConfig {
     /// [`check`](Self::check), as text.
     pub(crate) fn first_problem(&self) -> Result<(), String> {
         self.session_problem()?;
-        if self.endpoints.is_empty() {
-            return Err("an initiator needs an endpoint".into());
-        }
         #[cfg(feature = "tls")]
-        if let Some(tls) = &self.tls {
-            let overrides = self.endpoints.iter().filter_map(|e| e.tls_server_name.as_deref());
-            for name in std::iter::once(tls.server_name.as_str()).chain(overrides) {
-                tls_server_name(name).map_err(|e| e.to_string())?;
-            }
-        }
-        Ok(())
+        return endpoints_problem(&self.endpoints, self.tls.as_ref());
+        #[cfg(not(feature = "tls"))]
+        return endpoints_problem(&self.endpoints);
     }
 
     /// [`check`](Self::check) of what a session uses, leaving out where it connects: a sans-IO
@@ -186,6 +179,25 @@ impl InitiatorConfig {
             panic!("invalid initiator configuration: {e}");
         }
     }
+}
+
+/// The first problem with an initiator's `endpoints`, and the TLS server names it would verify:
+/// none, or a name that isn't a DNS name or IP address.
+pub(crate) fn endpoints_problem(
+    endpoints: &[Endpoint],
+    #[cfg(feature = "tls")] tls: Option<&InitiatorTls>,
+) -> Result<(), String> {
+    if endpoints.is_empty() {
+        return Err("an initiator needs an endpoint".into());
+    }
+    #[cfg(feature = "tls")]
+    if let Some(tls) = tls {
+        let overrides = endpoints.iter().filter_map(|e| e.tls_server_name.as_deref());
+        for name in std::iter::once(tls.server_name.as_str()).chain(overrides) {
+            tls_server_name(name).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 /// An address the initiator can connect to.
