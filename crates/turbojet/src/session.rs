@@ -383,13 +383,6 @@ impl SessionConfig {
         }
     }
 
-    /// Panics with [`check`](Self::check)'s message if this configuration is invalid.
-    pub(crate) fn assert_valid(&self) {
-        if let Err(e) = self.first_problem() {
-            panic!("invalid session configuration: {e}");
-        }
-    }
-
     /// Checks inbound application messages against `dictionary`, with every check on: one that
     /// fails is answered with a session Reject and not delivered. After
     /// [`with_appl_ver_id`](Self::with_appl_ver_id), it applies to that version's messages. See
@@ -688,7 +681,7 @@ impl Session {
     /// A session that waits for a counterparty's Logon. The receiver carries
     /// [`SessionHandle`] commands and must be fed to [`Session::on_command`].
     ///
-    /// # Panics
+    /// # Errors
     ///
     /// If `config` is invalid; see [`SessionConfig::check`].
     pub fn acceptor(
@@ -696,22 +689,23 @@ impl Session {
         registry: Arc<SessionRegistry>,
         app: Arc<dyn Application>,
         now: Instant,
-    ) -> (Self, CommandReceiver) {
+    ) -> Result<(Self, CommandReceiver), ConfigError> {
         Self::new(config, Role::Acceptor, registry, app, now)
     }
 
     /// A session that logs on to `config.target_comp_id` when [`Session::on_connect`] is called.
+    /// It's given its connection, so `config` needs no endpoints.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// If `config` is invalid; see [`InitiatorConfig::check`].
+    /// If `config` is invalid, endpoints aside; see [`InitiatorConfig::check`].
     pub fn initiator(
         config: &InitiatorConfig,
         registry: Arc<SessionRegistry>,
         app: Arc<dyn Application>,
         now: Instant,
-    ) -> (Self, CommandReceiver) {
-        config.assert_valid();
+    ) -> Result<(Self, CommandReceiver), ConfigError> {
+        config.session_problem().map_err(ConfigError::new)?;
         let role = Role::Initiator {
             id: Box::new(config.session_id()),
             heartbeat: config.heartbeat_interval,
@@ -729,9 +723,9 @@ impl Session {
         registry: Arc<SessionRegistry>,
         app: Arc<dyn Application>,
         now: Instant,
-    ) -> (Self, CommandReceiver) {
+    ) -> Result<(Self, CommandReceiver), ConfigError> {
         let initiator = matches!(role, Role::Initiator { .. });
-        config.assert_valid();
+        config.check()?;
         let appl_version = if initiator { config.appl_versions.first().cloned() } else { None };
         let (commands, receiver) = command_queues(config.send_queue);
         let outbound = config.outbound_limit.map(Window::new);
@@ -790,7 +784,7 @@ impl Session {
             resumed_at: None,
             held_watch: None,
         };
-        (session, receiver)
+        Ok((session, receiver))
     }
 
     /// Describes the transport (remote address, TLS peer certificates) for

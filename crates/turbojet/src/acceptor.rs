@@ -296,7 +296,8 @@ impl Acceptor {
     fn new_session(&self, info: ConnectionInfo) -> (Session, CommandReceiver) {
         self.registry.spawn_cancel_task();
         let (mut session, commands) =
-            Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now());
+            Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), Instant::now())
+                .expect("checked by Acceptor::new");
         session.set_connection_info(info);
         if let Some(counterparties) = &self.counterparties {
             session.set_counterparties(counterparties.clone());

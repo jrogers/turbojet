@@ -406,7 +406,8 @@ impl Runner {
         }
         let now = self.time.now();
         let (mut session, commands) =
-            Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), now);
+            Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), now)
+                .expect("a valid config");
         session.on_connect(now);
         self.connections.retain(|(other, _)| *other != id);
         let conn = Connection { session: Some(session), _commands: commands, buf: Vec::new(), sent: VecDeque::new() };

@@ -1459,7 +1459,7 @@ mod tests {
         let (ours, mut peer) = duplex(capacity);
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(config, registry.clone(), app, now);
+        let (session, commands) = Session::acceptor(config, registry.clone(), app, now).unwrap();
         let task = tokio::spawn(async move { run_tracked(ours, session, commands, &mut false, shutdown).await });
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
@@ -1609,7 +1609,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
         let (ours, mut peer) = duplex(1 << 20);
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(logging_to(&log), registry, Arc::new(Acker), now);
+        let (session, commands) = Session::acceptor(logging_to(&log), registry, Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -2131,7 +2131,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) =
-            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let mut buf = Vec::new();
         let nothing_yet = async |peer: &mut DuplexStream, buf: &mut Vec<u8>| {
@@ -2176,7 +2176,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) =
-            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now).unwrap();
         let task = tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -2217,7 +2217,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) =
-            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -2265,7 +2265,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
         let now = tokio::time::Instant::now().into_std();
         let (session, commands) =
-            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -2329,12 +2329,14 @@ mod tests {
             Arc::new(SessionRegistry::default()),
             Arc::new(Acker),
             acceptor_now,
-        );
+        )
+        .unwrap();
         tokio::spawn(run(theirs, acceptor, commands));
         let app = Arc::new(Counter::default());
         let config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "GATEWAY");
         let now = tokio::time::Instant::now().into_std();
-        let (initiator, commands) = Session::initiator(&config, Arc::new(SessionRegistry::default()), app.clone(), now);
+        let (initiator, commands) =
+            Session::initiator(&config, Arc::new(SessionRegistry::default()), app.clone(), now).unwrap();
         tokio::spawn(run(ours, initiator, commands));
         tokio::time::timeout(Duration::from_secs(5), app.logged_on.notified()).await.expect("logged on");
 
@@ -2361,7 +2363,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::default());
         let config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "US"), "PEER");
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::initiator(&config, registry.clone(), Arc::new(Acker), now);
+        let (session, commands) = Session::initiator(&config, registry.clone(), Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
@@ -2400,7 +2402,7 @@ mod tests {
         let mut config = SessionConfig::new("FIX.4.2", "US");
         config.send_queue = 100;
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now);
+        let (session, commands) = Session::acceptor(config, registry.clone(), Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -2502,7 +2504,7 @@ mod tests {
         let mut config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "US"), "PEER");
         config.heartbeat_interval = Duration::from_secs(1);
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::initiator(&config, registry, Arc::new(Acker), now);
+        let (session, commands) = Session::initiator(&config, registry, Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let mut buf = Vec::new();
         assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
@@ -2546,7 +2548,8 @@ mod tests {
         let app = Arc::new(SpoilsHeartbeats { attempts: AtomicUsize::new(0), spinning: tokio::sync::Notify::new() });
         let registry = Arc::new(SessionRegistry::default());
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 1u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -2577,7 +2580,8 @@ mod tests {
             registry,
             Arc::new(Acker),
             Instant::now().into_std(),
-        );
+        )
+        .unwrap();
         tokio::spawn(run(ours, session, commands));
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
@@ -2612,7 +2616,8 @@ mod tests {
             registry,
             Arc::new(Acker),
             Instant::now().into_std(),
-        );
+        )
+        .unwrap();
         tokio::spawn(run(ours, session, commands));
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
@@ -2645,7 +2650,8 @@ mod tests {
             registry,
             Arc::new(Acker),
             Instant::now().into_std(),
-        );
+        )
+        .unwrap();
         tokio::spawn(run(ours, session, commands));
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
@@ -2679,7 +2685,8 @@ mod tests {
             registry.clone(),
             Arc::new(Acker),
             Instant::now().into_std(),
-        );
+        )
+        .unwrap();
         tokio::spawn(run(CountingStream { inner: ours, writes: writes.clone() }, session, commands));
 
         // The peer logs on and pipelines orders, all arriving in one read.
@@ -2724,7 +2731,7 @@ mod tests {
         let registry = Arc::new(SessionRegistry::default());
         let now = Instant::now().into_std();
         let (session, commands) =
-            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now);
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, Arc::new(Acker), now).unwrap();
         tokio::spawn(run(ours, session, commands));
 
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
@@ -2824,7 +2831,7 @@ mod tests {
         let mut peer = tokio::net::TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
         let ours = SpinningStream::new(listener.accept().unwrap().0).unwrap();
         let registry = Arc::new(SessionRegistry::default());
-        let (session, commands) = Session::acceptor(config, registry.clone(), app, Instant::now().into_std());
+        let (session, commands) = Session::acceptor(config, registry.clone(), app, Instant::now().into_std()).unwrap();
         let runtime = Handle::current();
         let open = shutdown.map(crate::shutdown::Shutdown::track);
         let signal = shutdown.map(|shutdown| shutdown.signal());
@@ -2932,7 +2939,8 @@ mod tests {
             registry,
             Arc::new(Acker),
             Instant::now().into_std(),
-        );
+        )
+        .unwrap();
         let runtime = Handle::current();
         std::thread::spawn(move || run_spinning(ours, session, commands, &runtime));
 
@@ -2956,13 +2964,15 @@ mod tests {
             Arc::new(SessionRegistry::default()),
             Arc::new(Acker),
             Instant::now().into_std(),
-        );
+        )
+        .unwrap();
         let runtime = Handle::current();
         std::thread::spawn(move || run_spinning(theirs, acceptor, commands, &runtime));
         let app = Arc::new(Counter::default());
         let config = crate::InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "GATEWAY");
         let (initiator, commands) =
-            Session::initiator(&config, Arc::new(SessionRegistry::default()), app.clone(), Instant::now().into_std());
+            Session::initiator(&config, Arc::new(SessionRegistry::default()), app.clone(), Instant::now().into_std())
+                .unwrap();
         tokio::spawn(run(ours, initiator, commands));
         tokio::time::timeout(Duration::from_secs(5), app.logged_on.notified()).await.expect("logged on");
 
@@ -3002,7 +3012,8 @@ mod tests {
         let app = Arc::new(Holder::default());
         let (ours, mut peer) = duplex(1 << 20);
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -3042,7 +3053,8 @@ mod tests {
         let app = Arc::new(Holder::default());
         let (ours, mut peer) = duplex(1 << 20);
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now).unwrap();
         tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
         peer.write_all(&from_peer(1, logon)).await.unwrap();
@@ -3071,7 +3083,8 @@ mod tests {
         let app = Arc::new(Holder::default());
         let (ours, mut peer) = duplex(1 << 20);
         let now = tokio::time::Instant::now().into_std();
-        let (session, commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now);
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry, app.clone(), now).unwrap();
         let task = tokio::spawn(run(ours, session, commands));
         let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, heartbeat);
         peer.write_all(&from_peer(1, logon)).await.unwrap();

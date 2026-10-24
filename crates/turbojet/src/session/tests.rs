@@ -157,7 +157,7 @@ impl Harness {
     }
 
     fn session(&self) -> Session {
-        Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), self.t0).0
+        Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), self.t0).unwrap().0
     }
 
     /// A logged-on acceptor session whose counterparty has sent MsgSeqNum 1.
@@ -177,7 +177,7 @@ impl Harness {
         let mut config = InitiatorConfig::new(self.config.clone(), "CLIENT");
         config.heartbeat_interval = Duration::from_secs(20);
         adjust(&mut config);
-        Session::initiator(&config, self.registry.clone(), self.app.clone(), self.t0).0
+        Session::initiator(&config, self.registry.clone(), self.app.clone(), self.t0).unwrap().0
     }
 
     fn at(&self, secs: u64) -> Instant {
@@ -1284,7 +1284,7 @@ fn holding(ids: &[&'static str], storage: Arc<dyn SessionStorage>) -> Harness {
 #[test]
 fn a_held_message_keeps_the_marker_until_released() {
     let h = holding(&["A", "B"], Arc::new(MemoryStorage::new()));
-    let (mut s, mut commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0);
+    let (mut s, mut commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0).unwrap();
     s.recv(logon(1), h.t0);
     s.recv(order(2, "A"), h.t0);
     s.recv(order(3, "B"), h.t0);
@@ -2629,7 +2629,7 @@ fn counterparty_logout_is_acknowledged() {
 /// handle on it.
 fn with_send_queue(h: &mut Harness, capacity: usize) -> (Session, CommandReceiver, SessionHandle) {
     h.config.send_queue = capacity;
-    let (mut s, commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0);
+    let (mut s, commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0).unwrap();
     s.recv(logon(1), h.t0);
     let handle = h.app.handles.lock().unwrap()[0].clone();
     (s, commands, handle)
@@ -2692,7 +2692,7 @@ fn operator_commands_pass_a_waiting_logout() {
 #[test]
 fn handle_commands_reach_the_session() {
     let h = Harness::new();
-    let (mut s, mut commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0);
+    let (mut s, mut commands) = Session::acceptor(h.config.clone(), h.registry.clone(), h.app.clone(), h.t0).unwrap();
     s.recv(logon(1), h.t0);
 
     let handle = h.app.handles.lock().unwrap()[0].clone();
@@ -4257,9 +4257,12 @@ fn initiator_heartbeat_interval_is_whole_seconds_from_1_to_3600() {
 }
 
 #[test]
-#[should_panic(expected = "heartbeat_interval")]
-fn an_initiator_with_a_zero_heartbeat_interval_panics() {
-    Harness::new().initiator_with(|config| config.heartbeat_interval = Duration::ZERO);
+fn an_initiator_with_a_zero_heartbeat_interval_is_refused() {
+    let h = Harness::new();
+    let mut config = InitiatorConfig::new(h.config.clone(), "CLIENT");
+    config.heartbeat_interval = Duration::ZERO;
+    let refused = Session::initiator(&config, h.registry.clone(), h.app.clone(), h.t0).err();
+    assert!(refused.is_some_and(|e| e.to_string().contains("heartbeat_interval")));
 }
 
 /// Calls `on_timer` at each deadline in turn until the session closes, first letting `before`
@@ -5818,7 +5821,7 @@ impl Application for SendsOnCancel {
 fn a_cancel_can_send_through_a_handle() {
     let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
     let app = Arc::new(SendsOnCancel { registry: h.registry.clone(), events: Mutex::default() });
-    let mut s = Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).0;
+    let mut s = Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).unwrap().0;
     assert_eq!(types(&s.recv(logon(1), h.t0)), ["Logon"]);
     s.on_disconnect(h.at(10));
     h.registry.run_due_cancels(h.at(15));
@@ -5861,7 +5864,7 @@ fn a_logon_waits_for_a_cancel_in_progress() {
         release: Mutex::new(release),
         logged_on: Mutex::new(logged_on),
     });
-    let session = || Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).0;
+    let session = || Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).unwrap().0;
     let mut first = session();
     first.recv(logon(1), h.t0);
     logons.recv().unwrap();
@@ -5992,7 +5995,7 @@ fn callbacks_can_use_the_handle_they_are_given() {
     let mut h = Harness::new();
     let app = Arc::new(UsesHandles::default());
     h.app = Arc::default();
-    let mut s = Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).0;
+    let mut s = Session::acceptor(h.config.clone(), h.registry.clone(), app.clone(), h.t0).unwrap().0;
     s.recv(logon(1), h.t0);
     s.recv(client(2, MsgType::TestRequest).with(tags::TEST_REQ_ID, "x"), h.t0);
     s.recv(order(3, "A"), h.t0);

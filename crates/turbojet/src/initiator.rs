@@ -159,7 +159,7 @@ impl InitiatorConfig {
 
     /// [`check`](Self::check) of what a session uses, leaving out where it connects: a sans-IO
     /// [`Session`] is given its connection.
-    fn session_problem(&self) -> Result<(), String> {
+    pub(crate) fn session_problem(&self) -> Result<(), String> {
         self.session.first_problem()?;
         self.reconnect.first_problem()?;
         let interval = self.heartbeat_interval;
@@ -170,14 +170,6 @@ impl InitiatorConfig {
             return Err("reset_on_logon needs ResetSeqNumFlag(141), which FIX 4.0 doesn't have".into());
         }
         Ok(())
-    }
-
-    /// Panics with [`check`](Self::check)'s message if this configuration is invalid for a
-    /// session, endpoints aside.
-    pub(crate) fn assert_valid(&self) {
-        if let Err(e) = self.session_problem() {
-            panic!("invalid initiator configuration: {e}");
-        }
     }
 }
 
@@ -668,7 +660,8 @@ impl Initiator {
     fn session(&self, config: &InitiatorConfig, info: ConnectionInfo) -> (Session, CommandReceiver) {
         self.registry.spawn_cancel_task();
         let (mut session, commands) =
-            Session::initiator(config, self.registry.clone(), self.app.clone(), Instant::now());
+            Session::initiator(config, self.registry.clone(), self.app.clone(), Instant::now())
+                .expect("checked by Initiator::new and reconfigure");
         session.set_connection_info(info);
         (session, commands)
     }

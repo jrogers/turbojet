@@ -52,8 +52,9 @@ pub struct Replayed {
 ///
 /// # Errors
 ///
-/// A record that can't be read, or a Logon that identifies a session other than `session` (a
-/// `config` that doesn't match the one in production, say), which ends the replay.
+/// A record that can't be read, an invalid `config` ([`InvalidInput`](io::ErrorKind::InvalidInput)),
+/// or a Logon that identifies a session other than `session` (a `config` that doesn't match the
+/// one in production, say), which ends the replay.
 pub fn replay(
     records: impl IntoIterator<Item = io::Result<LogRecord>>,
     session: &SessionId,
@@ -151,7 +152,8 @@ impl Replayer {
     fn connect(&mut self, logon: &Message, now: Instant) -> io::Result<()> {
         prime(&*self.storage, &self.id, logon)?;
         let (mut session, commands) =
-            Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), now);
+            Session::acceptor(self.config.clone(), self.registry.clone(), self.app.clone(), now)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
         session.without_holds();
         session.on_connect(now);
         self.open = Some(Connection { session, _commands: commands });

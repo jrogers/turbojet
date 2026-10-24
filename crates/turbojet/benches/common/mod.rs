@@ -105,7 +105,7 @@ pub fn logged_on_with_commands(
     app: Arc<dyn Application>,
 ) -> (Session, CommandReceiver) {
     let registry = Arc::new(SessionRegistry::new(storage));
-    let (mut session, commands) = Session::acceptor(config, registry, app, Instant::now());
+    let (mut session, commands) = Session::acceptor(config, registry, app, Instant::now()).unwrap();
     let logon = admin::Logon {
         encrypt_method: EncryptMethod::None,
         heart_bt_int: 30,

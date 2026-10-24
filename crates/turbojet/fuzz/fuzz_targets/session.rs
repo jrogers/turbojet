@@ -260,13 +260,13 @@ fuzz_target!(|input: Input| {
     let (mut session, _commands) = if input.initiator {
         let mut config = InitiatorConfig::new(config, "CLIENT");
         config.heartbeat_interval = Duration::from_secs(heartbeat.into());
-        let (mut session, commands) = Session::initiator(&config, registry.clone(), Arc::new(App), now);
+        let (mut session, commands) = Session::initiator(&config, registry.clone(), Arc::new(App), now).unwrap();
         session.set_resend_batch(resend_batch);
         session.on_connect(now);
         assert!(check(&mut session, now, &mut out, false));
         (session, commands)
     } else {
-        let (mut session, commands) = Session::acceptor(config, registry.clone(), Arc::new(App), now);
+        let (mut session, commands) = Session::acceptor(config, registry.clone(), Arc::new(App), now).unwrap();
         session.set_resend_batch(resend_batch);
         (session, commands)
     };

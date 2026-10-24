@@ -149,7 +149,8 @@ impl Node {
             Role::Acceptor(config) => {
                 Session::acceptor(config.clone(), self.registry.clone(), self.app.clone(), instant)
             }
-        };
+        }
+        .expect("the world's configurations are valid");
         if let Some(batch) = self.resend_batch {
             session.set_resend_batch(batch);
         }
