@@ -25,7 +25,7 @@
 //! back) is taken as the first occurrence. So a period that lies inside the gap doesn't happen
 //! that day: `daily 02:30-03:00 America/New_York` starts as it ends on the night clocks go forward.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -237,49 +237,82 @@ impl Period {
     }
 }
 
-/// Dates on which no session period starts, in the schedule's time zone. A daily period that
-/// starts the day before a holiday and runs into it is unaffected; a weekly period is closed for
-/// the day.
+/// Dates on which no session period starts, and dates the session closes early, in the
+/// schedule's time zone. A daily period that starts the day before a holiday and runs into it is
+/// unaffected; a weekly period is closed for the day. An early close ends the daily period in
+/// session at that time, and closes a weekly period from then until midnight.
 ///
-/// Parses from text: one `YYYY-MM-DD` per line, with blank lines and `#` comments allowed.
+/// Parses from text: one `YYYY-MM-DD` per line for a holiday, or `YYYY-MM-DD HH:MM[:SS]` for an
+/// early close, with blank lines and `#` comments allowed.
 ///
 /// ```
-/// use chrono::NaiveDate;
+/// use chrono::{NaiveDate, NaiveTime};
 /// use turbojet::HolidayCalendar;
 ///
-/// let from_text: HolidayCalendar = "# New York\n2026-11-26\n2026-12-25\n".parse()?;
-/// let from_dates = HolidayCalendar::new([NaiveDate::from_ymd_opt(2026, 12, 25).unwrap()]);
+/// let from_text: HolidayCalendar = "# New York\n2026-11-26\n2026-11-27 13:00\n2026-12-25\n".parse()?;
+/// let day = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+/// let from_dates = HolidayCalendar::new([day(11, 26), day(12, 25)])
+///     .with_early_closes([(day(11, 27), NaiveTime::from_hms_opt(13, 0, 0).unwrap())]);
+/// assert_eq!(from_text, from_dates);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HolidayCalendar {
     dates: BTreeSet<NaiveDate>,
+    /// When the session closes on each of these dates, not otherwise holidays.
+    early_closes: BTreeMap<NaiveDate, NaiveTime>,
 }
 
 impl HolidayCalendar {
-    /// A calendar of `dates`.
+    /// A calendar of holidays on `dates`.
     pub fn new(dates: impl IntoIterator<Item = NaiveDate>) -> Self {
-        Self { dates: dates.into_iter().collect() }
+        Self { dates: dates.into_iter().collect(), early_closes: BTreeMap::new() }
     }
 
-    /// Whether `date` is a holiday.
+    /// Adds early closes: on each date, the session closes at that time. A date that's also a
+    /// holiday stays a holiday, closed all day.
+    #[must_use]
+    pub fn with_early_closes(mut self, closes: impl IntoIterator<Item = (NaiveDate, NaiveTime)>) -> Self {
+        self.early_closes.extend(closes);
+        self.early_closes.retain(|date, _| !self.dates.contains(date));
+        self
+    }
+
+    /// Whether `date` is a holiday, closed all day.
     pub fn contains(&self, date: NaiveDate) -> bool {
         self.dates.contains(&date)
     }
 
-    /// The latest holiday. After it, the calendar has no effect.
+    /// When the session closes on `date`, if it closes early then.
+    pub fn early_close(&self, date: NaiveDate) -> Option<NaiveTime> {
+        self.early_closes.get(&date).copied()
+    }
+
+    /// The latest holiday or early close. After it, the calendar has no effect.
     pub fn last(&self) -> Option<NaiveDate> {
-        self.dates.last().copied()
+        self.dates.last().copied().max(self.early_closes.keys().next_back().copied())
     }
 
-    /// The number of holidays.
+    /// The number of holidays and early closes.
     pub fn len(&self) -> usize {
-        self.dates.len()
+        self.dates.len() + self.early_closes.len()
     }
 
-    /// Whether there are no holidays.
+    /// Whether there are no holidays or early closes.
     pub fn is_empty(&self) -> bool {
-        self.dates.is_empty()
+        self.dates.is_empty() && self.early_closes.is_empty()
+    }
+
+    /// Dates from `first` to `last` closed for all or part of the day, in order.
+    fn closed_dates(&self, first: NaiveDate, last: NaiveDate) -> impl Iterator<Item = NaiveDate> + '_ {
+        let mut dates: Vec<NaiveDate> = self
+            .dates
+            .range(first..=last)
+            .chain(self.early_closes.range(first..=last).map(|(date, _)| date))
+            .copied()
+            .collect();
+        dates.sort_unstable();
+        dates.into_iter()
     }
 }
 
@@ -299,17 +332,31 @@ impl FromStr for HolidayCalendar {
 
 /// [`HolidayCalendar::from_str`], its error as text.
 fn parse_calendar(s: &str) -> Result<HolidayCalendar, String> {
-    let mut dates = BTreeSet::new();
+    let mut calendar = HolidayCalendar::default();
     for (index, line) in s.lines().enumerate() {
         let text = line.split_once('#').map_or(line, |(before, _)| before).trim();
-        if text.is_empty() {
-            continue;
+        let line = index + 1;
+        let mut words = text.split_whitespace();
+        let Some(day) = words.next() else { continue };
+        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+            .map_err(|_| format!("line {line}: invalid date '{day}' (expected YYYY-MM-DD)"))?;
+        let close = words.next().map(|time| parse_time(time).map_err(|e| format!("line {line}: {e}"))).transpose()?;
+        if let Some(extra) = words.next() {
+            return Err(format!("line {line}: unexpected '{extra}' (expected YYYY-MM-DD [HH:MM])"));
         }
-        let date = NaiveDate::parse_from_str(text, "%Y-%m-%d")
-            .map_err(|_| format!("line {}: invalid date '{text}' (expected YYYY-MM-DD)", index + 1))?;
-        dates.insert(date);
+        let earlier = (calendar.dates.contains(&date), calendar.early_closes.get(&date));
+        match (close, earlier) {
+            (None, (_, None)) => {
+                calendar.dates.insert(date);
+            }
+            (Some(close), (false, None)) => {
+                calendar.early_closes.insert(date, close);
+            }
+            (Some(close), (false, Some(earlier))) if *earlier == close => {}
+            _ => return Err(format!("line {line}: {date} is already a holiday or an early close at another time")),
+        }
     }
-    Ok(HolidayCalendar { dates })
+    Ok(calendar)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -403,10 +450,11 @@ impl SessionSchedule {
         &self.holidays
     }
 
-    /// The period containing `time`, if any: none while a holiday closes a weekly period.
+    /// The period containing `time`, if any: none while a holiday or an early close closes a
+    /// weekly period.
     pub fn period_at(&self, time: DateTime<Utc>) -> Option<Period> {
         let period = self.scheduled_period(time)?;
-        (!self.closes_mid_period(self.time_zone.to_local(time).date())).then_some(period)
+        (!self.closed_mid_period(time)).then_some(period)
     }
 
     /// The period containing `time`, even on a holiday that closes it for the day.
@@ -414,10 +462,40 @@ impl SessionSchedule {
         self.periods_around(time).take_while(|p| p.start <= time).filter(|p| p.contains(time)).last()
     }
 
-    /// Whether `date`, a local date, closes a period that's under way: a holiday in a weekly
-    /// schedule. A daily period that runs into a holiday is left alone.
-    fn closes_mid_period(&self, date: NaiveDate) -> bool {
-        matches!(self.kind, Kind::Weekly { .. }) && self.holidays.contains(date)
+    /// Whether a weekly period under way is closed at `time`: on a holiday, or after an early
+    /// close until midnight. A daily period that runs into a holiday is left alone, and one an
+    /// early close ends simply ends then (see [`close_early`](Self::close_early)).
+    fn closed_mid_period(&self, time: DateTime<Utc>) -> bool {
+        if !matches!(self.kind, Kind::Weekly { .. }) {
+            return false;
+        }
+        let local = self.time_zone.to_local(time);
+        self.holidays.contains(local.date())
+            || self
+                .holidays
+                .early_close(local.date())
+                .is_some_and(|close| self.time_zone.to_utc(local.date().and_time(close)) <= time)
+    }
+
+    /// The first early close inside a daily `period`, as its date, local time and instant.
+    fn early_close_in(&self, period: Period) -> Option<(NaiveDate, NaiveTime, DateTime<Utc>)> {
+        if !matches!(self.kind, Kind::Daily { .. }) {
+            return None;
+        }
+        let (first, last) = (self.time_zone.to_local(period.start).date(), self.time_zone.to_local(period.end).date());
+        self.holidays
+            .early_closes
+            .range(first..=last)
+            .map(|(date, close)| (*date, *close, self.time_zone.to_utc(date.and_time(*close))))
+            .find(|(_, _, at)| period.contains(*at))
+    }
+
+    /// `period` as an early close inside it leaves it: ending then.
+    fn close_early(&self, period: Period) -> Period {
+        match self.early_close_in(period) {
+            Some((_, _, at)) => Period { end: at, ..period },
+            None => period,
+        }
     }
 
     /// Whether `time` falls inside a period.
@@ -429,15 +507,17 @@ impl SessionSchedule {
     /// within about 400 days (weekly schedules: weeks), or a weekly period reopening after a
     /// holiday, whichever comes first.
     pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        let start = self.periods_around(time).map(|p| p.start).find(|start| *start > time);
+        // A weekly period that an early close shuts before it starts opens at the reopening.
+        let start =
+            self.periods_around(time).map(|p| p.start).find(|start| *start > time && !self.closed_mid_period(*start));
         match (start, self.next_reopening(time, start)) {
             (Some(start), Some(reopening)) => Some(start.min(reopening)),
             (start, reopening) => start.or(reopening),
         }
     }
 
-    /// The first midnight after `time`, up to `until`'s date, that ends a holiday closing a weekly
-    /// period under way.
+    /// The first midnight after `time`, up to `until`'s date, that ends a holiday or an early close
+    /// closing a weekly period under way.
     fn next_reopening(&self, time: DateTime<Utc>, until: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
         if !matches!(self.kind, Kind::Weekly { .. }) {
             return None;
@@ -446,12 +526,9 @@ impl SessionSchedule {
         let horizon = today + chrono::Duration::weeks(i64::try_from(MAX_CANDIDATES).expect("a small constant"));
         let last = until.map_or(horizon, |until| self.time_zone.to_local(until).date());
         self.holidays
-            .dates
-            .range(today..=last)
-            .map(|holiday| *holiday + chrono::Duration::days(1))
-            .filter(|after| !self.holidays.contains(*after))
-            .map(|after| self.time_zone.to_utc(after.and_time(NaiveTime::MIN)))
-            .filter(|reopening| *reopening > time)
+            .closed_dates(today, last)
+            .map(|closed| self.time_zone.to_utc((closed + chrono::Duration::days(1)).and_time(NaiveTime::MIN)))
+            .filter(|reopening| *reopening > time && !self.closed_mid_period(*reopening))
             // Not a holiday before the week's period starts (a Saturday's), or in a week skipped.
             .find(|reopening| self.scheduled_period(*reopening).is_some())
     }
@@ -462,28 +539,49 @@ impl SessionSchedule {
         if self.is_active(time) {
             return None;
         }
-        let holiday = self.holiday_at(time).map(|date| format!("; {date} is a holiday")).unwrap_or_default();
+        let holiday = self.closure_at(time).map(|closure| format!("; {closure}")).unwrap_or_default();
         Some(match self.next_start(time) {
             Some(next) => format!("outside session time (schedule '{self}'{holiday}); next session starts {next}"),
             None => format!("outside session time (schedule '{self}'{holiday})"),
         })
     }
 
-    /// The holiday that removed the period `time` would otherwise be in, if any. The date comes
-    /// from the calendar, so it is the period's start date even where a start in a DST gap
+    /// What removed the period `time` would otherwise be in, if anything: a holiday ("2026-12-25 is
+    /// a holiday") or an early close ("2026-11-27 closes early at 13:00:00"). A holiday's date
+    /// comes from the calendar, so it is the period's start date even where a start in a DST gap
     /// resolves to the next local date.
-    fn holiday_at(&self, time: DateTime<Utc>) -> Option<NaiveDate> {
-        let today = self.time_zone.to_local(time).date();
-        if self.closes_mid_period(today) && self.scheduled_period(time).is_some() {
-            return Some(today);
+    fn closure_at(&self, time: DateTime<Utc>) -> Option<String> {
+        let local = self.time_zone.to_local(time);
+        let today = local.date();
+        let holiday = |date: NaiveDate| format!("{date} is a holiday");
+        let early = |date: NaiveDate, close: NaiveTime| format!("{date} closes early at {close}");
+        if self.closed_mid_period(time) && self.scheduled_period(time).is_some() {
+            return Some(match self.holidays.early_close(today) {
+                Some(close) => early(today, close),
+                None => holiday(today),
+            });
         }
-        self.holidays
+        let first = today - chrono::Duration::days(self.look_back());
+        if let Some(date) = self
+            .holidays
             .dates
-            .range(today - chrono::Duration::days(self.look_back())..=today)
+            .range(first..=today)
             .rev()
             .copied()
             .filter(|date| self.regular_start(*date))
             .find(|date| self.period_starting(*date).contains(time))
+        {
+            return Some(holiday(date));
+        }
+        // A daily period an early close ended: one starting in the look-back that would contain
+        // `time`, but for the close.
+        std::iter::successors(Some(first), |date| Some(*date + chrono::Duration::days(1)))
+            .take_while(|date| *date <= today)
+            .filter(|date| self.starts_on(*date))
+            .map(|date| self.period_starting(date))
+            .filter(|period| period.contains(time))
+            .find_map(|period| self.early_close_in(period).filter(|(_, _, at)| *at <= time))
+            .map(|(date, close, _)| early(date, close))
     }
 
     /// Periods in start order, from early enough that the first can still contain `time` (a daily
@@ -515,8 +613,9 @@ impl SessionSchedule {
         std::iter::successors(Some(first), move |date| Some(*date + step))
             .take(MAX_CANDIDATES)
             .filter(|date| self.starts_on(*date))
-            .map(|date| self.period_starting(date))
-            // Swallowed by a clock change: it never happens, so it's no start to wait for.
+            .map(|date| self.close_early(self.period_starting(date)))
+            // Swallowed by a clock change or closed early as it starts: it never happens, so it's no
+            // start to wait for.
             .filter(|period| period.start < period.end)
             // `period_at` stops at the first period starting after its time, and `next_start`
             // takes the first one: both rely on this order.
@@ -830,6 +929,10 @@ mod tests {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
+    fn time(s: &str) -> NaiveTime {
+        parse_time(s).unwrap()
+    }
+
     #[test]
     fn holiday_calendars_parse_one_date_per_line() {
         let calendar: HolidayCalendar =
@@ -906,6 +1009,116 @@ mod tests {
         let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-25"]);
         assert!(!s.is_active(at("2026-12-25 10:00")), "Friday, closed until the period ends");
         assert_eq!(s.next_start(at("2026-12-25 10:00")), Some(at("2026-12-27 17:00")));
+    }
+
+    #[test]
+    fn calendars_read_early_closes_as_a_date_and_a_time() {
+        let calendar: HolidayCalendar =
+            "2026-11-26  # Thanksgiving\n2026-11-27 13:00  # closes early\n2026-12-24 13:00:30\n2026-11-27 13:00\n"
+                .parse()
+                .unwrap();
+        assert!(calendar.contains(date("2026-11-26")));
+        assert!(!calendar.contains(date("2026-11-27")), "an early close isn't a whole-day holiday");
+        assert_eq!(calendar.early_close(date("2026-11-27")), NaiveTime::from_hms_opt(13, 0, 0));
+        assert_eq!(calendar.early_close(date("2026-12-24")), NaiveTime::from_hms_opt(13, 0, 30));
+        assert_eq!(calendar.early_close(date("2026-11-26")), None);
+        assert_eq!(calendar.len(), 3, "a repeated early close collapses");
+        let built = HolidayCalendar::new([date("2026-11-26")])
+            .with_early_closes([(date("2026-11-27"), time("13:00")), (date("2026-12-24"), time("13:00:30"))]);
+        assert_eq!(calendar, built);
+    }
+
+    #[test]
+    fn calendars_refuse_a_date_closed_two_ways() {
+        let err = "2026-11-27\n2026-11-27 13:00\n".parse::<HolidayCalendar>().unwrap_err().to_string();
+        assert!(err.contains("line 2") && err.contains("2026-11-27"), "{err}");
+        let err = "2026-11-27 13:00\n2026-11-27 12:00\n".parse::<HolidayCalendar>().unwrap_err().to_string();
+        assert!(err.contains("line 2") && err.contains("2026-11-27"), "{err}");
+        let err = "2026-11-27 25:00".parse::<HolidayCalendar>().unwrap_err().to_string();
+        assert!(err.contains("line 1") && err.contains("'25:00'"), "{err}");
+    }
+
+    fn closing_early(s: &str, closes: &[(&str, &str)]) -> SessionSchedule {
+        let closes = closes.iter().map(|(d, t)| (date(d), time(t)));
+        schedule(s).with_holidays(HolidayCalendar::default().with_early_closes(closes))
+    }
+
+    // 2026-11-27 is a Friday.
+
+    #[test]
+    fn an_early_close_ends_the_daily_period_in_session_then() {
+        let s = closing_early("daily 08:00-17:00 mon-fri", &[("2026-11-27", "13:00")]);
+        assert_eq!(
+            s.period_at(at("2026-11-27 12:59")),
+            Some(Period { start: at("2026-11-27 08:00"), end: at("2026-11-27 13:00") })
+        );
+        assert!(!s.is_active(at("2026-11-27 13:00")));
+        assert_eq!(s.next_start(at("2026-11-27 13:00")), Some(at("2026-11-30 08:00")), "the next period, as usual");
+        assert!(s.is_active(at("2026-11-26 16:00")), "other days are untouched");
+    }
+
+    #[test]
+    fn an_early_close_leaves_periods_it_isnt_inside_alone() {
+        // A close before the day's period starts, or after it ends, changes nothing.
+        let s = closing_early("daily 08:00-17:00", &[("2026-11-27", "07:00"), ("2026-11-28", "18:00")]);
+        assert!(s.is_active(at("2026-11-27 16:00")));
+        assert!(s.is_active(at("2026-11-28 16:00")));
+        // An overnight period closed early; the evening's period still opens, as a market reopens.
+        let s = closing_early("daily 17:00-16:00", &[("2026-11-27", "12:00")]);
+        assert_eq!(s.period_at(at("2026-11-27 11:00")).map(|p| p.end), Some(at("2026-11-27 12:00")));
+        assert!(!s.is_active(at("2026-11-27 12:00")));
+        assert_eq!(s.next_start(at("2026-11-27 12:00")), Some(at("2026-11-27 17:00")));
+        // A close at a period's very start removes it.
+        let s = closing_early("daily 08:00-17:00", &[("2026-11-27", "08:00")]);
+        assert!(!s.is_active(at("2026-11-27 10:00")));
+        assert_eq!(s.next_start(at("2026-11-27 07:00")), Some(at("2026-11-28 08:00")));
+    }
+
+    #[test]
+    fn an_early_close_closes_a_weekly_period_until_midnight_without_ending_it() {
+        let s = closing_early("weekly sun 17:00-fri 17:00", &[("2026-11-26", "13:00")]);
+        let week = s.period_at(at("2026-11-26 12:59")).unwrap();
+        assert!(!s.is_active(at("2026-11-26 13:00")));
+        assert!(!s.is_active(at("2026-11-26 23:59")));
+        assert_eq!(s.next_start(at("2026-11-26 13:00")), Some(at("2026-11-27 00:00")));
+        assert_eq!(s.next_start(at("2026-11-26 10:00")), Some(at("2026-11-27 00:00")), "the reopening after it");
+        // The same period, so the session doesn't reset its sequence numbers.
+        assert_eq!(s.period_at(at("2026-11-27 00:00")), Some(week));
+        // On the start day before the period starts: no session that day, and none until midnight.
+        let s = closing_early("weekly sun 17:00-fri 17:00", &[("2026-11-29", "12:00")]);
+        assert!(!s.is_active(at("2026-11-29 18:00")));
+        assert_eq!(s.next_start(at("2026-11-28 12:00")), Some(at("2026-11-30 00:00")));
+        // After the week ends: nothing to close or reopen.
+        let s = closing_early("weekly sun 17:00-fri 17:00", &[("2026-11-27", "18:00")]);
+        assert!(s.is_active(at("2026-11-27 16:00")));
+        assert_eq!(s.next_start(at("2026-11-27 17:00")), Some(at("2026-11-29 17:00")));
+    }
+
+    #[test]
+    fn closed_reasons_name_the_early_close() {
+        let s = closing_early("daily 08:00-17:00 mon-fri", &[("2026-11-27", "13:00")]);
+        assert_eq!(s.closed_reason(at("2026-11-27 12:00")), None);
+        assert_eq!(
+            s.closed_reason(at("2026-11-27 14:00")).unwrap(),
+            "outside session time (schedule 'daily 08:00:00-17:00:00 mon,tue,wed,thu,fri UTC'; \
+             2026-11-27 closes early at 13:00:00); next session starts 2026-11-30 08:00:00 UTC"
+        );
+        assert!(!s.closed_reason(at("2026-11-27 18:00")).unwrap().contains("closes early"), "outside hours anyway");
+        let weekly = closing_early("weekly sun 17:00-fri 17:00", &[("2026-11-26", "13:00")]);
+        let reason = weekly.closed_reason(at("2026-11-26 14:00")).unwrap();
+        assert!(
+            reason.contains("; 2026-11-26 closes early at 13:00:00); next session starts 2026-11-27 00:00:00 UTC"),
+            "{reason}"
+        );
+    }
+
+    #[cfg(feature = "tz")]
+    #[test]
+    fn early_closes_are_times_in_the_schedules_time_zone() {
+        // 13:00 in New York on 2026-11-27 is 18:00 UTC.
+        let s = closing_early("daily 09:30-16:00 America/New_York", &[("2026-11-27", "13:00")]);
+        assert!(s.is_active(at("2026-11-27 17:59")));
+        assert!(!s.is_active(at("2026-11-27 18:00")));
     }
 
     #[test]

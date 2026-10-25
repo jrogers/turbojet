@@ -3508,7 +3508,7 @@ mod schedule_tests {
     use chrono::{DateTime, NaiveDateTime, Utc};
 
     use super::*;
-    use crate::schedule::Clock;
+    use crate::schedule::{Clock, HolidayCalendar};
 
     /// A clock the test moves by hand.
     #[derive(Clone)]
@@ -3671,6 +3671,52 @@ mod schedule_tests {
 
         clock.set("2026-09-30 12:00:00");
         assert_eq!(types(&h.session().recv(logon(3), h.t0)), ["DISCONNECT"], "closed for the holiday");
+        clock.set("2026-10-01 00:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(3), h.t0)), Some("3"), "the same period, not reset");
+    }
+
+    /// An early close logs a daily session out at its time, as the period's end would.
+    #[test]
+    fn an_early_close_ends_a_daily_session_then() {
+        let clock = ManualClock::at("2026-09-28 12:59:00");
+        let mut h = scheduled("daily 08:00-17:00", &clock);
+        let close =
+            (chrono::NaiveDate::from_ymd_opt(2026, 9, 28).unwrap(), chrono::NaiveTime::from_hms_opt(13, 0, 0).unwrap());
+        h.config.schedule =
+            h.config.schedule.map(|s| s.with_holidays(HolidayCalendar::default().with_early_closes([close])));
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"));
+        assert!(s.timer(h.at(1)).is_empty(), "still open");
+        clock.set("2026-09-28 13:00:00");
+        let out = s.timer(h.at(2));
+        assert_eq!(types(&out), ["Logout"]);
+        assert_eq!(sent(&out)[0].get(tags::TEXT), Some("End of session"));
+        s.recv(client(2, MsgType::Logout), h.at(2));
+        drop(s);
+        clock.set("2026-09-28 14:00:00");
+        assert_eq!(types(&h.session().recv(logon(3), h.t0)), ["DISCONNECT"], "closed for the rest of the day");
+    }
+
+    /// An early close logs a weekly session out until midnight, then lets it back on in the same
+    /// period, its sequence numbers kept.
+    #[test]
+    fn an_early_close_closes_a_weekly_session_until_midnight_without_resetting_it() {
+        let clock = ManualClock::at("2026-09-30 12:59:00"); // Wednesday
+        let mut h = scheduled("weekly sun 17:00-fri 17:00", &clock);
+        let close =
+            (chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(), chrono::NaiveTime::from_hms_opt(13, 0, 0).unwrap());
+        h.config.schedule =
+            h.config.schedule.map(|s| s.with_holidays(HolidayCalendar::default().with_early_closes([close])));
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"));
+        clock.set("2026-09-30 13:00:00");
+        assert_eq!(types(&s.timer(h.at(1))), ["Logout"]);
+        s.recv(client(2, MsgType::Logout), h.at(1));
+        drop(s);
+
+        clock.set("2026-09-30 20:00:00");
+        assert_eq!(types(&h.session().recv(logon(3), h.t0)), ["DISCONNECT"], "closed until midnight");
         clock.set("2026-10-01 00:00:00");
         let mut s = h.session();
         assert_eq!(logon_reply_seq(&s.recv(logon(3), h.t0)), Some("3"), "the same period, not reset");
