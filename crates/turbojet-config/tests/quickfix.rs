@@ -192,12 +192,15 @@ ValidateUnorderedGroupFields=N
 
     let toml = convert(&format!("{cfg}AllowUnknownMsgFields=Y\n")).unwrap();
     assert!(
-        toml.contains("validation = { reject_invalid = false, undefined_tags = false, tags_not_in_message = false }"),
+        toml.contains(
+            "validation = { reject_invalid = false, allow_user_defined_tags = true, allow_unknown_tags = true }"
+        ),
         "{toml}"
     );
+    // Below 5000 only, with tags from 5000 up still checked.
     let checked = cfg.replace("ValidateUserDefinedFields=N\n", "");
-    let err = convert(&format!("{checked}AllowUnknownMsgFields=Y\n")).unwrap_err().to_string();
-    assert!(err.contains("AllowUnknownMsgFields=Y with ValidateUserDefinedFields=Y"), "{err}");
+    let toml = convert(&format!("{checked}AllowUnknownMsgFields=Y\n")).unwrap();
+    assert!(toml.contains("validation = { reject_invalid = false, allow_unknown_tags = true }"), "{toml}");
 
     let off = convert(&format!("{cfg}ValidateIncomingMessage=N\n")).unwrap();
     assert!(!off.contains("dictionary") && !off.contains("validation ="), "{off}");

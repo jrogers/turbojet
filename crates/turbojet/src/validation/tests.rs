@@ -172,6 +172,7 @@ fn each_check_can_be_turned_off() {
         repeated_tags: false,
         groups: false,
         allow_user_defined_tags: false,
+        allow_unknown_tags: false,
         admin_messages: false,
         reject_invalid: false,
     };
@@ -196,6 +197,18 @@ fn user_defined_tags_can_be_allowed() {
     );
     // Below 5000 an undefined tag is still refused.
     assert_eq!(failure(&v, "11=A|54=1|55=AAPL|4999=x|").1, Some(SessionRejectReason::InvalidTagNumber));
+}
+
+#[test]
+fn unknown_tags_below_5000_can_be_allowed_apart_from_user_defined_ones() {
+    // QuickFIX's AllowUnknownMsgFields=Y with ValidateUserDefinedFields=Y: undefined tags and
+    // tags foreign to the message are accepted below 5000 and still refused from 5000 up.
+    let options = ValidationOptions { allow_unknown_tags: true, ..ValidationOptions::default() };
+    let v = validator().with_options(options);
+    v.validate(&msg("11=A|54=1|55=AAPL|4999=x|")).unwrap();
+    v.validate(&msg("11=A|54=1|55=AAPL|58=hi|")).unwrap();
+    assert_eq!(failure(&v, "11=A|54=1|55=AAPL|9999=x|").1, Some(SessionRejectReason::InvalidTagNumber));
+    assert_eq!(failure(&v, "11=A|54=1|55=AAPL|5002=x|").1, Some(SessionRejectReason::TagNotDefinedForMessageType));
 }
 
 /// QuickFIX's `allowOtherValues="Y"`: any code is accepted.

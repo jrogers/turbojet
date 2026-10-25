@@ -409,8 +409,8 @@ ExecutionReport from 155 ns to 171 ns; a known code still allocates nothing.
 
 The validator's switches follow QuickFIX/J's, with its defaults: `reject_invalid` is its
 RejectInvalidMessage, `allow_user_defined_tags` its ValidateUserDefinedFields=N (both the tag
-number and the in-message checks, from 5000 up), `undefined_tags` and `tags_not_in_message` its
-AllowUnknownMsgFields, and `SessionConfig::check_empty_values` and `check_header_order` its
+number and the in-message checks, from 5000 up), `allow_unknown_tags` its AllowUnknownMsgFields=Y
+(the same checks, below 5000), and `SessionConfig::check_empty_values` and `check_header_order` its
 ValidateFieldsHaveValues and ValidateFieldsOutOfOrder. A QuickFIX dictionary's
 `allowOtherValues="Y"` turns off the code check for its field and keeps it a `Code<E>` under
 `--strict-enums`. The QuickFIX settings converter maps each of these. One default differs:

@@ -800,6 +800,7 @@ fn validator(dictionary: &turbojet_dictionary::Dictionary, settings: &RawSetting
         set(&mut options.repeated_tags, raw.repeated_tags);
         set(&mut options.groups, raw.groups);
         set(&mut options.allow_user_defined_tags, raw.allow_user_defined_tags);
+        set(&mut options.allow_unknown_tags, raw.allow_unknown_tags);
         set(&mut options.admin_messages, raw.admin_messages);
         set(&mut options.reject_invalid, raw.reject_invalid);
     }

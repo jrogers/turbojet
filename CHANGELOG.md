@@ -2,6 +2,21 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- `ValidationOptions::allow_unknown_tags`: accepts undefined tags below 5000, and defined ones in a
+  message they don't belong to, leaving tags from 5000 up to `allow_user_defined_tags` (QuickFIX's
+  AllowUnknownMsgFields=Y). Before, accepting them below 5000 meant accepting them from 5000 up
+  too.
+
+### `turbojet-config`
+
+- The `validation` table takes `allow_unknown_tags`, and the QuickFIX settings converter maps
+  AllowUnknownMsgFields=Y to it, so it no longer refuses AllowUnknownMsgFields=Y with
+  ValidateUserDefinedFields=Y.
+
 ## 0.5.0 (2026-10-25)
 
 Most of this release comes from a review of the public API, and much of it breaks code written

@@ -133,7 +133,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     hours or more resolved with the wrong offset;
   - counterparty settings and stores chosen by CompID alone, and the sessions file refusing an
     initiator that differs from a counterparty only in its SubIDs;
-  - unknown tags below 5000 and from 5000 up accepted or rejected only together;
   - a `MessageLog` seeing an acceptor's Logon with no `SessionId`;
   - FIX 4.0 and 4.1 sessions writing SendingTime in whole seconds whatever the precision set;
   - a `Message` that panics past 4 GiB rather than refusing to grow;

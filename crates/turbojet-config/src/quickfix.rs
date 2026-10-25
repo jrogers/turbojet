@@ -622,18 +622,11 @@ fn validation(session: &mut Session, problems: &mut Vec<String>) -> Vec<&'static
     if session.flag("RejectInvalidMessage", problems) == Some(false) {
         keys.push("reject_invalid = false");
     }
-    let user_defined = session.flag("ValidateUserDefinedFields", problems).unwrap_or(true);
-    if session.flag("AllowUnknownMsgFields", problems) == Some(true) {
-        if user_defined {
-            problems.push(format!(
-                "{}: AllowUnknownMsgFields=Y with ValidateUserDefinedFields=Y: Turbojet can't accept unknown tags \
-                 below 5000 and still check those from 5000 up; add ValidateUserDefinedFields=N to accept both",
-                session.name
-            ));
-        }
-        keys.extend(["undefined_tags = false", "tags_not_in_message = false"]);
-    } else if !user_defined {
+    if session.flag("ValidateUserDefinedFields", problems) == Some(false) {
         keys.push("allow_user_defined_tags = true");
+    }
+    if session.flag("AllowUnknownMsgFields", problems) == Some(true) {
+        keys.push("allow_unknown_tags = true");
     }
     keys
 }

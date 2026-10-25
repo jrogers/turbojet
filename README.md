@@ -622,7 +622,8 @@ delivered; it still counts as received. The checks, each of which can be turned 
 MsgType not in the dictionary (373=11), undefined tag (0), tag not defined for the message (2),
 required tag missing, including in group entries (1), value not one of the field's codes (5),
 data format (6), a tag repeated outside a group (13), and group counts and order (16, 15).
-`allow_user_defined_tags` accepts tags from 5000 up, which venues often add, wherever they appear.
+`allow_user_defined_tags` accepts tags from 5000 up, which venues often add, wherever they appear,
+and `allow_unknown_tags` does the same below 5000.
 With `reject_invalid` off, a message that fails is logged and delivered instead. A code the
 dictionary doesn't list is rejected only in session-level messages unless `application_values` is
 on: a rejected message is never resent, so an ExecutionReport carrying a fill would be lost over

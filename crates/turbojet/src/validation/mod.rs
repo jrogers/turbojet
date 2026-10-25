@@ -94,6 +94,11 @@ pub struct ValidationOptions {
     /// message it doesn't list them for, which `tags_not_in_message` would (QuickFIX's
     /// ValidateUserDefinedFields=N). Their values are still checked.
     pub allow_user_defined_tags: bool,
+    /// Accept tags below 5000 the same way: undefined ones, and ones the dictionary defines in a
+    /// message it doesn't list them for (QuickFIX's AllowUnknownMsgFields=Y). Tags from 5000 up
+    /// are left to [`allow_user_defined_tags`](Self::allow_user_defined_tags), so the two ranges
+    /// can be treated differently. Their values are still checked.
+    pub allow_unknown_tags: bool,
     /// Check session-level messages the dictionary defines (not Logon or Logout), as well as
     /// application messages.
     pub admin_messages: bool,
@@ -115,6 +120,7 @@ impl Default for ValidationOptions {
             repeated_tags: true,
             groups: true,
             allow_user_defined_tags: false,
+            allow_unknown_tags: false,
             admin_messages: true,
             reject_invalid: true,
         }
@@ -344,18 +350,18 @@ impl Validator {
         if let Some(member) = rules.members.get(&tag) {
             return Ok(Some(member));
         }
-        let user_defined = tag >= 5000 && self.options.allow_user_defined_tags;
+        let allowed = if tag >= 5000 { self.options.allow_user_defined_tags } else { self.options.allow_unknown_tags };
         if !self.fields.contains_key(&tag) {
             // Session test case 14a: "Invalid tag number" (0), as QuickFIX and QuickFIX/J also
             // answer, rather than "Undefined tag" (3).
-            if self.options.undefined_tags && !user_defined {
+            if self.options.undefined_tags && !allowed {
                 return Err(self.invalid(
                     Some(tag),
                     SessionRejectReason::InvalidTagNumber,
                     &format!("Invalid tag number {tag}"),
                 ));
             }
-        } else if self.options.tags_not_in_message && !user_defined {
+        } else if self.options.tags_not_in_message && !allowed {
             let text = format!("Tag {tag} not defined for this message type");
             return Err(self.invalid(Some(tag), SessionRejectReason::TagNotDefinedForMessageType, &text));
         }
