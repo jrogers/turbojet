@@ -666,9 +666,11 @@ let holidays: HolidayCalendar = std::fs::read_to_string("holidays.txt")?.parse()
 config.schedule = Some(schedule.with_holidays(holidays));
 ```
 
-A period that starts the day before a holiday still runs into it, and the period after one resets
-sequence numbers as any new period does. A weekly schedule skips only a week that starts on a
-holiday. A refused logon, or an initiator waiting, names the holiday.
+A daily period that starts the day before a holiday still runs into it, and the period after one
+resets sequence numbers as any new period does. A weekly schedule skips a week that starts on a
+holiday, and is closed for the day on a holiday later in the week: the session logs out at
+midnight and may log on again the midnight after, in the same period, so its sequence numbers
+carry on. A refused logon, or an initiator waiting, names the holiday.
 
 Times are in UTC, a fixed offset, or, with turbojet's `tz` feature, an IANA zone that follows
 daylight saving. `SessionConfig::clock` supplies wall-clock time; replace it with

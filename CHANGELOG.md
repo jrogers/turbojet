@@ -13,6 +13,10 @@ Notable changes to the published crates.
 - An operator change to a disconnected session (`SessionHandle::set_next_outgoing` and the
   like) no longer holds up the other tasks on its runtime worker while a store's blocking commit
   runs: on a multi-threaded runtime they move to another thread for the fsync.
+- A weekly schedule is closed for the day on a holiday after its start day: the session logs
+  out at midnight, logons are refused, and an initiator waits for the midnight after. It's the
+  same period afterwards, so sequence numbers don't reset. Before, only a holiday on the start
+  day mattered. `SessionSchedule::next_start` gives the reopening.
 
 ### `turbojet-config`
 

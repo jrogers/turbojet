@@ -3597,6 +3597,28 @@ mod schedule_tests {
         assert_eq!(h.registry.handle(client_id()).status().unwrap().activity.unwrap().resets, 0);
     }
 
+    /// A mid-week holiday logs a weekly session out and refuses it for the day, then lets it
+    /// back on in the same period, its sequence numbers kept.
+    #[test]
+    fn a_mid_week_holiday_closes_a_weekly_session_without_resetting_it() {
+        let clock = ManualClock::at("2026-09-29 23:59:00"); // Tuesday
+        let mut h = scheduled("weekly sun 17:00-fri 17:00", &clock);
+        let holiday = chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        h.config.schedule = h.config.schedule.map(|s| s.with_holidays([holiday].into_iter().collect()));
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"));
+        clock.set("2026-09-30 00:00:00");
+        assert_eq!(types(&s.timer(h.at(1))), ["Logout"]);
+        s.recv(client(2, MsgType::Logout), h.at(1));
+        drop(s);
+
+        clock.set("2026-09-30 12:00:00");
+        assert_eq!(types(&h.session().recv(logon(3), h.t0)), ["DISCONNECT"], "closed for the holiday");
+        clock.set("2026-10-01 00:00:00");
+        let mut s = h.session();
+        assert_eq!(logon_reply_seq(&s.recv(logon(3), h.t0)), Some("3"), "the same period, not reset");
+    }
+
     #[test]
     fn continuous_session_logs_out_and_resets_at_the_daily_boundary() {
         let clock = ManualClock::at("2026-09-28 23:59:59");

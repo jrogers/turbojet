@@ -9,8 +9,10 @@
 //! - **Weekly**: `weekly sun 17:00-fri 17:00 America/New_York`.
 //!
 //! Holidays ([`HolidayCalendar`], set with [`SessionSchedule::with_holidays`]) are dates, in the
-//! schedule's time zone, on which no period starts. A period that starts the day before a holiday
-//! still runs into it; a weekly schedule skips only a week that starts on a holiday.
+//! schedule's time zone, on which no period starts. A daily period that starts the day before a
+//! holiday still runs into it. A weekly schedule skips a week that starts on a holiday, and is
+//! closed for the day on a holiday later in the week: it reopens at midnight after it, in the
+//! same period, so sequence numbers don't reset.
 //!
 //! With a schedule configured, an acceptor refuses logons outside a period, an initiator waits
 //! for the next period before connecting, a logged-on session logs out when its period ends, and
@@ -216,8 +218,9 @@ impl Period {
     }
 }
 
-/// Dates on which no session period starts, in the schedule's time zone. A period that starts the
-/// day before a holiday and runs into it is unaffected.
+/// Dates on which no session period starts, in the schedule's time zone. A daily period that
+/// starts the day before a holiday and runs into it is unaffected; a weekly period is closed for
+/// the day.
 ///
 /// Parses from text: one `YYYY-MM-DD` per line, with blank lines and `#` comments allowed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -348,8 +351,9 @@ impl SessionSchedule {
         self
     }
 
-    /// Starts no period on these dates, read in the schedule's time zone. For a weekly schedule,
-    /// only a holiday on its start day matters: it skips that week's period.
+    /// Starts no period on these dates, read in the schedule's time zone. A weekly schedule skips
+    /// a week that starts on a holiday, and is closed for the day on one later in the week: the
+    /// period goes on after midnight, so sequence numbers don't reset.
     #[must_use]
     pub fn with_holidays(mut self, holidays: HolidayCalendar) -> Self {
         self.holidays = holidays;
@@ -361,9 +365,21 @@ impl SessionSchedule {
         &self.holidays
     }
 
-    /// The period containing `time`, if any.
+    /// The period containing `time`, if any: none while a holiday closes a weekly period.
     pub fn period_at(&self, time: DateTime<Utc>) -> Option<Period> {
+        let period = self.scheduled_period(time)?;
+        (!self.closes_mid_period(self.time_zone.to_local(time).date())).then_some(period)
+    }
+
+    /// The period containing `time`, even on a holiday that closes it for the day.
+    fn scheduled_period(&self, time: DateTime<Utc>) -> Option<Period> {
         self.periods_around(time).take_while(|p| p.start <= time).filter(|p| p.contains(time)).last()
+    }
+
+    /// Whether `date`, a local date, closes a period that's under way: a holiday in a weekly
+    /// schedule. A daily period that runs into a holiday is left alone.
+    fn closes_mid_period(&self, date: NaiveDate) -> bool {
+        matches!(self.kind, Kind::Weekly { .. }) && self.holidays.contains(date)
     }
 
     /// Whether `time` falls inside a period.
@@ -371,10 +387,35 @@ impl SessionSchedule {
         self.period_at(time).is_some()
     }
 
-    /// The start of the first period beginning after `time`, if one begins within about 400 days
-    /// (weekly schedules: weeks).
+    /// The first time after `time` that a session can start: a period beginning, if one begins
+    /// within about 400 days (weekly schedules: weeks), or a weekly period reopening after a
+    /// holiday, whichever comes first.
     pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        self.periods_around(time).map(|p| p.start).find(|start| *start > time)
+        let start = self.periods_around(time).map(|p| p.start).find(|start| *start > time);
+        match (start, self.next_reopening(time, start)) {
+            (Some(start), Some(reopening)) => Some(start.min(reopening)),
+            (start, reopening) => start.or(reopening),
+        }
+    }
+
+    /// The first midnight after `time`, up to `until`'s date, that ends a holiday closing a weekly
+    /// period under way.
+    fn next_reopening(&self, time: DateTime<Utc>, until: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+        if !matches!(self.kind, Kind::Weekly { .. }) {
+            return None;
+        }
+        let today = self.time_zone.to_local(time).date();
+        let horizon = today + chrono::Duration::weeks(i64::try_from(MAX_CANDIDATES).expect("a small constant"));
+        let last = until.map_or(horizon, |until| self.time_zone.to_local(until).date());
+        self.holidays
+            .dates
+            .range(today..=last)
+            .map(|holiday| *holiday + chrono::Duration::days(1))
+            .filter(|after| !self.holidays.contains(*after))
+            .map(|after| self.time_zone.to_utc(after.and_time(NaiveTime::MIN)))
+            .filter(|reopening| *reopening > time)
+            // Not a holiday before the week's period starts (a Saturday's), or in a week skipped.
+            .find(|reopening| self.scheduled_period(*reopening).is_some())
     }
 
     /// Why the schedule doesn't allow a session at `time`, naming the holiday if one is the reason;
@@ -395,6 +436,9 @@ impl SessionSchedule {
     /// resolves to the next local date.
     fn holiday_at(&self, time: DateTime<Utc>) -> Option<NaiveDate> {
         let today = self.time_zone.to_local(time).date();
+        if self.closes_mid_period(today) && self.scheduled_period(time).is_some() {
+            return Some(today);
+        }
         self.holidays
             .dates
             .range(today - chrono::Duration::days(self.look_back())..=today)
@@ -779,12 +823,29 @@ mod tests {
     }
 
     #[test]
-    fn weekly_schedules_skip_only_a_holiday_on_their_start_day() {
+    fn weekly_schedules_skip_a_week_starting_on_a_holiday() {
         let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-20", "2026-12-25"]);
         assert!(!s.is_active(at("2026-12-22 12:00")), "the week starting on the 20th is skipped");
         assert_eq!(s.next_start(at("2026-12-22 12:00")), Some(at("2026-12-27 17:00")));
-        let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-23"]);
-        assert!(s.is_active(at("2026-12-23 12:00")), "a mid-week holiday changes nothing");
+    }
+
+    #[test]
+    fn a_mid_week_holiday_closes_a_weekly_period_for_the_day_without_ending_it() {
+        let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-23", "2026-12-24"]);
+        let week = s.period_at(at("2026-12-22 12:00")).unwrap();
+        assert!(!s.is_active(at("2026-12-23 00:00")));
+        assert!(!s.is_active(at("2026-12-24 23:59")));
+        assert_eq!(s.next_start(at("2026-12-22 12:00")), Some(at("2026-12-25 00:00")), "after both days");
+        assert_eq!(s.next_start(at("2026-12-23 12:00")), Some(at("2026-12-25 00:00")));
+        // The same period, so the session doesn't reset its sequence numbers.
+        assert_eq!(s.period_at(at("2026-12-25 00:00")), Some(week));
+        // Holidays outside a week's period don't reopen anything: a Saturday's, or the end day's
+        // after the period ends.
+        let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-26"]);
+        assert_eq!(s.next_start(at("2026-12-26 12:00")), Some(at("2026-12-27 17:00")));
+        let s = closed("weekly sun 17:00-fri 17:00", &["2026-12-25"]);
+        assert!(!s.is_active(at("2026-12-25 10:00")), "Friday, closed until the period ends");
+        assert_eq!(s.next_start(at("2026-12-25 10:00")), Some(at("2026-12-27 17:00")));
     }
 
     #[test]
@@ -802,9 +863,12 @@ mod tests {
             "outside session time (schedule 'daily 08:00:00-17:00:00 mon,tue,wed,thu,fri UTC'); \
              next session starts 2026-12-28 08:00:00 UTC"
         );
-        let weekly = closed("weekly sun 17:00-fri 17:00", &["2026-12-20"]);
+        let weekly = closed("weekly sun 17:00-fri 17:00", &["2026-12-20", "2026-12-23"]);
         let reason = weekly.closed_reason(at("2026-12-22 12:00")).unwrap();
         assert!(reason.contains("; 2026-12-20 is a holiday)"), "{reason}");
+        let weekly = closed("weekly sun 17:00-fri 17:00", &["2026-12-23"]);
+        let reason = weekly.closed_reason(at("2026-12-23 12:00")).unwrap();
+        assert!(reason.contains("; 2026-12-23 is a holiday); next session starts 2026-12-24 00:00:00 UTC"), "{reason}");
     }
 
     #[cfg(feature = "tz")]
