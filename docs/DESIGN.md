@@ -250,6 +250,22 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   Sessions are keyed on an `extra` column as well as BeginString and CompIDs; `migrate` adds it to
   a database made before it, PostgreSQL altering the table under a lock and SQLite rebuilding it
   with foreign keys off, so a second gateway migrating at once waits and finds nothing to do.
+- **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
+  operator's pause and the cancel on disconnect a session logged on with. They're the session's,
+  kept through resets, and written rarely (a logon, an ending, an operator), so the disk store
+  writes a small `<stem>.marks` file at once, as it does the creation time, and the SQL store a
+  `marks` column with its commit, in a short text form both share. A registry lists them once,
+  with `SessionStorage::marked`, before its first logon: the disk store reads its directory's
+  marks files (stems read back to session IDs), the SQL store selects the rows with any. All
+  three methods default to keeping none, so a store of one's own needn't change. A pause goes
+  through the session's connection when it has one (`Command::Paused`, answered after the
+  commit, as sequence changes are) and otherwise straight to its stored state under a claim.
+  Cancel on disconnect marks the session at logon, before `on_logon`, and clears the mark on an
+  ending that doesn't count; one that counts keeps it, since a crash mid-countdown must count
+  down again, until the cancel fires and a task clears it. Marking at logon rather than storing
+  countdowns is the point: a crash drops every connection at once, so at a crash there are
+  usually no countdowns, only sessions logged on. A restored countdown starts from the restart,
+  since the crash time isn't known.
 
 ## Configuration and operations
 
@@ -273,7 +289,8 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   the hot path gains a few relaxed stores and no allocation. Events go out on a bounded
   `tokio::sync::broadcast`, published only for state changes and only with subscribers, so a slow
   live view loses events (and is told) rather than holding a session up. A pause is a set in the
-  registry, checked under the same lock that binds a Logon, so a pause and a Logon can't cross;
+  registry, kept in the store's marks too (see Storage), checked under the same lock that binds
+  a Logon, so a pause and a Logon can't cross;
   an initiator's run loop waits on a `Notify` while paused. An operator's resend rewinds the
   expected number before asking, because resends below it would be ignored as duplicates, and
   reuses the gap machinery by treating the next new message as the one that revealed the gap.

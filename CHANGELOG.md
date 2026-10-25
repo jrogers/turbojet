@@ -6,6 +6,22 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `SessionHandle::pause` and `resume` are async and return `io::Result<()>`: they
+  store the change, so a pause survives a restart, and return the store's error (the change
+  applies anyway, until a restart).
+- A session logged on with cancel on disconnect is marked in its store, so after a crash or any
+  stop without a shutdown its countdown starts again from the restart, whether or not the
+  counterparty comes back. Before, the countdowns were lost with the process, and a crash, which
+  drops every connection at once, usually had none to lose.
+- `store::Marks`, kept by a store that overrides `StoredSession::marks` and `set_marks` and
+  `SessionStorage::marked`; the defaults keep none, so stores of one's own work unchanged.
+  `DiskStorage` keeps them in a `<stem>.marks` file, `MemoryStorage` for as long as the process.
+  `conformance::check_marks` checks a store that keeps them, and `SessionId::from_key` reads back
+  a `key_suffix`.
+- `SessionRegistry::restore` and `restore_cancels` read the marks before the first logon, for a
+  driver of one's own; acceptors and initiators call them. `Acceptor::serve` returns an error if
+  the store can't be read then.
+- `Command::Paused`, which a driver of one's own passes to the session like the other commands.
 - `ValidationOptions::allow_unknown_tags`: accepts undefined tags below 5000, and defined ones in a
   message they don't belong to, leaving tags from 5000 up to `allow_user_defined_tags` (QuickFIX's
   AllowUnknownMsgFields=Y). Before, accepting them below 5000 meant accepting them from 5000 up
@@ -22,6 +38,15 @@ Notable changes to the published crates.
   is 03:00, not 03:30. A clock change of three hours or more (Samoa skipping 2011-12-30) was
   resolved with the wrong offset; that day now has no period, and `next_start` passes over a
   period a clock change leaves empty.
+
+### `turbojet-sql`
+
+- `SqlStorage` keeps sessions' marks, in a `marks` column of `turbojet_sessions` that `migrate`
+  adds to a database made before it.
+
+### Python bindings (`crates/turbojet-python`, not published)
+
+- **Changed:** `Session.pause` and `resume` are awaitable, returning once the change is stored.
 
 ### `turbojet-config`
 

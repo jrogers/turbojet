@@ -124,8 +124,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 - **Caveats worth fixing** (S to M each). Several entries in [CAVEATS.md](CAVEATS.md) are
   limits nobody chose so much as left, and each fixed is one less thing to explain:
-  - an operator's pause forgotten on restart, and cancel-on-disconnect countdowns lost with the
-    process;
   - a held message redelivered after a clean logout even when it was released meanwhile; and in
     Python, an `AppMessage` dropped without `done()` holding its session up for good;
   - no early closes in a holiday calendar;

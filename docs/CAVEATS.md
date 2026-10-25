@@ -43,7 +43,13 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   undone by a crash before its release (the session asks again from the hold, and marks only the
   first 256). After recovery from a hold, the next incoming number goes backwards (in the gauges and
   `SequenceNumbers`) to the held message.
-- Pausing a session is kept in memory: a restart forgets it. Session events are dropped for a
+- Pauses and cancel-on-disconnect countdowns survive a restart only with a store that keeps
+  marks (`DiskStorage`, `turbojet-sql`); the memory store, and a store of one's own that doesn't
+  implement them, forget both. A restored countdown counts its whole grace from the restart,
+  however long the session had been gone. A cancel that fires clears its mark from a task of its
+  own; if that fails, or the session is connecting at that moment, a restart cancels it again.
+  The registry reads marks once, as the first acceptor or initiator over it starts, so
+  `paused()` lists a stored pause only from then. Session events are dropped for a
   subscriber that falls more than `EVENT_QUEUE` behind (it's told how many), and only Logons the
   registry refuses (paused, already connected, too many, store failing) are sent as `Refused`;
   earlier refusals are logged. A FIXP session's
@@ -63,9 +69,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   username and password. Not SOCKS4, NTLM or Kerberos proxy authentication, or TLS to the proxy
   itself (an `https://` proxy). Through a proxy, a session's `ConnectionInfo` has the proxy's
   address, not the counterparty's.
-- Cancel-on-disconnect countdowns live in memory: a process that stops without shutting down
-  loses those under way, so after a restart the application checks the orders it kept. One that
-  shuts down fires them at once, as does replacing an initiator during a grace period.
+- A process that shuts down fires its cancel-on-disconnect countdowns at once, as does
+  replacing an initiator during a grace period.
 - A `SqlStorage` lease must outlast the longest heartbeat interval, since heartbeats are the
   commits that renew it while a session is idle, and gateways sharing a database need clocks in
   step to well within the lease. A log closed without a tokio runtime to give its lease up on

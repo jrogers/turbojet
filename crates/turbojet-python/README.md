@@ -42,7 +42,7 @@ rejected ones included (`session.reject(msg, reason, text, ref_id)` sends a Busi
 
 Messages are untyped: fields by tag, values as text, `turbojet.tags` naming the tags, and
 `msg.group(count_tag, member_tags)` reading a repeating group. Sessions also have
-`send_nowait`, `logout`, `pause`/`resume` and the sequence-number controls of
+`send_nowait`, `logout`, `pause`/`resume` (awaited) and the sequence-number controls of
 [Operating on sequence numbers](https://github.com/jrogers/turbojet#operating-on-sequence-numbers), and `engine.reload()` reloads the
 file. Three callbacks must answer before the session goes on, so they're plain functions given to
 `load`, run on the session's thread: keep them quick.

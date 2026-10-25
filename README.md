@@ -518,8 +518,8 @@ while let Ok(SessionEvent { id, kind, .. }) = events.recv().await {
 }
 
 let session = acceptor.handle_for("CLIENT1");
-session.pause(Some("maintenance")); // log out, and refuse its Logons until resumed
-session.resume();
+session.pause(Some("maintenance")).await?; // log out, and refuse its Logons until resumed
+session.resume().await?;
 session.request_resend(1200).await?; // have it send 1200 onwards again
 
 // What was sent and received, from a FileMessageLog's directory.
@@ -543,7 +543,10 @@ for file in FileMessageLog::files("/var/log/fix")? {
   `EVENT_QUEUE` (4,096) behind misses the oldest and is told how many, its cue to read
   `statuses()` again. Read `statuses()` after subscribing for where things stand.
 - A paused acceptor session's counterparty is turned away at its Logon; a paused initiator stops
-  reconnecting until resumed, then connects at once. Pauses are kept in memory, not stored.
+  reconnecting until resumed, then connects at once. `pause` and `resume` return once the store
+  has the change, so a restart keeps a pause; `DiskStorage` and `turbojet-sql` keep it, the
+  memory store only as long as the process. A store failing returns its error, and the pause or
+  resume applies anyway until a restart.
 - `request_resend(from)` is for an application that lost messages it had processed: the session
   expects `from` again and asks for it, so the resends arrive in sequence and are delivered, with
   PossDupFlag=Y. It needs the session logged on with no resend of its own under way.
@@ -826,8 +829,11 @@ When a session that logged on ends in a way the trigger counts and the counterpa
 back on within the grace period, `on_cancel_on_disconnect` is called once; a logon within it
 stops the countdown, and a logon just after waits for the cancel, so it never follows that
 logon's `on_logon`. Our own shutdown and the schedule's end never count. Acceptors and initiators
-run the countdowns on a task, and fire those under way at once when they shut down; a process
-that stops without shutting down loses them, so after a restart, check the orders you kept.
+run the countdowns on a task, and fire those under way at once when they shut down. A process
+that stops without shutting down, crashing say, drops its connections with it: with a store
+that keeps them (`DiskStorage`, `turbojet-sql`), the sessions logged on with cancel on disconnect
+then, or counting down, count down again from the restart, whether or not the counterparty
+comes back. With the memory store they're lost, so after a restart check the orders you kept.
 Custom drivers call `Session::on_disconnect` when the transport ends and run the countdowns with
 `SessionRegistry::next_cancel_deadline` and `run_due_cancels`. In a `turbojet-config` file:
 `cancel_on_disconnect = "disconnect"` (or `"disconnect_or_logout"`, or `"off"`) and `cancel_grace = "5s"`.
