@@ -14,6 +14,10 @@
 //! closed for the day on a holiday later in the week: it reopens at midnight after it, in the
 //! same period, so sequence numbers don't reset.
 //!
+//! A calendar's early closes are a date and a time: the daily period in session then ends then,
+//! while one that starts later that day (an evening reopen) runs as usual; a weekly period is
+//! closed from then until midnight, in the same period, as for a holiday.
+//!
 //! With a schedule configured, an acceptor refuses logons outside a period, an initiator waits
 //! for the next period before connecting, a logged-on session logs out when its period ends, and
 //! the first logon of a new period resets sequence numbers to 1.
@@ -436,8 +440,9 @@ impl SessionSchedule {
         self
     }
 
-    /// Starts no period on these dates, read in the schedule's time zone. A weekly schedule skips
-    /// a week that starts on a holiday, and is closed for the day on one later in the week: the
+    /// Starts no period on these dates, read in the schedule's time zone, and closes early on the
+    /// calendar's early closes. A weekly schedule skips a week that starts on a holiday, and is
+    /// closed for the day on one later in the week, or from an early close until midnight: the
     /// period goes on after midnight, so sequence numbers don't reset.
     #[must_use]
     pub fn with_holidays(mut self, holidays: HolidayCalendar) -> Self {

@@ -28,15 +28,25 @@ daylight saving. `SessionConfig::clock` supplies wall-clock time; replace it wit
 
 ## Holidays
 
-Holidays are dates, in the schedule's time zone, on which no period starts. Give them as a
-`HolidayCalendar`, which parses one `YYYY-MM-DD` per line with `#` comments (the example gateway
-reads one with `--holidays FILE`):
+Holidays are dates, in the schedule's time zone, on which no period starts; early closes are
+dates on which the session closes at a given time. Give them as a `HolidayCalendar`, which parses
+one `YYYY-MM-DD` per line for a holiday, or `YYYY-MM-DD HH:MM` for an early close, with `#`
+comments (a sessions file names one with `holidays`, and the example gateway reads one with
+`--holidays FILE`):
+
+```text
+# New York
+2026-11-26          # Thanksgiving: closed
+2026-11-27 13:00    # closes at 13:00
+2026-12-24 13:00
+2026-12-25
+```
 
 ```rust
 use turbojet::{HolidayCalendar, SessionSchedule};
 
 # let mut config = turbojet::SessionConfig::new("FIX.4.4", "CLIENT");
-let holidays: HolidayCalendar = "# New York\n2026-11-26\n2026-12-25\n".parse()?; // or from a file
+let holidays: HolidayCalendar = "# New York\n2026-11-26\n2026-11-27 13:00\n2026-12-25\n".parse()?; // or from a file
 let schedule: SessionSchedule = "daily 09:30-16:00 mon-fri America/New_York".parse()?;
 config.schedule = Some(schedule.with_holidays(holidays));
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -47,6 +57,13 @@ resets sequence numbers as any new period does. A weekly schedule skips a week t
 holiday, and is closed for the day on a holiday later in the week: the session logs out at
 midnight and may log on again the midnight after, in the same period, so its sequence numbers
 carry on. A refused logon, or an initiator waiting, names the holiday.
+
+An early close ends the daily period in session at that time: the session logs out then, as at
+the period's usual end, and the next period starts as usual, including one later the same day
+(a market that closes at 12:00 and reopens at 17:00 for the next day). An early close outside
+any period changes nothing. A weekly schedule is closed from an early close until midnight, then
+carries on in the same period, as after a mid-week holiday. A date can't be both a holiday and an
+early close.
 
 ## Throttling
 

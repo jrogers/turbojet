@@ -54,7 +54,10 @@ machine with an injected clock. It has:
 - optional inbound and outbound message-rate limits (N per sliding window): sends beyond the
   outbound limit wait in the send queue, and inbound messages beyond it are delayed (input isn't
   read, so TCP slows the counterparty) or answered with a BusinessMessageReject;
-- session schedules with holiday calendars, and operator control of sequence numbers;
+- session schedules with holiday calendars, early closes included: an early close cuts the daily
+  period it falls inside short where periods are generated, so the session's check that its
+  period has ended needs no change, and closes a weekly period until midnight as a mid-week
+  holiday does; and operator control of sequence numbers;
 - sessions identified as QuickFIX identifies them, by SubIDs, LocationIDs and a local qualifier as
   well as CompIDs: an acceptor takes them from each Logon, so one counterparty can run a session
   per desk, each with its own store, and at most `max_sessions_per_counterparty` (16) at once,

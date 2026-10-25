@@ -1153,10 +1153,13 @@ mod tests {
     #[test]
     fn holidays_are_read_relative_to_the_file() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("holidays.txt"), "2026-12-25 # Christmas\n").unwrap();
+        std::fs::write(dir.path().join("holidays.txt"), "2026-12-24 13:00 # closes early\n2026-12-25 # Christmas\n")
+            .unwrap();
         let loaded =
             load_in(dir.path(), "[defaults]\nschedule = \"daily 08:00-17:00\"\nholidays = \"holidays.txt\"").unwrap();
-        assert_eq!(loaded.acceptor().base.schedule.as_ref().unwrap().holidays().len(), 1);
+        let holidays = loaded.acceptor().base.schedule.as_ref().unwrap().holidays();
+        assert_eq!(holidays.len(), 2);
+        assert!(holidays.early_close("2026-12-24".parse().unwrap()).is_some());
         let error = load_in(dir.path(), "[defaults]\nschedule = \"daily 08:00-17:00\"\nholidays = \"missing.txt\"")
             .err()
             .unwrap()

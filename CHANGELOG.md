@@ -10,6 +10,11 @@ Notable changes to the published crates.
   than the `turbojet-fast` crate: depend on `turbojet` with `features = ["fast"]` and change
   `turbojet_fast::` to `turbojet::fast::`. The API is the same. `turbojet-fast` stays at 0.5.0
   on crates.io.
+- Early closes in holiday calendars: a line `YYYY-MM-DD HH:MM` closes the session at that time
+  on that date. It ends the daily period in session then (a later period that day, an evening
+  reopen, runs as usual), and closes a weekly period until midnight, in the same period.
+  `HolidayCalendar::with_early_closes` and `early_close`; `len`, `is_empty` and `last` count
+  them too.
 - A guide, `docs/guide/`, also in the API documentation as `turbojet::guide`: eleven chapters
   from a first session to storage, recovery, schedules and operations, with every example
   compiled and run as a test. The readme's reference sections moved into it, and the readme is

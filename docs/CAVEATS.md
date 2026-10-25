@@ -83,9 +83,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - An operator change to a disconnected session runs a store's blocking commit (`DiskStorage`
   with fsync) on the calling task. On a multi-threaded runtime the worker's other tasks move to
   another thread meanwhile; on a current-thread runtime they wait for the fsync.
-- A holiday closes a whole local day, midnight to midnight: holidays don't shorten a day (no
-  early closes), and a weekly schedule closed by one mid-week doesn't follow a market's own
-  convention, such as closing at the previous evening's roll.
+- A holiday closes a whole local day, midnight to midnight, and an early close a weekly
+  schedule's day from its time to midnight: a weekly schedule closed mid-week doesn't follow a
+  market's own convention, such as closing at the previous evening's roll or reopening at 17:00
+  after a 12:00 close.
 - Replies an application makes in `on_message` go out at once but count against
   `outbound_limit`, so they can take a window past its N; queued sends then wait longer, and
   while replies alone fill the window, queued sends wait until they slow.

@@ -73,7 +73,7 @@
 //! acceptor sees the session: our SubID is the sender's) is for the one session with exactly
 //! those, over its CompID's section; no two sections may list the same sessions. The keys:
 //! `store` (`memory` by default), `logout_timeout`, `schedule` (as
-//! [`SessionSchedule`](turbojet::SessionSchedule) parses it), `holidays` (a file of dates),
+//! [`SessionSchedule`](turbojet::SessionSchedule) parses it), `holidays` (a file of dates, and of early closes as a date and a time),
 //! `max_latency` (a duration or `off`), `check_orig_sending_time`, `check_header_order`,
 //! `check_empty_values`,
 //! `timestamp_precision` (`seconds`, `millis`, `micros` or `nanos`), `data_fields` (`[[length,

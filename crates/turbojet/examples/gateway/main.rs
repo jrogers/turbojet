@@ -62,7 +62,8 @@ Options:
   --schedule S         Only allow sessions in these hours, resetting sequence numbers each
                        period, e.g. \"daily 08:00-17:00 mon-fri America/New_York\" or
                        \"weekly sun 17:00-fri 17:00 America/New_York\" (default: always open)
-  --holidays FILE      With --schedule: start no session on these dates (one YYYY-MM-DD per
+  --holidays FILE      With --schedule: start no session on these dates, and close early on
+                       others (one YYYY-MM-DD, or YYYY-MM-DD HH:MM for an early close, per
                        line in the schedule's time zone, # comments); read at startup
   --inbound-limit N/W  Accept at most N application messages per window W from each
                        counterparty, e.g. 100/1s
