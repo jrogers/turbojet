@@ -14,7 +14,7 @@ use crate::allowed::AllowedIps;
 use crate::connection;
 use crate::initiator::{Endpoint, endpoints_problem};
 use crate::peer::ConnectionInfo;
-use crate::reconnect::{Backoff, ReconnectPolicy};
+use crate::reconnect::{Backoff, ReconnectPolicy, warn_failed};
 use crate::session::ConfigError;
 use crate::shutdown::Shutdown;
 use crate::store::{SessionId, SessionStorage};
@@ -361,6 +361,9 @@ impl FixpInitiator {
     /// Keeps the session connected: connects, runs the session until the connection ends, and
     /// waits as the reconnect policy says before the next, until [shutdown](Self::shutdown)
     /// (returning once the session has closed) or the future is dropped.
+    ///
+    /// Each failure is logged through `tracing`. With no subscriber installed, the first in the
+    /// process also goes to stderr, so a session that can't connect isn't silent.
     pub async fn run(self) {
         let span = tracing::info_span!("fixp initiator", addr = %self.config.endpoints[0].addr);
         async {
@@ -370,7 +373,7 @@ impl FixpInitiator {
                 match result {
                     Ok(()) => info!("disconnected"),
                     Err(e) if self.shutdown.is_started() => info!("{e}"),
-                    Err(e) => warn!("{e}"),
+                    Err(e) => warn_failed(&self.config.endpoints[0].addr, &e),
                 }
                 let delay = backoff.next_delay(established);
                 if !self.shutdown.is_started() {

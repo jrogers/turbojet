@@ -1,7 +1,12 @@
 //! How long an initiator waits before connecting again: [`ReconnectPolicy`].
 
+use std::fmt::Display;
 use std::hash::{BuildHasher, RandomState};
+use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+use tracing::subscriber::NoSubscriber;
 
 /// How long [`Initiator::run`](crate::Initiator::run) waits before connecting again, after a
 /// session ends or every endpoint has failed.
@@ -117,6 +122,23 @@ impl Backoff {
         let delay = self.policy.delay(self.attempt, self.random.hash_one(self.draws));
         self.attempt = self.attempt.saturating_add(1);
         delay
+    }
+}
+
+/// Whether [`warn_failed`] has written to stderr yet.
+static UNHEARD: AtomicBool = AtomicBool::new(false);
+
+/// Logs why an initiator's attempt failed. With no tracing subscriber to hear it, says so on stderr
+/// too, once in the process, so a first initiator that can't connect isn't silent.
+pub(crate) fn warn_failed(session: &dyn Display, e: &io::Error) {
+    tracing::warn!("{e}");
+    if tracing::dispatcher::get_default(|dispatch| dispatch.is::<NoSubscriber>())
+        && !UNHEARD.swap(true, Ordering::Relaxed)
+    {
+        eprintln!(
+            "turbojet: {session}: {e} (install a tracing subscriber, such as tracing_subscriber::fmt::init(), \
+             to see the engine's logs; this is shown once)"
+        );
     }
 }
 

@@ -17,7 +17,7 @@ use crate::connection;
 use crate::fields::Secret;
 use crate::peer::ConnectionInfo;
 use crate::proxy::Proxy;
-use crate::reconnect::{Backoff, ReconnectPolicy};
+use crate::reconnect::{Backoff, ReconnectPolicy, warn_failed};
 use crate::registry::{CommandReceiver, SessionEvent, SessionHandle, SessionRegistry};
 use crate::session::ConfigError;
 use crate::session::{Session, SessionConfig};
@@ -406,6 +406,9 @@ impl Initiator {
     /// [reconnect policy](InitiatorConfig::reconnect) says between calls, and outside the session
     /// schedule (if any) waiting for the next period instead. Runs until [shutdown](Initiator::shutdown) (returning once the
     /// session has closed), or until the future is dropped or the task is aborted.
+    ///
+    /// Each failure is logged through `tracing`. With no subscriber installed, the first in the
+    /// process also goes to stderr, so a session that can't connect isn't silent.
     pub async fn run(self) {
         let span = tracing::info_span!("initiator", session = %self.session_id());
         async {
@@ -436,7 +439,7 @@ impl Initiator {
                 match result {
                     Ok(()) => info!("disconnected"),
                     Err(e) if self.shutdown.is_started() => info!("{e}"),
-                    Err(e) => warn!("{e}"),
+                    Err(e) => warn_failed(&self.session_id(), &e),
                 }
                 backoff.set_policy(self.config().reconnect);
                 let delay = backoff.next_delay(logged_on);
