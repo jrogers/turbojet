@@ -1,9 +1,10 @@
 //! In-memory session storage: survives reconnects, not restarts.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use super::seq_index::SeqIndex;
 use super::{Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::fields::UtcTimestamp;
 
@@ -12,7 +13,7 @@ struct State {
     next_outgoing: u64,
     next_incoming: u64,
     /// The newest messages sent since a sequence reset, at most `max_session_bytes` of them.
-    sent: BTreeMap<u64, Vec<u8>>,
+    sent: SeqIndex<Vec<u8>>,
     /// The total length of `sent`.
     bytes: usize,
     /// The highest sequence number evicted from `sent`.
@@ -27,7 +28,7 @@ impl Default for State {
         Self {
             next_outgoing: 1,
             next_incoming: 1,
-            sent: BTreeMap::new(),
+            sent: SeqIndex::default(),
             bytes: 0,
             evicted_through: None,
             created_at: None,
@@ -53,7 +54,7 @@ impl State {
         // Not a sum over `sent`: that would make each store cost as much as everything stored.
         debug_assert!(self.bytes <= max_bytes);
         debug_assert_eq!(self.sent.is_empty(), self.bytes == 0);
-        debug_assert!(self.sent.first_key_value().is_none_or(|(first, _)| Some(*first) > self.evicted_through));
+        debug_assert!(self.sent.first().is_none_or(|first| Some(first) > self.evicted_through));
     }
 }
 
@@ -205,7 +206,7 @@ impl StoredSession for MemoryLog {
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
         let state = self.state();
-        let messages: Vec<_> = state.sent.range(begin..=end).map(|(seq, m)| (*seq, m.clone())).collect();
+        let messages: Vec<_> = state.sent.range(begin, end).cloned().collect();
         // Checked as stored, and again as read back for a resend.
         super::debug_check_sent(&messages, begin, end, state.evicted_through);
         Ok(messages)

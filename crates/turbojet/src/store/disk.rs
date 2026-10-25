@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use super::seq_index::SeqIndex;
 use super::{Commit, Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::codec::{Decoded, frame_stored};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
@@ -231,7 +232,7 @@ struct DiskLog {
     pending_at: Option<(u32, u64)>,
     pending_seqs: Option<(u64, u64)>,
     /// Every message in the kept segments and `pending`: bounded by the budget.
-    index: BTreeMap<u64, Location>,
+    index: SeqIndex<Location>,
     /// The highest MsgSeqNum of a message deleted with its segment.
     evicted_through: Option<u64>,
     /// The sequence numbers have changed since the last commit.
@@ -263,13 +264,13 @@ impl DiskLog {
         // generation; a 0.1 store's is in the seqnums file until it first stores a message.
         let Record { mut next_outgoing, next_incoming, in_flight, generation } =
             journal.into_iter().chain([slotted]).max_by_key(|r| r.generation).expect("the seqnums file has one");
-        if let Some((&last, _)) = index.last_key_value() {
+        if let Some(last) = index.last() {
             next_outgoing = next_outgoing.max(last + 1);
         }
         // Segments before the oldest kept were deleted, and their messages with them.
         let evicted_through = match segments.front() {
             Some(oldest) if oldest.number > 0 => {
-                let first = index.first_key_value().map_or(next_outgoing, |(&seq, _)| seq);
+                let first = index.first().unwrap_or(next_outgoing);
                 first.checked_sub(1).filter(|&seq| seq > 0)
             }
             _ => None,
@@ -401,7 +402,7 @@ impl DiskLog {
             let oldest = self.segments.pop_front().expect("more than one");
             self.total_len -= oldest.len;
             if let Some((_, last)) = oldest.seqs {
-                self.index = self.index.split_off(&(last + 1));
+                self.index.remove_through(last);
                 self.evicted_through = self.evicted_through.max(Some(last));
             }
             removed.push(self.segment_path(oldest.number));
@@ -484,7 +485,7 @@ impl StoredSession for DiskLog {
     }
 
     fn sent_messages(&mut self, begin: u64, end: u64) -> io::Result<Vec<(u64, Vec<u8>)>> {
-        let locations: Vec<(u64, Location)> = self.index.range(begin..=end).map(|(s, l)| (*s, *l)).collect();
+        let locations: Vec<(u64, Location)> = self.index.range(begin, end).copied().collect();
         let is_pending =
             |l: &Location| matches!(self.pending_at, Some((n, start)) if n == l.segment && l.offset >= start);
         let mut messages = Vec::with_capacity(locations.len());
@@ -635,7 +636,7 @@ fn segment_path(dir: &Path, stem: &str, number: u32) -> PathBuf {
 
 /// A session's journal as opened: its segments, oldest first, the index of their messages, and
 /// the latest record in any.
-type Journal = (VecDeque<Segment>, BTreeMap<u64, Location>, Option<Record>);
+type Journal = (VecDeque<Segment>, SeqIndex<Location>, Option<Record>);
 
 /// The segments of the session whose files start `stem`, oldest first, each scanned: a torn
 /// message or record at the end of one is truncated. Returns them, the index of their messages,
@@ -699,7 +700,7 @@ fn open_segments(dir: &Path, stem: &str) -> io::Result<Journal> {
         }
         segments.push_back(Segment { number, file: Arc::new(file), len: valid_len, seqs });
     }
-    Ok((segments, index, latest.map(|(_, record)| record)))
+    Ok((segments, index.into_iter().collect(), latest.map(|(_, record)| record)))
 }
 
 /// The first and last of two ranges of MsgSeqNum, either of which may be empty.

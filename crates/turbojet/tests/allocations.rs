@@ -344,13 +344,13 @@ fn report(store: &str, counts: &[Counts; Stage::ALL.len()]) -> String {
 type Budget = [(Stage, u64, u64); Stage::ALL.len()];
 
 /// Budgets with each store. Exact: a change in either direction fails, so an improvement is
-/// locked in by lowering the budget here. Counts also depend on std and dependencies (Vec growth,
-/// BTreeMap node size), so a toolchain or dependency update can move them without a change to
+/// locked in by lowering the budget here. Counts also depend on std and dependencies (Vec and
+/// VecDeque growth), so a toolchain or dependency update can move them without a change to
 /// Turbojet.
 const MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1000, 4)];
 const DISK_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 4)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
@@ -508,9 +508,9 @@ fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::
 
 /// FIXP budgets with each store, exact as above: as FIX's, the stores keeping the answer.
 const FIXP_MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1000, 4)];
 const FIXP_DISK_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 166, 0)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 4)];
 
 #[test]
 fn fixp_order_to_ack_allocates_exactly_its_budget() {

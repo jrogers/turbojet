@@ -6,6 +6,7 @@ mod by_counterparty;
 pub mod conformance;
 pub(crate) mod disk;
 mod memory;
+mod seq_index;
 
 use std::fmt;
 use std::future::Future;
