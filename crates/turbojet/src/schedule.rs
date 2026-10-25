@@ -20,10 +20,10 @@
 //!
 //! Time zones are `UTC`, fixed offsets (`+05:30`, `-04:00`), or, with the `tz` feature, IANA names
 //! (`America/New_York`) that follow daylight saving. A local start or end time that doesn't exist
-//! (skipped when clocks go forward) is taken as the equivalent time on the old offset, i.e. just
-//! after the gap; one that occurs twice (when clocks go back) is taken as the first occurrence.
-//! So a period that lies inside the gap doesn't happen that day: `daily 02:30-03:00
-//! America/New_York` starts after it ends on the night clocks go forward, and is never in session.
+//! (skipped when clocks go forward) is taken as the moment the clocks skip to, the end of the gap,
+//! however long the gap (Samoa skipped all of 2011-12-30); one that occurs twice (when clocks go
+//! back) is taken as the first occurrence. So a period that lies inside the gap doesn't happen
+//! that day: `daily 02:30-03:00 America/New_York` starts as it ends on the night clocks go forward.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -31,9 +31,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::session::ConfigError;
-use chrono::{
-    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone, Utc, Weekday,
-};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc, Weekday};
 
 const WEEK: [Weekday; 7] =
     [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
@@ -128,25 +126,31 @@ impl ScheduleTimeZone {
         match self {
             Self::Utc | Self::Fixed(_) => true,
             #[cfg(feature = "tz")]
-            Self::Named(tz) => !matches!(tz.from_local_datetime(&local), LocalResult::None),
+            Self::Named(tz) => !matches!(tz.from_local_datetime(&local), chrono::LocalResult::None),
         }
     }
 }
 
-/// Converts local time to UTC, taking the first occurrence of an ambiguous time and resolving a
-/// non-existent one with the offset in force just before the gap.
+/// Converts local time to UTC, taking the first occurrence of an ambiguous time, and for a
+/// non-existent one the moment the clocks skip to: the first local second after the gap.
 fn resolve<Tz: TimeZone>(tz: &Tz, local: NaiveDateTime) -> DateTime<Utc> {
-    match tz.from_local_datetime(&local) {
-        LocalResult::Single(time) | LocalResult::Ambiguous(time, _) => time.with_timezone(&Utc),
-        LocalResult::None => {
-            let before = tz
-                .from_local_datetime(&(local - chrono::Duration::hours(3)))
-                .earliest()
-                .map(|t| t.offset().fix())
-                .unwrap_or_else(|| FixedOffset::east_opt(0).expect("zero offset"));
-            (local - chrono::Duration::seconds(i64::from(before.local_minus_utc()))).and_utc()
+    let exists = |local: &NaiveDateTime| tz.from_local_datetime(local).earliest();
+    if let Some(time) = exists(&local) {
+        return time.with_timezone(&Utc);
+    }
+    // No gap is longer than a day (Samoa's was one), so one ends within two: bisect, in whole
+    // seconds after `local`, for its end.
+    let at = |seconds: i64| local + chrono::Duration::seconds(seconds);
+    let (mut skipped, mut after) = (0, 2 * 24 * 3600);
+    while after - skipped > 1 {
+        let middle = skipped + (after - skipped) / 2;
+        if exists(&at(middle)).is_some() {
+            after = middle;
+        } else {
+            skipped = middle;
         }
     }
+    exists(&at(after)).expect("a gap ends within two days").with_timezone(&Utc)
 }
 
 impl fmt::Display for ScheduleTimeZone {
@@ -478,6 +482,8 @@ impl SessionSchedule {
             .take(MAX_CANDIDATES)
             .filter(|date| self.starts_on(*date))
             .map(|date| self.period_starting(date))
+            // Swallowed by a clock change: it never happens, so it's no start to wait for.
+            .filter(|period| period.start < period.end)
             // `period_at` stops at the first period starting after its time, and `next_start`
             // takes the first one: both rely on this order.
             .scan(None, |previous: &mut Option<DateTime<Utc>>, period| {
@@ -717,12 +723,32 @@ mod tests {
         // EDT (UTC-4) in September, EST (UTC-5) in December.
         assert_eq!(s.period_at(at("2026-09-28 14:00")).unwrap().start, at("2026-09-28 13:30"));
         assert_eq!(s.period_at(at("2026-12-01 15:00")).unwrap().start, at("2026-12-01 14:30"));
-        // 02:30 doesn't exist on 2026-03-08 in New York: taken as just after the gap (03:30 EDT).
+        // 02:30 doesn't exist on 2026-03-08 in New York: taken as the end of the gap (03:00 EDT).
         let gap = schedule("daily 02:30-04:00 America/New_York");
-        assert_eq!(gap.period_at(at("2026-03-08 07:40")).unwrap().start, at("2026-03-08 07:30"));
+        assert_eq!(gap.period_at(at("2026-03-08 07:40")).unwrap().start, at("2026-03-08 07:00"));
+        // A period inside the gap doesn't happen.
+        let inside = schedule("daily 02:15-02:45 America/New_York");
+        assert_eq!(inside.next_start(at("2026-03-08 05:00")), Some(at("2026-03-09 06:15")));
         // 01:30 happens twice on 2026-11-01: the first (EDT) is used.
         let repeated = schedule("daily 01:30-03:00 America/New_York");
         assert_eq!(repeated.period_at(at("2026-11-01 06:00")).unwrap().start, at("2026-11-01 05:30"));
+    }
+
+    /// Samoa skipped 2011-12-30, going from UTC-10 to UTC+14 at midnight: that day's period
+    /// doesn't happen, and the days either side keep their own offsets.
+    #[cfg(feature = "tz")]
+    #[test]
+    fn a_day_skipped_by_a_clock_change_has_no_period() {
+        let s = schedule("daily 08:00-17:00 Pacific/Apia");
+        assert_eq!(s.period_at(at("2011-12-29 19:00")).unwrap().start, at("2011-12-29 18:00"), "the 29th, UTC-10");
+        assert_eq!(s.next_start(at("2011-12-30 04:00")), Some(at("2011-12-30 18:00")), "the 31st, UTC+14");
+        assert_eq!(s.period_at(at("2011-12-30 19:00")).unwrap().end, at("2011-12-31 03:00"));
+        let continuous = schedule("daily 00:00-00:00 Pacific/Apia");
+        assert_eq!(
+            continuous.period_at(at("2011-12-30 09:59")),
+            Some(Period { start: at("2011-12-29 10:00"), end: at("2011-12-30 10:00") }),
+            "the 29th runs until the clocks skip"
+        );
     }
 
     #[test]
@@ -875,8 +901,8 @@ mod tests {
     #[test]
     fn closed_reasons_name_the_start_date_of_a_period_in_a_gap_over_midnight() {
         // Nuuk springs forward from 23:00 on Saturday 2026-03-28 to 00:00 on the Sunday, so the
-        // 28th's 23:30 start doesn't exist and is taken as 00:30 on the 29th (01:30 UTC).
-        let s = closed("daily 23:30-23:45 America/Nuuk", &["2026-03-28"]);
+        // 28th's 23:30 start doesn't exist and is taken as 00:00 on the 29th (01:00 UTC).
+        let s = closed("daily 23:30-01:00 America/Nuuk", &["2026-03-28"]);
         let reason = s.closed_reason(at("2026-03-29 01:40")).unwrap();
         assert!(reason.contains("2026-03-28 is a holiday"), "{reason}");
     }

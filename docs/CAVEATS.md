@@ -76,9 +76,6 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - A holiday closes a whole local day, midnight to midnight: holidays don't shorten a day (no
   early closes), and a weekly schedule closed by one mid-week doesn't follow a market's own
   convention, such as closing at the previous evening's roll.
-- A schedule time skipped by a clock change of three hours or more (Samoa skipping 2011-12-30) is
-  resolved with the wrong offset, giving that day a zero-length or inverted period. Changes of an
-  hour or so, as in daylight saving, are handled.
 - Replies an application makes in `on_message` go out at once but count against
   `outbound_limit`, so they can take a window past its N; queued sends then wait longer, and
   while replies alone fill the window, queued sends wait until they slow.

@@ -17,6 +17,11 @@ Notable changes to the published crates.
   out at midnight, logons are refused, and an initiator waits for the midnight after. It's the
   same period afterwards, so sequence numbers don't reset. Before, only a holiday on the start
   day mattered. `SessionSchedule::next_start` gives the reopening.
+- A schedule time the clocks skip is taken as the moment they skip to, the end of the gap, rather
+  than the same time on the old offset: on the night clocks go forward in New York, a 02:30 start
+  is 03:00, not 03:30. A clock change of three hours or more (Samoa skipping 2011-12-30) was
+  resolved with the wrong offset; that day now has no period, and `next_start` passes over a
+  period a clock change leaves empty.
 
 ### `turbojet-config`
 
