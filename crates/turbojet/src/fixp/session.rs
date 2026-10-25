@@ -1601,7 +1601,8 @@ impl FixpSession {
     /// stop: it's closed, waits for its store, or waits for a commit to record the next messages
     /// it hands over as in flight. Returns whether input was left waiting for the store (call
     /// [`take_commit`](Self::take_commit), then feed it again), rather than for more to arrive.
-    /// Each frame goes to the [`message_log`](Self::message_log), if there is one, first.
+    /// Each frame goes to the [`message_log`](Self::message_log), if there is one, first, or, for
+    /// a server's first Negotiate or Establish, just after: it binds the session.
     pub fn feed(&mut self, buf: &mut Vec<u8>, now: Instant) -> bool {
         self.now = now;
         let mut consumed = 0;
@@ -1616,14 +1617,21 @@ impl FixpSession {
             match framing::frame(&buf[consumed..]) {
                 Framed::Message(len) => {
                     debug_assert!(len > framing::HEADER);
-                    if let Some(log) = &self.config.message_log {
-                        log.inbound(self.session_id(), &buf[consumed..consumed + len]);
+                    // A server's first Negotiate or Establish is logged once it's been handled,
+                    // which binds the session, so the log has its ID.
+                    let whole = consumed..consumed + len;
+                    let identified = self.session_id().is_some();
+                    if identified && let Some(log) = &self.config.message_log {
+                        log.inbound(self.session_id(), &buf[whole.clone()]);
                     }
                     let frame = consumed + framing::HEADER..consumed + len;
                     consumed += len;
                     // Timed only with the latency histograms, which cost a clock read.
                     let started = self.latency_configured().then(Instant::now);
                     self.on_frame(&buf[frame]);
+                    if !identified && let Some(log) = &self.config.message_log {
+                        log.inbound(self.session_id(), &buf[whole]);
+                    }
                     // Counted once bound: a server's Negotiate or Establish binds it as it's handled.
                     if let Some(metrics) = self.metrics() {
                         metrics.message_received();
@@ -1752,7 +1760,7 @@ impl Driven for FixpSession {
     fn message_log(&self) -> Option<&dyn MessageLog> {
         FixpSession::message_log(self)
     }
-    fn session_id(&self) -> Option<&SessionId> {
+    fn message_log_id(&self) -> Option<&SessionId> {
         FixpSession::session_id(self)
     }
     fn frame_len(output: &[u8]) -> usize {

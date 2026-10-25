@@ -1080,8 +1080,8 @@ async fn the_message_log_sees_both_directions_on_the_wire() {
     assert_eq!(client_log.bytes(false), server_log.bytes(true));
     assert_eq!(server_log.bytes(false), client_log.bytes(true));
     let server_sessions: Vec<_> = server_log.0.lock().unwrap().iter().map(|(_, id, _)| id.clone()).collect();
-    assert_eq!(server_sessions[0], None, "the Negotiate that binds it");
-    assert!(server_sessions[1..].iter().all(|id| id.as_deref().is_some_and(|id| id.starts_with("FIXP:SERVER->"))));
+    // The Negotiate that binds it too, logged once it has.
+    assert!(server_sessions.iter().all(|id| id.as_deref().is_some_and(|id| id.starts_with("FIXP:SERVER->"))));
     let client_sessions: Vec<_> = client_log.0.lock().unwrap().iter().map(|(_, id, _)| id.clone()).collect();
     assert!(client_sessions.iter().all(|id| id.as_deref() == Some("FIXP:CLIENT->SERVER")), "{client_sessions:?}");
 }

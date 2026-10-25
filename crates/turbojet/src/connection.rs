@@ -115,7 +115,8 @@ pub(crate) trait Driven {
     fn on_fetched(&mut self, result: io::Result<SentMessages>, now: std::time::Instant);
     fn on_opened(&mut self, result: io::Result<Box<dyn StoredSession>>, now: std::time::Instant);
     fn message_log(&self) -> Option<&dyn MessageLog>;
-    fn session_id(&self) -> Option<&SessionId>;
+    /// The session to give the message log.
+    fn message_log_id(&self) -> Option<&SessionId>;
     /// The length of the frame at the start of `output`, which holds whole frames.
     fn frame_len(output: &[u8]) -> usize;
     /// Hands the session the complete messages at the start of `buf`, removing them, until it
@@ -792,7 +793,7 @@ impl<P: Driven> Driver<P> {
     /// store fails to commit, and messages held behind a resend arrive after it.
     fn stage_output(&mut self) {
         if let Some(log) = self.session.message_log() {
-            let id = self.session.session_id();
+            let id = self.session.message_log_id();
             let mut rest = self.session.output();
             while !rest.is_empty() {
                 let len = P::frame_len(rest);
@@ -1247,8 +1248,8 @@ impl Driven for Session {
     fn message_log(&self) -> Option<&dyn MessageLog> {
         self.message_log()
     }
-    fn session_id(&self) -> Option<&SessionId> {
-        self.session_id()
+    fn message_log_id(&self) -> Option<&SessionId> {
+        self.message_log_id()
     }
     fn frame_len(output: &[u8]) -> usize {
         crate::codec::frame_stored(output).expect("the session frames what it sends")
@@ -1278,12 +1279,20 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
             DecodedInto::Message(len) => {
                 // Each turn of the loop moves on, so it ends.
                 debug_assert!(len > 0);
-                if let Some(log) = session.message_log() {
-                    log.inbound(session.session_id(), &buf[consumed..consumed + len]);
+                let frame = consumed..consumed + len;
+                // Before the session knows whose it is (an acceptor's Logon), a frame's logged once
+                // it's been handled: to the counterparty's own log, which its settings may name,
+                // with its ID. Its replies are logged later still, as they're staged.
+                let identified = session.message_log_id().is_some();
+                if identified && let Some(log) = session.message_log() {
+                    log.inbound(session.message_log_id(), &buf[frame.clone()]);
                 }
                 consumed += len;
                 debug!(target: "turbojet::messages", direction = "in", "{}", scratch.redacted());
                 session.on_message(scratch, now);
+                if !identified && let Some(log) = session.message_log() {
+                    log.inbound(session.message_log_id(), &buf[frame]);
+                }
                 if let Some(latency) = session.latency_metrics() {
                     let ended = Instant::now().into_std();
                     latency.inbound_message(ended.saturating_duration_since(started));
@@ -1298,7 +1307,7 @@ fn feed(session: &mut Session, buf: &mut Vec<u8>, scratch: &mut Message, now: st
                 if let Some(log) = session.message_log()
                     && let Some(len) = framed_len(&buf[consumed..])
                 {
-                    log.garbled(session.session_id(), &buf[consumed..consumed + len], &reason);
+                    log.garbled(session.message_log_id(), &buf[consumed..consumed + len], &reason);
                 }
                 telemetry::garbled_message();
                 consumed += skip;
@@ -1567,9 +1576,40 @@ mod tests {
         ];
         assert_eq!(types, expected);
         let entries = log.0.lock().unwrap();
-        assert_eq!(entries[0].1, None, "the Logon that identifies the session");
-        assert!(entries[1..].iter().all(|(_, session, _)| session.as_deref() == Some("FIX.4.2:US->PEER")));
+        // The Logon that identifies the session too, logged once it has.
+        assert!(entries.iter().all(|(_, session, _)| session.as_deref() == Some("FIX.4.2:US->PEER")));
         assert_eq!(entries[2].2, order_bytes);
+    }
+
+    /// A counterparty's own log, which its settings name, gets its Logon, with its ID, rather than
+    /// the acceptor's; a Logon refused goes to the acceptor's, with the session it named.
+    #[tokio::test]
+    async fn the_message_log_sees_a_logon_where_the_counterparty_logs() {
+        let (ours, theirs) = (Arc::new(Recorded::default()), Arc::new(Recorded::default()));
+        let connect = async |counterparties: crate::CounterpartyMap| {
+            let (stream, mut peer) = duplex(1 << 16);
+            let now = tokio::time::Instant::now().into_std();
+            let registry = Arc::new(SessionRegistry::default());
+            let (mut session, commands) = Session::acceptor(logging_to(&ours), registry, Arc::new(Acker), now).unwrap();
+            session.set_counterparties(Arc::new(counterparties));
+            let task = tokio::spawn(async move { run(stream, session, commands).await });
+            let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+            peer.write_all(&from_peer(1, logon)).await.unwrap();
+            (peer, task)
+        };
+        let theirs_too = theirs.clone();
+        let own = crate::CounterpartyMap::new().with("PEER", move |c| c.config.message_log = Some(theirs_too.clone()));
+        let (mut peer, _task) = connect(own).await;
+        receive(&mut peer, &mut Vec::new(), 1).await;
+        let logged: Vec<_> = theirs.0.lock().unwrap().iter().map(|(inbound, id, _)| (*inbound, id.clone())).collect();
+        let id = Some("FIX.4.2:US->PEER".to_string());
+        assert_eq!(logged, [(true, id.clone()), (false, id.clone())]);
+        assert!(ours.0.lock().unwrap().is_empty(), "nothing in the acceptor's own log");
+
+        let (_peer, task) = connect(crate::CounterpartyMap::new().refuse_unknown()).await;
+        task.await.unwrap().unwrap();
+        let logged: Vec<_> = ours.0.lock().unwrap().iter().map(|(inbound, id, _)| (*inbound, id.clone())).collect();
+        assert_eq!(logged, [(true, id)], "the refused Logon, with the session it named");
     }
 
     /// A message that frames but fails its CheckSum is logged as garbled, not inbound, as QuickFIX

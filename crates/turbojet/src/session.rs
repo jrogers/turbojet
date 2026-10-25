@@ -642,6 +642,9 @@ pub struct Session {
     replay: Option<Replay>,
     /// The session's log, while the store opens it with a job: logon waits for it.
     opening_log: Option<OpeningLog>,
+    /// Acceptor: the session the counterparty's Logon named, once read, for the message log:
+    /// before the session is bound, and if its Logon is refused.
+    named: Option<SessionId>,
     /// New messages sent while a resend is in progress, framed and stored, to follow it. Drivers
     /// feed no input meanwhile, so it holds what the call that started the resend went on to
     /// send: replies to one message, to those queued behind a gap, or the commands held during
@@ -794,6 +797,7 @@ impl Session {
             receipts: Vec::new(),
             replay: None,
             opening_log: None,
+            named: None,
             held: Vec::new(),
             resend_batch: MAX_RESEND_BATCH,
             pending: Vec::new(),
@@ -839,9 +843,19 @@ impl Session {
         self.peer.as_ref().map(|p| &p.id)
     }
 
-    /// The [`MessageLog`] this session's messages go to, if any. Turbojet's drivers call it; a
-    /// driver of your own calls [`MessageLog::inbound`] with each frame before
-    /// [`on_message`](Self::on_message), and [`MessageLog::outbound`] with each message in
+    /// The session to give the [`MessageLog`]: [`session_id`](Self::session_id) once it's known,
+    /// and before that, from an acceptor's Logon on, the session the Logon names, even while its
+    /// log opens or if the Logon is refused.
+    pub fn message_log_id(&self) -> Option<&SessionId> {
+        self.session_id().or(self.opening_log.as_ref().map(|opening| &opening.id)).or(self.named.as_ref())
+    }
+
+    /// The [`MessageLog`] this session's messages go to, if any; a [`Counterparties`] resolver
+    /// may give a counterparty another at its Logon. Turbojet's drivers call it; a driver of
+    /// your own calls [`MessageLog::inbound`] with each frame, with the
+    /// [`message_log_id`](Self::message_log_id), before [`on_message`](Self::on_message), or,
+    /// while that's `None` (an acceptor's Logon), just after it, so the Logon goes to the
+    /// counterparty's log with its ID; and [`MessageLog::outbound`] with each message in
     /// [`output`](Self::output) as it takes it. Each message there runs on from its BodyLength(9)
     /// field for that field's value in bytes, then its 7-byte CheckSum(10) field;
     /// [`codec::decode`](crate::codec::decode) gives its length too, at the cost of a decode.
@@ -1631,6 +1645,7 @@ impl Session {
                 return self.close(Disconnect::Error, now);
             }
         };
+        self.named = Some(id.clone());
         let terms = self.take_counterparty(&id, msg).and_then(|()| self.logon_terms(heartbeat, appl_ver_id));
         let appl_version = match terms {
             Ok(version) => version,
