@@ -146,19 +146,43 @@ the application sends it, dropped). CstmApplVerID(1129) and ApplExtID(1156) pass
 name the version of the message they answer (RefApplVerID and the like), and a message is resent
 in the version it was first sent in.
 
-A sketch of both roles follows; the `turbojet` crate documentation has a complete program,
-compiled and run as a test.
+Here both roles run in one program
+([`examples/quickstart.rs`](https://github.com/jrogers/turbojet/blob/main/crates/turbojet/examples/quickstart.rs),
+`cargo run --example quickstart`): an acceptor acknowledges orders as `SERVER`, and an initiator
+logs on to it as `CLIENT`, sends an order and waits for the acknowledgement. It needs these
+dependencies:
+
+```toml
+[dependencies]
+turbojet = "0.5"
+turbojet-fix = { version = "0.5", features = ["fix44"] }
+tokio = { version = "1", features = ["full"] }
+tracing-subscriber = "0.3"
+```
+
+The engine reports through [`tracing`](https://docs.rs/tracing), so install a subscriber, as
+`main` does here, to see why a session didn't connect or log on. Without one, an initiator that
+fails to connect says so once on stderr and is silent after that.
 
 ```rust
-use turbojet::*;
-use turbojet::fields::Decimal;
-use turbojet_fix::fix44::{ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingleRef, OrdStatus};
+use std::sync::Arc;
 
-struct MyApp;
+use tokio::net::TcpListener;
+use tokio::sync::mpsc;
+use turbojet::fields::{Decimal, UtcTimestamp};
+use turbojet::{
+    Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
+    SessionConfig, SessionHandle,
+};
+use turbojet_fix::fix44::{
+    ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingle, NewOrderSingleRef, NewOrderSingleRequired,
+    OrdStatus, OrdType, Side,
+};
 
-impl Application for MyApp {
-    // Optional hooks: verify_logon, to_admin, on_admin_message, on_logon, on_logout,
-    // on_cancel_on_disconnect.
+/// Acknowledges every order.
+struct OrderDesk;
+
+impl Application for OrderDesk {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
@@ -183,17 +207,61 @@ impl Application for MyApp {
     }
 }
 
-// Acceptor: many counterparties log on to us.
-let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), storage.clone(), Arc::new(MyApp))?;
-tokio::spawn(acceptor.clone().serve(listener));
-acceptor.handle_for("CLIENT").send(msg)?;          // queue for a connected counterparty
+/// Passes the session handle and inbound messages on to `main`.
+struct Client {
+    logons: mpsc::UnboundedSender<SessionHandle>,
+    messages: mpsc::UnboundedSender<Message>,
+}
 
-// Initiator: we log on to one counterparty and reconnect as needed.
-let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
-let config = config.with_endpoint("host:9876");
-let initiator = Initiator::new(config, storage, Arc::new(MyApp))?;
-tokio::spawn(initiator.clone().run());
-let seq = initiator.handle().send(msg)?.await?; // its MsgSeqNum, once stored
+impl Application for Client {
+    fn on_logon(&self, session: &SessionHandle) {
+        let _ = self.logons.send(session.clone());
+    }
+
+    fn on_message(&self, _ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        let _ = self.messages.send(msg.clone());
+        Ok(())
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // The engine reports through `tracing`: without a subscriber, its logs go nowhere.
+    tracing_subscriber::fmt::init();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?.to_string();
+    let config = SessionConfig::new("FIX.4.4", "SERVER");
+    let server = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(OrderDesk))?;
+    tokio::spawn(server.clone().serve(listener));
+
+    let (logons, mut logged_on) = mpsc::unbounded_channel();
+    let (messages, mut received) = mpsc::unbounded_channel();
+    let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER").with_endpoint(addr);
+    let app = Arc::new(Client { logons, messages });
+    let client = Initiator::new(config, Arc::new(MemoryStorage::new()), app)?;
+    tokio::spawn(client.clone().run());
+
+    let session = logged_on.recv().await.ok_or("never logged on")?;
+    let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+        cl_ord_id: "order-1".into(),
+        side: Side::Buy.into(),
+        transact_time: UtcTimestamp::now(),
+        ord_type: OrdType::Market.into(),
+    });
+    order.symbol = Some("ACME".into());
+    order.order_qty = Some(Decimal::from(100));
+    let seq = session.send(order)?.await?;
+    println!("sent order-1 as MsgSeqNum {seq}");
+
+    let ack: ExecutionReport = received.recv().await.ok_or("no acknowledgement")?.parse()?;
+    println!("acknowledged {}", ack.cl_ord_id.as_deref().unwrap_or("an order"));
+
+    // Log out, and wait for each side's connections to close.
+    client.shutdown(None).await;
+    server.shutdown(None).await;
+    Ok(())
+}
 ```
 
 `send` queues the message and returns a `Receipt`, a future that resolves to the message's

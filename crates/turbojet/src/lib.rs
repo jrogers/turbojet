@@ -168,6 +168,10 @@
 //! SendingTime. TransactTime and other body timestamps are chrono times
 //! ([`fields::UtcTimestamp`]), and prices and quantities are exact decimals ([`fields::Decimal`]).
 //!
+//! The engine reports through [tracing](https://docs.rs/tracing): install a subscriber, such as
+//! `tracing_subscriber::fmt::init()`, to see why a session didn't connect or log on. Without one,
+//! an initiator that fails to connect says so once on stderr and is silent after that.
+//!
 //! # Configuring sessions
 //!
 //! - [`SessionConfig`] holds what both roles share: BeginString and our CompID, logon and logout

@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- An initiator (FIX or FIXP) that fails to connect while no `tracing` subscriber is installed
+  says why once on stderr, rather than nothing, and suggests installing one.
+- The `quickstart` example: both roles in one program, logging on and placing an order. The
+  readme's first program is now this example, complete, rather than a sketch that didn't compile.
 - A hold released after its connection ended moves the stored in-flight marker on, so the next
   connection no longer asks for the message again; before, holds ended with their connection,
   and a released message was redelivered after any logout.

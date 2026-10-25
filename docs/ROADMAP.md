@@ -129,9 +129,7 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   material. Wanted: a guide that goes from a first initiator and acceptor to storage, recovery,
   schedules and operations; an architecture overview (the sans-IO session, drivers, registry,
   stores) for contributors, with diagrams, distilled from DESIGN.md; and examples in the crate
-  docs for the main types. The first session needs smoothing too: without a tracing subscriber
-  an initiator that can't connect is silent, and the README's sketch of both roles doesn't
-  compile as it stands.
+  docs for the main types.
 - **A public website** (M). An introduction, the guide and the architecture overview, the
   benchmark numbers, and links to the crates and repository: built from the repository's own
   docs so it doesn't drift from them.

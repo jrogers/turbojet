@@ -113,5 +113,9 @@ test = true
 [[example]]
 name = "ack"
 
+# Both roles in one program, logging on and placing an order: the readme's first program.
+[[example]]
+name = "quickstart"
+
 [lints]
 workspace = true
