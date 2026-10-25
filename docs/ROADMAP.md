@@ -127,9 +127,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   - a held message redelivered after a clean logout even when it was released meanwhile; and in
     Python, an `AppMessage` dropped without `done()` holding its session up for good;
   - no early closes in a holiday calendar;
-  - counterparty settings and stores chosen by CompID alone, and the sessions file refusing an
-    initiator that differs from a counterparty only in its SubIDs;
-  - a `MessageLog` seeing an acceptor's Logon with no `SessionId`;
   - the PROXY protocol not read, so allowed addresses behind a load balancer see the device.
 - **Fuller documentation** (M to L). The README is long and the crate docs are reference
   material. Wanted: a guide that goes from a first initiator and acceptor to storage, recovery,

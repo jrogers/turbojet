@@ -740,9 +740,10 @@ acceptor.handle(&id).send(msg)?; // acceptor.handle_for("CLIENT") is the session
 
 Every message a session sends carries its SubIDs and LocationIDs, unless the application set its
 own, a trader's SenderSubID on an order, say. Those the counterparty sends after logon aren't
-checked. Counterparty settings and stores are chosen by CompID, so a counterparty's sessions
-share them; a `Counterparties` resolver is given the full `SessionId` if they should differ.
-Stores keep a session without SubIDs, LocationIDs or a qualifier where they always have.
+checked. Counterparty settings and stores are chosen by CompID unless a session is listed whole
+(`CounterpartyMap::with_session`, `StorageByCounterparty::with_session`, or a sessions file's
+section with SubIDs or LocationIDs), so a counterparty's other sessions share them. Stores keep a
+session without SubIDs, LocationIDs or a qualifier where they always have.
 
 ## Per-counterparty settings
 
@@ -763,6 +764,10 @@ let counterparties = CounterpartyMap::new()
         c.require_client_certificate = true;
         c.heartbeat = Duration::from_secs(10)..=Duration::from_secs(60);
     })
+    // One of BROKER's sessions, told apart by its SubID, with settings of its own.
+    .with_session(SessionId::new("FIX.4.4", "VENUE", "BROKER").with_target_sub_id("DESK2"), |c| {
+        c.config.max_latency = None;
+    })
     .refuse_unknown(); // or admit others with the acceptor's own settings
 let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
     .with("FUND", Arc::new(DiskStorage::new("./store")?));
@@ -782,7 +787,8 @@ Stores are chosen apart, by `StorageByCounterparty`, because an operator's chang
 that isn't connected opens its store with no Logon to decide from.
 
 `turbojet-config` reads all of this from a file, `[defaults]` and a `[counterparty.COMPID]`
-section each, with named stores, and reloads it while running: changed settings apply from each
+section each (or `[counterparty.NAME]` with `target_comp_id` and SubIDs or LocationIDs, for one
+of a counterparty's sessions), with named stores, and reloads it while running: changed settings apply from each
 counterparty's next Logon, counterparties no longer listed are logged out, and a file that
 doesn't load leaves the one in use in place. The gateway takes one with `--config FILE` and
 reloads it on SIGHUP.
@@ -1137,8 +1143,9 @@ made on the session's task, so they must not block: hand the bytes to a channel 
 something else writes out, as the trait's example does. Entries carry no timestamp, so stamp them
 yourself. The bytes are raw: Password(554), NewPassword(925) and FIXP credentials are in them, and
 `turbojet::mask_secrets(&mut bytes)` overwrites them with `*`s in a copy before it's kept. An
-acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`) comes with no `SessionId`, to
-the acceptor's own log; a `Counterparty` config may set another log for the rest. A message the
+acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`) is shown once the session has
+handled it, so it has the session's `SessionId` and goes to the log a `Counterparty` config sets,
+if it sets one; a refused Logon goes to the acceptor's own log, with the session it named. A message the
 session ignored as garbled (a CheckSum that doesn't match, say) goes to `garbled`, with why, if it
 framed as a FIX message; it does nothing unless you implement it, and bytes that don't frame
 aren't seen. docs/CAVEATS.md lists

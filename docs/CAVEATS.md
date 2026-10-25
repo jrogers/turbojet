@@ -116,15 +116,15 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   dictionary first.
 - The validator accepts a group entry's fields in any order after its delimiter, as QuickFIX's
   ValidateUnorderedGroupFields=N; QuickFIX's default rejects them.
-- Counterparty settings (`CounterpartyMap`, the sessions file) and stores
-  (`StorageByCounterparty`) are chosen by CompID, so a counterparty's sessions with different
-  SubIDs share them. A `Counterparties` resolver of one's own sees the full `SessionId`.
-- The sessions file refuses an initiator to a CompID the acceptor serves as a listed counterparty,
-  even with different SubIDs that would make it another session.
+- The sessions file refuses an initiator to a CompID the acceptor lists by CompID alone, whatever
+  the initiator's SubIDs, since a counterparty may log on with any: list the counterparty's
+  sessions whole instead, or give the initiator a qualifier. Under `unknown = "admit"`,
+  initiators to unlisted CompIDs aren't checked.
 - A `MessageLog` sees an acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`)
-  with no `SessionId`, and the acceptor's own log sees it even when a `Counterparty` sets
-  another for the rest. Anything sent on a connection whose Logon is refused, or whose FIXP
-  handshake is refused before the session's log is open, is logged with no `SessionId` too. An outbound message is logged as it's queued to be written, so one may be
+  just after the session handles it, not before as other input. A Logon refused before it names
+  a session (a wrong TargetCompID, say), and what's sent on that connection, are logged with no
+  `SessionId`, as is a FIXP handshake refused before the session binds. An outbound message is
+  logged as it's queued to be written, so one may be
   logged that a failing connection never writes, and the replies to a batch of input are logged
   after the whole batch. Garbled input the codec skips is logged (`MessageLog::garbled`) only
   if it framed as a message; bytes that don't frame, before a BeginString say, aren't, nor is a

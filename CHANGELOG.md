@@ -6,6 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- A `MessageLog` gets an acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`)
+  with the session's `SessionId`, in the log a `Counterparty` sets if it sets one, rather than
+  with none in the acceptor's own: it's logged just after the session handles it. A refused
+  Logon is logged with the session it named. `Session::message_log_id` gives a driver of one's
+  own the ID to log with.
+- `CounterpartyMap::with_session` and `StorageByCounterparty::with_session`: settings and a store
+  for one session, told apart from a counterparty's others by its SubIDs or LocationIDs, over
+  its CompID's entry.
 - **Changed:** `SessionHandle::pause` and `resume` are async and return `io::Result<()>`: they
   store the change, so a pause survives a restart, and return the store's error (the change
   applies anyway, until a restart).
@@ -50,6 +58,14 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- A `[counterparty.NAME]` section with `target_comp_id` and `sender_sub_id`,
+  `sender_location_id`, `target_sub_id` or `target_location_id` is for that one session, over
+  the CompID's section. An initiator is refused only for a session the acceptor would serve for
+  a listed section, so one to a counterparty listed only by whole sessions may log on with other
+  SubIDs.
+- **Changed:** `SessionsFile::counterparty_config` takes the session's `SessionId`, not a CompID,
+  and `counterparties()` and reload `Changes` name sections, which are CompIDs unless they set
+  `target_comp_id`.
 - The `validation` table takes `allow_unknown_tags`, and the QuickFIX settings converter maps
   AllowUnknownMsgFields=Y to it, so it no longer refuses AllowUnknownMsgFields=Y with
   ValidateUserDefinedFields=Y.

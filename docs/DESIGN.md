@@ -61,7 +61,11 @@ machine with an injected clock. It has:
   QuickFIX/J: what the counterparty sends afterwards isn't checked, and what we send carries the
   session's IDs unless the application set its own. Stores key a session on a suffix of the extra
   fields, empty without them, so existing stores kept their keys. Stamping cost nothing measurable
-  on sessions without them (order to ack 771 ns before, 758 ns after).
+  on sessions without them (order to ack 771 ns before, 758 ns after). Settings and stores are
+  chosen by CompID, or for a session listed whole (`with_session`, a sessions file's section
+  with SubIDs or LocationIDs) by its exact ID first. The sessions file refuses an initiator only
+  for a session a listed section would serve: a CompID's section serves any SubIDs, since a
+  counterparty may log on with any, so only sessions listed whole free others.
 
 ## Transports and the connection driver
 
@@ -120,7 +124,11 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   whatever it frames to its incoming log before checking it; the codec checks CheckSum and the
   MsgType's place while framing, so without this a message failing either left no trace.
   `codec::framed_len` re-reads only the framing, on that rare path, so the codec's results stay
-  as they were. For FIXP, `FixpSession::feed` makes the inbound call itself. The
+  as they were. For FIXP, `FixpSession::feed` makes the inbound call itself. An acceptor's Logon
+  is logged just after the session handles it rather than before: only then is the session
+  known, and with it the log a `Counterparty` may set, so the Logon goes there with its ID; the
+  reply is staged later, so the log's order is still the wire's. Before binding, and for a
+  refused Logon, `Session::message_log_id` is the session the Logon named. The
   allocation stages set a log that does nothing and call it as the driver does, with every count
   unchanged. Measured 2026-10-07 on an M3 under a load average of 2.5 to 4.5, not idle, as
   criterion point estimates over three alternating runs: with no log the round trips are within
