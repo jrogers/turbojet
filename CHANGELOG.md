@@ -2,6 +2,14 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- `MemoryStorage` and `DiskStorage` index the messages they keep in a ring buffer in sequence
+  order rather than a `BTreeMap`: storing a message no longer allocates an index node, and takes
+  about a third of the time in memory.
+
 ## 0.6.0 (2026-10-25)
 
 ### `turbojet`

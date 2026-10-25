@@ -260,6 +260,19 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   built-in stores keep each session's newest messages up to a byte budget (gap-filling older ones
   on a resend): the disk store in segments, deleting the oldest, and the memory store a capped
   number of sessions.
+- **The stores' indexes.** Both built-in stores find the messages they keep by MsgSeqNum in a ring
+  buffer (`VecDeque`) in sequence order, not a `BTreeMap`. The numbers stored only increase, so a
+  message goes on the back and eviction takes from the front, and a resend finds its range by
+  binary search. A `BTreeMap` allocated a node every six messages or so, and its insert was most
+  of a memory store's: storing a message took 48 ns, now 14 ns (M4 Pro, 2026-10-25, criterion
+  medians of two interleaved rounds each), and 70 ns to 40 ns in the disk store at 100 per
+  commit; an order → ack through the session with the memory store 813 ns to 784 ns. The cost is
+  growth: the buffer doubles when full, and once eviction has wrapped it around, growing moves
+  part of it in one go: 0.7 ms at a million messages kept and 2.7 ms at four million, against
+  0.04 ms at worst for a `BTreeMap` insert. That happens only when a full store keeps more
+  messages than it ever has, such as when they get smaller under a byte budget. Growing one
+  that hasn't wrapped is cheap (0.1 ms at five million), since `realloc` of a large block remaps
+  its pages.
 - **SQL storage** (`turbojet-sql`), in SQLite or PostgreSQL through sqlx: one transaction per
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was
@@ -712,8 +725,8 @@ application itself asks for. Where it stands:
   strings an acknowledgement copies from its order don't allocate. Longer values, and groups'
   entry lists, still do.
 
-As of 2026-10-03 the engine makes about 1 allocation per order with the memory store and 0.2 with
-the disk store (the store's copy or index node), and the example application none.
+As of 2026-10-25 the engine makes 1 allocation per order with the memory store (its copy of the
+message) and none with the disk store, and the example application none.
 `tests/allocations.rs` counts them by stage, and the build fails if a count changes.
 
 ### Parsing and encoding
@@ -954,6 +967,11 @@ different version of PostgreSQL. When each row was last measured on the M3, and 
   runtime. Earlier that day, p50 / p99: 559 µs / 1,037 µs at 1,000 a second, 86 / 107 µs at
   10,000, 88 / 140 µs at 15,000, 117 µs / 11 ms at 20,000, and answers queued for seconds at
   30,000.
+- Storing a message in memory and 100 per commit on disk was re-measured 2026-10-25, after the
+  stores' indexes became ring buffers: 48.4 ns and 69.9 ns just before, in the same session
+  (the table's 43 and 60 ns were measured earlier that day, on a quieter machine). The
+  allocation counts changed with it: 1.17 / 0.17 allocations per order with the memory / disk
+  store, 280 / 49 bytes, and no reallocs, for FIX; 1.17 / 0.17 and 182 / 49 for FIXP.
 - The allocation counts were taken 2026-09-30; the application's were re-counted 2026-10-03,
   before which the reply list and message cost 3 allocations more, and `String` fields in place
   of `CompactString`s cost 5.

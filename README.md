@@ -324,8 +324,8 @@ how the compiler happens to partition the crate.
 | Format a timestamp (same second / new second) | 8.9 ns / 27 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store) | 716 ns | 1.40M msg/s |
 | Session: order → ack, wire to wire (decode + session, which encodes) | 864 ns | 1.16M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.5 µs / 3.9 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync | 60 ns / 39 µs | |
+| Store a sent message and commit it: memory / disk / disk + fsync | 14 ns / 1.5 µs / 3.9 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 40 ns / 39 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.0 ms / 140 µs | |
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 49 µs / 7.1 µs | |
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.6 µs / 179 µs / 146 µs | |
@@ -369,12 +369,12 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
 | Application (typed parse and ack) | 0 | 0 | 0 |
-| Store: memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
-| Engine (all but the application): memory / disk | 1.2 / 0.2 | 0 | 280 / 49 |
+| Store: memory / disk | 1 / 0 | 0.004 | 278 / 46 |
+| Engine (all but the application): memory / disk | 1 / 0 | 0.004 | 278 / 46 |
 
-Means of 1,000 orders after 100 warm-up, with each store (the disk store without fsync). Store
-allocations are fractional because the stores' maps allocate a node every few messages; the
-memory store also copies each message it keeps. Debug and release builds count the same. The
+Means of 1,000 orders after 100 warm-up, with each store (the disk store without fsync). The
+memory store's allocation is its copy of each message it keeps; the reallocs are the stores'
+indexes doubling as they grow, 4 in 1,000 orders. Debug and release builds count the same. The
 application parses the order borrowed, without allocating, and copies the strings it needs into
 its owned ExecutionReport, whose `CompactString`s keep them inline. `Context::send` writes the
 ExecutionReport into a message the session reuses, which allocates nothing once warmed up.
@@ -386,10 +386,10 @@ order, recoverable flows both ways, as the FIXP benchmark does:
 |---|---|---|---|
 | Session (framing, the session's own messages, encoding the answer) | 0 | 0 | 0 |
 | Application (B3 decode and answer) | 0 | 0 | 0 |
-| Store: memory / disk | 1.2 / 0.2 | 0 | 182 / 49 |
+| Store: memory / disk | 1 / 0 | 0.004 | 180 / 46 |
 
 Means of 1,000 orders after 100 warm-up. The stores cost what they do for FIX: the
-memory store copies each answer it keeps, and both index them.
+memory store copies each answer it keeps.
 
 Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
 

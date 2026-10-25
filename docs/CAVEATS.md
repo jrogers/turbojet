@@ -25,6 +25,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- `MemoryStorage` and `DiskStorage` index what they keep in a buffer that doubles when full. When
+  a full store comes to keep more messages than it ever has (smaller messages under the same byte
+  budget), the send that grows it waits while part of the index is moved: about 0.7 ms at a
+  million messages kept, 2.7 ms at four million.
 - A held message (`Context::hold`) is redelivered after a connection ends while it's held, a
   clean logout included, unless it's released before the session connects again: a release
   then moves the stored marker on, from a task of its own, which opens the session's log (and
