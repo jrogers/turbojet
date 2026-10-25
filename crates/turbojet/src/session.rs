@@ -47,16 +47,44 @@ use crate::telemetry::{LatencyMetrics, SessionMetrics};
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
 /// An application version a FIXT.1.1 session supports, with the dictionary its messages are
-/// checked against, if any. Build it with [`SessionConfig::with_appl_ver_id`].
+/// checked against, if any: give it with [`SessionConfig::with_appl_version`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct ApplVersion {
     /// DefaultApplVerID(1137): the version, as sent and accepted at logon.
     pub id: ApplVerID,
     /// Checks this version's inbound application messages; see
-    /// [`SessionConfig::with_dictionary`].
+    /// [`with_dictionary`](Self::with_dictionary).
     #[cfg(feature = "validation")]
     pub validator: Option<Arc<crate::validation::Validator>>,
+}
+
+impl ApplVersion {
+    /// Version `id`, its messages unchecked.
+    pub fn new(id: ApplVerID) -> Self {
+        Self {
+            id,
+            #[cfg(feature = "validation")]
+            validator: None,
+        }
+    }
+
+    /// Checks this version's inbound application messages against `dictionary`, as
+    /// [`SessionConfig::with_dictionary`] does a FIX 4.x session's.
+    #[cfg(feature = "validation")]
+    #[must_use]
+    pub fn with_dictionary(self, dictionary: &turbojet_dictionary::Dictionary) -> Self {
+        self.with_validator(crate::validation::Validator::new(dictionary))
+    }
+
+    /// Checks this version's inbound application messages with `validator`, as
+    /// [`SessionConfig::with_validator`] does a FIX 4.x session's.
+    #[cfg(feature = "validation")]
+    #[must_use]
+    pub fn with_validator(mut self, validator: crate::validation::Validator) -> Self {
+        self.validator = Some(Arc::new(validator));
+        self
+    }
 }
 
 /// Why a configuration can't run a session: what [`SessionConfig::check`] and the other
@@ -279,18 +307,25 @@ impl SessionConfig {
         self
     }
 
-    /// FIXT.1.1 sessions: supports application version `id`. An initiator sends its first as
-    /// DefaultApplVerID(1137); an acceptor accepts any version configured this way, refusing
-    /// others, and echoes the counterparty's choice. Either side then accepts, and may send,
-    /// messages that name any of them in ApplVerID(1128), each checked against its own version's
-    /// dictionary.
-    #[cfg_attr(
-        feature = "validation",
-        doc = "[`with_dictionary`](Self::with_dictionary) and [`with_validator`](Self::with_validator) after this",
-        doc = "apply to this version's messages."
-    )]
-    /// The engine owns DefaultApplVerID(1137) in Logon, so don't change it in
-    /// [`Application::to_admin`].
+    /// FIXT.1.1 sessions: supports application `version`, its messages checked against its own
+    /// dictionary if it has one (`ApplVersion::with_dictionary`, feature `validation`). An
+    /// initiator sends its first as DefaultApplVerID(1137); an acceptor accepts any version
+    /// configured this way, refusing others, and echoes the counterparty's choice. Either side
+    /// then accepts, and may send, messages that name any of them in ApplVerID(1128), each
+    /// checked against that version's dictionary. The engine owns DefaultApplVerID(1137) in
+    /// Logon, so don't change it in [`Application::to_admin`].
+    #[must_use]
+    pub fn with_appl_version(mut self, version: ApplVersion) -> Self {
+        #[cfg(feature = "validation")]
+        for &(length_tag, data_tag) in version.validator.iter().flat_map(|v| v.data_fields()) {
+            self.data_fields = self.data_fields.with(length_tag, data_tag);
+        }
+        self.appl_versions.push(version);
+        self
+    }
+
+    /// [`with_appl_version`](Self::with_appl_version) for version `id`, its messages
+    /// unchecked.
     ///
     /// ```
     /// # use turbojet::{SessionConfig, ApplVerID};
@@ -299,13 +334,8 @@ impl SessionConfig {
     ///     .with_appl_ver_id(ApplVerID::Fix50Sp1);
     /// ```
     #[must_use]
-    pub fn with_appl_ver_id(mut self, id: ApplVerID) -> Self {
-        self.appl_versions.push(ApplVersion {
-            id,
-            #[cfg(feature = "validation")]
-            validator: None,
-        });
-        self
+    pub fn with_appl_ver_id(self, id: ApplVerID) -> Self {
+        self.with_appl_version(ApplVersion::new(id))
     }
 
     /// Whether BeginString is FIXT (`FIXT.1.1`), whose sessions negotiate an application version.
@@ -375,7 +405,9 @@ impl SessionConfig {
         }
         #[cfg(feature = "validation")]
         if self.validator.is_some() {
-            return Err("with_dictionary or with_validator called before with_appl_ver_id on a FIXT session".into());
+            return Err("a FIXT session checks each version's messages: give each its dictionary with \
+                        ApplVersion::with_dictionary, not SessionConfig::with_dictionary"
+                .into());
         }
         match versions {
             0 => Err("a FIXT session needs an application version: call with_appl_ver_id".into()),
@@ -383,31 +415,27 @@ impl SessionConfig {
         }
     }
 
-    /// Checks inbound application messages against `dictionary`, with every check on: one that
-    /// fails is answered with a session Reject and not delivered. After
-    /// [`with_appl_ver_id`](Self::with_appl_ver_id), it applies to that version's messages. See
+    /// FIX 4.x sessions: checks inbound application messages against `dictionary`, with every
+    /// check on: one that fails is answered with a session Reject and not delivered. See
     /// [`crate::validation`]. The dictionary's data fields are added to
-    /// [`data_fields`](Self::data_fields).
+    /// [`data_fields`](Self::data_fields). A FIXT session gives each version its own:
+    /// [`ApplVersion::with_dictionary`].
     #[cfg(feature = "validation")]
     #[must_use]
     pub fn with_dictionary(self, dictionary: &turbojet_dictionary::Dictionary) -> Self {
         self.with_validator(crate::validation::Validator::new(dictionary))
     }
 
-    /// Checks inbound application messages with `validator`, e.g. one with some checks off. After
-    /// [`with_appl_ver_id`](Self::with_appl_ver_id), it applies to that version's messages. Its
-    /// data fields are added to [`data_fields`](Self::data_fields).
+    /// FIX 4.x sessions: checks inbound application messages with `validator`, e.g. one with some
+    /// checks off. Its data fields are added to [`data_fields`](Self::data_fields). A FIXT session
+    /// gives each version its own: [`ApplVersion::with_validator`].
     #[cfg(feature = "validation")]
     #[must_use]
     pub fn with_validator(mut self, validator: crate::validation::Validator) -> Self {
         for &(length_tag, data_tag) in validator.data_fields() {
             self.data_fields = self.data_fields.with(length_tag, data_tag);
         }
-        let validator = Some(Arc::new(validator));
-        match self.appl_versions.last_mut() {
-            Some(version) => version.validator = validator,
-            None => self.validator = validator,
-        }
+        self.validator = Some(Arc::new(validator));
         self
     }
 }

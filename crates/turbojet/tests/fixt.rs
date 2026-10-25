@@ -12,8 +12,8 @@ use tokio::time::timeout;
 use turbojet::fields::{ApplVerID, FromFix, UtcTimestamp};
 use turbojet::message::tags;
 use turbojet::{
-    Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle,
+    Acceptor, ApplVersion, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject,
+    MsgType, SessionConfig, SessionHandle,
 };
 use turbojet_dictionary::Dictionary;
 use turbojet_fix::fix50sp2::*;
@@ -90,8 +90,7 @@ async fn fix50sp2_orders_are_validated_and_filled_over_fixt() {
     let (server_app, mut server) = recorder(true);
     let config = SessionConfig::new("FIXT.1.1", "SERVER")
         .with_appl_ver_id(ApplVerID::Fix50Sp1)
-        .with_appl_ver_id(ApplVerID::Fix50Sp2)
-        .with_dictionary(&dictionary());
+        .with_appl_version(ApplVersion::new(ApplVerID::Fix50Sp2).with_dictionary(&dictionary()));
     let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), server_app).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap().to_string();

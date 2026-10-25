@@ -15,8 +15,8 @@ use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::validation::{ValidationOptions, Validator};
 use turbojet::{
-    ApplVerID, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message, MessageReject, Session,
-    SessionConfig, SessionHandle, SessionRegistry,
+    ApplVerID, ApplVersion, Application, Clock, ConnectionInfo, Context, Disconnect, MemoryStorage, Message,
+    MessageReject, Session, SessionConfig, SessionHandle, SessionRegistry,
 };
 use turbojet_dictionary::Dictionary;
 
@@ -260,14 +260,15 @@ impl Version {
                     Self::Fix44 => "FIX.4.4",
                     Self::Fix50 | Self::Fix50Sp1 | Self::Fix50Sp2 => "FIXT.1.1",
                 };
-                let mut config = SessionConfig::new(begin_string, "ISLD");
-                if let Some(id) = appl_ver_id {
-                    config = config.with_appl_ver_id(id);
-                }
+                let config = SessionConfig::new(begin_string, "ISLD");
                 // The scripts expect unknown codes in application messages rejected (14e).
                 let mut options = ValidationOptions::default();
                 options.application_values = true;
-                config.with_validator(Validator::new(&dictionary).with_options(options))
+                let validator = Validator::new(&dictionary).with_options(options);
+                match appl_ver_id {
+                    Some(id) => config.with_appl_version(ApplVersion::new(id).with_validator(validator)),
+                    None => config.with_validator(validator),
+                }
             })
             .clone()
     }

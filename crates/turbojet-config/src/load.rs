@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use turbojet::fields::{ApplVerID, FromFix, Precision};
 use turbojet::{
-    CancelOnDisconnect, CancelTrigger, Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar, InboundLimit,
-    InitiatorConfig, MAX_CANCEL_GRACE, MemoryStorage, MessageLog, RateLimit, ReconnectPolicy, SessionConfig, SessionId,
-    SessionSchedule, SessionStorage,
+    ApplVersion, CancelOnDisconnect, CancelTrigger, Clock, Counterparty, DiskStorage, Endpoint, HolidayCalendar,
+    InboundLimit, InitiatorConfig, MAX_CANCEL_GRACE, MemoryStorage, MessageLog, RateLimit, ReconnectPolicy,
+    SessionConfig, SessionId, SessionSchedule, SessionStorage,
 };
 
 use crate::Error;
@@ -746,17 +746,19 @@ fn validation(
             };
             let id = ApplVerID::from_fix(code)
                 .map_err(|_| Error::at(section, "appl_versions", format!("'{code}' isn't an ApplVerID code")))?;
-            update(config, |c| c.with_appl_ver_id(id));
+            #[cfg_attr(not(feature = "validation"), allow(unused_mut))]
+            let mut version = ApplVersion::new(id);
             if let Some(path) = dictionary {
                 #[cfg(feature = "validation")]
                 {
                     let path = dir.join(path);
                     let loaded = dictionaries.get(path).map_err(|e| Error::at(section, "appl_versions", e))?;
-                    update(config, |c| c.with_validator(validator(&loaded, settings)));
+                    version = version.with_validator(validator(&loaded, settings));
                 }
                 #[cfg(not(feature = "validation"))]
                 return Err(needs_validation(section, "appl_versions"));
             }
+            update(config, |c| c.with_appl_version(version));
         }
     }
     if let Some(path) = &settings.dictionary {

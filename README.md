@@ -607,6 +607,15 @@ let dict = turbojet_dictionary::Dictionary::load("dictionaries/orchestra/Orchest
 let config = SessionConfig::new("FIX.4.4", "GATEWAY").with_dictionary(&dict);
 ```
 
+A FIXT session gives each application version its own dictionary, so a message is checked
+against the version it's in:
+
+```rust,ignore
+let config = SessionConfig::new("FIXT.1.1", "GATEWAY")
+    .with_appl_version(ApplVersion::new(ApplVerID::Fix50Sp2).with_dictionary(&sp2))
+    .with_appl_ver_id(ApplVerID::Fix50Sp1); // not checked
+```
+
 A message that fails gets a session Reject (35=3) naming the tag and the reason, and isn't
 delivered; it still counts as received. The checks, each of which can be turned off with
 `validation::ValidationOptions` (counterparties vary in how closely they follow the spec):

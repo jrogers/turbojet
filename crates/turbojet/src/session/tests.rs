@@ -5500,19 +5500,23 @@ mod validation {
     }
 
     #[test]
-    fn dictionaries_bind_to_the_preceding_version() {
+    fn each_fixt_version_has_its_own_dictionary_whatever_the_order() {
         let dict = turbojet_dictionary::Dictionary::from_xml(DICT).unwrap();
         let config = SessionConfig::new("FIXT.1.1", "GATEWAY")
-            .with_appl_ver_id(ApplVerID::Fix50Sp2)
-            .with_dictionary(&dict)
+            .with_appl_version(ApplVersion::new(ApplVerID::Fix50Sp2).with_dictionary(&dict))
             .with_appl_ver_id(ApplVerID::Fix50Sp1);
         assert!(config.validator.is_none());
         assert!(config.appl_versions[0].validator.is_some());
         assert!(config.appl_versions[1].validator.is_none());
-        // A dictionary before any version is the bare validator, which FIXT sessions refuse.
-        let early =
+        config.check().unwrap();
+        // The session-wide dictionary is FIX 4.x's: refused on FIXT, before a version or after.
+        let before =
             SessionConfig::new("FIXT.1.1", "GATEWAY").with_dictionary(&dict).with_appl_ver_id(ApplVerID::Fix50Sp2);
-        assert!(early.check().unwrap_err().to_string().contains("before"));
+        let after =
+            SessionConfig::new("FIXT.1.1", "GATEWAY").with_appl_ver_id(ApplVerID::Fix50Sp2).with_dictionary(&dict);
+        for config in [before, after] {
+            assert!(config.check().unwrap_err().to_string().contains("ApplVersion::with_dictionary"));
+        }
     }
 
     #[test]
@@ -5521,8 +5525,7 @@ mod validation {
         // SP1 has the dictionary, SP2 none.
         let mut h = Harness::new();
         h.config = SessionConfig::new("FIXT.1.1", "GATEWAY")
-            .with_appl_ver_id(ApplVerID::Fix50Sp1)
-            .with_dictionary(&dict)
+            .with_appl_version(ApplVersion::new(ApplVerID::Fix50Sp1).with_dictionary(&dict))
             .with_appl_ver_id(ApplVerID::Fix50Sp2);
         let bad = |seq| order(seq, "A").with(tags::BEGIN_STRING, "FIXT.1.1").with(tags::ORDER_QTY, "ten");
 
