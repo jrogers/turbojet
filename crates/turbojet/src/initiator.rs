@@ -521,7 +521,10 @@ impl Initiator {
     /// What the store kept from before a restart, read before the first logon: see
     /// [`SessionRegistry::restore`].
     async fn restore(&self) -> io::Result<()> {
-        self.registry.restore().await
+        self.registry.restore().await?;
+        let session = self.session_id();
+        self.registry.restore_cancels(&self.app, |id| *id == session);
+        Ok(())
     }
 
     /// [`run_stream`](Initiator::run_stream) on the calling thread, which it keeps busy polling

@@ -11,7 +11,7 @@ use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tracing::{info, warn};
 
 use crate::application::{Application, Disconnect};
-use crate::cancel::{CancelTracker, CancelTrigger};
+use crate::cancel::{CancelOnDisconnect, CancelTracker, CancelTrigger};
 use crate::fields::ApplVerID;
 use crate::message::Message;
 use crate::peer::ConnectionInfo;
@@ -752,6 +752,9 @@ pub struct SessionRegistry<T = Message> {
     resumed: Notify,
     /// Set once the store's marks have been read: see [`restore`](Self::restore).
     restored: tokio::sync::OnceCell<()>,
+    /// Sessions the store marked as logged on with cancel on disconnect, read by `restore`, whose
+    /// countdowns `restore_cancels` hasn't started yet.
+    armed: Mutex<Vec<(SessionId, CancelOnDisconnect)>>,
     /// What [`subscribe`](Self::subscribe) hands out, made by the first call: its queue is
     /// allocated whole (close to a megabyte), which a registry no one watches shouldn't carry.
     events: OnceLock<broadcast::Sender<SessionEvent>>,
@@ -796,6 +799,7 @@ impl<T> SessionRegistry<T> {
             paused: Mutex::default(),
             resumed: Notify::new(),
             restored: tokio::sync::OnceCell::new(),
+            armed: Mutex::default(),
             events: OnceLock::new(),
         }
     }
@@ -980,8 +984,12 @@ impl<T> SessionRegistry<T> {
                 if !paused.is_empty() {
                     info!(sessions = paused.len(), "sessions paused before a restart stay paused");
                 }
-                let _sessions = self.lock();
-                self.lock_paused().extend(paused.into_iter().cloned());
+                {
+                    let _sessions = self.lock();
+                    self.lock_paused().extend(paused.into_iter().cloned());
+                }
+                let armed = marked.iter().filter_map(|(id, marks)| Some((id.clone(), marks.cancel_on_disconnect?)));
+                self.lock_armed().extend(armed);
                 Ok(())
             })
             .await
@@ -1022,6 +1030,10 @@ impl<T> SessionRegistry<T> {
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Entry<T>>> {
         self.sessions.lock().expect("session registry lock poisoned")
+    }
+
+    fn lock_armed(&self) -> MutexGuard<'_, Vec<(SessionId, CancelOnDisconnect)>> {
+        self.armed.lock().expect("restored countdowns lock poisoned")
     }
 
     /// Taken only with `sessions` held, or alone.
@@ -1110,19 +1122,72 @@ impl SessionRegistry<Message> {
     /// early is harmless: it acts only on what is due. Calling it from inside
     /// `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
     pub fn run_due_cancels(self: &Arc<Self>, now: Instant) {
-        self.cancels.run_due(|id| self.handle(id.clone()), now);
+        let fired = self.cancels.run_due(|id| self.handle(id.clone()), now);
+        self.forget_cancels(fired);
     }
 
     /// Fires every cancel-on-disconnect countdown under way, due or not, as a shutdown does.
     /// Calling it from inside `on_cancel_on_disconnect` deadlocks; from other callbacks it's fine.
     pub fn run_all_cancels(self: &Arc<Self>) {
-        self.cancels.run_all(|id| self.handle(id.clone()));
+        let fired = self.cancels.run_all(|id| self.handle(id.clone()));
+        self.forget_cancels(fired);
     }
 
     /// Fires the countdowns under way of the sessions `which` picks, due or not: those of an
     /// acceptor or initiator shutting down.
     pub(crate) fn run_cancels_now(self: &Arc<Self>, which: impl Fn(&SessionId) -> bool) {
-        self.cancels.run_now(|id| self.handle(id.clone()), which);
+        let fired = self.cancels.run_now(|id| self.handle(id.clone()), which);
+        self.forget_cancels(fired);
+    }
+
+    /// Clears the stored cancel-on-disconnect marks of sessions whose cancel has fired, so a
+    /// restart doesn't count down again: on a task of its own, since each opens the session's
+    /// log. Best effort: with no runtime to spawn on, or a session connected again meanwhile
+    /// (whose logon marks it afresh), a mark stays, and a restart cancels the session again.
+    fn forget_cancels(self: &Arc<Self>, fired: Vec<SessionId>) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        if fired.is_empty() {
+            return;
+        }
+        let registry = self.clone();
+        runtime.spawn(async move {
+            for id in fired {
+                let cleared = registry
+                    .change_offline(&id, |log| {
+                        let marks = log.marks();
+                        if marks.cancel_on_disconnect.is_some() {
+                            log.set_marks(Marks { cancel_on_disconnect: None, ..marks })?;
+                        }
+                        Ok(())
+                    })
+                    .await;
+                match cleared {
+                    Ok(()) | Err(SequenceError::Connected) => {}
+                    Err(e) => warn!(session = %id, "couldn't clear its stored cancel on disconnect, so a restart cancels again: {e}"),
+                }
+            }
+        });
+    }
+
+    /// Starts again the cancel-on-disconnect countdowns of the sessions `which` picks that
+    /// [`restore`](Self::restore) found logged on with cancel on disconnect when the process
+    /// stopped: their connections ended with it. Each counts down its grace from now, as if it
+    /// had just disconnected (as [`Disconnect::ConnectionLost`]), and fires on `app`. Each is
+    /// started once, by the first call that picks it. Acceptors and initiators call it for their
+    /// sessions after `restore`.
+    pub fn restore_cancels(self: &Arc<Self>, app: &Arc<dyn Application>, which: impl Fn(&SessionId) -> bool) {
+        let restored: Vec<(SessionId, CancelOnDisconnect)> =
+            self.lock_armed().extract_if(.., |(id, _)| which(id)).collect();
+        if restored.is_empty() {
+            return;
+        }
+        self.spawn_cancel_task();
+        let now = tokio::time::Instant::now().into_std();
+        for (id, CancelOnDisconnect { trigger, grace, .. }) in restored {
+            info!(session = %id, ?grace, "cancel on disconnect: counting down again, as the session was logged on before a restart");
+            let deadline = now.checked_add(grace).expect("a grace period of at most an hour fits in an Instant");
+            self.start_cancel(id, Disconnect::ConnectionLost, trigger, deadline, app.clone());
+        }
     }
 
     /// Spawns the task that fires the countdowns as they fall due, unless it's running already.

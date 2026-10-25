@@ -338,3 +338,32 @@ async fn an_initiator_shutdown_fires_only_its_own_cancels() {
     assert_eq!((server.as_str(), at), ("FIRST", shutting_down));
     second_events.assert_none();
 }
+
+/// A session logged on with cancel on disconnect when the process stopped counts down again when
+/// an acceptor over its store starts, whether or not the counterparty comes back: here it
+/// doesn't, and the cancel comes a grace period after the acceptor started.
+#[tokio::test(start_paused = true)]
+async fn a_restart_counts_down_again() {
+    let storage = Arc::new(MemoryStorage::new());
+    let mut marks = turbojet::store::Marks::default();
+    marks.cancel_on_disconnect = Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, GRACE));
+    // As the process before left it.
+    let id = turbojet::SessionId::new("FIX.4.2", "SERVER", "CLIENT");
+    turbojet::SessionStorage::open(storage.as_ref(), &id).unwrap().set_marks(marks).unwrap();
+    let (app, mut events) = recorder();
+    let mut config = SessionConfig::new("FIX.4.2", "SERVER");
+    cancelling(&mut config, CancelTrigger::Disconnect);
+    let acceptor = Acceptor::new(config, storage.clone(), app).unwrap();
+    let started = Instant::now();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    tokio::spawn(acceptor.clone().serve(listener));
+
+    let Event::Cancel(client, ended, at) = events.next().await else { panic!("expected a cancel") };
+    assert_eq!((client.as_str(), ended), ("CLIENT", Disconnect::ConnectionLost));
+    assert!(at >= started + GRACE, "{:?} early", started + GRACE - at);
+    sleep(Duration::from_millis(10)).await;
+    let marks = turbojet::SessionStorage::open(storage.as_ref(), &id).unwrap().marks();
+    assert_eq!(marks.cancel_on_disconnect, None, "once fired, a restart doesn't cancel again");
+    sleep(GRACE * 4).await;
+    events.assert_none();
+}

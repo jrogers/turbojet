@@ -1362,6 +1362,17 @@ impl Session {
     }
 
     /// An operator change to this (bound) session's sequence numbers.
+    /// Records in the log's marks the cancel on disconnect a restart should count down for the
+    /// session, if it changed.
+    fn mark_cancel_on_disconnect(&mut self, cancel: Option<CancelOnDisconnect>) -> io::Result<()> {
+        let log = &mut self.peer_mut().log;
+        let marks = log.marks();
+        if marks.cancel_on_disconnect == cancel {
+            return Ok(());
+        }
+        log.set_marks(Marks { cancel_on_disconnect: cancel, ..marks })
+    }
+
     /// Records an operator's pause or resume in the log's marks, for the next commit.
     fn mark_paused(&mut self, paused: bool) -> Result<SequenceNumbers, SequenceError> {
         if self.peer.is_none() {
@@ -1781,6 +1792,12 @@ impl Session {
             self.set_next_incoming(expected + 1, now);
         }
         if self.status == Status::Active {
+            // Before the application hears of the logon: a store failing here ends the session
+            // first.
+            if let Err(e) = self.mark_cancel_on_disconnect(self.config.cancel_on_disconnect) {
+                self.storage_failed(e, now);
+                return;
+            }
             self.ever_logged_on = true;
             self.app_logged_on = true;
             self.peer().metrics.logged_on();
@@ -2981,9 +2998,15 @@ impl Session {
             return;
         }
         guarded("on_logout", || self.app.on_logout(&self.peer().handle, reason));
-        if let Some(CancelOnDisconnect { trigger, grace }) = self.config.cancel_on_disconnect
-            && trigger.counts(reason)
+        // Kept for a countdown, so a restart during it counts down again; cleared otherwise.
+        let counting = self.config.cancel_on_disconnect.filter(|cancel| cancel.trigger.counts(reason));
+        let kept = counting.filter(|cancel| !cancel.grace.is_zero());
+        if !self.store_failed
+            && let Err(e) = self.mark_cancel_on_disconnect(kept)
         {
+            warn!("couldn't clear the session's stored cancel on disconnect, so a restart cancels it: {e}");
+        }
+        if let Some(CancelOnDisconnect { trigger, grace }) = counting {
             let deadline = now.checked_add(grace).expect("a grace period of at most an hour fits in an Instant");
             info!(?reason, ?grace, "cancel on disconnect: counting down");
             self.registry.start_cancel(self.peer().id.clone(), reason, trigger, deadline, self.app.clone());

@@ -156,25 +156,33 @@ impl CancelTracker {
         self.lock().values().map(|p| p.deadline).min()
     }
 
-    /// Fires the countdowns that have ended by `now`.
-    pub(crate) fn run_due(&self, handle: impl Fn(&SessionId) -> SessionHandle, now: Instant) {
-        self.run(handle, |_, p| p.deadline <= now);
+    /// Fires the countdowns that have ended by `now`; returns their sessions.
+    pub(crate) fn run_due(&self, handle: impl Fn(&SessionId) -> SessionHandle, now: Instant) -> Vec<SessionId> {
+        self.run(handle, |_, p| p.deadline <= now)
     }
 
-    /// Fires every countdown under way, as when shutting down.
-    pub(crate) fn run_all(&self, handle: impl Fn(&SessionId) -> SessionHandle) {
-        self.run(handle, |_, _| true);
+    /// Fires every countdown under way, as when shutting down; returns their sessions.
+    pub(crate) fn run_all(&self, handle: impl Fn(&SessionId) -> SessionHandle) -> Vec<SessionId> {
+        self.run(handle, |_, _| true)
     }
 
     /// Fires the countdowns under way of the sessions `which` picks, due or not, as when their
-    /// acceptor or initiator shuts down.
-    pub(crate) fn run_now(&self, handle: impl Fn(&SessionId) -> SessionHandle, which: impl Fn(&SessionId) -> bool) {
-        self.run(handle, |id, _| which(id));
+    /// acceptor or initiator shuts down; returns their sessions.
+    pub(crate) fn run_now(
+        &self,
+        handle: impl Fn(&SessionId) -> SessionHandle,
+        which: impl Fn(&SessionId) -> bool,
+    ) -> Vec<SessionId> {
+        self.run(handle, |id, _| which(id))
     }
 
     /// Fires the countdowns `due` picks, in deadline order, then by session for ties, giving each
-    /// application the handle `handle` makes for its session.
-    fn run(&self, handle: impl Fn(&SessionId) -> SessionHandle, due: impl Fn(&SessionId, &Pending) -> bool) {
+    /// application the handle `handle` makes for its session. Returns their sessions.
+    fn run(
+        &self,
+        handle: impl Fn(&SessionId) -> SessionHandle,
+        due: impl Fn(&SessionId, &Pending) -> bool,
+    ) -> Vec<SessionId> {
         // The lock is held while the callbacks run, so a logon of the same session waits in
         // `logged_on` until its cancel has returned: the cancel can't come after that logon's
         // `on_logon`. It is never held across an await, and callbacks must not block.
@@ -193,7 +201,7 @@ impl CancelTracker {
         // The applications are dropped only now, outside the lock: dropping the last reference to
         // one runs its own Drop, which could panic and poison the lock, and a session dropped
         // while that panic unwinds would then panic again on it, aborting the process.
-        drop(fired);
+        fired.into_iter().map(|(id, _)| id).collect()
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Pending>> {

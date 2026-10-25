@@ -197,8 +197,9 @@ impl Acceptor {
     ///
     /// # Errors
     ///
-    /// None in practice: accept errors are logged and retried, and a connection's own errors end
-    /// only that connection.
+    /// The store's, reading what it kept from before a restart (see
+    /// [`SessionRegistry::restore`]). Otherwise none: accept errors are logged and retried, and a
+    /// connection's own errors end only that connection.
     pub async fn serve(self, listener: TcpListener) -> io::Result<()> {
         self.serve_listener(listener).await
     }
@@ -247,6 +248,9 @@ impl Acceptor {
         F: Fn(Acceptor, TcpStream) -> Fut,
         Fut: Future<Output = io::Result<()>> + Send + 'static,
     {
+        // At once, not at the first connection: a countdown from before a restart runs whether or
+        // not its counterparty comes back.
+        self.restore().await?;
         let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
         accept_loop(listener, &shutdown, &limits, |stream| handle(self.clone(), stream)).await
     }
@@ -297,7 +301,12 @@ impl Acceptor {
     /// What the store kept from before a restart, read before the first logon: see
     /// [`SessionRegistry::restore`].
     async fn restore(&self) -> io::Result<()> {
-        self.registry.restore().await
+        self.registry.restore().await?;
+        let (begin_string, sender_comp_id) = (&self.config.begin_string, &self.config.sender_comp_id);
+        // This acceptor's sessions, as its shutdown picks them.
+        self.registry
+            .restore_cancels(&self.app, |id| id.begin_string == *begin_string && id.sender_comp_id == *sender_comp_id);
+        Ok(())
     }
 
     /// A session for a connection described by `info`.

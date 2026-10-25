@@ -5714,6 +5714,39 @@ fn cancelling(trigger: CancelTrigger, grace: Duration) -> Harness {
     h
 }
 
+/// The store marks a session logged on with cancel on disconnect, so a restart counts down
+/// again: kept through an ending that counts, cleared by one that doesn't.
+#[test]
+fn the_store_marks_a_session_that_would_cancel() {
+    let storage = Arc::new(MemoryStorage::new());
+    let mut h = Harness::with_storage(storage.clone());
+    let cancel = CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace: Duration::from_secs(5) };
+    h.config.cancel_on_disconnect = Some(cancel);
+    let stored = || storage.open(&client_id()).unwrap().marks().cancel_on_disconnect;
+    let mut s = h.logged_on();
+    assert_eq!(stored(), Some(cancel));
+    s.on_disconnect(h.at(10));
+    assert_eq!(stored(), Some(cancel), "kept while it counts down");
+    drop(s);
+    let mut s = h.session();
+    s.recv(logon(2), h.at(11));
+    s.recv(client(3, MsgType::Logout), h.at(12));
+    assert_eq!(stored(), None, "a clean logout doesn't count");
+}
+
+/// With no grace the cancel fires as the session ends, so nothing's left for a restart.
+#[test]
+fn a_cancel_with_no_grace_leaves_no_mark() {
+    let storage = Arc::new(MemoryStorage::new());
+    let mut h = Harness::with_storage(storage.clone());
+    h.config.cancel_on_disconnect =
+        Some(CancelOnDisconnect { trigger: CancelTrigger::Disconnect, grace: Duration::ZERO });
+    let mut s = h.logged_on();
+    s.on_disconnect(h.at(10));
+    assert_eq!(h.app.events().last().map(String::as_str), Some("cancel CLIENT ConnectionLost"));
+    assert_eq!(storage.open(&client_id()).unwrap().marks().cancel_on_disconnect, None);
+}
+
 #[test]
 fn a_dropped_connection_starts_the_countdown() {
     let h = cancelling(CancelTrigger::Disconnect, Duration::from_secs(5));
