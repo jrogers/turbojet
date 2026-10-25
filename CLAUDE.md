@@ -81,7 +81,7 @@ on, so check with `--all-features` and `--no-default-features` at least.
 
 1. Bump `[workspace.package] version`, `turbojet`'s own in `crates/turbojet/Cargo.toml`, and the
    `turbojet` and `turbojet-dictionary` versions in `[workspace.dependencies]`; `cargo update -w`,
-   and `cargo update -p turbojet` in `crates/turbojet/fuzz`.
+   and `cargo update -p turbojet` in `crates/turbojet/fuzz` and `crates/turbojet-python`.
 2. Date the changelog's `## Unreleased` heading: `## 0.6.0 (2026-11-02)`.
 3. `scripts/check.sh --msrv --semver --python`, then `cargo publish --workspace --dry-run`.
 4. Commit ("Release 0.6.0") and push. The maintainer runs `cargo publish --workspace` (it needs
