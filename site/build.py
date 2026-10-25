@@ -48,8 +48,12 @@ def main(book: Path, out: Path, ref: str) -> None:
     shutil.copy(ROOT / "docs" / "assets" / "logo.svg", out / "logo.svg")
     page = (ROOT / "site" / "index.html").read_text()
     page = page.replace("{{version}}", version())
-    page = page.replace("{{quickstart}}", html.escape(quickstart()))
+    page = page.replace("{{quickstart}}", highlight(quickstart()))
+    page = page.replace("{{send}}", highlight(send()))
     page = page.replace("{{benchmarks}}", benchmarks())
+    for name, value in figures().items():
+        page = page.replace("{{" + name + "}}", value)
+    assert "{{" not in page, "a placeholder in site/index.html has nothing to fill it"
     (out / "index.html").write_text(page)
 
 
@@ -90,6 +94,71 @@ def quickstart() -> str:
     start = example.index("/// Acknowledges every order.")
     end = example.index("\n}\n", example.index("impl Application for OrderDesk", start)) + 2
     return example[start:end]
+
+
+def figures() -> dict[str, str]:
+    """The landing page's headline numbers, read from the README so they move with it. A README
+    rewording that loses one fails the build rather than leaving a stale number."""
+    readme = (ROOT / "README.md").read_text()
+
+    def find(pattern: str) -> re.Match:
+        match = re.search(pattern, readme)
+        assert match, f"README.md no longer has {pattern!r}: update site/build.py's figures"
+        return match
+
+    passed = find(r"passes (\d+) of QuickFIX's (\d+) scripted session acceptance scenarios")
+    for stage in ("Decode", "Session", "Application"):
+        # The allocation table's rows: "| Decode (into one message ...) | 0 | 0 | 0 |".
+        row = find(rf"(?m)^\| {stage} \([^|]*\| ([^|]+)\|")
+        assert row.group(1).strip() == "0", f"the {stage} stage allocates now: update the landing page"
+    return {
+        "order_to_ack": find(r"\| Session: order → ack, wire to wire[^|]*\| ([^|]+?) \|").group(1),
+        "round_trip": find(r"\| Round trip over localhost TCP, one at a time, replying from `on_message` \| ([^|]+?) \|").group(1),
+        "scenarios_passed": passed.group(1),
+        "scenarios": passed.group(2),
+    }
+
+
+RUST_KEYWORDS = {
+    "as", "async", "await", "break", "const", "continue", "crate", "else", "enum", "fn", "for", "if",
+    "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self",
+    "static", "struct", "trait", "type", "use", "where", "while",
+}
+
+
+def highlight(code: str) -> str:
+    """Rust as HTML with spans for comments, strings, keywords, types and macros: enough for the
+    landing page's one example, without a highlighting library."""
+    token = re.compile(r'(?P<comment>//[^\n]*)|(?P<string>"(?:\\.|[^"\\])*")|(?P<word>[A-Za-z_][A-Za-z0-9_]*!?)|(?P<other>.)', re.S)
+    out = []
+    for m in token.finditer(code):
+        text = html.escape(m.group(0), quote=False)
+        if m.group("comment"):
+            out.append(f'<span class="c">{text}</span>')
+        elif m.group("string"):
+            out.append(f'<span class="s">{text}</span>')
+        elif m.group("word"):
+            word = m.group("word")
+            if word.endswith("!"):
+                out.append(f'<span class="m">{text}</span>')
+            elif word in RUST_KEYWORDS:
+                out.append(f'<span class="k">{text}</span>')
+            elif word[0].isupper():
+                out.append(f'<span class="t">{text}</span>')
+            else:
+                out.append(text)
+        else:
+            out.append(text)
+    return "".join(out)
+
+
+def send() -> str:
+    """The quick start's client sending its order, from examples/quickstart.rs, dedented."""
+    example = (ROOT / "crates" / "turbojet" / "examples" / "quickstart.rs").read_text()
+    start = example.rindex("\n", 0, example.index("let mut order = NewOrderSingle::new")) + 1
+    end = example.index("\n", example.index("let seq = session.send(order)?.await?;")) + 1
+    lines = example[start:end].split("\n")
+    return "\n".join(line[4:] for line in lines).rstrip() + "\n"
 
 
 def benchmarks() -> str:
