@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turbojet: a FIX engine in Rust</title>
+<meta name="description" content="Turbojet is a FIX engine in Rust: codec, session layer, storage, acceptor and initiator, with typed messages for FIX 4.0 to 5.0 SP2, SBE and FIXP, and FAST.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<style>
+  :root {
+    --ink: #17191e;
+    --muted: #5b5f68;
+    --paper: #fbfaf7;
+    --panel: #f1efe9;
+    --rule: #dedbd2;
+    --accent: #f0640f;
+    --accent-ink: #b84604;
+    --warn: #fff4e8;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #ecebe6;
+      --muted: #a3a29c;
+      --paper: #131417;
+      --panel: #1c1e22;
+      --rule: #2c2e33;
+      --accent-ink: #ff8a3d;
+      --warn: #2a1d12;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 0 20px 64px; }
+  a { color: var(--accent-ink); }
+  code, pre { font-family: var(--mono); font-size: 0.88em; }
+  header { text-align: center; padding: 64px 0 32px; }
+  header img { width: 112px; height: 112px; }
+  h1 { font-size: 2.6rem; margin: 16px 0 4px; letter-spacing: -0.02em; }
+  .tagline { font-size: 1.25rem; color: var(--muted); margin: 0; }
+  .version { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
+  nav { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 28px 0 8px; }
+  nav a {
+    padding: 9px 18px; border-radius: 8px; text-decoration: none; font-weight: 600;
+    border: 1px solid var(--rule); color: var(--ink); background: var(--panel);
+  }
+  nav a.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .warning {
+    background: var(--warn); border-left: 4px solid var(--accent);
+    padding: 14px 18px; border-radius: 6px; margin: 28px 0; font-size: 0.95rem;
+  }
+  h2 { font-size: 1.5rem; margin: 48px 0 12px; letter-spacing: -0.01em; }
+  .principles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 600px) { .principles { grid-template-columns: 1fr; } }
+  .principles div { background: var(--panel); border-radius: 10px; padding: 16px 18px; }
+  .principles h3 { margin: 0 0 6px; font-size: 1.05rem; }
+  .principles p { margin: 0; font-size: 0.95rem; color: var(--muted); }
+  pre {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; line-height: 1.45;
+  }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-weight: 600; }
+  td:nth-child(n+2), th:nth-child(n+2) { white-space: nowrap; }
+  .note { color: var(--muted); font-size: 0.85rem; }
+  ul.crates { padding-left: 20px; }
+  footer { border-top: 1px solid var(--rule); margin-top: 56px; padding-top: 20px; color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <img src="logo.svg" alt="">
+  <h1>Turbojet</h1>
+  <p class="tagline">A FIX engine in Rust</p>
+  <p class="version">Version {{version}} · Apache-2.0</p>
+  <nav>
+    <a class="primary" href="guide/">Read the guide</a>
+    <a href="https://docs.rs/turbojet">API docs</a>
+    <a href="https://github.com/jrogers/turbojet">GitHub</a>
+    <a href="https://crates.io/crates/turbojet">crates.io</a>
+  </nav>
+</header>
+
+<p>
+  Turbojet is the FIX session layer and everything around it, as a library: a codec, the session
+  state machine (logon, sequence numbers, gap detection and resends, heartbeats, logout),
+  storage, and TCP and TLS acceptors and initiators, with typed messages for FIX 4.0, 4.1, 4.2,
+  4.3, 4.4, 5.0, 5.0 SP1 and 5.0 SP2 generated from the FIX Trading Community's official data.
+  For binary order entry it has SBE codecs and FIXP sessions, and for market data a FAST codec.
+</p>
+
+<div class="warning">
+  <strong>Pre-1.0, and not yet proven in production.</strong> Turbojet is tested against
+  QuickFIX/J and QuickFIX/n and through QuickFIX's scripted acceptance scenarios, and its parsers
+  and session state machine are fuzzed, but it hasn't been certified with any venue or run against
+  a real counterparty, and its APIs will change before 1.0. Test it thoroughly yourself before
+  trading real money with it. It is provided as is, without warranty of any kind.
+</div>
+
+<h2>Built for systems that can't lose a fill</h2>
+<div class="principles">
+  <div><h3>Safe</h3><p>Everything a counterparty sends is bounded, invariants are asserted, and the session runs against itself in a deterministic simulator through crashes, store failures and power loss.</p></div>
+  <div><h3>Pure Rust</h3><p>No bindings to a C++ or Java engine, and no <code>unsafe</code> code in the engine.</p></div>
+  <div><h3>Fast</h3><p>About 1 µs from an order to its acknowledgement, wire to wire, and no allocations on that path, counted on every test run.</p></div>
+  <div><h3>Embeddable</h3><p>A library, not a server: every layer is public, from the codec through the sans-IO session to the transports.</p></div>
+</div>
+
+<h2>An order desk</h2>
+<p>
+  Your code is an <code>Application</code>: the session hands it each application message once
+  it has been checked and put in sequence, and it replies through the context. This is the
+  acceptor's side of the <a href="guide/first-session.html">guide's first session</a>:
+</p>
+<pre><code>{{quickstart}}</code></pre>
+
+<h2>Benchmarks</h2>
+<div class="table-wrap">
+{{benchmarks}}
+</div>
+
+<h2>The crates</h2>
+<ul class="crates">
+  <li><a href="https://crates.io/crates/turbojet"><code>turbojet</code></a>: the engine, with SBE, FIXP and (feature <code>fast</code>) FAST.</li>
+  <li><a href="https://crates.io/crates/turbojet-fix"><code>turbojet-fix</code></a>: every FIX 4.0 to 5.0 SP2 application message, a feature per version.</li>
+  <li><a href="https://crates.io/crates/turbojet-config"><code>turbojet-config</code></a>: an acceptor and initiators from a TOML file, reloaded while running.</li>
+  <li><a href="https://crates.io/crates/turbojet-sql"><code>turbojet-sql</code></a>: session storage in SQLite or PostgreSQL.</li>
+  <li><a href="https://crates.io/crates/turbojet-dictionary"><code>turbojet-dictionary</code></a> and <a href="https://crates.io/crates/turbojet-codegen"><code>turbojet-codegen</code></a>: FIX Orchestra and QuickFIX dictionaries, and typed messages generated from them.</li>
+  <li><a href="https://crates.io/crates/turbojet-log"><code>turbojet-log</code></a>: prints and filters message logs with FIX field names.</li>
+</ul>
+
+<footer>
+  Turbojet is licensed under the Apache License, Version 2.0.
+  <a href="https://github.com/jrogers/turbojet/blob/main/CHANGELOG.md">Changelog</a> ·
+  <a href="https://github.com/jrogers/turbojet/blob/main/SECURITY.md">Security</a> ·
+  <a href="guide/architecture.html">Architecture</a>
+</footer>
+</main>
+</body>
+</html>

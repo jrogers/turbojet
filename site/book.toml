@@ -1,0 +1,14 @@
+# The book of the guide and the architecture overview, built by scripts/site.sh from a copy of
+# docs/ made by site/build.py; mdbook-mermaid adds its preprocessor and scripts to the copy.
+[book]
+title = "Turbojet"
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/jrogers/turbojet"
+site-url = "/turbojet/guide/"
+
+# The examples need Turbojet's crates, which the Rust playground doesn't have.
+[output.html.playground]
+runnable = false

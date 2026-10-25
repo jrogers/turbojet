@@ -22,6 +22,7 @@ cargo bench -p turbojet --all-features -- --quick           # benchmark smoke ru
 scripts/fuzz.sh 60 session                                  # fuzz one target (nightly, cargo-fuzz)
 scripts/python.sh                                           # the Python bindings (uv)
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure
+scripts/site.sh [--serve]                                   # the website, into target/site (mdbook, mdbook-mermaid)
 ```
 
 Features: `tls`, `pkcs12`, `metrics`, `tz`, `validation`, `gzip`, `fast`. Feature-gated code only builds when its feature is
@@ -87,6 +88,7 @@ on, so check with `--all-features` and `--no-default-features` at least.
    their crates.io token); log it to a file rather than a pipe, since a filter that exits early
    kills the publish.
 5. `scripts/github-release.sh 0.6.0`: tags the release commit `v0.6.0` and makes a GitHub release
-   of it, with the changelog's section as its notes.
+   of it, with the changelog's section as its notes. Pushing the tag also deploys the website
+   (`.github/workflows/site.yml`), built from the tag's docs.
 6. Once 0.6.0 is on crates.io, delete `assets/logo.svg` (and this step): the READMEs published
    before it load the logo from there, and 0.6's from `docs/assets/`.
