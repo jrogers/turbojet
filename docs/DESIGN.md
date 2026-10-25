@@ -1,7 +1,8 @@
 # Design
 
-How Turbojet is built and why, what's been measured along the way, and what testing found. The
-[README](../README.md) says how to use it, [ROADMAP.md](ROADMAP.md) what's still to do, and
+How Turbojet is built and why, what's been measured along the way, and what testing found.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the overview, with diagrams, [the guide](guide/README.md)
+says how to use it, [ROADMAP.md](ROADMAP.md) what's still to do, and
 [CAVEATS.md](CAVEATS.md) the behaviour worth knowing about. The house style, safety first, then
 performance, then developer experience, is in [STYLE.md](STYLE.md).
 

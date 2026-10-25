@@ -2,8 +2,8 @@
 
 Turbojet is a FIX engine in Rust: a sans-IO session state machine with an injected clock, tokio
 transport, and typed messages generated from the FIX Orchestra files. Read [STYLE.md](docs/STYLE.md)
-before writing code; it's the house style and isn't repeated here. [DESIGN.md](docs/DESIGN.md) says how
-it's built and what's been measured, [ROADMAP.md](docs/ROADMAP.md) what's still to do (open work only),
+before writing code; it's the house style and isn't repeated here. [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+is the overview of how the pieces fit, [DESIGN.md](docs/DESIGN.md) says how it's built and what's been measured, [ROADMAP.md](docs/ROADMAP.md) what's still to do (open work only),
 and [CAVEATS.md](docs/CAVEATS.md) the behaviour worth knowing about.
 
 ## Checking a change

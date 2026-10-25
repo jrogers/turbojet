@@ -125,9 +125,7 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 - **Caveats worth fixing** (S to M each). Several entries in [CAVEATS.md](CAVEATS.md) are
   limits nobody chose so much as left, and each fixed is one less thing to explain:
   - no early closes in a holiday calendar;
-- **Fuller documentation** (M). Wanted still: an architecture overview (the sans-IO session,
-  drivers, registry, stores) for contributors, with diagrams, distilled from DESIGN.md; and
-  examples in the crate docs for the main types.
+- **Fuller documentation** (S to M). Wanted still: examples in the crate docs for the main types.
 - **A public website** (M). An introduction, the guide and the architecture overview, the
   benchmark numbers, and links to the crates and repository: built from the repository's own
   docs so it doesn't drift from them.

@@ -125,7 +125,8 @@ practice, and where Turbojet differs.
   transports are traits or plain streams you can replace.
 - **Tested.** CI tests every feature combination and the minimum supported Rust version, runs
   clippy with warnings as errors, and checks every dependency's licence and known advisories.
-  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md), and how Turbojet is built in
+  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md), how the pieces fit in
+  [ARCHITECTURE.md](https://github.com/jrogers/turbojet/blob/main/docs/ARCHITECTURE.md), and how Turbojet is built in
   [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md). Until a 1.0 release, APIs may still change (see the warning above).
 
 ## Using the engine
