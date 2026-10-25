@@ -261,7 +261,7 @@ async fn operators_pause_and_resume_sessions() {
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
 
     // Paused at the acceptor: logged out, and the initiator's reconnections are refused.
-    at_acceptor.pause(Some("maintenance"));
+    at_acceptor.pause(Some("maintenance")).await.unwrap();
     assert!(at_acceptor.is_paused());
     assert_eq!(acceptor.paused().len(), 1);
     assert!(matches!(next(&mut server).await, Event::LoggedOut));
@@ -270,17 +270,17 @@ async fn operators_pause_and_resume_sessions() {
     assert!(server.try_recv().is_err(), "no logon while paused");
     assert!(!at_acceptor.is_connected());
 
-    at_acceptor.resume();
+    at_acceptor.resume().await.unwrap();
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
 
     // Paused at the initiator: it logs out and doesn't try again until resumed.
-    at_initiator.pause(None);
+    at_initiator.pause(None).await.unwrap();
     assert!(matches!(next(&mut client).await, Event::LoggedOut));
     assert!(matches!(next(&mut server).await, Event::LoggedOut));
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(client.try_recv().is_err(), "no reconnection while paused");
-    at_initiator.resume();
+    at_initiator.resume().await.unwrap();
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
 }
@@ -326,13 +326,13 @@ async fn operators_follow_sessions_through_events() {
     };
     expect(&[SessionEventKind::Connected, SessionEventKind::LoggedOn]).await;
 
-    acceptor.handle_for("CLIENT").pause(None);
+    acceptor.handle_for("CLIENT").pause(None).await.unwrap();
     expect(&[SessionEventKind::Paused, SessionEventKind::LoggingOut, SessionEventKind::Disconnected]).await;
     // The initiator tries again, and is turned away.
     let refused = SessionEventKind::Refused("FIX.4.2:SERVER->CLIENT is paused".into());
     expect(&[refused]).await;
 
-    acceptor.handle_for("CLIENT").resume();
+    acceptor.handle_for("CLIENT").resume().await.unwrap();
     // A refusal or two may come before the resume takes.
     let mut seen = Vec::new();
     while seen.last() != Some(&SessionEventKind::LoggedOn) {
@@ -341,4 +341,64 @@ async fn operators_follow_sessions_through_events() {
     }
     let resumed = seen.iter().position(|kind| *kind == SessionEventKind::Resumed).expect("resumed");
     assert_eq!(seen[resumed + 1..], [SessionEventKind::Connected, SessionEventKind::LoggedOn], "{seen:?}");
+}
+
+/// A pause is kept in the store: paused while logged on, an initiator started again over the
+/// same store stays out until resumed. One paused while disconnected stays out of an acceptor
+/// started again over its store.
+#[tokio::test]
+async fn a_pause_survives_a_restart() {
+    let (server_tx, mut server) = mpsc::unbounded_channel();
+    let dir = tempfile::tempdir().unwrap();
+    let acceptor_storage = || Arc::new(DiskStorage::new(dir.path().join("acceptor")).unwrap().with_fsync(false));
+    let acceptor =
+        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), acceptor_storage(), Arc::new(Recorder(server_tx)))
+            .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.clone().serve(listener));
+
+    let (client_tx, mut client) = mpsc::unbounded_channel();
+    let initiator_storage = || Arc::new(DiskStorage::new(dir.path().join("initiator")).unwrap().with_fsync(false));
+    let start_initiator = |addr: &str, tx| {
+        let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
+        config.reconnect = turbojet::ReconnectPolicy::fixed(Duration::from_millis(100));
+        let initiator =
+            Initiator::new(config.with_endpoint(addr.to_owned()), initiator_storage(), Arc::new(Recorder(tx))).unwrap();
+        tokio::spawn(initiator.clone().run());
+        initiator
+    };
+    let initiator = start_initiator(&addr, client_tx.clone());
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+    initiator.handle().pause(None).await.unwrap();
+    assert!(matches!(next(&mut client).await, Event::LoggedOut));
+    initiator.shutdown(None).await;
+
+    let initiator = start_initiator(&addr, client_tx.clone());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(initiator.handle().is_paused(), "paused again after the restart");
+    assert!(client.try_recv().is_err(), "and it doesn't log on");
+    initiator.handle().resume().await.unwrap();
+    assert!(matches!(next(&mut client).await, Event::LoggedOn));
+    initiator.shutdown(None).await;
+    assert!(matches!(next(&mut client).await, Event::LoggedOut));
+
+    // Paused at the acceptor while disconnected, then the acceptor starts again.
+    acceptor.shutdown(None).await;
+    acceptor.handle_for("CLIENT").pause(None).await.unwrap();
+    let (server_tx, mut server) = mpsc::unbounded_channel();
+    let acceptor =
+        Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), acceptor_storage(), Arc::new(Recorder(server_tx)))
+            .unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    tokio::spawn(acceptor.clone().serve(listener));
+    let initiator = start_initiator(&addr, client_tx);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(server.try_recv().is_err(), "the acceptor refuses it");
+    assert_eq!(acceptor.paused().len(), 1);
+    acceptor.handle_for("CLIENT").resume().await.unwrap();
+    assert!(matches!(next(&mut server).await, Event::LoggedOn));
+    initiator.shutdown(None).await;
 }

@@ -277,6 +277,7 @@ impl Acceptor {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        runtime.block_on(self.restore())?;
         let _runtime = runtime.enter();
         let _open = self.shutdown.track();
         let (session, commands) = self.new_session(info);
@@ -288,8 +289,15 @@ impl Acceptor {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        self.restore().await?;
         let (session, commands) = self.new_session(info);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
+    }
+
+    /// What the store kept from before a restart, read before the first logon: see
+    /// [`SessionRegistry::restore`].
+    async fn restore(&self) -> io::Result<()> {
+        self.registry.restore().await
     }
 
     /// A session for a connection described by `info`.

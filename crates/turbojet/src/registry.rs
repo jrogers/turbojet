@@ -16,7 +16,7 @@ use crate::fields::ApplVerID;
 use crate::message::Message;
 use crate::peer::ConnectionInfo;
 use crate::schedule::Clock;
-use crate::store::{MemoryStorage, Opened, SessionId, SessionStorage, StoredSession};
+use crate::store::{Marks, MemoryStorage, Opened, SessionId, SessionStorage, StoredSession};
 use crate::sync::{AtomicBool, AtomicU8, AtomicU64, Mutex, MutexGuard, Ordering};
 
 /// A request to a session's connection task. `T` is what it sends: a FIX [`Message`], or for a
@@ -31,6 +31,9 @@ pub enum Command<T = Message> {
     Logout(Option<String>),
     /// An operator change to sequence numbers, answered on the channel.
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
+    /// An operator's pause (`true`) or resume, kept in the session's stored
+    /// [`Marks`]; answered on the channel once committed.
+    Paused(bool, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
     /// FIXP: finish sending, ending the logical session; see
     /// [`FixpHandle::finish`](crate::fixp::FixpHandle). FIX sessions ignore it.
     Finish,
@@ -274,6 +277,7 @@ enum Control {
         after: u64,
     },
     Sequence(SequenceCommand, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
+    Paused(bool, oneshot::Sender<Result<SequenceNumbers, SequenceError>>),
     /// See [`Command::HoldReleased`].
     HoldReleased,
 }
@@ -461,6 +465,7 @@ impl<T> CommandReceiver<T> {
     fn take(&mut self, control: Control) -> Option<Command<T>> {
         match control {
             Control::Sequence(command, reply) => Some(Command::Sequence(command, reply)),
+            Control::Paused(paused, reply) => Some(Command::Paused(paused, reply)),
             Control::HoldReleased => Some(Command::HoldReleased),
             Control::Ending { ending, after } if self.taken >= after && self.held.is_none() => Some(ending.command()),
             Control::Ending { ending, after } => {
@@ -745,6 +750,8 @@ pub struct SessionRegistry<T = Message> {
     paused: Mutex<HashSet<SessionId>>,
     /// Woken when a session is resumed, for initiators waiting to reconnect.
     resumed: Notify,
+    /// Set once the store's marks have been read: see [`restore`](Self::restore).
+    restored: tokio::sync::OnceCell<()>,
     /// What [`subscribe`](Self::subscribe) hands out, made by the first call: its queue is
     /// allocated whole (close to a megabyte), which a registry no one watches shouldn't carry.
     events: OnceLock<broadcast::Sender<SessionEvent>>,
@@ -788,6 +795,7 @@ impl<T> SessionRegistry<T> {
             cancel_task: Arc::default(),
             paused: Mutex::default(),
             resumed: Notify::new(),
+            restored: tokio::sync::OnceCell::new(),
             events: OnceLock::new(),
         }
     }
@@ -910,6 +918,27 @@ impl<T> SessionRegistry<T> {
     /// Applies an operator command to a session that isn't connected, holding its registration
     /// meanwhile so it can't log on half-way through.
     async fn apply_offline(&self, id: &SessionId, command: SequenceCommand) -> Result<SequenceNumbers, SequenceError> {
+        let clock = self.clock.clone();
+        let result = self.change_offline(id, |log| apply_sequence_command(log, command, &clock)).await;
+        if let (Ok(numbers), false) = (&result, command == SequenceCommand::Get) {
+            info!(session = %id, ?command, ?numbers, "sequence numbers changed by operator (session disconnected)");
+        }
+        result
+    }
+
+    /// Stores an operator's pause or resume of a session that isn't connected, as
+    /// [`apply_offline`](Self::apply_offline) does a change to its numbers.
+    async fn mark_paused_offline(&self, id: &SessionId, paused: bool) -> Result<(), SequenceError> {
+        self.change_offline(id, |log| Ok(log.set_marks(Marks { paused, ..log.marks() })?)).await
+    }
+
+    /// Makes `change` to a session that isn't connected, and commits it, holding its
+    /// registration meanwhile so it can't log on half-way through.
+    async fn change_offline<R>(
+        &self,
+        id: &SessionId,
+        change: impl FnOnce(&mut dyn StoredSession) -> Result<R, SequenceError>,
+    ) -> Result<R, SequenceError> {
         // No receiver: a send through a handle during the change fails as not connected.
         let (placeholder, _) = command_queues(1);
         let opened = self.acquire(id, placeholder.clone(), None, usize::MAX).map_err(|e| match e {
@@ -925,18 +954,38 @@ impl<T> SessionRegistry<T> {
             Opened::Ready(log) => log,
             Opened::Pending(job) => job.run_here().await.map_err(SequenceError::Storage)?,
         };
-        let result = match apply_sequence_command(log.as_mut(), command, &self.clock) {
-            Ok(numbers) => match log.commit() {
-                Ok(None) => Ok(numbers),
-                Ok(Some(commit)) => commit.run_here().await.map(|()| numbers).map_err(SequenceError::Storage),
-                Err(e) => Err(SequenceError::Storage(e)),
-            },
-            Err(e) => Err(e),
-        };
-        if let (Ok(numbers), false) = (&result, command == SequenceCommand::Get) {
-            info!(session = %id, ?command, ?numbers, "sequence numbers changed by operator (session disconnected)");
+        let changed = change(log.as_mut())?;
+        match log.commit() {
+            Ok(None) => Ok(changed),
+            Ok(Some(commit)) => commit.run_here().await.map(|()| changed).map_err(SequenceError::Storage),
+            Err(e) => Err(SequenceError::Storage(e)),
         }
-        result
+    }
+
+    /// Reads the marks the store keeps (see [`SessionStorage::marked`]): the sessions paused
+    /// before a restart are paused again. Once per registry: later calls, and calls while one
+    /// runs, wait for it and return at once. [`Acceptor`](crate::Acceptor)s and
+    /// [`Initiator`](crate::Initiator)s call it before their first logon; a driver of one's own
+    /// should too.
+    ///
+    /// # Errors
+    ///
+    /// The store's, reading its marks; the next call tries again.
+    pub async fn restore(&self) -> io::Result<()> {
+        self.restored
+            .get_or_try_init(|| async {
+                let marked = self.storage.marked().run_async().await?;
+                let paused: Vec<&SessionId> =
+                    marked.iter().filter(|(_, marks)| marks.paused).map(|(id, _)| id).collect();
+                if !paused.is_empty() {
+                    info!(sessions = paused.len(), "sessions paused before a restart stay paused");
+                }
+                let _sessions = self.lock();
+                self.lock_paused().extend(paused.into_iter().cloned());
+                Ok(())
+            })
+            .await
+            .map(drop)
     }
 
     /// Unbinds `id` from the connection whose queues are `commands`. Only that connection's
@@ -1284,20 +1333,55 @@ impl<T> SessionHandle<T> {
     /// Pauses the session: logs it out if it's connected (with `text`, once the messages queued
     /// have gone), and refuses its Logons until [`resume`](Self::resume): an acceptor closes a
     /// counterparty's connection at its Logon, and an initiator waits to reconnect. Operator
-    /// changes to its stored sequence numbers still work. Pauses are kept in memory, not stored:
-    /// a restart forgets them.
-    pub fn pause(&self, text: Option<&str>) {
-        if self.registry.pause(&self.id) {
-            // If the control queue is full, a logout is already queued.
-            let _ = self.logout(text);
-        }
+    /// changes to its stored sequence numbers still work. The pause is kept in the session's
+    /// store, so a restart finds it, where the store keeps [`Marks`]
+    /// ([`DiskStorage`](crate::DiskStorage) and `turbojet-sql` do); returns once it's stored.
+    ///
+    /// # Errors
+    ///
+    /// The store's: the session is paused all the same, until a restart.
+    pub async fn pause(&self, text: Option<&str>) -> io::Result<()> {
+        let connected = self.registry.pause(&self.id);
         info!(session = %self.id, "paused by operator");
+        // Stored before the logout's queued, so the session handles it before it ends.
+        let stored = self.mark_paused(true, connected.then_some(text)).await;
+        stored.map_err(|e| {
+            warn!(session = %self.id, "the pause applies, but storing it failed, so a restart forgets it: {e}");
+            store_error(e)
+        })
     }
 
-    /// Lets a paused session log on again; an initiator reconnects at once.
-    pub fn resume(&self) {
+    /// Lets a paused session log on again; an initiator reconnects at once. Returns once the
+    /// store no longer holds the pause.
+    ///
+    /// # Errors
+    ///
+    /// The store's: the session is resumed all the same, until a restart, which pauses it again.
+    pub async fn resume(&self) -> io::Result<()> {
         self.registry.resume(&self.id);
         info!(session = %self.id, "resumed by operator");
+        self.mark_paused(false, None).await.map_err(|e| {
+            warn!(session = %self.id, "the session is resumed, but storing it failed, so a restart pauses it again: {e}");
+            store_error(e)
+        })
+    }
+
+    /// Stores a pause or resume in the session's marks: through its connection if it has one,
+    /// which then logs out with `logout`'s text if given, otherwise directly.
+    async fn mark_paused(&self, paused: bool, logout: Option<Option<&str>>) -> Result<(), SequenceError> {
+        if let Some(sender) = self.registry.sender(&self.id) {
+            let (reply, answer) = oneshot::channel();
+            let sent = sender.control.send(Control::Paused(paused, reply)).await.is_ok();
+            if let Some(text) = logout {
+                // If the control queue is full, a logout is already queued.
+                let _ = self.logout(text);
+            }
+            if sent && let Ok(result) = answer.await {
+                return result.map(drop);
+            }
+            // The connection ended in the meantime: fall back to the stored state.
+        }
+        self.registry.mark_paused_offline(&self.id, paused).await
     }
 
     /// Whether the session is paused: see [`pause`](Self::pause).
@@ -1437,6 +1521,14 @@ impl<T> fmt::Display for SendError<T> {
 }
 
 impl<T: fmt::Debug> std::error::Error for SendError<T> {}
+
+/// A failure to store a pause or resume, as an I/O error.
+fn store_error(e: SequenceError) -> io::Error {
+    match e {
+        SequenceError::Storage(e) => e,
+        other => io::Error::other(other.to_string()),
+    }
+}
 
 /// Why [`SessionHandle::logout`] didn't queue the logout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -42,7 +42,7 @@ use crate::registry::{
     apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
-use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, StoredSession};
+use crate::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, SessionId, StoredSession};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
@@ -1272,6 +1272,15 @@ impl Session {
                 }
                 return;
             }
+            Command::Paused(paused, reply) => {
+                match self.mark_paused(paused) {
+                    Ok(numbers) => self.replies.push((reply, Ok(numbers))),
+                    Err(e) => {
+                        let _ = reply.send(Err(e));
+                    }
+                }
+                return;
+            }
             // The commit after this call finds the release.
             Command::HoldReleased => return,
             other => other,
@@ -1346,11 +1355,26 @@ impl Session {
             }
             Command::Logout(_) => debug!("ignoring logout request: session is already logging out"),
             Command::Finish => debug!("ignoring a request to finish sending: FIX sessions don't"),
-            Command::Sequence(..) | Command::HoldReleased => unreachable!("handled in on_command"),
+            Command::Sequence(..) | Command::Paused(..) | Command::HoldReleased => {
+                unreachable!("handled in on_command")
+            }
         }
     }
 
     /// An operator change to this (bound) session's sequence numbers.
+    /// Records an operator's pause or resume in the log's marks, for the next commit.
+    fn mark_paused(&mut self, paused: bool) -> Result<SequenceNumbers, SequenceError> {
+        if self.peer.is_none() {
+            return Err(SequenceError::Invalid("the session has not been identified yet".into()));
+        }
+        if self.store_failed {
+            return Err(SequenceError::Storage(io::Error::other("the session store has failed")));
+        }
+        let log = &mut self.peer_mut().log;
+        log.set_marks(Marks { paused, ..log.marks() })?;
+        Ok(SequenceNumbers { next_incoming: log.next_incoming(), next_outgoing: log.next_outgoing() })
+    }
+
     fn apply_sequence(&mut self, request: SequenceCommand, now: Instant) -> Result<SequenceNumbers, SequenceError> {
         if self.peer.is_none() {
             return Err(SequenceError::Invalid("the session has not been identified yet".into()));

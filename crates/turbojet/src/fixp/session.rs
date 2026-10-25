@@ -26,7 +26,7 @@ use crate::registry::{
 };
 use crate::sbe::{Encode, SbeError};
 use crate::session::{ConfigError, DELIVERIES_PER_COMMIT};
-use crate::store::{Commit, Fetched, Job, Opened, SentMessages, SessionId, StoredSession};
+use crate::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, SessionId, StoredSession};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 
 /// The BeginString part of a FIXP session's [`SessionId`], so its logs never share a name with a
@@ -1214,6 +1214,26 @@ impl FixpSession {
         }
     }
 
+    /// Records an operator's pause or resume in the log's marks, answering once committed.
+    fn on_paused(&mut self, paused: bool, reply: oneshot::Sender<Result<SequenceNumbers, SequenceError>>) {
+        if self.bound.is_none() {
+            let _ = reply.send(Err(SequenceError::Connected));
+            return;
+        }
+        let log = self.log();
+        match log.set_marks(Marks { paused, ..log.marks() }) {
+            Ok(()) => {
+                let numbers =
+                    SequenceNumbers { next_incoming: log.next_incoming(), next_outgoing: log.next_outgoing() };
+                self.dirty = true;
+                self.sequence_replies.push((reply, numbers));
+            }
+            Err(e) => {
+                let _ = reply.send(Err(SequenceError::Storage(e)));
+            }
+        }
+    }
+
     fn on_sequence_command(
         &mut self,
         command: SequenceCommand,
@@ -1395,6 +1415,7 @@ impl FixpSession {
             Command::Logout(_) if self.state == State::Established => self.terminate(m::TerminationCode::Finished),
             Command::Logout(_) => self.close(Ended::TerminatedByUs(m::TerminationCode::Finished)),
             Command::Sequence(command, reply) => self.on_sequence_command(command, reply),
+            Command::Paused(paused, reply) => self.on_paused(paused, reply),
             Command::Finish if self.state == State::Established => self.finish(),
             Command::Finish => debug!("ignoring a request to finish sending: not established"),
             // FIXP sessions hand out no holds.

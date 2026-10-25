@@ -17,10 +17,10 @@ async def test_pause_and_resume(gateway, tmp_path):
     async with turbojet.load(sessions_file(tmp_path, gateway, 'reconnect = { initial = "50ms", max = "100ms" }')) as engine:
         events = engine.events()
         session = (await expect(events, Logon)).session
-        session.pause("maintenance")
+        await session.pause("maintenance")
         assert session.paused
         await expect(events, Logout)
-        session.resume()
+        await session.resume()
         assert not session.paused
         await expect(events, Logon)
 

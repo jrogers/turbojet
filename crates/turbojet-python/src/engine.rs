@@ -376,15 +376,21 @@ impl Session {
         })
     }
 
-    /// Logs the session out and keeps it out until `resume()`, with `text` as the Logout's Text.
+    /// Logs the session out and keeps it out until `resume()`, with `text` as the Logout's Text;
+    /// awaited, returns once the pause is stored, so a restart keeps it.
     #[pyo3(signature = (text = None))]
-    fn pause(&self, text: Option<&str>) {
-        self.0.pause(text);
+    fn pause<'py>(&self, py: Python<'py>, text: Option<String>) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        future_into_py(
+            py,
+            async move { session.pause(text.as_deref()).await.map_err(|e| Error::new_err(e.to_string())) },
+        )
     }
 
-    /// Lets a paused session log on again.
-    fn resume(&self) {
-        self.0.resume();
+    /// Lets a paused session log on again; awaited, returns once that's stored.
+    fn resume<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let session = self.0.clone();
+        future_into_py(py, async move { session.resume().await.map_err(|e| Error::new_err(e.to_string())) })
     }
 
     /// Whether the session is paused.

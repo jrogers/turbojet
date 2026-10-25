@@ -413,7 +413,9 @@ impl Initiator {
             let mut backoff = Backoff::new(self.config().reconnect);
             while !self.shutdown.is_started() {
                 let session = self.session_id();
-                if self.registry.is_paused(&session) {
+                // Restored first, so a pause from before a restart is waited out, not tried.
+                let restored = self.restore().await.is_ok();
+                if restored && self.registry.is_paused(&session) {
                     info!("paused; waiting to be resumed");
                     self.unless_shutdown(self.registry.wait_resumed(&session)).await.ok();
                     // Resumed: connect at once, not after the backoff from before the pause.
@@ -470,6 +472,9 @@ impl Initiator {
         if let Some((_, reason)) = self.schedule_wait() {
             return (false, Err(io::Error::new(io::ErrorKind::NotConnected, reason)));
         }
+        if let Err(e) = self.restore().await {
+            return (false, Err(e));
+        }
         if self.registry.is_paused(&self.session_id()) {
             return (false, Err(io::Error::new(io::ErrorKind::NotConnected, "the session is paused")));
         }
@@ -507,9 +512,16 @@ impl Initiator {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        self.restore().await?;
         let _open = self.shutdown.track();
         let (session, commands) = self.session(&self.config(), info);
         connection::run_tracked(stream, session, commands, &mut false, Some(self.shutdown.signal())).await
+    }
+
+    /// What the store kept from before a restart, read before the first logon: see
+    /// [`SessionRegistry::restore`].
+    async fn restore(&self) -> io::Result<()> {
+        self.registry.restore().await
     }
 
     /// [`run_stream`](Initiator::run_stream) on the calling thread, which it keeps busy polling
@@ -523,6 +535,7 @@ impl Initiator {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        runtime.block_on(self.restore())?;
         let _runtime = runtime.enter();
         let _open = self.shutdown.track();
         let (session, commands) = self.session(&self.config(), info);
