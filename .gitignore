@@ -7,3 +7,4 @@ crates/turbojet-interop/peer/build/
 crates/turbojet-interop/peer-net/bin/
 crates/turbojet-interop/peer-net/obj/
 .op/
+__pycache__/
