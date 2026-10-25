@@ -75,3 +75,16 @@ on, so check with `--all-features` and `--no-default-features` at least.
   timelines, support commitments or fix commitments unless the maintainer says so.
 - Expensive checks that aren't regressions (long fuzzing) stay off the per-push CI path. They run
   in scheduled or manual workflows (`fuzz.yml`, nightly).
+
+## Releasing
+
+1. Bump `[workspace.package] version`, `turbojet`'s own in `crates/turbojet/Cargo.toml`, and the
+   `turbojet` and `turbojet-dictionary` versions in `[workspace.dependencies]`; `cargo update -w`,
+   and `cargo update -p turbojet` in `crates/turbojet/fuzz`.
+2. Date the changelog's `## Unreleased` heading: `## 0.6.0 (2026-11-02)`.
+3. `scripts/check.sh --msrv --semver --python`, then `cargo publish --workspace --dry-run`.
+4. Commit ("Release 0.6.0") and push. The maintainer runs `cargo publish --workspace` (it needs
+   their crates.io token); log it to a file rather than a pipe, since a filter that exits early
+   kills the publish.
+5. `scripts/github-release.sh 0.6.0`: tags the release commit `v0.6.0` and makes a GitHub release
+   of it, with the changelog's section as its notes.
