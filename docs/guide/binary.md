@@ -4,61 +4,50 @@
 
 SBE (Simple Binary Encoding) is the FIX Trading Community's binary encoding: fixed-size fields at
 fixed offsets, then repeating groups and variable-length data. `turbojet-codegen sbe` generates a
-codec from a venue's SBE message schema: for each message, a decoder that reads it where it lies
-(`CarRef` here, from SBE's example schema) and a struct to encode (`Car`), and `decode`, which
-reads the message header and picks the decoder by template ID.
+codec from a venue's SBE message schema: for each message, a struct to encode (`NewOrderSingle`)
+and a decoder that reads it where it lies (`NewOrderSingleRef`), and `decode`, which reads the
+message header and picks the decoder by template ID. Here the schema is B3's Binary Entrypoint,
+the order entry of Brazil's exchange:
 
 ```sh
-turbojet-codegen sbe car.xml --out src/car.rs
+turbojet-codegen sbe b3-entrypoint.xml --out src/b3.rs
 ```
 
 ```rust
 # #[allow(dead_code, clippy::all)]
-# mod car { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sbe/car.rs")); }
-# let bytes: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sbe/golden/car.bin"));
-let (car::Decoded::Car(car), len) = car::decode(bytes)? else { unreachable!("one message type") };
-println!("{} {} {:?}", car.serial_number(), car.model_year(), car.code());
-assert_eq!(len, bytes.len());
-# Ok::<(), turbojet::sbe::SbeError>(())
-```
+# mod b3 { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sbe/b3.rs")); }
+use b3::*;
+use turbojet::sbe::pad;
 
-To encode, build the message's struct and call `encode_into`, which appends it, header first, to
-a `Vec<u8>`. Groups and variable-length data are slices, borrowed:
-
-```rust
-# #[allow(dead_code, clippy::all)]
-# mod car { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sbe/car.rs")); }
-use car::*;
-
-let car = Car {
-    serial_number: 1234,
-    model_year: 2013,
-    available: BooleanType::T,
-    code: Model::A,
-    some_numbers: [0, 10, 20, 30],
-    vehicle_code: *b"abcdef",
-    extras: OptionalExtras::default().with_cruise_control(true).with_sports_pack(true),
-    engine: Engine {
-        capacity: 2000,
-        num_cylinders: 4,
-        manufacturer_code: *b"123",
-        efficiency: 35,
-        booster_enabled: BooleanType::T,
-        booster: Booster { boost_type: BoostType::Nitrous, horse_power: 200 },
-    },
-    fuel_figures: &[CarFuelFigures { speed: 30, mpg: 35.9, usage_description: b"Urban Cycle" }],
-    performance_figures: &[CarPerformanceFigures {
-        octane_rating: 95,
-        acceleration: &[CarPerformanceFiguresAcceleration { mph: 60, seconds: 7.5 }],
-    }],
-    manufacturer: b"Honda",
-    model: b"Civic VTi",
-    activation_code: b"abcdef",
+let order = NewOrderSingle {
+    cl_ord_id: 123_456_789,
+    security_id: 4001,
+    price: PriceOptional { mantissa: Some(254_500) }, // 25.45: a decimal with exponent -4
+    order_qty: 100,
+    account: Some(12345),
+    market_segment_id: 1,
+    side: Side::Buy,
+    ord_type: OrdType::Limit,
+    time_in_force: TimeInForce::Day,
+    ord_tag_id: None,
+    mm_protection_reset: None,
+    routing_instruction: None,
+    self_trade_prevention_instruction: None,
+    stop_px: PriceOptional { mantissa: None },
+    min_qty: None,
+    max_floor: None,
+    investor_id: None,
+    custodian_info: CustodianInfo { custodian: None, custody_account: None, custody_allocation_type: None },
+    expire_date: None,
+    sender_location: pad(b"DMA"),
+    entering_trader: *b"TRADR",
 };
 let mut out = Vec::new();
-car.encode_into(&mut out)?;
-let (Decoded::Car(read), _) = decode(&out)? else { unreachable!("one message type") };
-assert_eq!(read.serial_number(), 1234);
+order.encode_into(&mut out)?; // header first, appended
+
+let (Decoded::NewOrderSingle(read), len) = decode(&out)? else { unreachable!("an order") };
+assert_eq!((read.cl_ord_id(), read.side(), read.order_qty()), (123_456_789, Side::Buy, 100));
+assert_eq!(len, out.len());
 # Ok::<(), turbojet::sbe::SbeError>(())
 ```
 
@@ -81,7 +70,7 @@ both ends.
 
 ```rust,no_run
 # #[allow(dead_code, clippy::all)]
-# mod car { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sbe/car.rs")); }
+# mod b3 { include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sbe/b3.rs")); }
 use std::sync::Arc;
 use turbojet::MemoryStorage;
 use turbojet::fixp::{ClientConfig, FixpApplication, FixpContext, FixpInitiator, FixpInitiatorConfig, Received, SbeMessage};
@@ -91,44 +80,44 @@ struct Desk;
 
 impl FixpApplication for Desk {
     fn on_message(&self, _ctx: &mut FixpContext<'_>, msg: Received<'_>) {
-        if let Ok((car::Decoded::Car(car), _)) = car::decode(msg.bytes) {
-            println!("{:?}: car {}", msg.seq, car.serial_number());
+        if let Ok((b3::Decoded::ExecutionReportNew(report), _)) = b3::decode(msg.bytes) {
+            println!("{:?}: order {:?} accepted", msg.seq, report.cl_ord_id());
         }
     }
 }
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let car = car::Car {
-#     serial_number: 1234,
-#     model_year: 2013,
-#     available: car::BooleanType::T,
-#     code: car::Model::A,
-#     some_numbers: [0, 10, 20, 30],
-#     vehicle_code: *b"abcdef",
-#     extras: car::OptionalExtras::default().with_cruise_control(true).with_sports_pack(true),
-#     engine: car::Engine {
-#         capacity: 2000,
-#         num_cylinders: 4,
-#         manufacturer_code: *b"123",
-#         efficiency: 35,
-#         booster_enabled: car::BooleanType::T,
-#         booster: car::Booster { boost_type: car::BoostType::Nitrous, horse_power: 200 },
-#     },
-#     fuel_figures: &[car::CarFuelFigures { speed: 30, mpg: 35.9, usage_description: b"Urban Cycle" }],
-#     performance_figures: &[car::CarPerformanceFigures {
-#         octane_rating: 95,
-#         acceleration: &[car::CarPerformanceFiguresAcceleration { mph: 60, seconds: 7.5 }],
-#     }],
-#     manufacturer: b"Honda",
-#     model: b"Civic VTi",
-#     activation_code: b"abcdef",
+# use b3::*;
+# use turbojet::sbe::pad;
+# let order = NewOrderSingle {
+#     cl_ord_id: 123_456_789,
+#     security_id: 4001,
+#     price: PriceOptional { mantissa: Some(254_500) }, // 25.45: a decimal with exponent -4
+#     order_qty: 100,
+#     account: Some(12345),
+#     market_segment_id: 1,
+#     side: Side::Buy,
+#     ord_type: OrdType::Limit,
+#     time_in_force: TimeInForce::Day,
+#     ord_tag_id: None,
+#     mm_protection_reset: None,
+#     routing_instruction: None,
+#     self_trade_prevention_instruction: None,
+#     stop_px: PriceOptional { mantissa: None },
+#     min_qty: None,
+#     max_floor: None,
+#     investor_id: None,
+#     custodian_info: CustodianInfo { custodian: None, custody_account: None, custody_allocation_type: None },
+#     expire_date: None,
+#     sender_location: pad(b"DMA"),
+#     entering_trader: *b"TRADR",
 # };
 let config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "EXCHANGE")).with_endpoint("exchange:9000");
 let initiator = FixpInitiator::new(config, Arc::new(MemoryStorage::new()), Arc::new(Desk))?;
 tokio::spawn(initiator.clone().run());
 // Once established: any message from a generated SBE codec.
-initiator.handle().send(SbeMessage::encode(&car)?)?;
+initiator.handle().send(SbeMessage::encode(&order)?)?;
 # Ok(())
 # }
 ```
