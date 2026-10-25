@@ -45,6 +45,21 @@ const _: () = assert!(MAX_CANDIDATES > 366 + 2);
 
 /// A source of wall-clock time. [`Clock::system`] in production; tests can supply their own with
 /// [`Clock::from_fn`] to exercise schedules without waiting.
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use chrono::{TimeZone, Utc};
+/// use turbojet::{Clock, SessionConfig};
+///
+/// // A clock a test moves by hand, to see a schedule's end without waiting for it.
+/// let now = Arc::new(Mutex::new(Utc.with_ymd_and_hms(2026, 10, 26, 16, 59, 0).unwrap()));
+/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// config.clock = Clock::from_fn({
+///     let now = now.clone();
+///     move || *now.lock().unwrap()
+/// });
+/// *now.lock().unwrap() += chrono::Duration::minutes(2);
+/// ```
 #[derive(Clone)]
 pub struct Clock(Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>);
 
@@ -227,6 +242,15 @@ impl Period {
 /// the day.
 ///
 /// Parses from text: one `YYYY-MM-DD` per line, with blank lines and `#` comments allowed.
+///
+/// ```
+/// use chrono::NaiveDate;
+/// use turbojet::HolidayCalendar;
+///
+/// let from_text: HolidayCalendar = "# New York\n2026-11-26\n2026-12-25\n".parse()?;
+/// let from_dates = HolidayCalendar::new([NaiveDate::from_ymd_opt(2026, 12, 25).unwrap()]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HolidayCalendar {
     dates: BTreeSet<NaiveDate>,
@@ -309,6 +333,16 @@ enum Kind {
 ///
 /// Holidays aren't part of the text form: [`Display`](fmt::Display) leaves them out, and parsing
 /// gives a schedule without any. Add them with [`SessionSchedule::with_holidays`].
+///
+/// ```
+/// use turbojet::{HolidayCalendar, SessionConfig, SessionSchedule};
+///
+/// let schedule: SessionSchedule = "daily 08:00-17:00 mon-fri UTC".parse()?;
+/// let weekly: SessionSchedule = "weekly sun 17:00-fri 17:00 UTC".parse()?;
+/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// config.schedule = Some(schedule.with_holidays("2026-12-25\n2027-01-01".parse::<HolidayCalendar>()?));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSchedule {
     kind: Kind,

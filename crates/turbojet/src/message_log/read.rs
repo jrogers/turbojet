@@ -43,6 +43,23 @@ pub enum Direction {
 }
 
 /// One record of a [`FileMessageLog`] file.
+///
+/// ```no_run
+/// use turbojet::{Direction, FileMessageLog, LogRecord};
+///
+/// for file in FileMessageLog::files("/var/log/fix")? {
+///     for record in FileMessageLog::read(&file.path)? {
+///         match record? {
+///             LogRecord::Message { time, direction: Direction::Inbound, session, frame } => {
+///                 println!("{time} from {session:?}: {}", String::from_utf8_lossy(&frame));
+///             }
+///             LogRecord::Dropped { time, count } => println!("{time}: {count} not logged"),
+///             _ => {}
+///         }
+///     }
+/// }
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LogRecord {

@@ -18,6 +18,25 @@ use crate::store::SessionId;
 
 /// Decides, at Logon, whether a counterparty may log on and with which settings. Set one with
 /// [`AcceptorConfig::counterparties`](crate::AcceptorConfig::counterparties).
+///
+/// ```
+/// use std::time::Duration;
+/// use turbojet::{ConnectionInfo, Counterparties, Counterparty, Message, SessionConfig, SessionId};
+///
+/// /// Lets in CompIDs starting `FUND`, each with a tighter SendingTime check.
+/// struct Funds;
+///
+/// impl Counterparties for Funds {
+///     fn resolve(&self, base: &SessionConfig, id: &SessionId, _logon: &Message, _from: &ConnectionInfo) -> Result<Counterparty, String> {
+///         if !id.target_comp_id.starts_with("FUND") {
+///             return Err(format!("{} isn't a fund", id.target_comp_id));
+///         }
+///         let mut counterparty = Counterparty::new(base.clone());
+///         counterparty.config.max_latency = Some(Duration::from_secs(10));
+///         Ok(counterparty)
+///     }
+/// }
+/// ```
 pub trait Counterparties: Send + Sync {
     /// Whether `id`'s counterparty may log on with `logon` over `connection`, and its settings,
     /// starting from the acceptor's `base`: `Counterparty::new(base.clone())` and changes to it.

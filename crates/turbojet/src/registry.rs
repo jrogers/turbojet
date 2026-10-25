@@ -57,6 +57,27 @@ pub type ReceiptSender = oneshot::Sender<Result<u64, Dropped>>;
 /// MsgSeqNum once the session has stored it and the store has committed it (from then on it's
 /// resent if the counterparty misses it, across reconnects and restarts), or to why it was
 /// dropped. Ignoring it is fine.
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let session: SessionHandle = SessionHandle::disconnected(SessionId::new("FIX.4.4", "US", "THEM"));
+/// # let news: Message = "8=FIX.4.4|35=B|148=Hello".parse()?;
+/// if let Ok(receipt) = session.send(news) {
+///     match receipt.await {
+///         Ok(seq) => println!("stored as MsgSeqNum {seq}: resent if the counterparty misses it"),
+///         Err(dropped) => println!("not sent: {dropped}"),
+///     }
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct Receipt(oneshot::Receiver<Result<u64, Dropped>>);
 
@@ -613,6 +634,30 @@ impl LiveStatus {
 }
 
 /// What happened to a session, for an operator's live view: see [`SessionRegistry::subscribe`].
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// let mut events = acceptor.subscribe();
+/// loop {
+///     match events.recv().await {
+///         Ok(SessionEvent { id, kind: SessionEventKind::Refused(reason), .. }) => println!("{id} refused: {reason}"),
+///         Ok(event) => println!("{}: {:?}", event.id, event.kind),
+///         // Fell behind: the oldest were dropped, so read where things stand again.
+///         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => println!("{} connected", acceptor.statuses().len()),
+///         Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+///     }
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SessionEvent {
@@ -698,6 +743,21 @@ pub struct Activity {
 
 /// A connected session, for an operator: see [`SessionRegistry::statuses`] and
 /// [`SessionHandle::status`].
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// for status in acceptor.statuses() {
+///     let state = status.activity.as_ref().map(|activity| activity.state);
+///     println!("{} since {} from {:?}: {state:?}", status.id, status.since, status.connection.addr);
+/// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SessionStatus {
@@ -732,6 +792,24 @@ fn status<T>(id: &SessionId, entry: &Entry<T>, paused: bool) -> Option<SessionSt
 /// time, routes [`SessionHandle`] commands to that connection, and keeps the
 /// [cancel-on-disconnect](crate::SessionConfig::cancel_on_disconnect) countdowns of its sessions.
 /// `T` is what its sessions send (see [`Command`]); cancel on disconnect is for FIX sessions.
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
+/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE").with_endpoint("venue.example.com:9876");
+/// let initiator = Initiator::with_registry(config, registry.clone(), Arc::new(App))?;
+///
+/// // Handles from the registry outlive the initiator, and see every session sharing it.
+/// let handle = registry.handle(SessionId::new("FIX.4.4", "CLIENT", "VENUE"));
+/// let events = registry.subscribe();
+/// println!("{} connected", registry.statuses().len());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct SessionRegistry<T = Message> {
     storage: Arc<dyn SessionStorage>,
     /// Connected sessions only: an entry is removed when its connection releases it.
@@ -1303,6 +1381,28 @@ impl<T> Drop for SessionRegistry<T> {
 /// wait in their bounded queue and go out, in order, as soon as it completes. A message is dropped
 /// (and logged) if the connection ends while it's queued, or if logout has started; its
 /// [`Receipt`] says so.
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// let session = acceptor.handle_for("CLIENT1"); // valid whether or not it's connected
+/// match session.send("8=FIX.4.4|35=B|148=Hello".parse::<Message>()?) {
+///     Ok(receipt) => println!("stored as {}", receipt.await?),
+///     Err(SendError::NotConnected(_)) => println!("{} isn't logged on", session.id()),
+///     Err(e) => return Err(e.into()),
+/// }
+/// let numbers = session.sequence_numbers().await?; // connected or not
+/// assert_eq!(numbers.next_outgoing, 1);
+/// # Ok(())
+/// # }
+/// ```
 pub struct SessionHandle<T = Message> {
     id: SessionId,
     registry: Arc<SessionRegistry<T>>,

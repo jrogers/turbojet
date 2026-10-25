@@ -87,6 +87,14 @@ pub fn connector(ca: &Path, identity: Option<(&Path, &Path)>) -> io::Result<TlsC
 /// A certificate chain (leaf first) and its private key: what one side presents. Built from
 /// certificates in memory or read from files, and checked: the key must be the leaf
 /// certificate's.
+///
+/// ```no_run
+/// use turbojet::tls::Identity;
+///
+/// let pem = Identity::from_pem_files("server.pem".as_ref(), "server.key".as_ref())?;
+/// let bundle = Identity::from_pkcs12_file("server.p12".as_ref(), "password")?; // feature pkcs12
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Clone)]
 pub struct Identity(Arc<CertifiedKey>);
 
@@ -198,6 +206,14 @@ impl fmt::Debug for Identity {
 /// Nothing is fetched: CRLs are only those given, so to take in a new one, build a `Trust` with
 /// it and give that to [`ServerTls::set_client_trust`] or [`ClientTls::set_trust`], from the next
 /// handshake on.
+///
+/// ```no_run
+/// use turbojet::tls::Trust;
+///
+/// let cas = Trust::from_pem_files("ca.pem".as_ref())?;
+/// let checked = Trust::from_pem_files("ca.pem".as_ref())?.with_crls_pem_files("ca.crl.pem".as_ref())?;
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Trust {
     roots: Arc<RootCertStore>,
@@ -373,6 +389,17 @@ pub enum ClientTrust {
 ///
 /// With mutual TLS, no CA names are suggested to clients in the handshake (TLS makes the
 /// suggestion optional): a client with one certificate sends it regardless.
+///
+/// ```no_run
+/// use turbojet::tls::{ClientTrust, Identity, ServerTls, Trust};
+///
+/// let identity = Identity::from_pem_files("server.pem".as_ref(), "server.key".as_ref())?;
+/// let server = ServerTls::new(identity, ClientTrust::Required(Trust::from_pem_files("clients-ca.pem".as_ref())?))?;
+/// let tls = server.acceptor(); // for Acceptor::serve_tls
+/// // On renewal: handshakes from now on use the new certificate.
+/// server.set_identity(Identity::from_pem_files("renewed.pem".as_ref(), "renewed.key".as_ref())?);
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Clone)]
 pub struct ServerTls {
     identity: Arc<CurrentIdentity>,
@@ -439,6 +466,18 @@ impl fmt::Debug for ServerTls {
 /// replaced while it runs: [`connector`](Self::connector) is for
 /// [`InitiatorTls`](crate::InitiatorTls), and a change applies from the next handshake, which
 /// is always a full one (sessions aren't resumed). Cheap to clone; clones share the certificates.
+///
+/// ```no_run
+/// use turbojet::InitiatorTls;
+/// use turbojet::tls::{ClientTls, Identity, Trust};
+///
+/// let client = ClientTls::new(
+///     Trust::from_pem_files("venue-ca.pem".as_ref())?,
+///     Some(Identity::from_pem_files("client.pem".as_ref(), "client.key".as_ref())?),
+/// )?;
+/// let tls = InitiatorTls::new(client.connector(), "venue.example.com"); // for InitiatorConfig::tls
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Clone)]
 pub struct ClientTls {
     trust: Arc<CurrentServerTrust>,

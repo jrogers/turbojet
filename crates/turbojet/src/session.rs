@@ -108,6 +108,18 @@ impl ConfigError {
 }
 
 /// Settings shared by both roles.
+///
+/// ```
+/// use std::time::Duration;
+/// use turbojet::{InboundLimit, SessionConfig};
+///
+/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// config.schedule = Some("daily 08:00-17:00 mon-fri UTC".parse()?);
+/// config.max_latency = Some(Duration::from_secs(30)); // SendingTime tolerance
+/// config.inbound_limit = Some(InboundLimit::Delay("100/1s".parse()?));
+/// config.check()?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SessionConfig {
@@ -575,6 +587,42 @@ struct Resend {
 }
 
 /// One FIX session over one connection.
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// use std::time::Instant;
+/// use turbojet::fields::UtcTimestamp;
+/// use turbojet::message::tags;
+///
+/// let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
+/// let now = Instant::now();
+/// let (mut session, _commands) = Session::acceptor(SessionConfig::new("FIX.4.4", "VENUE"), registry, Arc::new(App), now)?;
+///
+/// // What a driver does with each frame it decodes: feed it, commit, write the output.
+/// let logon = Message::default()
+///     .with(tags::BEGIN_STRING, "FIX.4.4")
+///     .with(tags::MSG_TYPE, MsgType::Logon)
+///     .with(tags::SENDER_COMP_ID, "CLIENT")
+///     .with(tags::TARGET_COMP_ID, "VENUE")
+///     .with(tags::MSG_SEQ_NUM, 1u64)
+///     .with(tags::SENDING_TIME, UtcTimestamp::now())
+///     .with(tags::ENCRYPT_METHOD, "0")
+///     .with(tags::HEART_BT_INT, "30");
+/// session.on_message(&logon, now);
+/// session.commit_blocking(now); // a driver hands a commit that waits to a blocking thread
+/// assert!(session.is_logged_on());
+/// let turbojet::codec::Decoded::Message(reply, _) = turbojet::codec::decode(session.output()) else {
+///     unreachable!("the session's output is whole messages")
+/// }; // our Logon, to write
+/// assert_eq!(reply.msg_type(), MsgType::Logon);
+/// session.clear_output();
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct Session {
     config: SessionConfig,
     role: Role,

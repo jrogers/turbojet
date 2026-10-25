@@ -70,6 +70,23 @@ impl From<ServerConfig> for FixpAcceptorConfig {
 /// [`FixpAcceptorConfig::max_connections`] connections open at once, and at most
 /// [`max_connections_per_ip`](FixpAcceptorConfig::max_connections_per_ip) from one IP address,
 /// as the FIX [`Acceptor`](crate::Acceptor) does.
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use turbojet::MemoryStorage;
+/// # use turbojet::fixp::*;
+/// # struct Venue;
+/// # impl FixpApplication for Venue {
+/// #     fn on_message(&self, _: &mut FixpContext<'_>, _: Received<'_>) {}
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let server = FixpAcceptor::new(ServerConfig::new("EXCHANGE"), Arc::new(MemoryStorage::new()), Arc::new(Venue))?;
+/// let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await?;
+/// tokio::spawn(server.clone().serve(listener));
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct FixpAcceptor {
     config: FixpConfig,
@@ -300,6 +317,23 @@ impl FixpInitiatorConfig {
 /// A FIXP client of one server: connects, negotiates or establishes, and reconnects as its
 /// policy says, until [shutdown](Self::shutdown). Cheap to clone; clones share the session and
 /// shutdown.
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use turbojet::MemoryStorage;
+/// # use turbojet::fixp::*;
+/// # struct Venue;
+/// # impl FixpApplication for Venue {
+/// #     fn on_message(&self, _: &mut FixpContext<'_>, _: Received<'_>) {}
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let config = FixpInitiatorConfig::new(ClientConfig::new("CLIENT", "EXCHANGE")).with_endpoint("exchange:9000");
+/// let client = FixpInitiator::new(config, Arc::new(MemoryStorage::new()), Arc::new(Venue))?;
+/// tokio::spawn(client.clone().run()); // negotiates, establishes, and re-establishes after a drop
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct FixpInitiator {
     config: Arc<FixpInitiatorConfig>,

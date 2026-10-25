@@ -62,6 +62,19 @@ type FastSet<T> = HashSet<T, Fast>;
 /// Which checks a [`Validator`] makes, and what's done with a message that fails one. The
 /// defaults are QuickFIX's (every check on, user-defined tags checked, failures rejected) but for
 /// one: an unknown code in an application message is let through ([`application_values`](Self::application_values)).
+///
+/// ```no_run
+/// use turbojet::SessionConfig;
+/// use turbojet::validation::{ValidationOptions, Validator};
+/// use turbojet_dictionary::Dictionary;
+///
+/// let dict = Dictionary::load("FIX44.xml")?;
+/// let mut options = ValidationOptions::default(); // QuickFIX's defaults
+/// options.allow_user_defined_tags = true; // a venue's tags from 5000 up
+/// options.application_values = true; // reject codes the dictionary doesn't list, in any message
+/// let config = SessionConfig::new("FIX.4.4", "VENUE").with_validator(Validator::new(&dict).with_options(options));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ValidationOptions {

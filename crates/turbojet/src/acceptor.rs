@@ -26,6 +26,20 @@ use crate::telemetry;
 /// An [`Acceptor`]'s configuration: its sessions' settings, and how it accepts connections. Fixed
 /// once the acceptor is made, except the allowed addresses
 /// ([`Acceptor::set_allowed_ips`]).
+///
+/// ```
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+/// config.max_connections_per_ip = 4;
+/// config.allowed_ips = Some(AllowedIps::new(["10.0.0.0/8"])?);
+/// let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct AcceptorConfig {
@@ -115,6 +129,29 @@ const REFUSALS_REPORTED_EVERY: Duration = Duration::from_secs(60);
 /// It keeps at most [`AcceptorConfig::max_connections`] connections open at once, and at most
 /// [`max_connections_per_ip`](AcceptorConfig::max_connections_per_ip) from one IP address,
 /// closing any past either as soon as it's accepted.
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let storage = Arc::new(DiskStorage::new("./store")?);
+/// let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), storage, Arc::new(App))?;
+/// let listener = tokio::net::TcpListener::bind("0.0.0.0:9876").await?;
+/// tokio::spawn(acceptor.clone().serve(listener));
+///
+/// // From anywhere: send to a counterparty while it's logged on.
+/// let receipt = acceptor.handle_for("CLIENT1").send("8=FIX.4.4|35=B|148=Hello".parse::<Message>()?)?;
+///
+/// tokio::signal::ctrl_c().await?;
+/// acceptor.shutdown(Some("closing")).await; // logs every session out
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Acceptor {
     config: SessionConfig,

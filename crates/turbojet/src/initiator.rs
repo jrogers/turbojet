@@ -26,6 +26,18 @@ use crate::store::{SessionId, SessionStorage};
 
 /// How an [`Initiator`] logs on and reconnects: [`new`](Self::new) gives the defaults, and the
 /// fields are public to change them.
+///
+/// ```
+/// use std::time::Duration;
+/// use turbojet::{InitiatorConfig, ReconnectPolicy, SessionConfig};
+///
+/// let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE")
+///     .with_endpoint("venue.example.com:9876")
+///     .with_endpoint("dr.venue.example.com:9876"); // a backup, tried in turn
+/// config.heartbeat_interval = Duration::from_secs(30);
+/// config.username = Some("client".into());
+/// config.reconnect = ReconnectPolicy::fixed(Duration::from_secs(5));
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct InitiatorConfig {
@@ -193,6 +205,14 @@ pub(crate) fn endpoints_problem(
 }
 
 /// An address the initiator can connect to.
+///
+/// ```
+/// use turbojet::{Endpoint, InitiatorConfig, SessionConfig};
+///
+/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE")
+///     .with_endpoint("venue.example.com:9876")
+///     .with_endpoint(Endpoint::new("10.1.2.3:9876").with_tls_server_name("venue.example.com"));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Endpoint {
@@ -268,6 +288,26 @@ impl std::fmt::Debug for InitiatorTls {
 ///
 /// All endpoints are assumed to serve the same FIX session (e.g. a counterparty's primary and
 /// disaster-recovery sites), so sequence numbers carry over when failing over.
+///
+/// ```no_run
+/// # use std::sync::Arc;
+/// # use turbojet::*;
+/// # struct App;
+/// # impl Application for App {
+/// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+/// # }
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE").with_endpoint("venue.example.com:9876");
+/// let initiator = Initiator::new(config, Arc::new(DiskStorage::new("./store")?), Arc::new(App))?;
+/// tokio::spawn(initiator.clone().run()); // connects, and reconnects, until shut down
+///
+/// // Valid across reconnects; sends wait in its queue until the session has logged on.
+/// let seq = initiator.handle().send("8=FIX.4.4|35=B|148=Hello".parse::<Message>()?)?.await?;
+/// initiator.shutdown(None).await;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Initiator {
     /// What it connects to and with, shared by clones and replaced whole by

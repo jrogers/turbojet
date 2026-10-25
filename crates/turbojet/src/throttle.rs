@@ -30,6 +30,15 @@ const _: () = assert!(MAX_LIMIT_MESSAGES as usize * std::mem::size_of::<Instant>
 ///
 /// Each connection keeps a ring of the last `messages` times for each limited direction, 16 bytes
 /// a message, allocated when the connection's session is made.
+///
+/// ```
+/// use std::time::Duration;
+/// use turbojet::RateLimit;
+///
+/// let limit: RateLimit = "100/1s".parse()?; // at most 100 in any second
+/// assert_eq!(limit, RateLimit::new(100, Duration::from_secs(1)));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RateLimit {
@@ -150,6 +159,16 @@ impl fmt::Display for Per {
 }
 
 /// What happens to an inbound application message over the limit.
+///
+/// ```
+/// use turbojet::{InboundLimit, SessionConfig};
+///
+/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// // Stop reading while the counterparty is over 50 a second, so TCP slows it down;
+/// // InboundLimit::Reject answers each message over it with a BusinessMessageReject instead.
+/// config.inbound_limit = Some(InboundLimit::Delay("50/1s".parse()?));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InboundLimit {

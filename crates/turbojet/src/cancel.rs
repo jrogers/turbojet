@@ -17,6 +17,15 @@ use crate::store::SessionId;
 /// told to cancel the session's orders, through
 /// [`on_cancel_on_disconnect`](crate::Application::on_cancel_on_disconnect), unless the
 /// counterparty logs back on within `grace`.
+///
+/// ```
+/// use std::time::Duration;
+/// use turbojet::{CancelOnDisconnect, CancelTrigger, SessionConfig};
+///
+/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// // Cancel if a session drops without a Logout and isn't back within 5 s.
+/// config.cancel_on_disconnect = Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(5)));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CancelOnDisconnect {

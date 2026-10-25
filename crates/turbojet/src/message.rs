@@ -274,6 +274,23 @@ pub fn utc_timestamp() -> String {
 /// apart and only its bytes can be read ([`get_bytes`](Self::get_bytes),
 /// [`fields_bytes`](Self::fields_bytes)): the text accessors, [`get`](Self::get) and
 /// [`fields`](Self::fields), leave it out.
+///
+/// ```
+/// use turbojet::message::tags;
+/// use turbojet::{Message, MsgType};
+///
+/// // Build one field by field: the session adds the header when it's sent.
+/// let news = Message::new(MsgType::from_code("B")).with(tags::TEXT, "Markets open");
+/// assert_eq!(news.get(tags::TEXT), Some("Markets open"));
+///
+/// // Or parse one, with `|` or SOH between fields; it prints the same way.
+/// let msg: Message = "8=FIX.4.4|35=D|49=CLIENT|56=VENUE|34=2|11=order-1|38=100".parse()?;
+/// assert_eq!(msg.msg_type(), MsgType::NewOrderSingle);
+/// let qty: u64 = msg.field(tags::ORDER_QTY)?;
+/// assert_eq!(qty, 100);
+/// println!("{msg}");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Clone, Default)]
 pub struct Message {
     /// `tag=value<SOH>` segments. May contain stale segments left behind by [`Message::set`].
@@ -1094,6 +1111,19 @@ pub mod __private {
 /// Defines a repeating group: its fields in order, the first being the *delimiter* that starts
 /// every entry. A field that is itself a group (a nested NumInGroup field) carries that group's
 /// spec.
+///
+/// ```
+/// use turbojet::Message;
+/// use turbojet::message::GroupSpec;
+///
+/// // The Parties group: PartyID(448) starts each entry, then PartyIDSource(447) and PartyRole(452).
+/// const PARTIES: GroupSpec = GroupSpec { fields: &[(448, None), (447, None), (452, None)], lengths: &[0; 3] };
+///
+/// let msg: Message = "8=FIX.4.4|35=D|453=2|448=BROKER|447=D|452=1|448=DESK|447=D|452=24".parse()?;
+/// let parties = msg.group(453, &PARTIES)?;
+/// assert_eq!(parties[1].get(448), Some("DESK"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug)]
 pub struct GroupSpec {
     /// Each field's tag, with the spec of the group it introduces if it's a NumInGroup field.
@@ -1790,6 +1820,24 @@ impl<'a> Iterator for Entries<'a> {
 }
 
 /// A typed message body. Implemented by the structs generated with `fix_message!`.
+///
+/// ```
+/// use turbojet::fields::{Decimal, UtcTimestamp};
+/// use turbojet::{FixMessage, Message};
+/// use turbojet_fix::fix44::{NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
+///
+/// let mut order = NewOrderSingle::new(NewOrderSingleRequired {
+///     cl_ord_id: "order-1".into(),
+///     side: Side::Buy.into(),
+///     transact_time: UtcTimestamp::now(),
+///     ord_type: OrdType::Market.into(),
+/// });
+/// order.order_qty = Some(Decimal::from(100));
+/// let msg: Message = order.into(); // what SessionHandle::send takes
+/// let back = NewOrderSingle::from_message(&msg)?; // or msg.parse::<NewOrderSingle>()
+/// assert_eq!(back.cl_ord_id, "order-1");
+/// # Ok::<(), turbojet::FieldError>(())
+/// ```
 pub trait FixMessage: Sized + Into<Message> {
     /// The message's MsgType(35).
     const MSG_TYPE: MsgType;
@@ -1832,6 +1880,17 @@ pub trait FixMessage: Sized + Into<Message> {
 ///
 /// The owned message is parsed through this, so the two check the same fields and report the
 /// same errors.
+///
+/// ```
+/// use turbojet::{FixMessageRef, Message};
+/// use turbojet_fix::fix44::{NewOrderSingle, NewOrderSingleRef};
+///
+/// let msg: Message = "8=FIX.4.4|35=D|11=order-1|54=1|60=20261025-12:00:00|40=1".parse().unwrap();
+/// let order: NewOrderSingleRef = msg.parse()?; // borrows its strings from msg
+/// assert_eq!(order.cl_ord_id, "order-1");
+/// let kept: NewOrderSingle = order.into_owned(); // to keep it past msg
+/// # Ok::<(), turbojet::FieldError>(())
+/// ```
 pub trait FixMessageRef<'a>: Copy + Sized {
     /// The message's MsgType(35): the owned message's.
     const MSG_TYPE: MsgType = <Self::Owned as FixMessage>::MSG_TYPE;

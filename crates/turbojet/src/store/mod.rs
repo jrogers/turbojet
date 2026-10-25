@@ -24,6 +24,15 @@ use crate::fields::UtcTimestamp;
 /// Two sessions with the same CompIDs are different sessions if their SubIDs, LocationIDs or
 /// qualifier differ, as in QuickFIX: an acceptor takes them from each Logon, and an initiator
 /// from its [`InitiatorConfig`](crate::InitiatorConfig).
+///
+/// ```
+/// use turbojet::SessionId;
+///
+/// // BeginString, our CompID, then the counterparty's: what an acceptor VENUE calls CLIENT1's session.
+/// let id = SessionId::new("FIX.4.4", "VENUE", "CLIENT1").with_target_sub_id("DESK2");
+/// assert_eq!(id.target_comp_id, "CLIENT1");
+/// println!("{id}");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct SessionId {
@@ -211,6 +220,30 @@ impl fmt::Display for SessionId {
 /// A store that opens at once (memory, local files) implements [`open`](SessionStorage::open);
 /// one that waits for a network also overrides [`begin_open`](SessionStorage::begin_open), and
 /// opens in `open` by running that job on the calling thread.
+///
+/// ```
+/// use std::io;
+/// use std::sync::atomic::{AtomicUsize, Ordering};
+/// use turbojet::store::StoredSession;
+/// use turbojet::{DiskStorage, SessionId, SessionStorage};
+///
+/// /// Counts the sessions opened, and keeps them in a `DiskStorage`.
+/// struct Counted {
+///     inner: DiskStorage,
+///     opened: AtomicUsize,
+/// }
+///
+/// impl SessionStorage for Counted {
+///     fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
+///         self.opened.fetch_add(1, Ordering::Relaxed);
+///         self.inner.open(id)
+///     }
+///
+///     fn is_durable(&self) -> bool {
+///         true
+///     }
+/// }
+/// ```
 pub trait SessionStorage: Send + Sync {
     /// Opens session `id`'s stored state, creating it with both sequence numbers at 1 if it does
     /// not exist, on this thread. The engine holds at most one open per session.

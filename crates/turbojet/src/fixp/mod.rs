@@ -94,6 +94,27 @@ pub(crate) fn mask_credentials(frame: &mut [u8]) {
 }
 
 /// An encoded SBE message, header and body, as queued to send on a FIXP session.
+///
+/// ```
+/// use turbojet::fixp::SbeMessage;
+/// use turbojet::sbe::{Encode, SbeError};
+///
+/// // What a generated codec's message implements; here, a header-only stand-in.
+/// struct Ping;
+///
+/// impl Encode for Ping {
+///     const TEMPLATE_ID: u16 = 99;
+///
+///     fn encode_into(&self, out: &mut Vec<u8>) -> Result<(), SbeError> {
+///         out.extend_from_slice(&[0, 0, 99, 0, 1, 0, 1, 0]); // blockLength, templateId, schemaId, version: no body
+///         Ok(())
+///     }
+/// }
+///
+/// let msg = SbeMessage::encode(&Ping)?; // what FixpHandle::send takes
+/// assert_eq!(msg.as_bytes().len(), 8);
+/// # Ok::<(), SbeError>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SbeMessage(Vec<u8>);
 
@@ -375,6 +396,27 @@ pub enum Ended {
 /// queued; in `verify` it refuses the client; in the others it is only logged. Each panic is
 /// logged and counted (`turbojet_application_panics_total`). With `panic = "abort"` the process
 /// stops.
+///
+/// ```
+/// use turbojet::fixp::{ClientLogin, FixpApplication, FixpContext, FixpHandle, Received};
+///
+/// struct Venue;
+///
+/// impl FixpApplication for Venue {
+///     fn verify(&self, client: &ClientLogin<'_>) -> bool {
+///         client.credentials == b"secret" // in whatever form the two sides agree
+///     }
+///
+///     fn on_message(&self, _ctx: &mut FixpContext<'_>, msg: Received<'_>) {
+///         // Decode msg.bytes with the venue's generated SBE codec, and reply with ctx.send.
+///         println!("{:?}: {} bytes{}", msg.seq, msg.bytes.len(), if msg.retransmitted { ", resent" } else { "" });
+///     }
+///
+///     fn on_not_applied(&self, session: &FixpHandle, from: u64, count: u64) {
+///         println!("{} lost {count} from {from}", session.id());
+///     }
+/// }
+/// ```
 pub trait FixpApplication: Send + Sync {
     /// Server: whether a client may negotiate or establish. `false` refuses it as bad
     /// credentials. The default lets every client in.

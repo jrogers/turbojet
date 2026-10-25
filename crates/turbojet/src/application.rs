@@ -29,6 +29,30 @@ use crate::sync::{AtomicBool, Mutex, Ordering};
 /// may have half-modified; in `should_resend` the message is resent; in `on_admin_message`, `on_logon`, `on_logout` or `on_cancel_on_disconnect`
 /// it is only logged. Each panic is logged and counted (`turbojet_application_panics_total`). With
 /// `panic = "abort"` the process stops.
+///
+/// ```
+/// use turbojet::{Application, ConnectionInfo, Context, Disconnect, Message, MessageReject, MsgType, SessionHandle};
+///
+/// struct Desk;
+///
+/// impl Application for Desk {
+///     fn verify_logon(&self, session: &SessionHandle, _logon: &Message, _from: &ConnectionInfo) -> Result<(), String> {
+///         let known = ["CLIENT1", "CLIENT2"].contains(&session.id().target_comp_id.as_str());
+///         if known { Ok(()) } else { Err("unknown CompID".into()) }
+///     }
+///
+///     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+///         match msg.msg_type() {
+///             MsgType::NewOrderSingle => Ok(()), // parse it, act on it, reply with ctx.send
+///             _ => Err(MessageReject::unsupported_message_type()),
+///         }
+///     }
+///
+///     fn on_logout(&self, session: &SessionHandle, ended: Disconnect) {
+///         println!("{} ended: {ended:?}", session.id());
+///     }
+/// }
+/// ```
 pub trait Application: Send + Sync + 'static {
     /// Inspects an inbound Logon before it is accepted: the counterparty's request on an
     /// acceptor, or the reply on an initiator. `connection` describes the transport it arrived
@@ -176,6 +200,28 @@ pub enum Disconnect {
 }
 
 /// Passed to [`Application::on_message`] to reply on the same session.
+///
+/// ```
+/// # use turbojet::*;
+/// struct Echo;
+///
+/// impl Application for Echo {
+///     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+///         if ctx.maybe_redelivered() {
+///             // Handled before a crash, perhaps: look it up before acting on it again.
+///         }
+///         ctx.send(msg.clone()); // replies go out with this message's batch
+///         Ok(())
+///     }
+/// }
+///
+/// // In a unit test: a context for a disconnected session, and what it sent.
+/// let session = SessionHandle::disconnected(SessionId::new("FIX.4.4", "US", "THEM"));
+/// let mut ctx = Context::new(&session);
+/// Echo.on_message(&mut ctx, &"8=FIX.4.4|35=B|148=Hello".parse()?)?;
+/// assert_eq!(ctx.replies().len(), 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub struct Context<'a> {
     session: &'a SessionHandle,
     outbox: Outbox,
@@ -305,6 +351,27 @@ impl<'a> Context<'a> {
 
 /// A message kept in flight after `on_message` returned: see [`Context::hold`]. Released by
 /// [`release`](Self::release), or by dropping it.
+///
+/// ```
+/// # use turbojet::*;
+/// struct Forwarder {
+///     venue: SessionHandle,
+/// }
+///
+/// impl Application for Forwarder {
+///     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+///         let hold = ctx.hold(); // still in flight until released
+///         let (venue, order) = (self.venue.clone(), msg.clone());
+///         tokio::spawn(async move {
+///             if let Ok(receipt) = venue.send_when_ready(order).await {
+///                 let _ = receipt.await; // stored on the venue's session
+///             }
+///             hold.release();
+///         });
+///         Ok(())
+///     }
+/// }
+/// ```
 #[derive(Debug)]
 #[must_use = "dropping a hold releases it"]
 pub struct Hold {
@@ -574,6 +641,24 @@ impl Outbox {
 }
 
 /// Why an application message was not accepted.
+///
+/// ```
+/// use turbojet::message::tags;
+/// use turbojet::{Message, MessageReject};
+///
+/// fn check(order: &Message) -> Result<(), MessageReject> {
+///     let Some(qty) = order.get(tags::ORDER_QTY) else {
+///         return Err(MessageReject::required_tag_missing(tags::ORDER_QTY));
+///     };
+///     if qty == "0" {
+///         return Err(MessageReject::value_incorrect(tags::ORDER_QTY, "quantity must be positive"));
+///     }
+///     Ok(())
+/// }
+///
+/// let order: Message = "8=FIX.4.4|35=D|11=order-1".parse().unwrap();
+/// assert!(check(&order).is_err());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MessageReject {

@@ -15,6 +15,15 @@ use tracing::subscriber::NoSubscriber;
 /// it, from half to all, so that initiators that lost a venue together don't all retry together.
 /// The count starts again once a session has logged on, so a session that drops after running
 /// reconnects after `initial`, while repeated failures back off.
+///
+/// ```
+/// use std::time::Duration;
+/// use turbojet::ReconnectPolicy;
+///
+/// let backoff = ReconnectPolicy::exponential(Duration::from_millis(500), Duration::from_secs(30));
+/// let steady = ReconnectPolicy::fixed(Duration::from_secs(5));
+/// assert!(backoff.check().is_ok() && steady.check().is_ok());
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ReconnectPolicy {

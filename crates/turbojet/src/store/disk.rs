@@ -60,6 +60,18 @@ use crate::fixp::framing::{self, Framed};
 ///
 /// [`with_segment_bytes`]: DiskStorage::with_segment_bytes
 /// [`with_max_session_bytes`]: DiskStorage::with_max_session_bytes
+///
+/// ```
+/// use std::sync::Arc;
+/// use turbojet::{DiskStorage, SessionStorage};
+///
+/// # let dir = tempfile::tempdir()?;
+/// // A journal per session under the directory, synced at every commit unless told otherwise.
+/// let storage = DiskStorage::new(dir.path())?.with_max_session_bytes(256 << 20);
+/// let storage: Arc<dyn SessionStorage> = Arc::new(storage);
+/// assert!(storage.is_durable());
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Debug)]
 pub struct DiskStorage {
     dir: PathBuf,

@@ -68,6 +68,15 @@ impl State {
 /// never forgetting one: opening a new session past the cap fails with
 /// [`io::ErrorKind::QuotaExceeded`], so its Logon is refused, while known sessions reopen as
 /// usual.
+///
+/// ```
+/// use std::sync::Arc;
+/// use turbojet::{MemoryStorage, SessionStorage};
+///
+/// // Survives reconnects, not restarts; each session keeps its newest 16 MiB of sent messages.
+/// let storage: Arc<dyn SessionStorage> = Arc::new(MemoryStorage::new().with_max_session_bytes(16 << 20));
+/// assert!(!storage.is_durable());
+/// ```
 pub struct MemoryStorage {
     /// One per session opened, never removed, at most `max_sessions`. An acceptor opens one for
     /// each CompID that [`Application::verify_logon`](crate::Application::verify_logon) accepts.

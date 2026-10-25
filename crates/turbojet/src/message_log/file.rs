@@ -34,6 +34,19 @@ const GATHER_INTERVAL: Duration = Duration::from_millis(1);
 pub type FinishedHook = Arc<dyn Fn(&Path) + Send + Sync>;
 
 /// How a [`FileMessageLog`] rotates, retains, buffers and finishes its files.
+///
+/// ```no_run
+/// use std::sync::Arc;
+/// use std::time::Duration;
+/// use turbojet::{FileLogOptions, FileMessageLog, SessionConfig};
+///
+/// let mut options = FileLogOptions::default();
+/// options.retention = Some(Duration::from_secs(7 * 365 * 86_400)); // seven years
+/// options.compress = true; // feature gzip
+/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// config.message_log = Some(Arc::new(FileMessageLog::open("/var/log/fix", options)?));
+/// # Ok::<(), std::io::Error>(())
+/// ```
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct FileLogOptions {
