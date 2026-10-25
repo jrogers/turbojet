@@ -16,6 +16,7 @@ pub use by_counterparty::StorageByCounterparty;
 pub use disk::DiskStorage;
 pub use memory::MemoryStorage;
 
+use crate::cancel::CancelOnDisconnect;
 use crate::fields::UtcTimestamp;
 
 /// Identifies a FIX session from the gateway's side.
@@ -116,6 +117,32 @@ impl SessionId {
         present.collect::<Vec<_>>().join(";")
     }
 
+    /// The session a store keyed on these parts, the last a [`key_suffix`](Self::key_suffix):
+    /// `None` if `suffix` isn't one.
+    pub fn from_key(
+        begin_string: impl Into<String>,
+        sender_comp_id: impl Into<String>,
+        target_comp_id: impl Into<String>,
+        suffix: &str,
+    ) -> Option<Self> {
+        let mut id = Self::new(begin_string, sender_comp_id, target_comp_id);
+        for part in suffix.split(';').filter(|part| !part.is_empty()) {
+            let (key, value) = part.split_once('=')?;
+            let value = Some(Self::unescape(value)?);
+            let field = match key {
+                "ss" => &mut id.sender_sub_id,
+                "sl" => &mut id.sender_location_id,
+                "ts" => &mut id.target_sub_id,
+                "tl" => &mut id.target_location_id,
+                "q" => &mut id.qualifier,
+                _ => return None,
+            };
+            *field = value;
+        }
+        // Paired with `key_suffix`: a key read back is the key it was made from.
+        (id.key_suffix() == suffix).then_some(id)
+    }
+
     /// `value` with anything other than ASCII alphanumerics, `.` and `_` percent-encoded, so it
     /// is safe in a file name and can't be confused with a separator.
     pub fn escape(value: &str) -> String {
@@ -126,6 +153,25 @@ impl SessionId {
                 _ => format!("%{b:02X}"),
             })
             .collect()
+    }
+}
+
+impl SessionId {
+    /// Undoes [`escape`](Self::escape): `None` if `value` isn't escaped text.
+    pub(crate) fn unescape(value: &str) -> Option<String> {
+        let mut bytes = Vec::with_capacity(value.len());
+        let mut rest = value.as_bytes();
+        while let Some((&byte, after)) = rest.split_first() {
+            if byte == b'%' {
+                let hex = std::str::from_utf8(after.get(..2)?).ok()?;
+                bytes.push(u8::from_str_radix(hex, 16).ok()?);
+                rest = &after[2..];
+            } else {
+                bytes.push(byte);
+                rest = after;
+            }
+        }
+        String::from_utf8(bytes).ok()
     }
 }
 
@@ -189,6 +235,79 @@ pub trait SessionStorage: Send + Sync {
     /// [`MemoryStorage`]. A store that routes sessions to others is durable
     /// only if every store it can route to is.
     fn is_durable(&self) -> bool;
+
+    /// The sessions with any [`Marks`] set, as a [`Job`] since it may be a query: a registry
+    /// runs it once, before its first logon, so pauses and cancel-on-disconnect countdowns
+    /// survive a restart. The default finds none, for a store that doesn't keep marks (see
+    /// [`StoredSession::marks`]).
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        Job::blocking(|| Ok(Vec::new()))
+    }
+}
+
+/// What an operator or the session itself has marked a session with, which a store may keep so
+/// that a restart finds it: see [`StoredSession::marks`]. A sequence reset leaves them as they
+/// are.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Marks {
+    /// Paused by an operator ([`SessionHandle::pause`](crate::SessionHandle::pause)): its Logons
+    /// are refused until it's resumed.
+    pub paused: bool,
+    /// Logged on with cancel on disconnect, and not ended since in a way that doesn't count, nor
+    /// cancelled: after a restart its countdown starts again, with this grace.
+    pub cancel_on_disconnect: Option<CancelOnDisconnect>,
+}
+
+impl Marks {
+    /// Whether no mark is set.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// A short text form for stores to keep: words separated by spaces, `paused` and
+/// `cancel_on_disconnect=TRIGGER:GRACE_MS` (TRIGGER `disconnect` or `disconnect_or_logout`),
+/// empty for none. [`FromStr`](std::str::FromStr) reads it back.
+impl fmt::Display for Marks {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut words = Vec::new();
+        if self.paused {
+            words.push("paused".to_owned());
+        }
+        if let Some(cancel) = self.cancel_on_disconnect {
+            words.push(format!("cancel_on_disconnect={}:{}", cancel.trigger.label(), cancel.grace.as_millis()));
+        }
+        f.write_str(&words.join(" "))
+    }
+}
+
+impl std::str::FromStr for Marks {
+    type Err = io::Error;
+
+    /// Reads the [`Display`](fmt::Display) form back.
+    fn from_str(s: &str) -> io::Result<Self> {
+        let invalid = |why: String| io::Error::new(io::ErrorKind::InvalidData, format!("marks '{s}': {why}"));
+        let mut marks = Self::default();
+        for word in s.split_whitespace() {
+            match word.split_once('=') {
+                None if word == "paused" => marks.paused = true,
+                Some(("cancel_on_disconnect", value)) => {
+                    let (trigger, grace) =
+                        value.split_once(':').ok_or_else(|| invalid("expected TRIGGER:GRACE_MS".into()))?;
+                    let grace = grace.parse().map_err(|_| invalid(format!("grace '{grace}' isn't milliseconds")))?;
+                    let grace = std::time::Duration::from_millis(grace);
+                    if grace > crate::cancel::MAX_CANCEL_GRACE {
+                        return Err(invalid(format!("grace {grace:?} is over the maximum")));
+                    }
+                    marks.cancel_on_disconnect =
+                        Some(CancelOnDisconnect::new(trigger.parse().map_err(invalid)?, grace));
+                }
+                _ => return Err(invalid(format!("unknown mark '{word}'"))),
+            }
+        }
+        Ok(marks)
+    }
 }
 
 /// A [`StoredSession`] being opened: see [`SessionStorage::begin_open`].
@@ -345,6 +464,25 @@ pub trait StoredSession: Send {
     /// Any failure of the store: the session drops what it couldn't store and disconnects, rather
     /// than send it.
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()>;
+
+    /// The session's marks, as last set: kept through a [`reset`](StoredSession::reset). A store
+    /// that keeps them overrides this, [`set_marks`](StoredSession::set_marks) and
+    /// [`SessionStorage::marked`] together; the defaults keep none, so pauses and countdowns
+    /// last only as long as the process, as with [`MemoryStorage`].
+    fn marks(&self) -> Marks {
+        Marks::default()
+    }
+
+    /// Records the session's marks, durable by the next [`commit`](StoredSession::commit) at the
+    /// latest. The session sets them rarely: at logon, at its end, and for an operator's pause.
+    ///
+    /// # Errors
+    ///
+    /// Any failure of the store.
+    fn set_marks(&mut self, marks: Marks) -> io::Result<()> {
+        let _ = marks;
+        Ok(())
+    }
 }
 
 /// Stored messages and their sequence numbers, in ascending order, as given to
@@ -440,6 +578,39 @@ impl<T: Send + 'static> Job<T> {
             Work::Blocking(job) => tokio::task::spawn_blocking(job),
             Work::Future(job) => tokio::spawn(job),
         }
+    }
+}
+
+impl<T: Send + 'static> Job<T> {
+    /// The job, with `f` applied to what it returns.
+    pub(crate) fn map<U: Send + 'static>(self, f: impl FnOnce(T) -> U + Send + 'static) -> Job<U> {
+        match self.0 {
+            Work::Blocking(job) => Job::blocking(move || job().map(f)),
+            Work::Future(job) => Job::future(async move { job.await.map(f) }),
+        }
+    }
+}
+
+impl<T: Send + 'static> Job<Vec<T>> {
+    /// Runs `jobs` one after another, joining what they return: a blocking job if they all are,
+    /// otherwise a future, which runs the blocking ones on blocking threads.
+    pub(crate) fn concat(jobs: Vec<Self>) -> Self {
+        if jobs.iter().all(|job| matches!(job.0, Work::Blocking(_))) {
+            return Self::blocking(move || {
+                let mut all = Vec::new();
+                for job in jobs {
+                    all.extend(job.run()?);
+                }
+                Ok(all)
+            });
+        }
+        Self::future(async move {
+            let mut all = Vec::new();
+            for job in jobs {
+                all.extend(job.run_async().await?);
+            }
+            Ok(all)
+        })
     }
 }
 
@@ -675,5 +846,40 @@ mod tests {
     #[test]
     fn a_store_of_jobs_conforms() {
         conformance::check_blocking(&deferring::DeferringStorage::deferring_all());
+    }
+
+    #[test]
+    fn marks_read_back_from_their_text() {
+        assert_eq!(Marks::default().to_string(), "");
+        let cancel = CancelOnDisconnect::new(crate::CancelTrigger::Disconnect, std::time::Duration::from_millis(1500));
+        let marks = Marks { paused: true, cancel_on_disconnect: Some(cancel) };
+        assert_eq!(marks.to_string(), "paused cancel_on_disconnect=disconnect:1500");
+        for marks in [marks, Marks::default()] {
+            assert_eq!(marks.to_string().parse::<Marks>().unwrap(), marks);
+        }
+        for bad in [
+            "stopped",
+            "cancel_on_disconnect=disconnect",
+            "cancel_on_disconnect=never:5",
+            "cancel_on_disconnect=disconnect:3600001",
+        ] {
+            assert!(bad.parse::<Marks>().is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn keys_read_back_as_their_sessions() {
+        let full = SessionId::new("FIX.4.4", "GW", "CO")
+            .with_sender_sub_id("D;1")
+            .with_sender_location_id("NY")
+            .with_target_sub_id("T=7")
+            .with_target_location_id("%")
+            .with_qualifier("q");
+        for id in [SessionId::new("FIX.4.4", "GW", "CO"), full] {
+            assert_eq!(SessionId::from_key("FIX.4.4", "GW", "CO", &id.key_suffix()), Some(id));
+        }
+        for bad in ["zz=1", "ss", "ss=%2", "ts=1;ss=2", "ss=a b"] {
+            assert_eq!(SessionId::from_key("FIX.4.4", "GW", "CO", bad), None, "{bad}");
+        }
     }
 }

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::{SessionId, SessionStorage, StoredSession};
+use super::{Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::fields::UtcTimestamp;
 
 #[derive(Debug)]
@@ -19,6 +19,7 @@ struct State {
     evicted_through: Option<u64>,
     created_at: Option<UtcTimestamp>,
     in_flight: Option<u64>,
+    marks: Marks,
 }
 
 impl Default for State {
@@ -31,6 +32,7 @@ impl Default for State {
             evicted_through: None,
             created_at: None,
             in_flight: None,
+            marks: Marks::default(),
         }
     }
 }
@@ -141,6 +143,17 @@ impl SessionStorage for MemoryStorage {
     fn is_durable(&self) -> bool {
         false
     }
+
+    /// Kept for registries made again over the same store, as a test's restart is.
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        let sessions = self.sessions.lock().expect("memory storage lock poisoned");
+        let marked = sessions
+            .iter()
+            .map(|(id, state)| (id.clone(), state.lock().expect("memory storage lock poisoned").marks))
+            .filter(|(_, marks)| !marks.is_empty())
+            .collect();
+        Job::blocking(move || Ok(marked))
+    }
 }
 
 struct MemoryLog {
@@ -190,7 +203,10 @@ impl StoredSession for MemoryLog {
     }
 
     fn reset(&mut self) -> io::Result<()> {
-        *self.state() = State::default();
+        let mut state = self.state();
+        let marks = state.marks;
+        *state = State::default();
+        state.marks = marks;
         Ok(())
     }
 
@@ -223,6 +239,15 @@ impl StoredSession for MemoryLog {
         self.state().created_at = Some(at);
         Ok(())
     }
+
+    fn marks(&self) -> Marks {
+        self.state().marks
+    }
+
+    fn set_marks(&mut self, marks: Marks) -> io::Result<()> {
+        self.state().marks = marks;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -237,6 +262,7 @@ mod tests {
     #[test]
     fn conforms() {
         super::super::conformance::check_blocking(&MemoryStorage::new());
+        super::super::conformance::check_marks_blocking(&MemoryStorage::new());
     }
 
     fn stored(log: &mut Box<dyn StoredSession>) -> Vec<u64> {

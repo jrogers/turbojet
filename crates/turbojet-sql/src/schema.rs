@@ -10,8 +10,9 @@ use crate::log::database;
 /// A session's state, keyed by its BeginString, CompIDs and `extra`, the rest of its ID
 /// ([`SessionId::key_suffix`](turbojet::SessionId::key_suffix), empty for most): its sequence numbers, the incoming messages in flight to the application,
 /// when it was created or last reset (a FIX UTCTimestamp), the highest sequence number whose
-/// message was evicted, the bytes of messages stored, and its lease: who holds it, the token of
-/// the log holding it, and until when (milliseconds since the Unix epoch).
+/// message was evicted, the bytes of messages stored, its [`Marks`](turbojet::store::Marks) in
+/// their text form (NULL for none), and its lease: who holds it, the token of the log holding it,
+/// and until when (milliseconds since the Unix epoch).
 const SESSIONS_SQLITE: &str = "CREATE TABLE IF NOT EXISTS turbojet_sessions (
     id INTEGER PRIMARY KEY,
     begin_string TEXT NOT NULL,
@@ -24,6 +25,7 @@ const SESSIONS_SQLITE: &str = "CREATE TABLE IF NOT EXISTS turbojet_sessions (
     created_at TEXT,
     evicted_through BIGINT,
     stored_bytes BIGINT NOT NULL DEFAULT 0,
+    marks TEXT,
     lease_holder TEXT,
     lease_token TEXT,
     lease_until BIGINT,
@@ -42,6 +44,7 @@ const SESSIONS_POSTGRES: &str = "CREATE TABLE IF NOT EXISTS turbojet_sessions (
     created_at TEXT,
     evicted_through BIGINT,
     stored_bytes BIGINT NOT NULL DEFAULT 0,
+    marks TEXT,
     lease_holder TEXT,
     lease_token TEXT,
     lease_until BIGINT,
@@ -76,25 +79,47 @@ pub async fn migrate(pool: &AnyPool, backend: Backend) -> io::Result<()> {
     tx.execute(messages).await.map_err(database("creating turbojet_messages"))?;
     tx.commit().await.map_err(database("committing the migration"))?;
     match backend {
-        Backend::Sqlite => add_extra_sqlite(pool).await,
-        Backend::Postgres => add_extra_postgres(pool).await,
+        Backend::Sqlite => add_extra_sqlite(pool).await?,
+        Backend::Postgres => add_extra_postgres(pool).await?,
     }
+    add_marks(pool, backend).await
 }
 
 /// Whether `turbojet_sessions` has the `extra` column, which tables made before 0.3 lack.
 async fn has_extra(connection: &mut AnyConnection, backend: Backend) -> io::Result<bool> {
+    has_column(connection, backend, "extra").await
+}
+
+/// Whether `turbojet_sessions` has `column`.
+async fn has_column(connection: &mut AnyConnection, backend: Backend, column: &str) -> io::Result<bool> {
     let query = match backend {
-        Backend::Sqlite => "SELECT COUNT(*) FROM pragma_table_info('turbojet_sessions') WHERE name = 'extra'",
+        Backend::Sqlite => "SELECT COUNT(*) FROM pragma_table_info('turbojet_sessions') WHERE name = $1",
         Backend::Postgres => {
             "SELECT COUNT(*) FROM information_schema.columns
-             WHERE table_schema = current_schema() AND table_name = 'turbojet_sessions' AND column_name = 'extra'"
+             WHERE table_schema = current_schema() AND table_name = 'turbojet_sessions' AND column_name = $1"
         }
     };
     let count: i64 = sqlx::query_scalar(query)
+        .bind(column)
         .fetch_one(&mut *connection)
         .await
-        .map_err(database("looking for turbojet_sessions.extra"))?;
+        .map_err(database("looking for a column of turbojet_sessions"))?;
     Ok(count > 0)
+}
+
+/// Adds `marks` to a table made before 0.6. A second gateway adding it at once fails on the
+/// column it finds there, so it looks again before giving up.
+async fn add_marks(pool: &AnyPool, backend: Backend) -> io::Result<()> {
+    let mut connection = pool.acquire().await.map_err(database("starting the migration"))?;
+    if has_column(&mut connection, backend, "marks").await? {
+        return Ok(());
+    }
+    let added = connection.execute("ALTER TABLE turbojet_sessions ADD COLUMN marks TEXT").await;
+    match added {
+        Ok(_) => Ok(()),
+        Err(_) if has_column(&mut connection, backend, "marks").await? => Ok(()),
+        Err(e) => Err(database("adding turbojet_sessions.marks")(e)),
+    }
 }
 
 /// Adds `extra` to a table made before 0.3, keying sessions on it too. SQLite can't change a
@@ -120,6 +145,7 @@ async fn rebuild_sqlite(connection: &mut AnyConnection) -> io::Result<()> {
     if has_extra(connection, Backend::Sqlite).await? {
         return connection.execute("COMMIT").await.map(drop).map_err(database("committing the migration"));
     }
+    // Tables this old have no `marks`, which the new one has, NULL.
     let columns = "id, begin_string, sender_comp_id, target_comp_id, next_outgoing, next_incoming, in_flight, \
                    created_at, evicted_through, stored_bytes, lease_holder, lease_token, lease_until";
     let new_table = SESSIONS_SQLITE.replace("IF NOT EXISTS turbojet_sessions", "turbojet_sessions_new");

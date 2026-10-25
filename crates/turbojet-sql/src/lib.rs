@@ -57,7 +57,7 @@ use std::time::Duration;
 
 use sqlx::AnyPool;
 use sqlx::any::AnyPoolOptions;
-use turbojet::store::{Job, Opened, SessionId, SessionStorage, StoredSession};
+use turbojet::store::{Job, Marks, Opened, SessionId, SessionStorage, StoredSession};
 
 /// How a [`SqlStorage`] keeps sessions.
 #[derive(Debug, Clone)]
@@ -179,6 +179,10 @@ impl SessionStorage for SqlStorage {
 
     fn is_durable(&self) -> bool {
         true
+    }
+
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        Job::future(log::marked(self.shared.clone()))
     }
 }
 

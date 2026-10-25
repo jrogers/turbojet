@@ -59,12 +59,24 @@ impl CancelTrigger {
         }
     }
 
-    /// The metrics label.
-    fn label(self) -> &'static str {
+    /// The metrics label, and the name stored [`Marks`](crate::store::Marks) give it.
+    pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Disconnect => "disconnect",
             Self::DisconnectOrLogout => "disconnect_or_logout",
         }
+    }
+}
+
+impl std::str::FromStr for CancelTrigger {
+    type Err = String;
+
+    /// The name `Marks` give it: `disconnect` or `disconnect_or_logout`.
+    fn from_str(s: &str) -> Result<Self, String> {
+        [Self::Disconnect, Self::DisconnectOrLogout]
+            .into_iter()
+            .find(|trigger| trigger.label() == s)
+            .ok_or_else(|| format!("unknown cancel trigger '{s}'"))
     }
 }
 

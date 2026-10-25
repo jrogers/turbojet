@@ -5,7 +5,7 @@ use std::fmt;
 use std::io;
 use std::sync::Arc;
 
-use super::{Opened, SessionId, SessionStorage, StoredSession};
+use super::{Job, Marks, Opened, SessionId, SessionStorage, StoredSession};
 
 /// Keeps each listed counterparty's sessions in its own store, and the rest in a default one,
 /// choosing by the counterparty's CompID ([`SessionId::target_comp_id`]).
@@ -42,9 +42,14 @@ impl StorageByCounterparty {
         self
     }
 
-    fn route(&self, id: &SessionId) -> &dyn SessionStorage {
-        self.by_comp_id.get(&id.target_comp_id).unwrap_or(&self.default).as_ref()
+    fn route(&self, id: &SessionId) -> &Arc<dyn SessionStorage> {
+        self.by_comp_id.get(&id.target_comp_id).unwrap_or(&self.default)
     }
+}
+
+/// Whether `a` and `b` are the same store.
+fn same(a: &Arc<dyn SessionStorage>, b: &Arc<dyn SessionStorage>) -> bool {
+    std::ptr::addr_eq(Arc::as_ptr(a), Arc::as_ptr(b))
 }
 
 impl SessionStorage for StorageByCounterparty {
@@ -58,6 +63,33 @@ impl SessionStorage for StorageByCounterparty {
 
     fn is_durable(&self) -> bool {
         self.default.is_durable() && self.by_comp_id.values().all(|storage| storage.is_durable())
+    }
+
+    /// Each store's marked sessions that route to it: one a store keeps for a counterparty
+    /// since routed elsewhere is left out, as opening the session wouldn't find it there.
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        let mut stores: Vec<&Arc<dyn SessionStorage>> = Vec::new();
+        for store in std::iter::once(&self.default).chain(self.by_comp_id.values()) {
+            if !stores.iter().any(|seen| same(seen, store)) {
+                stores.push(store);
+            }
+        }
+        let jobs = stores
+            .into_iter()
+            .map(|store| {
+                let (store, routes) = (store.clone(), self.clone_routes());
+                store
+                    .marked()
+                    .map(move |marked| marked.into_iter().filter(|(id, _)| same(routes.route(id), &store)).collect())
+            })
+            .collect();
+        Job::concat(jobs)
+    }
+}
+
+impl StorageByCounterparty {
+    fn clone_routes(&self) -> Self {
+        Self { default: self.default.clone(), by_comp_id: self.by_comp_id.clone() }
     }
 }
 
@@ -101,6 +133,25 @@ mod tests {
             .with("A", Arc::new(MemoryStorage::new()))
             .with("C", Arc::new(MemoryStorage::new()));
         conformance::check_blocking(&storage);
+        let routed =
+            StorageByCounterparty::new(Arc::new(MemoryStorage::new())).with("H", Arc::new(MemoryStorage::new()));
+        conformance::check_marks_blocking(&routed);
+    }
+
+    /// Each store's marks are listed once, however many counterparties share it, and only for
+    /// sessions that route to it.
+    #[test]
+    fn marked_sessions_come_from_the_store_they_route_to() {
+        let shared: Arc<dyn SessionStorage> = Arc::new(MemoryStorage::new());
+        let default: Arc<dyn SessionStorage> = Arc::new(MemoryStorage::new());
+        let paused = Marks { paused: true, ..Marks::default() };
+        for (store, target) in [(&shared, "A"), (&default, "A"), (&default, "Z")] {
+            store.open(&id(target)).unwrap().set_marks(paused).unwrap();
+        }
+        let storage = StorageByCounterparty::new(default).with("A", shared.clone()).with("B", shared);
+        let mut marked = storage.marked().run().unwrap();
+        marked.sort_by(|a, b| a.0.target_comp_id.cmp(&b.0.target_comp_id));
+        assert_eq!(marked, [(id("A"), paused), (id("Z"), paused)], "the default's A is routed elsewhere");
     }
 
     #[test]

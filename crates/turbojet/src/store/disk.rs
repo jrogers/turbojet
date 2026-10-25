@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
-use super::{Commit, SessionId, SessionStorage, StoredSession};
+use super::{Commit, Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::codec::{Decoded, frame_stored};
 use crate::fields::{FromFix, ToFix, UtcTimestamp};
 use crate::fixp::framing::{self, Framed};
@@ -34,6 +34,8 @@ use crate::fixp::framing::{self, Framed};
 ///   gateway processes cannot share a session.
 /// - `<name>.created`: when the state was created or last reset, as a FIX UTCTimestamp, once
 ///   recorded; used by session schedules. Replaced atomically.
+/// - `<name>.marks`: the session's [`Marks`], in their text form, while any is set. Replaced
+///   atomically, and kept through a reset.
 ///
 /// Opening takes the valid record with the highest generation, in the journal or the seqnums
 /// file. Turbojet 0.1 kept every record in the seqnums file: its stores open as they were, and
@@ -144,6 +146,29 @@ impl SessionStorage for DiskStorage {
     fn is_durable(&self) -> bool {
         true
     }
+
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        let dir = self.dir.clone();
+        Job::blocking(move || marked(&dir))
+    }
+}
+
+/// The sessions under `dir` with a marks file, and their marks. A name that isn't a session's
+/// stem (a file of one's own) is skipped.
+fn marked(dir: &Path) -> io::Result<Vec<(SessionId, Marks)>> {
+    let mut marked = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        let Some(id) = path.file_name().and_then(|name| name.to_str()?.strip_suffix(".marks")).and_then(parse_stem)
+        else {
+            continue;
+        };
+        let marks = read_marks(&path)?;
+        if !marks.is_empty() {
+            marked.push((id, marks));
+        }
+    }
+    Ok(marked)
 }
 
 /// Where a stored message is. Sixteen bytes, as the index holds one per message kept.
@@ -208,6 +233,8 @@ struct DiskLog {
     slot: Option<usize>,
     created_path: PathBuf,
     created_at: Option<UtcTimestamp>,
+    marks_path: PathBuf,
+    marks: Marks,
     sync: bool,
 }
 
@@ -237,6 +264,8 @@ impl DiskLog {
         };
         let total_len = segments.iter().map(|s| s.len).sum();
         let created_at = read_created(&created_path)?;
+        let marks_path = dir.join(format!("{stem}.marks"));
+        let marks = read_marks(&marks_path)?;
         Ok(Self {
             dir: dir.to_path_buf(),
             stem,
@@ -257,6 +286,8 @@ impl DiskLog {
             slot,
             created_path,
             created_at,
+            marks_path,
+            marks,
             sync,
         })
     }
@@ -546,17 +577,42 @@ impl StoredSession for DiskLog {
     }
 
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
-        // Write a temporary file and rename it over the old one, so a crash leaves either time.
-        let temporary = self.created_path.with_extension("created.tmp");
-        let mut file = File::create(&temporary)?;
-        file.write_all(format!("{}\n", at.to_fix()).as_bytes())?;
-        if self.sync {
-            file.sync_all()?;
-        }
-        fs::rename(&temporary, &self.created_path)?;
+        replace(&self.created_path, &format!("{}\n", at.to_fix()), self.sync)?;
         self.created_at = Some(at);
         Ok(())
     }
+
+    fn marks(&self) -> Marks {
+        self.marks
+    }
+
+    /// Rare (a logon, an ending, an operator), so written at once.
+    fn set_marks(&mut self, marks: Marks) -> io::Result<()> {
+        if marks == self.marks {
+            return Ok(());
+        }
+        if marks.is_empty() {
+            remove_files(std::slice::from_ref(&self.marks_path))?;
+        } else {
+            replace(&self.marks_path, &format!("{marks}\n"), self.sync)?;
+        }
+        self.marks = marks;
+        Ok(())
+    }
+}
+
+/// Writes `text` to a temporary file and renames it over `path`, so a crash leaves either the
+/// old contents or the new.
+fn replace(path: &Path, text: &str, sync: bool) -> io::Result<()> {
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".tmp");
+    let temporary = PathBuf::from(temporary);
+    let mut file = File::create(&temporary)?;
+    file.write_all(text.as_bytes())?;
+    if sync {
+        file.sync_all()?;
+    }
+    fs::rename(&temporary, path)
 }
 
 /// The path of segment `number` of the session whose files start `stem`: `<stem>.body` for the
@@ -684,6 +740,14 @@ fn try_lock(file: &File, path: &Path) -> io::Result<()> {
         }
         TryLockError::Error(e) => e,
     })
+}
+
+fn read_marks(path: &Path) -> io::Result<Marks> {
+    match fs::read_to_string(path) {
+        Ok(text) => text.trim().parse().map_err(|e| invalid_data(format!("{}: {e}", path.display()))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Marks::default()),
+        Err(e) => Err(e),
+    }
 }
 
 fn read_created(path: &Path) -> io::Result<Option<UtcTimestamp>> {
@@ -972,6 +1036,19 @@ fn file_stem(id: &SessionId) -> String {
     stem
 }
 
+/// The session whose files start `stem`, undoing [`file_stem`]: `None` for a name that isn't one.
+fn parse_stem(stem: &str) -> Option<SessionId> {
+    let parts: Vec<String> = stem.split('-').map(SessionId::unescape).collect::<Option<_>>()?;
+    match parts.as_slice() {
+        [begin_string, sender, target] => SessionId::from_key(begin_string, sender, target, ""),
+        [begin_string, sender, target, suffix] if !suffix.is_empty() => {
+            SessionId::from_key(begin_string, sender, target, suffix)
+        }
+        _ => None,
+    }
+    .filter(|id| file_stem(id) == stem)
+}
+
 fn invalid_data(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
 }
@@ -979,7 +1056,7 @@ fn invalid_data(msg: String) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::super::commit_now;
-    use super::super::conformance::{app_message, check_blocking, id};
+    use super::super::conformance::{app_message, check_blocking, check_marks_blocking, id};
     use super::*;
 
     fn storage(dir: &tempfile::TempDir) -> DiskStorage {
@@ -995,6 +1072,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         check_blocking(&storage(&dir));
         check_blocking(&DiskStorage::new(dir.path().join("synced")).unwrap());
+        check_marks_blocking(&storage(&dir));
     }
 
     #[test]
@@ -1680,6 +1758,20 @@ mod tests {
         drop(log);
         let mut log = storage(&dir).open(&id("A")).unwrap();
         assert_eq!(log.sent_messages(1, 1).unwrap(), [(1, bytes)]);
+    }
+
+    #[test]
+    fn stems_read_back_as_their_sessions() {
+        let ids = [
+            SessionId::new("FIX.4.4", "GW", "../evil-co/x"),
+            SessionId::new("FIXT.1.1", "GW", "CO").with_target_sub_id("../x").with_qualifier("a;b=c"),
+        ];
+        for id in ids {
+            assert_eq!(parse_stem(&file_stem(&id)), Some(id));
+        }
+        for name in ["notes", "FIX.4.4-GW", "FIX.4.4-GW-CO-", "FIX.4.4-GW-CO-zz%3Dx", "FIX.4.4-G%2"] {
+            assert_eq!(parse_stem(name), None, "{name}");
+        }
     }
 
     #[test]

@@ -5,7 +5,8 @@
 //! [`check`] goes through the store as the session does: it opens with
 //! [`begin_open`](SessionStorage::begin_open), reads with [`fetch`](StoredSession::fetch) and
 //! commits with [`commit`](StoredSession::commit), running whatever jobs they return. It panics on
-//! the first difference, saying what was expected.
+//! the first difference, saying what was expected. A store that keeps [`Marks`] runs
+//! [`check_marks`] too.
 //!
 //! ```no_run
 //! # async fn example(storage: &dyn turbojet::SessionStorage) {
@@ -17,13 +18,13 @@
 use std::collections::BTreeMap;
 use std::io;
 
-use super::{Fetched, Opened, SentMessages, SessionId, SessionStorage, StoredSession};
+use super::{Fetched, Marks, Opened, SentMessages, SessionId, SessionStorage, StoredSession};
 use crate::codec::encode;
 use crate::fields::{MsgType, UtcTimestamp};
 use crate::message::{Message, tags};
 
-/// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `G`, and
-/// `M0` on for [`check_model`].
+/// A session ID for the suite, with counterparty `target`. The suite uses targets `A` to `G`, `H`
+/// for [`check_marks`], and `M0` on for [`check_model`].
 pub fn id(target: &str) -> SessionId {
     SessionId::new("FIX.4.4", "GATEWAY", target)
 }
@@ -101,6 +102,54 @@ pub async fn check(storage: &dyn SessionStorage) {
 pub fn check_blocking(storage: &dyn SessionStorage) {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a runtime starts");
     runtime.block_on(check(storage));
+}
+
+/// For a store that keeps [`Marks`]: they survive reopening and a reset, sessions with any are
+/// listed by [`marked`](SessionStorage::marked) with their full IDs, and cleared ones aren't.
+/// `storage` must hold no marks to begin with. Needs a tokio runtime, as [`check`] does.
+///
+/// # Panics
+///
+/// On the first behaviour that differs from what a registry relies on.
+pub async fn check_marks(storage: &dyn SessionStorage) {
+    assert!(storage.marked().run_async().await.unwrap().is_empty(), "no marks to begin with");
+    let full = id("H").with_target_sub_id("TRADER 7").with_qualifier("a;b");
+    let cancel = crate::CancelOnDisconnect::new(
+        crate::CancelTrigger::DisconnectOrLogout,
+        std::time::Duration::from_millis(2500),
+    );
+    let marks = Marks { paused: true, cancel_on_disconnect: Some(cancel) };
+    let mut log = open(storage, &full).await.unwrap();
+    assert_eq!(log.marks(), Marks::default());
+    log.set_marks(marks).unwrap();
+    log.record_outgoing(1, Some(&app_message(1))).unwrap();
+    commit(log.as_mut()).await.unwrap();
+    drop(log);
+    let mut log = open(storage, &full).await.unwrap();
+    assert_eq!(log.marks(), marks, "marks survive reopening");
+    log.reset().unwrap();
+    commit(log.as_mut()).await.unwrap();
+    drop(log);
+    assert_eq!(open(storage, &full).await.unwrap().marks(), marks, "and a reset");
+    assert_eq!(open(storage, &id("H")).await.unwrap().marks(), Marks::default(), "they're the session's own");
+    assert_eq!(storage.marked().run_async().await.unwrap(), [(full.clone(), marks)]);
+
+    let mut log = open(storage, &full).await.unwrap();
+    log.set_marks(Marks::default()).unwrap();
+    commit(log.as_mut()).await.unwrap();
+    drop(log);
+    assert_eq!(open(storage, &full).await.unwrap().marks(), Marks::default());
+    assert!(storage.marked().run_async().await.unwrap().is_empty(), "a session without marks isn't listed");
+}
+
+/// [`check_marks`] on a runtime of its own, for synchronous tests.
+///
+/// # Panics
+///
+/// As [`check_marks`] does, or if a runtime can't be started.
+pub fn check_marks_blocking(storage: &dyn SessionStorage) {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a runtime starts");
+    runtime.block_on(check_marks(storage));
 }
 
 /// Sequence numbers and messages survive reopening; sessions are independent; a reset clears

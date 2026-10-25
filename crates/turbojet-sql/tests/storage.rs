@@ -75,6 +75,7 @@ const CHECKS: [Check; 6] = [
 
 async fn conforms(database: &Database) {
     conformance::check(&database.store("A", |_| {}).await).await;
+    conformance::check_marks(&database.store("A", |_| {}).await).await;
 }
 
 /// While one gateway holds a session's lease, another can't open it; the same gateway can
@@ -159,12 +160,13 @@ async fn the_oldest_messages_go_past_the_budget(database: &Database) {
     assert_eq!(log.evicted_through(), Some(evicted), "survives reopening");
 }
 
-/// The tables as 0.2 made them, before sessions were keyed on `extra` too.
+/// The tables as 0.2 made them, before sessions were keyed on `extra` too; with EXTRA_COLUMN and
+/// EXTRA_KEY filled in, as 0.3 to 0.5 made them, before `marks`.
 const OLD_SESSIONS: &str = "CREATE TABLE turbojet_sessions (
     id ID_TYPE PRIMARY KEY,
     begin_string TEXT NOT NULL,
     sender_comp_id TEXT NOT NULL,
-    target_comp_id TEXT NOT NULL,
+    target_comp_id TEXT NOT NULL,EXTRA_COLUMN
     next_outgoing BIGINT NOT NULL DEFAULT 1,
     next_incoming BIGINT NOT NULL DEFAULT 1,
     in_flight BIGINT,
@@ -174,7 +176,7 @@ const OLD_SESSIONS: &str = "CREATE TABLE turbojet_sessions (
     lease_holder TEXT,
     lease_token TEXT,
     lease_until BIGINT,
-    UNIQUE (begin_string, sender_comp_id, target_comp_id)
+    UNIQUE (begin_string, sender_comp_id, target_comp_id EXTRA_KEY)
 )";
 const OLD_MESSAGES: &str = "CREATE TABLE turbojet_messages (
     session BIGINT NOT NULL REFERENCES turbojet_sessions (id),
@@ -184,17 +186,19 @@ const OLD_MESSAGES: &str = "CREATE TABLE turbojet_messages (
     PRIMARY KEY (session, seq)
 )";
 
-/// A database made by 0.2, holding a session with a message, migrates on opening: the session
-/// keeps its state and messages, and sessions told apart by a SubID can be added beside it.
-async fn an_old_database_migrates(database: &Database, postgres: bool) {
+/// A database made by 0.2 (or, `keyed`, by 0.3 to 0.5), holding a session with a message,
+/// migrates on opening: the session keeps its state and messages, sessions told apart by a SubID
+/// can be added beside it, and marks kept.
+async fn an_old_database_migrates(database: &Database, postgres: bool, keyed: bool) {
     sqlx::any::install_default_drivers();
     let pool = sqlx::AnyPool::connect(&database.url).await.unwrap();
     let (id_type, body_type) =
         if postgres { ("BIGINT GENERATED ALWAYS AS IDENTITY", "BYTEA") } else { ("INTEGER", "BLOB") };
+    let (extra, key) = if keyed { ("\n    extra TEXT NOT NULL DEFAULT '',", ", extra") } else { ("", "") };
     for sql in [
         "DROP TABLE IF EXISTS turbojet_messages".to_owned(),
         "DROP TABLE IF EXISTS turbojet_sessions".to_owned(),
-        OLD_SESSIONS.replace("ID_TYPE", id_type),
+        OLD_SESSIONS.replace("ID_TYPE", id_type).replace("EXTRA_COLUMN", extra).replace("EXTRA_KEY", key),
         OLD_MESSAGES.replace("BODY_TYPE", body_type),
         "INSERT INTO turbojet_sessions (begin_string, sender_comp_id, target_comp_id, next_outgoing, next_incoming)
          VALUES ('FIX.4.4', 'GATEWAY', 'A', 5, 7)"
@@ -218,12 +222,15 @@ async fn an_old_database_migrates(database: &Database, postgres: bool) {
     assert_eq!(fetch(log.as_mut(), 1, u64::MAX).await.unwrap(), [(2, body)], "and its messages");
     let desk = open(&storage, &id("A").with_target_sub_id("DESK")).await.unwrap();
     assert_eq!(desk.next_incoming(), 1, "a session with a SubID is one of its own");
+    drop((log, desk));
+    conformance::check_marks(&storage).await;
 }
 
 #[cfg(feature = "sqlite")]
 #[tokio::test]
 async fn sqlite() {
-    an_old_database_migrates(&Database::sqlite(), false).await;
+    an_old_database_migrates(&Database::sqlite(), false, false).await;
+    an_old_database_migrates(&Database::sqlite(), false, true).await;
     for check in CHECKS {
         check(&Database::sqlite()).await;
     }
@@ -236,6 +243,7 @@ async fn postgres() {
         eprintln!("TURBOJET_POSTGRES_URL is unset; skipping");
         return;
     };
-    an_old_database_migrates(&database, true).await;
+    an_old_database_migrates(&database, true, false).await;
+    an_old_database_migrates(&database, true, true).await;
     all(&database).await;
 }

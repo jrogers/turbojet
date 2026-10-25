@@ -14,7 +14,7 @@ use sqlx::query::Query;
 use sqlx::{Any, Row};
 use tracing::{debug, info, warn};
 use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
-use turbojet::store::{Commit, Fetched, Job, SentMessages, SessionId, StoredSession};
+use turbojet::store::{Commit, Fetched, Job, Marks, SentMessages, SessionId, StoredSession};
 
 use crate::Shared;
 
@@ -62,7 +62,8 @@ pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn Stor
     .await
     .map_err(database("taking a session's lease"))?;
     let row = sqlx::query(
-        "SELECT id, next_outgoing, next_incoming, in_flight, created_at, evicted_through, lease_holder, lease_until
+        "SELECT id, next_outgoing, next_incoming, in_flight, created_at, evicted_through, marks, lease_holder,
+                lease_until
          FROM turbojet_sessions
          WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3 AND extra = $4",
     )
@@ -111,6 +112,7 @@ struct State {
     next_incoming: u64,
     in_flight: Option<u64>,
     created_at: Option<UtcTimestamp>,
+    marks: Marks,
 }
 
 /// Changes since the last commit.
@@ -139,6 +141,7 @@ impl SqlLog {
             next_incoming: number("next_incoming")?.ok_or_else(|| corrupt("next_incoming", "NULL"))?,
             in_flight: number("in_flight")?,
             created_at,
+            marks: read_marks(row)?,
         };
         assert!(state.next_outgoing >= 1, "a session's next outgoing number is at least 1");
         assert!(state.next_incoming >= 1, "a session's next incoming number is at least 1");
@@ -230,7 +233,8 @@ impl StoredSession for SqlLog {
     }
 
     fn reset(&mut self) -> io::Result<()> {
-        self.state = State { next_outgoing: 1, next_incoming: 1, in_flight: None, created_at: None };
+        let marks = self.state.marks;
+        self.state = State { next_outgoing: 1, next_incoming: 1, in_flight: None, created_at: None, marks };
         self.evicted_through.store(NOT_EVICTED, Ordering::Release);
         self.changes = Changes { dirty: true, reset: true, messages: Vec::new() };
         Ok(())
@@ -259,6 +263,47 @@ impl StoredSession for SqlLog {
         self.changed();
         Ok(())
     }
+
+    fn marks(&self) -> Marks {
+        self.state.marks
+    }
+
+    fn set_marks(&mut self, marks: Marks) -> io::Result<()> {
+        if marks != self.state.marks {
+            self.state.marks = marks;
+            self.changed();
+        }
+        Ok(())
+    }
+}
+
+/// The marks in `row`'s `marks` column.
+fn read_marks(row: &AnyRow) -> io::Result<Marks> {
+    let text: Option<String> = row.try_get("marks").map_err(database("reading a session"))?;
+    text.map_or(Ok(Marks::default()), |text| text.parse().map_err(|_| corrupt("marks", text)))
+}
+
+/// The sessions with marks, for [`SessionStorage::marked`](turbojet::SessionStorage::marked).
+pub async fn marked(shared: Arc<Shared>) -> io::Result<Vec<(SessionId, Marks)>> {
+    let rows = sqlx::query(
+        "SELECT begin_string, sender_comp_id, target_comp_id, extra, marks FROM turbojet_sessions
+         WHERE marks IS NOT NULL",
+    )
+    .fetch_all(&shared.pool)
+    .await
+    .map_err(database("reading marked sessions"))?;
+    let mut marked = Vec::with_capacity(rows.len());
+    for row in rows {
+        let text = |column: &str| -> io::Result<String> { row.try_get(column).map_err(database("reading a session")) };
+        let extra = text("extra")?;
+        let id = SessionId::from_key(text("begin_string")?, text("sender_comp_id")?, text("target_comp_id")?, &extra)
+            .ok_or_else(|| corrupt("extra", &extra))?;
+        let marks = read_marks(&row)?;
+        if !marks.is_empty() {
+            marked.push((id, marks));
+        }
+    }
+    Ok(marked)
 }
 
 impl Drop for SqlLog {
@@ -303,7 +348,7 @@ impl Committing {
         let until = now_millis().saturating_add(millis(shared.config.lease));
         let row = sqlx::query(
             "UPDATE turbojet_sessions SET
-                next_outgoing = $3, next_incoming = $4, in_flight = $5, created_at = $6,
+                next_outgoing = $3, next_incoming = $4, in_flight = $5, created_at = $6, marks = $10,
                 evicted_through = CASE WHEN $7 THEN NULL ELSE evicted_through END,
                 stored_bytes = CASE WHEN $7 THEN 0 ELSE stored_bytes END + $8,
                 lease_until = $9
@@ -319,6 +364,7 @@ impl Committing {
         .bind(changes.reset)
         .bind(signed(added)?)
         .bind(until)
+        .bind((!state.marks.is_empty()).then(|| state.marks.to_string()))
         .fetch_optional(&mut *tx)
         .await
         .map_err(database("committing a session"))?;
