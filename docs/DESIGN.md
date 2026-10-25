@@ -542,6 +542,36 @@ finds the channel empty and goes through the runtime. Once, on a machine loaded 
 event loop stopped for 2.6 s and the session's send queue filled; it didn't recur in eight runs
 after, with garbage collection on or off.
 
+## API conventions
+
+A review of the public API (2026-10-24, against the Rust API Guidelines) settled these, and
+`scripts/check.sh --semver` (cargo-semver-checks against the last release on crates.io) checks
+before a release that the version says what changed. It sees Rust items, not a sessions file's
+keys, and not every change of a type: against 0.4.0 it found the removed and renamed items but
+nothing in turbojet-config, whose keys and `server_tls` changed, so the changelog stays the
+record of what broke.
+
+- **Settings live in configuration structs, not on handles.** `Acceptor`, `Initiator` and the
+  FIXP endpoints are cheap-clone handles with no builder methods: what they're made with is an
+  `AcceptorConfig` or `InitiatorConfig` (and FIXP's twins) around the shared `SessionConfig`,
+  fixed once made but for what's meant to change while running (`set_allowed_ips`,
+  `reconfigure`). Builder methods on the handles had disagreed about whether a clone saw them.
+- **One error type for configuration.** Parsing a value and checking a configuration return
+  `ConfigError`, a `std::error::Error`; the sans-IO constructors return it too rather than
+  panic. `io::Error` is for files and sockets.
+- **A store implements what it's for.** The methods a store needs (durability, the in-flight
+  marker, creation times) have no defaults, so leaving one out doesn't compile.
+- **FIX's spelling, the crate's words.** Types and variants keep FIX's names
+  (`SecurityIDSource`, `ApplVerID`, `CompIDProblem`), so they match the specification; Rust
+  case only splits acronyms in snake case (`ioi_id`). The other side of a session is the
+  counterparty; a limit is `max_` then what it limits.
+- **Named required fields.** A generated message or group with two or more required fields
+  takes them in a `NameRequired` struct, so values of one type (the IDs; LeavesQty, CumQty and
+  AvgPx) can't be swapped unnoticed. It costs FIX 5.0 SP2's release build about 7%.
+- **One path per item.** Modules whose every item is re-exported at the root are private; the
+  layer modules (`store`, `registry`, `session`, ...) stay public. What the macros expand to is
+  in a hidden `message::__private`.
+
 ## Safety and testing
 
 Following [STYLE.md](STYLE.md) (after TigerBeetle's Tiger Style): limits on everything, asserted

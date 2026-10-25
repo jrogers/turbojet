@@ -122,10 +122,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 7. Usability and outreach
 
-- **A review of the public API** (M). For idiomatic Rust and ease of use, before more of it is
-  relied on: naming, builders and configuration, error types, what's public that needn't be, and
-  the path from `cargo add` to a first logged-on session. Checked against the Rust API
-  Guidelines, with `cargo-semver-checks` to catch accidental breaks once it settles.
 - **Caveats worth fixing** (S to M each). Several entries in [CAVEATS.md](CAVEATS.md) are
   limits nobody chose so much as left, and each fixed is one less thing to explain:
   - an operator's pause forgotten on restart, and cancel-on-disconnect countdowns lost with the
@@ -146,7 +142,9 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   material. Wanted: a guide that goes from a first initiator and acceptor to storage, recovery,
   schedules and operations; an architecture overview (the sans-IO session, drivers, registry,
   stores) for contributors, with diagrams, distilled from DESIGN.md; and examples in the crate
-  docs for the main types.
+  docs for the main types. The first session needs smoothing too: without a tracing subscriber
+  an initiator that can't connect is silent, and the README's sketch of both roles doesn't
+  compile as it stands.
 - **A public website** (M). An introduction, the guide and the architecture overview, the
   benchmark numbers, and links to the crates and repository: built from the repository's own
   docs so it doesn't drift from them.

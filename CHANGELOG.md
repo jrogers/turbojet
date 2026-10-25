@@ -23,6 +23,11 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** a FIXT session gives each application version its dictionary with
+  `SessionConfig::with_appl_version(ApplVersion::new(id).with_dictionary(&d))`.
+  `SessionConfig::with_dictionary` and `with_validator` are for FIX 4.x sessions, and refused on
+  FIXT whatever the order of calls; before, they attached to the last version added, so the
+  order of calls decided which version a dictionary checked.
 - **Changed:** renamed, for names that say what things are and match one another: `ApplVerId`
   is `ApplVerID` (FIX's spelling, as the other enums use); `Acceptor::session(comp_id)` is
   `handle_for`; `SessionConfig::send_queue` and `FixpConfig::send_queue` are `max_queued_sends`;
