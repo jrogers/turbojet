@@ -25,6 +25,10 @@ def main(book: Path, out: Path, ref: str) -> None:
     src = book / "src"
     src.mkdir(parents=True)
     shutil.copy(ROOT / "site" / "book.toml", book / "book.toml")
+    # The logo as the book's favicon, in place of mdBook's own.
+    (book / "theme").mkdir()
+    shutil.copy(ROOT / "docs" / "assets" / "logo.svg", book / "theme" / "favicon.svg")
+    shutil.copy(ROOT / "docs" / "assets" / "logo-512.png", book / "theme" / "favicon.png")
 
     guide = ROOT / "docs" / "guide"
     chapters = []
