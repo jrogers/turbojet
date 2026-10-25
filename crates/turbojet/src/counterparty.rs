@@ -105,7 +105,10 @@ impl Counterparty {
 type Adjust = Box<dyn Fn(&mut Counterparty) + Send + Sync>;
 
 /// [`Counterparties`] by CompID: each listed counterparty gets the acceptor's settings changed
-/// its own way, and others get the acceptor's as they are, or are refused.
+/// its own way, and others get the acceptor's as they are, or are refused. A session listed by
+/// its whole [`SessionId`] ([`with_session`](Self::with_session)), to tell apart a
+/// counterparty's sessions with different SubIDs or LocationIDs, takes its own entry over its
+/// CompID's.
 ///
 /// ```
 /// # use std::sync::Arc;
@@ -123,13 +126,14 @@ type Adjust = Box<dyn Fn(&mut Counterparty) + Send + Sync>;
 /// ```
 pub struct CounterpartyMap {
     entries: HashMap<String, Adjust>,
+    sessions: HashMap<SessionId, Adjust>,
     refuse_unknown: bool,
 }
 
 impl CounterpartyMap {
     /// An empty map, which gives every counterparty the acceptor's settings.
     pub fn new() -> Self {
-        Self { entries: HashMap::new(), refuse_unknown: false }
+        Self { entries: HashMap::new(), sessions: HashMap::new(), refuse_unknown: false }
     }
 
     /// Gives counterparty `comp_id` the acceptor's settings changed by `adjust`, replacing any
@@ -141,6 +145,15 @@ impl CounterpartyMap {
         adjust: impl Fn(&mut Counterparty) + Send + Sync + 'static,
     ) -> Self {
         self.entries.insert(comp_id.into(), Box::new(adjust));
+        self
+    }
+
+    /// Gives session `id`, as the acceptor sees it (our CompID as `sender_comp_id`), the
+    /// acceptor's settings changed by `adjust`, over any entry for its CompID: replacing any
+    /// earlier entry for the session.
+    #[must_use]
+    pub fn with_session(mut self, id: SessionId, adjust: impl Fn(&mut Counterparty) + Send + Sync + 'static) -> Self {
+        self.sessions.insert(id, Box::new(adjust));
         self
     }
 
@@ -162,8 +175,11 @@ impl fmt::Debug for CounterpartyMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut comp_ids: Vec<_> = self.entries.keys().collect();
         comp_ids.sort();
+        let mut sessions: Vec<String> = self.sessions.keys().map(ToString::to_string).collect();
+        sessions.sort();
         f.debug_struct("CounterpartyMap")
             .field("comp_ids", &comp_ids)
+            .field("sessions", &sessions)
             .field("refuse_unknown", &self.refuse_unknown)
             .finish()
     }
@@ -178,7 +194,7 @@ impl Counterparties for CounterpartyMap {
         _: &ConnectionInfo,
     ) -> Result<Counterparty, String> {
         let mut counterparty = Counterparty::new(base.clone());
-        match self.entries.get(&id.target_comp_id) {
+        match self.sessions.get(id).or_else(|| self.entries.get(&id.target_comp_id)) {
             Some(adjust) => adjust(&mut counterparty),
             None if self.refuse_unknown => return Err(format!("unknown counterparty '{}'", id.target_comp_id)),
             None => {}
@@ -304,6 +320,29 @@ mod tests {
     #[test]
     fn debug_lists_the_comp_ids() {
         let map = CounterpartyMap::new().with("B", |_| {}).with("A", |_| {}).refuse_unknown();
-        assert_eq!(format!("{map:?}"), r#"CounterpartyMap { comp_ids: ["A", "B"], refuse_unknown: true }"#);
+        assert_eq!(
+            format!("{map:?}"),
+            r#"CounterpartyMap { comp_ids: ["A", "B"], sessions: [], refuse_unknown: true }"#
+        );
+    }
+
+    /// A session listed whole takes its own entry over its CompID's; the CompID's other
+    /// sessions take the CompID's, and, with only sessions listed, are refused.
+    #[test]
+    fn a_session_listed_whole_takes_its_own_entry() {
+        let desk = SessionId::new("FIX.4.4", "GATEWAY", "BROKER").with_target_sub_id("DESK2");
+        let map = CounterpartyMap::new()
+            .with("BROKER", |c| c.config.max_latency = None)
+            .with_session(desk.clone(), |c| c.require_client_certificate = true)
+            .refuse_unknown();
+        let resolve_id = |id: &SessionId| map.resolve(&base(), id, &Message::default(), &ConnectionInfo::default());
+        let own = resolve_id(&desk).unwrap();
+        assert_eq!((own.config.max_latency, own.require_client_certificate), (base().max_latency, true));
+        let other = resolve_id(&desk.clone().with_target_sub_id("DESK3")).unwrap();
+        assert_eq!((other.config.max_latency, other.require_client_certificate), (None, false));
+        let only = CounterpartyMap::new().with_session(desk.clone(), |_| {}).refuse_unknown();
+        let resolve_only = |id: &SessionId| only.resolve(&base(), id, &Message::default(), &ConnectionInfo::default());
+        assert!(resolve_only(&desk).is_ok());
+        assert!(resolve_only(&SessionId::new("FIX.4.4", "GATEWAY", "BROKER")).is_err());
     }
 }

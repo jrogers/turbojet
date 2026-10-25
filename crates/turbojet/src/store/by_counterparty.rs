@@ -8,7 +8,8 @@ use std::sync::Arc;
 use super::{Job, Marks, Opened, SessionId, SessionStorage, StoredSession};
 
 /// Keeps each listed counterparty's sessions in its own store, and the rest in a default one,
-/// choosing by the counterparty's CompID ([`SessionId::target_comp_id`]).
+/// choosing by the counterparty's CompID ([`SessionId::target_comp_id`]), or for a session listed
+/// whole ([`with_session`](Self::with_session)), by its ID.
 ///
 /// An [`Acceptor`](crate::Acceptor) opens a session's log at Logon, and also for an operator's
 /// change to a disconnected session, when there's no Logon to decide from: so a store is chosen
@@ -26,13 +27,14 @@ use super::{Job, Marks, Opened, SessionId, SessionStorage, StoredSession};
 pub struct StorageByCounterparty {
     default: Arc<dyn SessionStorage>,
     by_comp_id: HashMap<String, Arc<dyn SessionStorage>>,
+    by_session: HashMap<SessionId, Arc<dyn SessionStorage>>,
 }
 
 impl StorageByCounterparty {
     /// Keeps every session in `default`, until counterparties are listed with
     /// [`with`](Self::with).
     pub fn new(default: Arc<dyn SessionStorage>) -> Self {
-        Self { default, by_comp_id: HashMap::new() }
+        Self { default, by_comp_id: HashMap::new(), by_session: HashMap::new() }
     }
 
     /// Keeps counterparty `comp_id`'s sessions in `storage`, replacing any earlier entry for it.
@@ -42,8 +44,20 @@ impl StorageByCounterparty {
         self
     }
 
+    /// Keeps session `id` in `storage`, over any entry for its CompID, replacing any earlier
+    /// entry for the session.
+    #[must_use]
+    pub fn with_session(mut self, id: SessionId, storage: Arc<dyn SessionStorage>) -> Self {
+        self.by_session.insert(id, storage);
+        self
+    }
+
     fn route(&self, id: &SessionId) -> &Arc<dyn SessionStorage> {
-        self.by_comp_id.get(&id.target_comp_id).unwrap_or(&self.default)
+        self.by_session.get(id).or_else(|| self.by_comp_id.get(&id.target_comp_id)).unwrap_or(&self.default)
+    }
+
+    fn stores(&self) -> impl Iterator<Item = &Arc<dyn SessionStorage>> {
+        std::iter::once(&self.default).chain(self.by_comp_id.values()).chain(self.by_session.values())
     }
 }
 
@@ -62,14 +76,14 @@ impl SessionStorage for StorageByCounterparty {
     }
 
     fn is_durable(&self) -> bool {
-        self.default.is_durable() && self.by_comp_id.values().all(|storage| storage.is_durable())
+        self.stores().all(|storage| storage.is_durable())
     }
 
     /// Each store's marked sessions that route to it: one a store keeps for a counterparty
     /// since routed elsewhere is left out, as opening the session wouldn't find it there.
     fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
         let mut stores: Vec<&Arc<dyn SessionStorage>> = Vec::new();
-        for store in std::iter::once(&self.default).chain(self.by_comp_id.values()) {
+        for store in self.stores() {
             if !stores.iter().any(|seen| same(seen, store)) {
                 stores.push(store);
             }
@@ -89,7 +103,7 @@ impl SessionStorage for StorageByCounterparty {
 
 impl StorageByCounterparty {
     fn clone_routes(&self) -> Self {
-        Self { default: self.default.clone(), by_comp_id: self.by_comp_id.clone() }
+        Self { default: self.default.clone(), by_comp_id: self.by_comp_id.clone(), by_session: self.by_session.clone() }
     }
 }
 
@@ -97,7 +111,12 @@ impl fmt::Debug for StorageByCounterparty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut comp_ids: Vec<_> = self.by_comp_id.keys().collect();
         comp_ids.sort();
-        f.debug_struct("StorageByCounterparty").field("comp_ids", &comp_ids).finish_non_exhaustive()
+        let mut sessions: Vec<String> = self.by_session.keys().map(ToString::to_string).collect();
+        sessions.sort();
+        f.debug_struct("StorageByCounterparty")
+            .field("comp_ids", &comp_ids)
+            .field("sessions", &sessions)
+            .finish_non_exhaustive()
     }
 }
 
@@ -168,6 +187,21 @@ mod tests {
         assert_eq!(default.open(&id("BROKER")).unwrap().next_incoming(), 1, "not in the default");
         assert_eq!(default.open(&id("OTHER")).unwrap().next_incoming(), 7);
         assert_eq!(broker.open(&id("OTHER")).unwrap().next_incoming(), 1, "not in BROKER's");
-        assert_eq!(format!("{storage:?}"), r#"StorageByCounterparty { comp_ids: ["BROKER"], .. }"#);
+        assert_eq!(format!("{storage:?}"), r#"StorageByCounterparty { comp_ids: ["BROKER"], sessions: [], .. }"#);
+    }
+
+    /// A session listed whole is kept in its own store, over its CompID's.
+    #[test]
+    fn a_session_listed_whole_is_kept_in_its_own_store() {
+        let (broker, desk_store) = (Arc::new(MemoryStorage::new()), Arc::new(MemoryStorage::new()));
+        let desk = id("BROKER").with_target_sub_id("DESK2");
+        let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
+            .with("BROKER", broker.clone())
+            .with_session(desk.clone(), desk_store.clone());
+        storage.open(&desk).unwrap().set_next_incoming(5).unwrap();
+        storage.open(&desk.clone().with_target_sub_id("DESK3")).unwrap().set_next_incoming(6).unwrap();
+        assert_eq!(desk_store.open(&desk).unwrap().next_incoming(), 5);
+        assert_eq!(broker.open(&desk).unwrap().next_incoming(), 1, "not in the CompID's store");
+        assert_eq!(broker.open(&desk.with_target_sub_id("DESK3")).unwrap().next_incoming(), 6);
     }
 }

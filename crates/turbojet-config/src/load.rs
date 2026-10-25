@@ -22,8 +22,8 @@ use crate::Error;
 use crate::raw::ClientCertificate;
 use crate::raw::RawInitiatorKeys;
 use crate::raw::{
-    OverLimit, RawAcceptor, RawApplVersion, RawCancelTrigger, RawFile, RawInitiator, RawPrecision, RawSettings,
-    RawStore, Unknown, parse_duration,
+    OverLimit, RawAcceptor, RawApplVersion, RawCancelTrigger, RawCounterparty, RawFile, RawInitiator, RawPrecision,
+    RawSettings, RawStore, Unknown, parse_duration,
 };
 
 /// The store every file has, without defining it.
@@ -51,8 +51,12 @@ pub(crate) struct Loaded {
 pub(crate) struct AcceptorPart {
     /// The acceptor's configuration: `[acceptor]` and `[defaults]`.
     pub base: SessionConfig,
-    /// Each listed counterparty's settings, by CompID.
+    /// Each listed counterparty's settings, by section name.
     pub listed: HashMap<String, Resolved>,
+    /// The section for each session listed whole, by its ID.
+    pub by_session: HashMap<SessionId, String>,
+    /// The section for each CompID listed, for its sessions not listed whole.
+    pub by_comp_id: HashMap<String, String>,
     /// An unlisted counterparty's settings, `[defaults]` alone; it logs on with them only under
     /// `unknown = "admit"`.
     pub unlisted: Resolved,
@@ -62,9 +66,43 @@ pub(crate) struct AcceptorPart {
 }
 
 impl AcceptorPart {
-    /// The settings for counterparty `comp_id`, listed or not.
-    pub fn settings(&self, comp_id: &str) -> &Resolved {
-        self.listed.get(comp_id).unwrap_or(&self.unlisted)
+    /// The section listing session `id`: its own, or else its CompID's. `None` if it's not
+    /// listed, or isn't one of this acceptor's sessions.
+    pub fn section(&self, id: &SessionId) -> Option<&str> {
+        if id.begin_string != self.base.begin_string || id.sender_comp_id != self.base.sender_comp_id {
+            return None;
+        }
+        // An acceptor's sessions have no qualifier: it's never sent.
+        if id.qualifier.is_some() {
+            return None;
+        }
+        self.by_session.get(id).or_else(|| self.by_comp_id.get(&id.target_comp_id)).map(String::as_str)
+    }
+
+    /// Session `id`'s settings, if it's listed.
+    pub fn listed_for(&self, id: &SessionId) -> Option<&Resolved> {
+        self.section(id).map(|section| &self.listed[section])
+    }
+
+    /// Session `id`'s settings, listed or not.
+    pub fn settings(&self, id: &SessionId) -> &Resolved {
+        self.listed_for(id).unwrap_or(&self.unlisted)
+    }
+
+    /// The settings of counterparty `comp_id`'s session with no SubIDs or LocationIDs.
+    #[cfg(test)]
+    pub fn comp_id_settings(&self, comp_id: &str) -> &Resolved {
+        self.settings(&SessionId::new(&self.base.begin_string, &self.base.sender_comp_id, comp_id))
+    }
+
+    /// A session section `name` is for: the one it lists whole, or a session of its CompID
+    /// with no SubIDs or LocationIDs.
+    pub fn session_of(&self, name: &str) -> Option<SessionId> {
+        let whole = self.by_session.iter().find(|(_, section)| *section == name).map(|(id, _)| id.clone());
+        whole.or_else(|| {
+            let comp_id = self.by_comp_id.iter().find(|(_, section)| *section == name)?.0;
+            Some(SessionId::new(&self.base.begin_string, &self.base.sender_comp_id, comp_id))
+        })
     }
 }
 
@@ -118,9 +156,9 @@ impl Loaded {
         self.stores.get(name).expect("loading checked that every store named exists")
     }
 
-    /// The store the acceptor keeps counterparty `comp_id`'s sessions in.
-    pub fn counterparty_store(&self, comp_id: &str) -> &Arc<dyn SessionStorage> {
-        self.store(&self.acceptor().settings(comp_id).store)
+    /// The store the acceptor keeps session `id` in.
+    pub fn counterparty_store(&self, id: &SessionId) -> &Arc<dyn SessionStorage> {
+        self.store(&self.acceptor().settings(id).store)
     }
 
     /// The store an initiator keeps session `id` in; `memory` for a session no initiator has.
@@ -200,7 +238,7 @@ fn load(raw: RawFile, context: &Context<'_>) -> Result<Loaded, Error> {
         let resolved = resolve_initiator(name, initiator, &raw, context, &stores, &mut dictionaries)?;
         initiators.insert(name.clone(), resolved);
     }
-    check_sessions_unique(&raw, &initiators)?;
+    check_sessions_unique(acceptor.as_ref(), &initiators)?;
     Ok(Loaded { raw, acceptor, initiators, stores })
 }
 
@@ -221,16 +259,38 @@ fn load_acceptor(
     base.check().map_err(|e| Error::at("defaults", "settings", e))?;
     let unlisted = resolve(&raw.defaults, &fixed, "defaults", context, stores, dictionaries)?;
     let mut listed = HashMap::new();
-    for (comp_id, settings) in &raw.counterparty {
-        let section = format!("counterparty {comp_id}");
+    let (mut by_session, mut by_comp_id) = (HashMap::new(), HashMap::new());
+    for (name, counterparty) in &raw.counterparty {
+        let section = format!("counterparty {name}");
+        let RawCounterparty { own, settings } = counterparty;
         let merged = settings.or(&raw.defaults);
         grace_needs_cancel(settings, &merged, &section)?;
         let resolved = resolve(&merged, &fixed, &section, context, stores, dictionaries)?;
-        listed.insert(comp_id.clone(), resolved);
+        listed.insert(name.clone(), resolved);
+        let comp_id = own.target_comp_id.clone().unwrap_or_else(|| name.clone());
+        let earlier = if own.is_whole_session() {
+            let mut id = SessionId::new(&fixed.begin_string, &fixed.sender_comp_id, comp_id);
+            id.sender_sub_id.clone_from(&own.sender_sub_id);
+            id.sender_location_id.clone_from(&own.sender_location_id);
+            id.target_sub_id.clone_from(&own.target_sub_id);
+            id.target_location_id.clone_from(&own.target_location_id);
+            by_session.insert(id, name.clone())
+        } else {
+            by_comp_id.insert(comp_id, name.clone())
+        };
+        if let Some(earlier) = earlier {
+            return Err(Error::at(
+                &section,
+                "target_comp_id",
+                format!("counterparty {earlier} already lists its sessions"),
+            ));
+        }
     }
     Ok(AcceptorPart {
         base,
         listed,
+        by_session,
+        by_comp_id,
         unlisted,
         #[cfg(feature = "tls")]
         tls,
@@ -238,8 +298,13 @@ fn load_acceptor(
 }
 
 /// No two initiators log on to one session, and none to a session the acceptor serves for a
-/// listed counterparty: the two would fight over its sequence numbers.
-fn check_sessions_unique(raw: &RawFile, initiators: &BTreeMap<String, ResolvedInitiator>) -> Result<(), Error> {
+/// listed counterparty: the two would fight over its sequence numbers. A counterparty listed by
+/// CompID is served whatever its SubIDs, so an initiator to it needs a qualifier, or the
+/// counterparty's sessions listed whole.
+fn check_sessions_unique(
+    acceptor: Option<&AcceptorPart>,
+    initiators: &BTreeMap<String, ResolvedInitiator>,
+) -> Result<(), Error> {
     let mut seen: HashMap<SessionId, &str> = HashMap::new();
     for (name, initiator) in initiators {
         let id = initiator.id();
@@ -247,12 +312,9 @@ fn check_sessions_unique(raw: &RawFile, initiators: &BTreeMap<String, ResolvedIn
         if let Some(other) = seen.insert(id.clone(), name) {
             return Err(Error::at(&section, "target_comp_id", format!("initiator {other} already logs on to {id}")));
         }
-        if let Some(acceptor) = &raw.acceptor
-            && acceptor.begin_string == id.begin_string
-            && acceptor.sender_comp_id == id.sender_comp_id
-            && raw.counterparty.contains_key(&id.target_comp_id)
-        {
-            return Err(Error::at(&section, "target_comp_id", format!("the acceptor serves {id}")));
+        if let Some(listing) = acceptor.and_then(|acceptor| acceptor.section(&id)) {
+            let why = format!("the acceptor serves {id}, for counterparty {listing}");
+            return Err(Error::at(&section, "target_comp_id", why));
         }
     }
     Ok(())
@@ -902,17 +964,17 @@ mod tests {
             Some(Duration::from_secs(30)),
             "the defaults are the acceptor's"
         );
-        let broker = &loaded.acceptor().settings("BROKER").counterparty;
+        let broker = &loaded.acceptor().comp_id_settings("BROKER").counterparty;
         assert_eq!(broker.config.max_latency, None);
         assert_eq!(broker.config.outbound_limit, Some(RateLimit::new(100, Duration::from_secs(1))));
         assert_eq!(broker.heartbeat, Duration::from_secs(5)..=Duration::from_secs(60));
         assert!(broker.require_client_certificate);
-        let fund = &loaded.acceptor().settings("FUND").counterparty;
+        let fund = &loaded.acceptor().comp_id_settings("FUND").counterparty;
         assert_eq!(fund.config.max_latency, Some(Duration::from_secs(30)));
         assert!(!fund.require_client_certificate);
-        let other = &loaded.acceptor().settings("OTHER").counterparty;
+        let other = &loaded.acceptor().comp_id_settings("OTHER").counterparty;
         assert_eq!(other.config.max_latency, Some(Duration::from_secs(30)), "unlisted: the defaults");
-        assert_eq!(loaded.acceptor().settings("OTHER").store, MEMORY);
+        assert_eq!(loaded.acceptor().comp_id_settings("OTHER").store, MEMORY);
     }
 
     #[test]
@@ -934,7 +996,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let config = &loaded.acceptor().settings("A").counterparty.config;
+        let config = &loaded.acceptor().comp_id_settings("A").counterparty.config;
         assert_eq!(config.logout_timeout, Duration::from_secs(2));
         assert_eq!(config.schedule, Some("daily 08:00-17:00 mon-fri".parse().unwrap()));
         assert!(!config.check_orig_sending_time && !config.check_header_order && !config.check_empty_values);
@@ -964,7 +1026,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        let cancel = |comp_id| loaded.acceptor().settings(comp_id).counterparty.config.cancel_on_disconnect;
+        let cancel = |comp_id| loaded.acceptor().comp_id_settings(comp_id).counterparty.config.cancel_on_disconnect;
         let grace = |grace| Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, grace));
         assert_eq!(loaded.acceptor().base.cancel_on_disconnect, grace(Duration::from_secs(5)));
         assert_eq!(
@@ -977,16 +1039,20 @@ mod tests {
 
         let loaded =
             load_text("[counterparty.A]\ncancel_on_disconnect = \"disconnect_or_logout\"\n[counterparty.B]").unwrap();
-        let a = loaded.acceptor().settings("A").counterparty.config.cancel_on_disconnect;
+        let a = loaded.acceptor().comp_id_settings("A").counterparty.config.cancel_on_disconnect;
         assert_eq!(a, Some(CancelOnDisconnect::new(CancelTrigger::DisconnectOrLogout, Duration::ZERO)));
-        assert_eq!(loaded.acceptor().settings("B").counterparty.config.cancel_on_disconnect, None, "off by default");
+        assert_eq!(
+            loaded.acceptor().comp_id_settings("B").counterparty.config.cancel_on_disconnect,
+            None,
+            "off by default"
+        );
 
         let opt_in = "[defaults]\ncancel_grace = \"2s\"\n[counterparty.A]\ncancel_on_disconnect = \"disconnect\"";
         let loaded = load_text(opt_in).unwrap();
         assert_eq!(loaded.acceptor().base.cancel_on_disconnect, None, "the defaults' grace alone turns nothing on");
-        let a = loaded.acceptor().settings("A").counterparty.config.cancel_on_disconnect;
+        let a = loaded.acceptor().comp_id_settings("A").counterparty.config.cancel_on_disconnect;
         assert_eq!(a, Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(2))));
-        assert_eq!(loaded.acceptor().settings("OTHER").counterparty.config.cancel_on_disconnect, None);
+        assert_eq!(loaded.acceptor().comp_id_settings("OTHER").counterparty.config.cancel_on_disconnect, None);
     }
 
     #[test]
@@ -1115,10 +1181,11 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(loaded.acceptor().settings("OTHER").store, "main");
-        assert_eq!(loaded.acceptor().settings("SCRATCH").store, MEMORY);
+        assert_eq!(loaded.acceptor().comp_id_settings("OTHER").store, "main");
+        assert_eq!(loaded.acceptor().comp_id_settings("SCRATCH").store, MEMORY);
         assert!(dir.path().join("store").is_dir(), "opened relative to the file");
-        assert!(!Arc::ptr_eq(loaded.counterparty_store("OTHER"), loaded.counterparty_store("SCRATCH")));
+        let store = |comp_id| loaded.store(&loaded.acceptor().comp_id_settings(comp_id).store);
+        assert!(!Arc::ptr_eq(store("OTHER"), store("SCRATCH")));
     }
 
     #[cfg(not(feature = "tls"))]
@@ -1151,8 +1218,8 @@ mod tests {
     fn dictionaries_are_loaded() {
         let orchestra = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
         let loaded = load_in(&orchestra, "[counterparty.A]\ndictionary = \"OrchestraFIX44.xml\"").unwrap();
-        assert!(loaded.acceptor().settings("A").counterparty.config.validator.is_some());
-        assert!(loaded.acceptor().settings("B").counterparty.config.validator.is_none());
+        assert!(loaded.acceptor().comp_id_settings("A").counterparty.config.validator.is_some());
+        assert!(loaded.acceptor().comp_id_settings("B").counterparty.config.validator.is_none());
         let error = error("[defaults]\ndictionary = \"missing.xml\"");
         assert!(error.starts_with("defaults: dictionary: ") && error.contains("missing.xml"), "{error}");
     }
@@ -1165,7 +1232,8 @@ mod tests {
                     [counterparty.A]\ndictionary = \"OrchestraFIX44.xml\"\n\
                     [counterparty.B]\ndictionary = \"OrchestraFIX44.xml\"\nvalidation = { groups = false, application_values = true }";
         let loaded = load_in(&orchestra, text).unwrap();
-        let options = |name| loaded.acceptor().settings(name).counterparty.config.validator.as_ref().unwrap().options();
+        let options =
+            |name| loaded.acceptor().comp_id_settings(name).counterparty.config.validator.as_ref().unwrap().options();
         let (a, b) = (options("A"), options("B"));
         assert!(!a.values && !a.reject_invalid && a.groups && a.formats && !a.application_values);
         // A counterparty's table replaces the defaults' whole.
@@ -1262,8 +1330,8 @@ mod tests {
         let loaded = parse(&format!("{ACCEPTOR}[counterparty.BROKER]\n{INITIATOR}"), &context).unwrap();
         let has_log = |config: &SessionConfig| config.message_log.as_ref().is_some_and(|l| Arc::ptr_eq(l, &log));
         assert!(has_log(&loaded.acceptor().base), "the acceptor's own, for a Logon");
-        assert!(has_log(&loaded.acceptor().settings("BROKER").counterparty.config));
-        assert!(has_log(&loaded.acceptor().settings("OTHER").counterparty.config), "unlisted");
+        assert!(has_log(&loaded.acceptor().comp_id_settings("BROKER").counterparty.config));
+        assert!(has_log(&loaded.acceptor().comp_id_settings("OTHER").counterparty.config), "unlisted");
         assert!(has_log(&loaded.initiators["LSE"].config.session));
     }
 
@@ -1348,13 +1416,54 @@ mod tests {
             ),
             (
                 format!("[counterparty.LSE]\n{INITIATOR}"),
-                "initiator LSE: target_comp_id: the acceptor serves FIX.4.4:VENUE->LSE",
+                "initiator LSE: target_comp_id: the acceptor serves FIX.4.4:VENUE->LSE, for counterparty LSE",
+            ),
+            (
+                format!("[counterparty.LSE]\n{INITIATOR}sender_sub_id = \"D\""),
+                "the acceptor serves FIX.4.4:VENUE/D->LSE, for counterparty LSE",
+            ),
+            (
+                format!(
+                    "[counterparty.DESK]\ntarget_comp_id = \"LSE\"\nsender_sub_id = \"D\"\n{INITIATOR}sender_sub_id = \"D\""
+                ),
+                "the acceptor serves FIX.4.4:VENUE/D->LSE, for counterparty DESK",
+            ),
+            (
+                "[counterparty.LSE]\n[counterparty.ALSO]\ntarget_comp_id = \"LSE\"".to_owned(),
+                "counterparty LSE: target_comp_id: counterparty ALSO already lists its sessions",
             ),
         ];
         for (text, expected) in cases {
             let error = error(&text);
             assert!(error.contains(expected), "{text}\n  gave {error}\n  not {expected}");
         }
+    }
+
+    /// A counterparty's sessions listed whole get their own settings and stores, its others its
+    /// CompID's; an initiator to the CompID may then log on with other SubIDs, or a qualifier.
+    #[test]
+    fn a_counterpartys_sessions_can_be_listed_whole() {
+        let loaded = load_text(&format!(
+            "[store.desk]\nkind = \"memory\"\n\
+             [counterparty.LSE]\nmax_latency = \"5s\"\n\
+             [counterparty.LSE_DESK2]\ntarget_comp_id = \"LSE\"\ntarget_sub_id = \"DESK2\"\nstore = \"desk\"\n\
+             [counterparty.LON]\ntarget_comp_id = \"LONX\"\nsender_location_id = \"UK\"\n\
+             {INITIATOR}qualifier = \"own\"\n\
+             [initiator.LONX]\ntarget_comp_id = \"LONX\"\nsender_location_id = \"US\"\nendpoints = [\"x:1\"]"
+        ))
+        .unwrap();
+        let acceptor = loaded.acceptor();
+        let lse = SessionId::new("FIX.4.4", "VENUE", "LSE");
+        let desk2 = lse.clone().with_target_sub_id("DESK2");
+        assert_eq!(acceptor.section(&desk2), Some("LSE_DESK2"));
+        assert_eq!(acceptor.settings(&desk2).store, "desk");
+        assert_eq!(acceptor.section(&lse.clone().with_target_sub_id("DESK3")), Some("LSE"));
+        assert_eq!(acceptor.settings(&lse).counterparty.config.max_latency, Some(Duration::from_secs(5)));
+        let lon = SessionId::new("FIX.4.4", "VENUE", "LONX").with_sender_location_id("UK");
+        assert_eq!(acceptor.section(&lon), Some("LON"));
+        assert_eq!(acceptor.section(&SessionId::new("FIX.4.4", "VENUE", "LONX")), None, "only that session");
+        assert_eq!(acceptor.session_of("LSE_DESK2"), Some(desk2));
+        assert_eq!(acceptor.session_of("LSE"), Some(lse));
     }
 
     #[cfg(not(feature = "tls"))]

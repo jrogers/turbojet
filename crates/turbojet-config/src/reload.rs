@@ -9,7 +9,7 @@ use crate::Error;
 use crate::load::Loaded;
 use crate::raw::{RawAcceptor, Unknown};
 
-/// What a reload changed: counterparties by CompID, initiators by section name.
+/// What a reload changed: counterparties and initiators by section name.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Changes {
     /// Counterparties listed now that weren't before.
@@ -64,13 +64,15 @@ pub(crate) fn check(old: &Loaded, new: &Loaded) -> Result<(), Error> {
     Ok(())
 }
 
+/// No session's store changes: checked for a session of each section, before and after.
 fn check_counterparty_stores(old: &Loaded, new: &Loaded) -> Result<(), Error> {
-    let comp_ids: BTreeSet<&String> = old.raw.counterparty.keys().chain(new.raw.counterparty.keys()).collect();
-    for comp_id in comp_ids {
-        if let (Some(before), Some(after)) = (store_name(old, comp_id), store_name(new, comp_id))
+    let names: BTreeSet<&String> = old.raw.counterparty.keys().chain(new.raw.counterparty.keys()).collect();
+    for name in names {
+        let Some(id) = new.acceptor().session_of(name).or_else(|| old.acceptor().session_of(name)) else { continue };
+        if let (Some(before), Some(after)) = (store_name(old, &id), store_name(new, &id))
             && before != after
         {
-            return Err(Error::at(&format!("counterparty {comp_id}"), "store", moved(before, after)));
+            return Err(Error::at(&format!("counterparty {name}"), "store", moved(before, after)));
         }
     }
     let (before, after) = (&old.acceptor().unlisted.store, &new.acceptor().unlisted.store);
@@ -84,10 +86,10 @@ fn moved(before: &str, after: &str) -> String {
     format!("can't change from '{before}' to '{after}' until a restart: its sessions are in '{before}'")
 }
 
-/// The store counterparty `comp_id`'s sessions are kept in, if it may log on.
-fn store_name<'a>(loaded: &'a Loaded, comp_id: &str) -> Option<&'a str> {
+/// The store session `id` is kept in, if it may log on.
+fn store_name<'a>(loaded: &'a Loaded, id: &turbojet::SessionId) -> Option<&'a str> {
     let acceptor = loaded.acceptor();
-    match acceptor.listed.get(comp_id) {
+    match acceptor.listed_for(id) {
         Some(resolved) => Some(&resolved.store),
         None if loaded.unknown() == Unknown::Admit => Some(&acceptor.unlisted.store),
         None => None,
@@ -114,11 +116,14 @@ fn check_acceptor(old: &RawAcceptor, new: &RawAcceptor) -> Result<(), Error> {
 /// The counterparties added, changed and removed from `old` to `new`.
 pub(crate) fn changes(old: &Loaded, new: &Loaded) -> Changes {
     let mut changes = Changes::default();
-    for (comp_id, settings) in &new.raw.counterparty {
-        match old.raw.counterparty.get(comp_id) {
-            None => changes.added.push(comp_id.clone()),
-            Some(before) if before.or(&old.raw.defaults) != settings.or(&new.raw.defaults) => {
-                changes.changed.push(comp_id.clone());
+    for (name, after) in &new.raw.counterparty {
+        match old.raw.counterparty.get(name) {
+            None => changes.added.push(name.clone()),
+            Some(before)
+                if before.own != after.own
+                    || before.settings.or(&old.raw.defaults) != after.settings.or(&new.raw.defaults) =>
+            {
+                changes.changed.push(name.clone());
             }
             Some(_) => {}
         }
@@ -171,7 +176,7 @@ pub(crate) fn log_out_removed(loaded: &Loaded, acceptor: &Acceptor) -> Vec<Strin
     let mut logged_out = Vec::new();
     for id in acceptor.sessions() {
         let comp_id = &id.target_comp_id;
-        if loaded.acceptor().listed.contains_key(comp_id) {
+        if loaded.acceptor().section(&id).is_some() {
             continue;
         }
         // By its full ID: a counterparty may have several sessions, one per SubID.

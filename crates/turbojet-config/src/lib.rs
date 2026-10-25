@@ -66,7 +66,11 @@
 //! ([`SessionsFileBuilder::with_store`]), such as a `turbojet-sql` store.
 //!
 //! `[defaults]` and `[counterparty.COMPID]`, a counterparty's keys taking the place of the
-//! defaults' (a list whole): `store` (`memory` by default), `logout_timeout`, `schedule` (as
+//! defaults' (a list whole). A section with `target_comp_id` is named as one likes, and one with
+//! `sender_sub_id`, `sender_location_id`, `target_sub_id` or `target_location_id` (as the
+//! acceptor sees the session: our SubID is the sender's) is for the one session with exactly
+//! those, over its CompID's section; no two sections may list the same sessions. The keys:
+//! `store` (`memory` by default), `logout_timeout`, `schedule` (as
 //! [`SessionSchedule`](turbojet::SessionSchedule) parses it), `holidays` (a file of dates),
 //! `max_latency` (a duration or `off`), `check_orig_sending_time`, `check_header_order`,
 //! `check_empty_values`,
@@ -105,7 +109,9 @@
 //! warning unless `refuse_expired_crls = true`; `pkcs12` and `pkcs12_password_env` in
 //! place of `cert` and `key`, as in `[acceptor]`), and every session key
 //! above but `heartbeat` and `require_client_certificate`, over `[defaults]`. No two initiators
-//! may log on to one session, nor to one the acceptor serves for a listed counterparty.
+//! may log on to one session, nor to one the acceptor serves for a listed counterparty: a
+//! CompID's section serves its sessions whatever their SubIDs, so an initiator to it needs a
+//! qualifier, or the counterparty's sessions listed whole.
 //!
 //! Unknown keys are errors, and every value is checked when the file loads, so a file that loads
 //! has nothing left to fail at a counterparty's Logon. The `[defaults]` are also the acceptor's
@@ -319,7 +325,8 @@ impl SessionsFile {
         self.current.get().unknown()
     }
 
-    /// The counterparties the file lists, by CompID, in order.
+    /// The counterparties the file lists, by section name (the CompID, unless the section sets
+    /// `target_comp_id`), in order.
     pub fn counterparties(&self) -> Vec<String> {
         self.current.get().raw.counterparty.keys().cloned().collect()
     }
@@ -352,13 +359,13 @@ impl SessionsFile {
         self.current.get().acceptor.as_ref().map(|acceptor| acceptor.base.clone())
     }
 
-    /// The configuration the acceptor would give a session with counterparty `comp_id` (its
-    /// TargetCompID), as of the last successful load or reload: a listed counterparty's settings
-    /// over `[defaults]`, or the defaults alone for one the file doesn't list under
-    /// `unknown = "admit"`. `None` if the counterparty would be refused, or the file has no
-    /// `[acceptor]`. For an application that needs a counterparty's settings, its schedule say.
-    pub fn counterparty_config(&self, comp_id: &str) -> Option<SessionConfig> {
-        admitted(&self.current.get(), comp_id).map(|counterparty| counterparty.config.clone())
+    /// The configuration the acceptor would give session `id`, as of the last successful load
+    /// or reload: its section's settings over `[defaults]` (the section listing it whole, or
+    /// else its CompID's), or the defaults alone for one the file doesn't list under
+    /// `unknown = "admit"`. `None` if it would be refused, or the file has no `[acceptor]`. For
+    /// an application that needs a counterparty's settings, its schedule say.
+    pub fn counterparty_config(&self, id: &SessionId) -> Option<SessionConfig> {
+        admitted(&self.current.get(), id).map(|counterparty| counterparty.config.clone())
     }
 
     /// An acceptor serving `app` as the file says, if it has `[acceptor]`: its counterparties'
@@ -492,16 +499,14 @@ impl Counterparties for Resolver {
         _: &Message,
         _: &ConnectionInfo,
     ) -> Result<Counterparty, String> {
-        let comp_id = &id.target_comp_id;
-        admitted(&self.0.get(), comp_id).cloned().ok_or_else(|| format!("unknown counterparty '{comp_id}'"))
+        admitted(&self.0.get(), id).cloned().ok_or_else(|| format!("unknown counterparty session {id}"))
     }
 }
 
-/// The settings counterparty `comp_id` logs on to the acceptor with, if the file has one and
-/// admits it.
-fn admitted<'a>(loaded: &'a Loaded, comp_id: &str) -> Option<&'a Counterparty> {
+/// The settings session `id` logs on to the acceptor with, if the file has one and admits it.
+fn admitted<'a>(loaded: &'a Loaded, id: &SessionId) -> Option<&'a Counterparty> {
     let acceptor = loaded.acceptor.as_ref()?;
-    match acceptor.listed.get(comp_id) {
+    match acceptor.listed_for(id) {
         Some(resolved) => Some(&resolved.counterparty),
         None if loaded.unknown() == Unknown::Admit => Some(&acceptor.unlisted.counterparty),
         None => None,
@@ -513,11 +518,11 @@ struct Router(Arc<Current>);
 
 impl SessionStorage for Router {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
-        self.0.get().counterparty_store(&id.target_comp_id).open(id)
+        self.0.get().counterparty_store(id).open(id)
     }
 
     fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
-        self.0.get().counterparty_store(&id.target_comp_id).begin_open(id)
+        self.0.get().counterparty_store(id).begin_open(id)
     }
 
     /// Whether every store a counterparty can log on to, as the file current now says, is.

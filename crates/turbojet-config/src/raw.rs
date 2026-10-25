@@ -16,9 +16,62 @@ pub(crate) struct RawFile {
     #[serde(default)]
     pub defaults: RawSettings,
     #[serde(default)]
-    pub counterparty: BTreeMap<String, RawSettings>,
+    pub counterparty: BTreeMap<String, RawCounterparty>,
     #[serde(default)]
     pub initiator: BTreeMap<String, RawInitiator>,
+}
+
+/// `[counterparty.NAME]`: which sessions it's for, and session keys over `[defaults]`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct RawCounterparty {
+    pub own: RawCounterpartyKeys,
+    pub settings: RawSettings,
+}
+
+/// Which sessions a counterparty's section is for: NAME is the CompID unless `target_comp_id`
+/// says otherwise, and with SubIDs or LocationIDs it's for the one session with exactly those.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawCounterpartyKeys {
+    pub target_comp_id: Option<String>,
+    pub sender_sub_id: Option<String>,
+    pub sender_location_id: Option<String>,
+    pub target_sub_id: Option<String>,
+    pub target_location_id: Option<String>,
+}
+
+impl RawCounterpartyKeys {
+    /// Whether the section is for one session rather than every session of its CompID.
+    pub fn is_whole_session(&self) -> bool {
+        self.sender_sub_id.is_some()
+            || self.sender_location_id.is_some()
+            || self.target_sub_id.is_some()
+            || self.target_location_id.is_some()
+    }
+}
+
+/// The names of [`RawCounterpartyKeys`]' fields, by which a counterparty's table is split.
+const COUNTERPARTY_KEYS: &[&str] =
+    &["target_comp_id", "sender_sub_id", "sender_location_id", "target_sub_id", "target_location_id"];
+
+impl<'de> Deserialize<'de> for RawCounterparty {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (own, settings) = split(toml::Table::deserialize(deserializer)?, COUNTERPARTY_KEYS)?;
+        Ok(Self { own, settings })
+    }
+}
+
+/// A table split into the keys `own` names, as `O`, and the session keys, as [`RawSettings`]:
+/// serde can't flatten into a struct that denies unknown fields.
+fn split<O: serde::de::DeserializeOwned, E: serde::de::Error>(
+    table: toml::Table,
+    own: &[&str],
+) -> Result<(O, RawSettings), E> {
+    let (mine, settings): (toml::Table, toml::Table) =
+        table.into_iter().partition(|(key, _)| own.contains(&key.as_str()));
+    let mine = O::deserialize(toml::Value::Table(mine)).map_err(E::custom)?;
+    let settings = RawSettings::deserialize(toml::Value::Table(settings)).map_err(E::custom)?;
+    Ok((mine, settings))
 }
 
 /// `[initiator.NAME]`: the initiator's own keys, and session keys over `[defaults]`.
@@ -85,12 +138,7 @@ const INITIATOR_KEYS: &[&str] = &[
 
 impl<'de> Deserialize<'de> for RawInitiator {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        use serde::de::Error as _;
-        let table = toml::Table::deserialize(deserializer)?;
-        let (own, settings): (toml::Table, toml::Table) =
-            table.into_iter().partition(|(key, _)| INITIATOR_KEYS.contains(&key.as_str()));
-        let own = RawInitiatorKeys::deserialize(toml::Value::Table(own)).map_err(D::Error::custom)?;
-        let settings = RawSettings::deserialize(toml::Value::Table(settings)).map_err(D::Error::custom)?;
+        let (own, settings) = split(toml::Table::deserialize(deserializer)?, INITIATOR_KEYS)?;
         Ok(Self { own, settings })
     }
 }
@@ -437,7 +485,7 @@ mod tests {
         assert_eq!(file.defaults.cancel_on_disconnect, Some(RawCancelTrigger::DisconnectOrLogout));
         assert_eq!(file.defaults.cancel_grace.as_deref(), Some("5s"));
         assert_eq!(
-            file.counterparty["FUND"].appl_versions,
+            file.counterparty["FUND"].settings.appl_versions,
             Some(vec![
                 RawApplVersion::Code("9".into()),
                 RawApplVersion::WithDictionary { id: "8".into(), dictionary: "FIX50SP1.xml".into() }

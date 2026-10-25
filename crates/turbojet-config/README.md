@@ -46,7 +46,8 @@ let initiators = sessions.initiators(app)?;      // each [initiator] on its own 
 let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
 ```
 
-- Each counterparty's settings are its own keys over `[defaults]`: schedule and holidays, rate
+- Each counterparty's settings are its own keys over `[defaults]`, for all its sessions, or with
+  `target_comp_id` and SubIDs or LocationIDs for one of them: schedule and holidays, rate
   limits, SendingTime tolerance, validation against a dictionary, the HeartBtInt it may ask for,
   whether it must present a TLS client certificate, cancel on disconnect, and the store its
   sessions are kept in.

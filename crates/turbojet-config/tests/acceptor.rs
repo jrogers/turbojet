@@ -180,6 +180,11 @@ async fn a_bad_reload_keeps_the_file_in_use() {
         ),
         (FILE.replace("\"VENUE\"", "\"OTHER\""), "acceptor: sender_comp_id: can't change until a restart"),
         (FILE.replace("store = \"broker\"", "store = \"memory\""), "counterparty BROKER: store: can't change"),
+        // A session of BROKER's, listed whole, would move out of BROKER's store.
+        (
+            format!("{FILE}[counterparty.BROKER_DESK]\ntarget_comp_id = \"BROKER\"\ntarget_sub_id = \"D\"\n"),
+            "counterparty BROKER_DESK: store: can't change from 'broker' to 'memory'",
+        ),
         ("[acceptor".to_string(), "TOML parse error"),
     ] {
         venue.rewrite(&text);
@@ -199,7 +204,12 @@ fn with_max_latency(text: &str) -> String {
 #[tokio::test]
 async fn counterparty_config_is_a_listed_counterpartys_over_the_defaults() {
     let venue = Venue::start(&with_max_latency(FILE)).await;
-    let config = |comp_id| venue.sessions.counterparty_config(comp_id).map(|config| config.max_latency);
+    let config = |comp_id| {
+        venue
+            .sessions
+            .counterparty_config(&SessionId::new("FIX.4.4", "VENUE", comp_id))
+            .map(|config| config.max_latency)
+    };
     assert_eq!(config("BROKER"), Some(Some(Duration::from_secs(5))), "its own value");
     assert_eq!(config("FUND"), Some(Some(Duration::from_secs(30))), "the default");
     assert_eq!(config("STRANGER"), None, "refused, unlisted");
@@ -208,7 +218,7 @@ async fn counterparty_config_is_a_listed_counterpartys_over_the_defaults() {
 #[tokio::test]
 async fn counterparty_config_under_admit_is_the_defaults_for_the_unlisted() {
     let venue = Venue::start(&with_max_latency(&FILE.replace("listen", "unknown = \"admit\"\nlisten"))).await;
-    let config = venue.sessions.counterparty_config("STRANGER").expect("admitted");
+    let config = venue.sessions.counterparty_config(&SessionId::new("FIX.4.4", "VENUE", "STRANGER")).expect("admitted");
     assert_eq!(config.max_latency, Some(Duration::from_secs(30)));
 }
 
@@ -217,7 +227,7 @@ async fn counterparty_config_follows_a_reload() {
     let venue = Venue::start(&with_max_latency(FILE)).await;
     venue.rewrite(&with_max_latency(FILE).replace("\"5s\"", "\"7s\""));
     venue.reload().unwrap();
-    let config = venue.sessions.counterparty_config("BROKER").unwrap();
+    let config = venue.sessions.counterparty_config(&SessionId::new("FIX.4.4", "VENUE", "BROKER")).unwrap();
     assert_eq!(config.max_latency, Some(Duration::from_secs(7)));
 }
 
