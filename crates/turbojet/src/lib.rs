@@ -17,8 +17,8 @@
 //!
 //! ```toml
 //! [dependencies]
-//! turbojet = "0.2"
-//! turbojet-fix = { version = "0.4", features = ["fix44"] }
+//! turbojet = "0.5"
+//! turbojet-fix = { version = "0.5", features = ["fix44"] }
 //! tokio = { version = "1", features = ["full"] }
 //! chrono = "0.4"
 //! ```

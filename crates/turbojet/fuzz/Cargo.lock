@@ -891,7 +891,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "chrono",
  "compact_str",
@@ -903,7 +903,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-fast"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "roxmltree",
  "turbojet",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-fix"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "turbojet",
 ]

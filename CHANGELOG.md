@@ -2,7 +2,13 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.5.0 (2026-10-25)
+
+Most of this release comes from a review of the public API, and much of it breaks code written
+for 0.4: each such change is marked **Changed**. What an acceptor or initiator is made with is
+in its configuration (`AcceptorConfig`, `InitiatorConfig`), generated messages take their
+required fields by name, and several names changed. A sessions file using a renamed key is
+refused with the key's new name.
 
 ### `turbojet-dictionary`
 
