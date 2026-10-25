@@ -16,8 +16,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   of the message. Encoding needs the message's fields
   in the template's order, and doesn't encode dynamic template references. A decoder that hits an
   error can't know the encoder's previous values any more: reset it where the feed next resets.
-- Python bindings: an `AppMessage` that's never `done()` stays held, even once Python drops it,
-  so its session stops reading 256 messages later. The hooks given to `turbojet.load` run with
+- Python bindings: an `AppMessage` that's never `done()` stays held, even once Python drops it
+  (which warns, with a `RuntimeWarning`), so its session stops reading 256 messages later. The hooks given to `turbojet.load` run with
   the GIL on the session's task, so a slow one, or Python busy elsewhere, holds the session up.
   Initiators only: no acceptor and no FIXP sessions. One asyncio loop handles about 100,000 round
   trips a second (see DESIGN.md). `log_to_stderr` writes to stderr, not to Python's `logging`.
@@ -25,8 +25,11 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
-- A held message (`Context::hold`) is redelivered after any connection ends while it's held, a
-  clean logout included, even if it's released meanwhile: holds end with their connection. A
+- A held message (`Context::hold`) is redelivered after a connection ends while it's held, a
+  clean logout included, unless it's released before the session connects again: a release
+  then moves the stored marker on, from a task of its own, which opens the session's log (and
+  holds the session meanwhile, so a Logon at that moment is refused as already connected). A
+  release with no tokio runtime current leaves the marker. A
   session 256 messages past an unreleased hold reads nothing more until it's released. A custom
   store that makes each change durable as it's made should implement
   `StoredSession::set_next_incoming_in_flight` as one change, or a crash between its two calls can

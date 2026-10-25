@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- A hold released after its connection ended moves the stored in-flight marker on, so the next
+  connection no longer asks for the message again; before, holds ended with their connection,
+  and a released message was redelivered after any logout.
 - `AcceptorConfig::proxy_protocol` (and `FixpAcceptorConfig`'s): connections from the listed
   load balancers or proxies must start with a PROXY protocol header, version 1 or 2, and are
   taken as coming from the client it names, for the allowed addresses, the per-address limit and
@@ -58,6 +61,8 @@ Notable changes to the published crates.
 
 ### Python bindings (`crates/turbojet-python`, not published)
 
+- An `AppMessage` dropped without `done()` warns with a `RuntimeWarning`, since it stays held and
+  holds its session up 256 messages on.
 - **Changed:** `Session.pause` and `resume` are awaitable, returning once the change is stored.
 
 ### `turbojet-config`

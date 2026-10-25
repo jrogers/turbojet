@@ -1076,8 +1076,9 @@ released. It reads on meanwhile, up to 1 MiB, so a counterparty that closes the 
 (what was read and not handed over is resent on the next one) and one that goes quiet is sent
 TestRequests and disconnected; past 1 MiB it stops reading, TCP slows the counterparty, and the
 wait doesn't count as its silence.
-Holds end with their connection: one released after it does nothing, and the next connection
-starts from the marker, as after a crash. Each release costs one message to the session's task.
+A hold released after its connection ended moves the stored marker on, so the next connection
+doesn't ask for the message again; one released only once the session has connected again is
+asked for again, as after a crash. Each release costs one message to the session's task.
 A session waiting for a release logs a warning, once per connection, and sets the
 `turbojet_held_back` gauge (feature `metrics`). `Context::new`, for unit tests, and replays
 (`turbojet::replay`) give holds that do nothing. Holds aren't available on FIXP sessions.

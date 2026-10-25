@@ -230,8 +230,16 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   reference per held message, sorted by MsgSeqNum, and the oldest live one is the marker at each
   commit. A release wakes the connection with `Command::HoldReleased` on the session's own control
   queue, at most one waiting at a time (a flag the session clears as it looks), so releases never
-  crowd out logouts or operator commands, and a release after the connection has ended goes
-  nowhere. Nothing is allocated until the first hold, so the allocation budget is unchanged.
+  crowd out logouts or operator commands. A session that ends with messages held hands their
+  weak references, the marker it left and its next incoming number to what its holds share; a
+  release after that works out where the marker belongs (the oldest still held, or none) and
+  one task at a time moves it there through the registry, as an operator's change to a
+  disconnected session is made, only if the store still has the marker the session left: a
+  connection since has asked from it already, and a failed last commit left another. Releases
+  while connected check one atomic flag for this and take no lock. The simulator runs no tokio
+  runtime, so there a release after its connection does nothing, as before; session tests cover
+  it. Nothing is allocated until
+  the first hold, so the allocation budget is unchanged.
   The session clears the flag with a swap, not a store, so the relaxed loads of the holds' counts
   that follow can't run before it (on ARM64 a store can wait in a buffer) and lose a wake-up.
   A session waiting for a release warns once per connection and sets `turbojet_held_back`; replays

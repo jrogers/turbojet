@@ -124,8 +124,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 - **Caveats worth fixing** (S to M each). Several entries in [CAVEATS.md](CAVEATS.md) are
   limits nobody chose so much as left, and each fixed is one less thing to explain:
-  - a held message redelivered after a clean logout even when it was released meanwhile; and in
-    Python, an `AppMessage` dropped without `done()` holding its session up for good;
   - no early closes in a holiday calendar;
 - **Fuller documentation** (M to L). The README is long and the crate docs are reference
   material. Wanted: a guide that goes from a first initiator and acceptor to storage, recovery,
