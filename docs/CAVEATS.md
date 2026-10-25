@@ -71,8 +71,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   step to well within the lease. A log closed without a tokio runtime to give its lease up on
   leaves it to expire.
 - An operator change to a disconnected session runs a store's blocking commit (`DiskStorage`
-  with fsync) on the calling task, as it always has: rare, but it holds a runtime worker for the
-  fsync.
+  with fsync) on the calling task. On a multi-threaded runtime the worker's other tasks move to
+  another thread meanwhile; on a current-thread runtime they wait for the fsync.
 - A weekly schedule honours only a holiday on its start day: a mid-week holiday doesn't close it.
   Holidays don't shorten a day either (no early closes).
 - A schedule time skipped by a clock change of three hours or more (Samoa skipping 2011-12-30) is

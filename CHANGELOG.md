@@ -10,6 +10,9 @@ Notable changes to the published crates.
   message they don't belong to, leaving tags from 5000 up to `allow_user_defined_tags` (QuickFIX's
   AllowUnknownMsgFields=Y). Before, accepting them below 5000 meant accepting them from 5000 up
   too.
+- An operator change to a disconnected session (`SessionHandle::set_next_outgoing` and the
+  like) no longer holds up the other tasks on its runtime worker while a store's blocking commit
+  runs: on a multi-threaded runtime they move to another thread for the fsync.
 
 ### `turbojet-config`
 

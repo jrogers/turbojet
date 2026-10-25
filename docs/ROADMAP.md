@@ -128,7 +128,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     process;
   - a held message redelivered after a clean logout even when it was released meanwhile; and in
     Python, an `AppMessage` dropped without `done()` holding its session up for good;
-  - an operator change to a disconnected session running a store's fsync on the calling task;
   - a weekly schedule ignoring mid-week holidays, no early closes, and clock changes of three
     hours or more resolved with the wrong offset;
   - counterparty settings and stores chosen by CompID alone, and the sessions file refusing an

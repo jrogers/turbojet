@@ -417,12 +417,19 @@ impl<T: Send + 'static> Job<T> {
         self.spawn().await.unwrap_or_else(|e| Err(io::Error::other(format!("the store's job failed: {e}"))))
     }
 
-    /// Runs the job in this task: a blocking job on this thread, which it blocks, and a future
-    /// awaited here. For rare work outside a connection (operator changes to a disconnected
-    /// session), which mustn't depend on a tokio runtime to spawn on.
+    /// Runs the job in this task: a blocking job on this thread, and a future awaited here. For
+    /// rare work outside a connection (operator changes to a disconnected session), which mustn't
+    /// depend on a tokio runtime to spawn on, nor go on once its caller gives up. On a
+    /// multi-threaded runtime's worker, a blocking job hands the worker's other tasks to another
+    /// thread first, so an fsync doesn't hold them up; on a current-thread runtime it blocks.
     pub(crate) async fn run_here(self) -> io::Result<T> {
         match self.0 {
-            Work::Blocking(job) => job(),
+            Work::Blocking(job) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                    tokio::task::block_in_place(job)
+                }
+                _ => job(),
+            },
             Work::Future(job) => job.await,
         }
     }

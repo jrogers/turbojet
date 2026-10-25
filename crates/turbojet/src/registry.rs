@@ -1461,6 +1461,8 @@ impl std::error::Error for CommandError {}
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
     use std::time::Duration;
 
     use super::*;
@@ -1580,6 +1582,33 @@ mod tests {
         *storage.job.lock().unwrap() = Arc::new(|| Err(io::Error::other("connection refused")));
         assert!(matches!(handle.set_next_outgoing(10).await, Err(SequenceError::Storage(_))));
         assert!(registry.sessions().is_empty(), "released after a failed opening");
+    }
+
+    /// An offline change's blocking commit doesn't hold up the worker it runs on: with one
+    /// worker, a task spawned beside it still runs while the commit waits on it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn an_offline_commit_leaves_its_worker_to_other_tasks() {
+        let storage = Arc::new(crate::store::deferring::DeferringStorage::default());
+        let started = Arc::new(AtomicBool::new(false));
+        let (done, waiting) = std::sync::mpsc::channel::<()>();
+        let waiting = Mutex::new(waiting);
+        let job_started = started.clone();
+        *storage.job.lock().unwrap() = Arc::new(move || {
+            job_started.store(true, Ordering::SeqCst);
+            let waited = waiting.lock().unwrap().recv_timeout(Duration::from_secs(5));
+            waited.map_err(|_| io::Error::other("the other task didn't run"))
+        });
+        let registry = Arc::new(SessionRegistry::new(storage));
+        let handle = registry.handle(SessionId::new("FIX.4.4", "A", "B"));
+        // Spawned, so both run on the one worker rather than the test's own thread.
+        let change = tokio::spawn(async move { handle.set_next_outgoing(9).await });
+        tokio::spawn(async move {
+            while !started.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+            done.send(()).unwrap();
+        });
+        assert_eq!(change.await.unwrap().unwrap().next_outgoing, 9);
     }
 
     /// One task drives a registry's countdowns, however often it's asked for, and it ends once
