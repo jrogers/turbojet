@@ -882,9 +882,24 @@ the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 
 
 ### Measurement history
 
-The README's benchmark table gives current numbers. Every row was re-measured 2026-10-18 on an
-Apple M4 Pro (8 performance and 4 efficiency cores), the SQL rows against PostgreSQL 18. On the
-M3 (4 + 4) before it, in the table's order: decoding 197 / 164 ns, encoding 47 and 54 ns, typed
+The README's benchmark table gives current numbers. Every row was re-measured 2026-10-25 on the
+same machine, the SQL rows against PostgreSQL 18.6. A round trip replying from `on_message` varies
+more from run to run than the table's other rows (9.4 to 11.6 µs over TCP in seven runs), so it and
+the spinning, one-at-a-time TLS and pipelined TCP and FIXP rows are medians of three to seven runs. On 2026-10-18,
+in the table's order: decoding 162 / 133 ns, encoding 40 and 46 ns, typed parsing 87 / 137 ns
+borrowed and 111 / 174 ns owned, nested groups 398 / 616 / 484 ns, building 134 ns, timestamps
+9.2 / 27 ns; the session 739 ns and 866 ns wire to wire; storing 43 ns / 1.4 µs / 4.0 ms one per
+commit and 59 ns / 40 µs at 100, SQLite / synced / PostgreSQL 64 µs / 4.0 ms / 138 µs and
+2.5 / 48 / 6.4 µs, resend steps 11.7 / 179 / 148 µs; SBE 6.7 / 30 ns and 4.8 / 222 ns; FAST
+decoding 216 ns / 1.34 µs / 6.27 µs and encoding 301 ns / 2.01 µs / 8.65 µs; FIXP 16.2 µs and
+3.33M msg/s; TCP round trips 31.1 µs, 10.7 µs from `on_message`, 9.0 µs spinning and 1.04M msg/s;
+TLS 31.3 µs, 21.2 µs and 958k msg/s; the disk store 32.8 µs and 913k msg/s, and with fsync 4.0 ms
+and 16.7k msg/s. Most rows are within noise of then. FAST is 2-7% faster, the session's order → ack
+3%, and the disk store's pipelined round trip 3% slower (885k msg/s in each of three runs); with
+fsync, pipelining managed 10% more, which is the device.
+
+Before that, every row was re-measured 2026-10-18 on an Apple M4 Pro (8 performance and 4
+efficiency cores), the SQL rows against PostgreSQL 18. On the M3 (4 + 4) before it, in the table's order: decoding 197 / 164 ns, encoding 47 and 54 ns, typed
 parsing 103 / 162 ns borrowed and 130 / 205 ns owned, nested groups 496 / 783 / 609 ns, building
 171 ns, timestamps 11 / 33 ns; the session 755 ns and 939 ns wire to wire; storing 48 ns /
 1.7 µs / 4.0 ms one per commit and 70 ns / 41 µs at 100, SQLite / synced / PostgreSQL 14 75 µs /
