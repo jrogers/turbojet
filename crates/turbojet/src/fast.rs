@@ -1,17 +1,17 @@
-//! FAST (FIX Adapted for STreaming) 1.1 decoding into Turbojet [`Message`](turbojet::Message)s.
+//! FAST (FIX Adapted for STreaming) 1.1 decoding into Turbojet [`Message`](crate::Message)s.
 //!
 //! FAST is the compressed encoding some venues use for market data. A feed publishes its
 //! templates as XML; load them once with [`Templates::from_xml`], then decode the feed's messages
 //! with a [`Decoder`], which keeps the stream's previous values (its dictionaries) from one
 //! message to the next. Each field's `id` in the templates is its FIX tag, so a decoded message
-//! reads like any other: with [`Message::get`](turbojet::Message::get), or as a typed message.
+//! reads like any other: with [`Message::get`](crate::Message::get), or as a typed message.
 //! A sequence becomes a repeating group, its `<length>`'s `id` the NumInGroup tag; a group's
 //! fields, and those of a referenced template, are written in its place.
 //!
 //! ```
 //! use std::sync::Arc;
 //! use turbojet::Message;
-//! use turbojet_fast::{Decoder, Templates};
+//! use turbojet::fast::{Decoder, Templates};
 //!
 //! let templates = Templates::from_xml(r#"
 //!     <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
@@ -33,7 +33,7 @@
 //! decoder.decode_into(decoded.rest, &mut msg)?;
 //! assert_eq!(msg.get(55), Some("ABC"));
 //! assert_eq!(msg.get(270), Some("9427.56"));
-//! # Ok::<(), turbojet_fast::Error>(())
+//! # Ok::<(), turbojet::fast::Error>(())
 //! ```
 //!
 //! When a feed resets its dictionaries (each packet, or on a reset message), call
@@ -41,8 +41,6 @@
 //!
 //! An [`Encoder`] does the reverse, from messages whose fields are in the template's order (as
 //! a decoder writes them), keeping previous values as the decoder will.
-
-#![warn(missing_docs)]
 
 mod convert;
 mod decode;

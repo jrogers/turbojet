@@ -3,13 +3,13 @@
 
 use std::sync::Arc;
 
-use turbojet::Message;
+use crate::Message;
 
-use crate::convert::{decimal_as_written, hex, integer_value};
-use crate::dictionary::{Got, Slot, State};
-use crate::templates::{Field, Group, IntegerType, Kind, Operator, OperatorKind, Type};
-use crate::wire::{write_ascii, write_bytes, write_presence_map, write_signed, write_unsigned};
-use crate::{Code, Error, Templates};
+use crate::fast::convert::{decimal_as_written, hex, integer_value};
+use crate::fast::dictionary::{Got, Slot, State};
+use crate::fast::templates::{Field, Group, IntegerType, Kind, Operator, OperatorKind, Type};
+use crate::fast::wire::{write_ascii, write_bytes, write_presence_map, write_signed, write_unsigned};
+use crate::fast::{Code, Error, Templates};
 
 /// MsgType(35), which a template sets with a constant rather than a field in the stream.
 const MSG_TYPE: u32 = 35;
@@ -31,7 +31,7 @@ impl Encoder {
         Self { templates, slots, template_id: None }
     }
 
-    /// Makes every previous value undefined again, as [`Decoder::reset`](crate::Decoder::reset)
+    /// Makes every previous value undefined again, as [`Decoder::reset`](crate::fast::Decoder::reset)
     /// does.
     pub fn reset(&mut self) {
         for slot in &mut self.slots {
@@ -41,17 +41,17 @@ impl Encoder {
     }
 
     /// Appends `msg` to `out`, encoded with template `template_id`. The message's fields must be
-    /// in the template's order, as [`Decoder::decode_into`](crate::Decoder::decode_into) writes
+    /// in the template's order, as [`Decoder::decode_into`](crate::fast::Decoder::decode_into) writes
     /// them: a sequence as its NumInGroup field, then each entry's fields; a group's fields in its
     /// place. MsgType(35) may be anywhere: it comes from the template.
     ///
     /// # Errors
     ///
-    /// D9 for an unknown template; [`ErrorKind::InvalidValue`](crate::ErrorKind::InvalidValue)
+    /// D9 for an unknown template; [`ErrorKind::InvalidValue`](crate::fast::ErrorKind::InvalidValue)
     /// for a mandatory field that's missing, a field the template doesn't have where it's found,
     /// a value that differs from the template's constant, or one a tail can't make; D11 for a
     /// value that doesn't parse as its type, and R1, R3 or R4 for one out of its type's range;
-    /// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported) for a dynamic template
+    /// [`ErrorKind::Unsupported`](crate::fast::ErrorKind::Unsupported) for a dynamic template
     /// reference. Nothing is appended then, but the previous values may have changed: reset.
     pub fn encode_into(&mut self, template_id: u32, msg: &Message, out: &mut Vec<u8>) -> Result<(), Error> {
         let template = self
@@ -441,7 +441,7 @@ fn has_tag(fields: &[Field], tag: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Decoder, ErrorKind};
+    use crate::fast::{Decoder, ErrorKind};
 
     fn templates(fields: &str) -> Arc<Templates> {
         let xml = format!(r#"<templates><template name="T" id="1">{fields}</template></templates>"#);

@@ -144,14 +144,14 @@ CME's iLink 3).
 ## FAST
 
 FAST (FIX Adapted for STreaming) is the compressed encoding some venues use for market data.
-`turbojet-fast` loads a feed's templates from their XML and decodes each message into a `Message`,
+`turbojet::fast`, behind turbojet's `fast` feature, loads a feed's templates from their XML and decodes each message into a `Message`,
 each field's `id` its FIX tag, so typed messages read it like any other:
 
 ```rust,no_run
 # let packet: &[u8] = &[];
 use std::sync::Arc;
 use turbojet::Message;
-use turbojet_fast::{Decoder, Templates};
+use turbojet::fast::{Decoder, Templates};
 use turbojet_fix::fix44::MarketDataIncrementalRefresh;
 
 let templates = Arc::new(Templates::from_xml(&std::fs::read_to_string("templates.xml")?)?);

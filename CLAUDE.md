@@ -24,7 +24,7 @@ scripts/python.sh                                           # the Python binding
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure
 ```
 
-Features: `tls`, `pkcs12`, `metrics`, `tz`, `validation`, `gzip`. Feature-gated code only builds when its feature is
+Features: `tls`, `pkcs12`, `metrics`, `tz`, `validation`, `gzip`, `fast`. Feature-gated code only builds when its feature is
 on, so check with `--all-features` and `--no-default-features` at least.
 
 ## Things that bite

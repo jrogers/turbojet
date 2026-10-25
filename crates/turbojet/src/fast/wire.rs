@@ -1,7 +1,7 @@
 //! FAST's transfer encoding (section 10 of the specification): stop-bit encoded integers,
 //! strings and presence maps, and length-prefixed byte vectors.
 
-use crate::{Code, Error};
+use crate::fast::{Code, Error};
 
 /// The most bytes a stop-bit integer takes: 64 bits, plus one for the sign or for a nullable
 /// value's increment, in seven-bit groups. Longer is an overlong encoding or out of range.

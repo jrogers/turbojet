@@ -14,7 +14,6 @@ flowchart LR
     fix[turbojet-fix<br/>FIX 4.0 to 5.0 SP2 messages]
     config[turbojet-config<br/>sessions files]
     sql[turbojet-sql]
-    fast[turbojet-fast]
     log[turbojet-log]
     python[turbojet-python]
 
@@ -25,7 +24,6 @@ flowchart LR
     engine --> config
     dictionary --> config
     engine --> sql
-    engine --> fast
     engine --> log
     dictionary --> log
     config --> python
@@ -55,6 +53,7 @@ The engine is built in layers, each public, so an application can use only the o
 | Stores | `store/` | `SessionStorage` opens a `StoredSession` per session: sequence numbers and sent messages. |
 | Transports | `acceptor.rs`, `initiator.rs`, `tls.rs`, `proxy.rs` | TCP and TLS, connection limits, failover, reconnecting, shutdown. |
 | FIXP | `fixp/` | The same shape for FIXP sessions carrying SBE: a sans-IO `FixpSession` run by the same driver. |
+| FAST | `fast.rs`, `fast/` | FAST 1.1 market data decoded into and encoded from `Message`s, with templates loaded at runtime (feature `fast`). |
 
 ## The session is sans-IO
 

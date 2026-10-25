@@ -490,10 +490,16 @@ the answer while terminating.
 
 ## FAST
 
-FAST 1.1 is a codec in a crate of its own, `turbojet-fast`: a feed's template XML loaded at runtime
+FAST 1.1 is a codec, `turbojet::fast` behind the `fast` feature: a feed's template XML loaded at runtime
 and each message decoded into a `Message`, so the typed FIX messages read FAST market data, rather
 than codecs generated per feed. It leaves receiving a feed (multicast, line arbitration, gap
 recovery) to the application, and FAST 1.2's extensions until a feed needs them.
+
+It was a crate of its own, `turbojet-fast`, until 2026-10-25 (0.5.0 its last release, left on
+crates.io): it
+decodes into `turbojet::Message`, so its users built the whole engine anyway, its version only
+ever moved with `turbojet`'s, and SBE's runtime support was already `turbojet::sbe`. Its one
+dependency, `roxmltree`, is optional, so the feature costs nothing to anyone without it.
 
 Loading compiles each template into a list of field instructions with its operator, initial value
 and presence-map use worked out, and each previous value's dictionary and key resolved to a slot

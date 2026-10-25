@@ -1,15 +1,16 @@
 //! Decoding allocates nothing once warmed up: the message, the decoder's scratch buffer and its
 //! previous values all keep their allocations. Counted exactly, as `turbojet`'s budget is, and on
 //! the test's own thread only: the harness allocates on others.
+#![cfg(feature = "fast")]
 
-#[path = "../benches/common/mod.rs"]
-mod common;
+#[path = "../benches/fast_refresh/mod.rs"]
+mod fast_refresh;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use turbojet::Message;
-use turbojet_fast::Decoder;
+use turbojet::fast::Decoder;
 
 struct Counting;
 
@@ -44,8 +45,8 @@ static ALLOCATOR: Counting = Counting;
 #[test]
 fn decoding_into_a_reused_message_allocates_nothing() {
     for entries in [1, 10, 50] {
-        let (first, second) = common::encoded(entries);
-        let mut decoder = Decoder::new(common::templates());
+        let (first, second) = fast_refresh::encoded(entries);
+        let mut decoder = Decoder::new(fast_refresh::templates());
         let mut msg = Message::default();
         // Warm up: the first message of each kind sizes the buffers.
         decoder.decode_into(&first, &mut msg).expect("decodes");

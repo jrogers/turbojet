@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::MsgType;
 use roxmltree::{Document, Node};
-use turbojet::MsgType;
 
-use crate::convert;
-use crate::{Code, Error};
+use crate::fast::convert;
+use crate::fast::{Code, Error};
 
 /// The template definition namespace of FAST 1.1.
 const TD_NAMESPACE: &str = "http://www.fixprotocol.org/ns/fast/td/1.1";
@@ -661,9 +661,9 @@ mod tests {
             r#"<templates><template name="A"><templateRef name="B"/></template>
                           <template name="B"><templateRef name="A"/></template></templates>"#,
         );
-        assert_eq!(cycle.unwrap_err().kind(), crate::ErrorKind::Unsupported);
+        assert_eq!(cycle.unwrap_err().kind(), crate::fast::ErrorKind::Unsupported);
         let error = load(r#"<sequence name="S"><uInt32 name="A"/></sequence>"#).unwrap_err();
-        assert_eq!(error.kind(), crate::ErrorKind::Unsupported);
+        assert_eq!(error.kind(), crate::fast::ErrorKind::Unsupported);
     }
 
     #[test]

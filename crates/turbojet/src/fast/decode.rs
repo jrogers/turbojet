@@ -3,14 +3,14 @@
 
 use std::sync::Arc;
 
-use turbojet::Message;
-use turbojet::fields::ToFix;
+use crate::Message;
+use crate::fields::ToFix;
 
-use crate::convert::EXPONENT_RANGE;
-use crate::dictionary::{Got, Slot, State};
-use crate::templates::{Field, Group, IntegerType, Kind, MAX_NESTING, Operator, OperatorKind, Template, Type};
-use crate::wire::{PresenceMap, Reader, push_ascii};
-use crate::{Code, Error, Templates};
+use crate::fast::convert::EXPONENT_RANGE;
+use crate::fast::dictionary::{Got, Slot, State};
+use crate::fast::templates::{Field, Group, IntegerType, Kind, MAX_NESTING, Operator, OperatorKind, Template, Type};
+use crate::fast::wire::{PresenceMap, Reader, push_ascii};
+use crate::fast::{Code, Error, Templates};
 
 /// MsgType(35), which [`Message::reset`] writes from the template.
 const MSG_TYPE: u32 = 35;
@@ -62,8 +62,8 @@ impl Decoder {
     /// # Errors
     ///
     /// A dynamic or reportable error (D or R) from the specification, with the template and
-    /// field; [`ErrorKind::Truncated`](crate::ErrorKind::Truncated) if `input` ends inside the
-    /// message; [`ErrorKind::InvalidValue`](crate::ErrorKind::InvalidValue) for a string that
+    /// field; [`ErrorKind::Truncated`](crate::fast::ErrorKind::Truncated) if `input` ends inside the
+    /// message; [`ErrorKind::InvalidValue`](crate::fast::ErrorKind::InvalidValue) for a string that
     /// isn't UTF-8 or holds SOH. After an error, `msg` holds part of the message, and the
     /// previous values may no longer match the encoder's.
     pub fn decode_into<'a>(&mut self, input: &'a [u8], msg: &mut Message) -> Result<Decoded<'a>, Error> {
@@ -464,7 +464,7 @@ impl ToFix for Hex<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ErrorKind;
+    use crate::fast::ErrorKind;
 
     /// A decoder for template 1 holding `fields`.
     fn decoder(fields: &str) -> Decoder {

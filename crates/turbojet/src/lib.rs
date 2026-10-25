@@ -228,6 +228,8 @@
 //!   `turbojet-dictionary`, with `SessionConfig::with_dictionary`.
 //! - `gzip`: compressing finished [`FileMessageLog`] files, with
 //!   [`FileLogOptions::compress`].
+//! - `fast`: FAST 1.1, the compressed encoding some venues use for market data, decoded into and
+//!   encoded from [`Message`]s with templates loaded at runtime (`turbojet::fast`).
 
 #![warn(missing_docs)]
 // Library code handles every error or names the invariant that rules it out, in an `expect`
@@ -248,7 +250,8 @@ mod macros;
     feature = "metrics",
     feature = "tz",
     feature = "validation",
-    feature = "gzip"
+    feature = "gzip",
+    feature = "fast"
 ))]
 macro_rules! guide_links {
     () => {
@@ -274,7 +277,8 @@ macro_rules! guide_links {
     feature = "metrics",
     feature = "tz",
     feature = "validation",
-    feature = "gzip"
+    feature = "gzip",
+    feature = "fast"
 ))]
 pub mod guide;
 
@@ -286,6 +290,8 @@ pub mod cancel;
 pub mod codec;
 pub mod connection;
 mod counterparty;
+#[cfg(feature = "fast")]
+pub mod fast;
 pub mod fields;
 pub mod fixp;
 mod initiator;

@@ -1,8 +1,8 @@
 //! Initial values, converted from a template's `value` attributes (sections 6.3.2 and 8.1).
 //! Conversion errors are static errors here [ERR S3].
 
-use crate::templates::{IntegerType, Type, Value};
-use crate::{Code, Error};
+use crate::fast::templates::{IntegerType, Type, Value};
+use crate::fast::{Code, Error};
 
 /// A decimal's exponent range (section 6.2.2).
 pub(crate) const EXPONENT_RANGE: std::ops::RangeInclusive<i32> = -63..=63;

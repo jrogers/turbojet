@@ -35,7 +35,7 @@ Binary Encoding) message schemas, the binary encoding venues such as B3 and CME 
 [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md)), and `turbojet::fixp` runs FIXP sessions, the FIX Performance Session
 Layer, to carry them (see [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md#fixp-sessions)).
 
-[`turbojet-fast`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fast) decodes and
+`turbojet::fast`, behind the `fast` feature, decodes and
 encodes FAST 1.1, the compressed encoding some venues use for market data, into and from Turbojet
 messages, with the venue's templates loaded at runtime (see [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md#fast)).
 
@@ -305,7 +305,7 @@ cargo bench -p turbojet --all-features            # everything (~13 minutes)
 cargo bench -p turbojet --bench codec             # one group: codec, session, roundtrip or fixp
 cargo bench -p turbojet --all-features -- --quick # fast smoke run
 cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
-cargo bench -p turbojet-fast                      # FAST decoding and encoding
+cargo bench -p turbojet --features fast --bench fast  # FAST decoding and encoding
 ```
 
 Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; criterion medians.

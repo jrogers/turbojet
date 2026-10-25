@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use libfuzzer_sys::fuzz_target;
 use turbojet::Message;
-use turbojet_fast::{Decoder, Templates};
+use turbojet::fast::{Decoder, Templates};
 
 fuzz_target!(|input: (&str, &[u8])| {
     let (xml, bytes) = input;

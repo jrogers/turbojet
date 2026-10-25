@@ -29,6 +29,7 @@ tokio.workspace = true
 tokio-rustls = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
 p12-keystore = { workspace = true, optional = true }
+roxmltree = { workspace = true, optional = true }
 tracing.workspace = true
 turbojet-dictionary = { workspace = true, optional = true }
 
@@ -48,6 +49,8 @@ validation = ["dep:turbojet-dictionary"]
 conformance = []
 # Compressing finished FileMessageLog files with gzip (FileLogOptions::compress).
 gzip = ["dep:flate2"]
+# FAST 1.1, decoding and encoding with templates loaded at runtime (turbojet::fast).
+fast = ["dep:roxmltree"]
 
 # Only with `--cfg shuttle`, for the concurrency tests: see src/sync.rs.
 [target.'cfg(shuttle)'.dependencies]
@@ -65,8 +68,8 @@ tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 # The gateway example's --config.
 turbojet-config = { workspace = true, features = ["tls", "tz", "metrics"] }
-# The guide's FAST example.
-turbojet-fast.workspace = true
+# Another FAST implementation, to check turbojet::fast against (tests/fast_fastlib.rs).
+fastlib = { version = "0.3", default-features = false }
 turbojet-fix = { workspace = true, features = ["fix40", "fix41", "fix42", "fix43", "fix44", "fix50", "fix50sp1", "fix50sp2"] }
 
 # Benchmarks use criterion; keep the libtest bench harness out of `cargo bench` so criterion
@@ -93,6 +96,11 @@ harness = false
 [[bench]]
 name = "fixp"
 harness = false
+
+[[bench]]
+name = "fast"
+harness = false
+required-features = ["fast"]
 
 # The order-entry gateway: an Acceptor serving an Application. `test = true` makes `cargo test`
 # run its tests (which need the features, e.g. `cargo test --all-features`).

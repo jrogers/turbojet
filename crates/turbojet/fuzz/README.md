@@ -18,7 +18,7 @@ failure along with a panic:
   application sending or logging out, and operator sequence-number changes. Every message the
   session sends must encode and decode cleanly and, apart from resends, go out in sequence.
 
-- `fast_decode`, `fast_templates`, `fast_round_trip`: FAST (`turbojet-fast`) messages decoded
+- `fast_decode`, `fast_templates`, `fast_round_trip`: FAST (`turbojet::fast`) messages decoded
   against templates using every field type, operator and structure (`fast.xml`), and template XML
   loaded and decoded against. Every message decoded takes bytes, and encodes again into one a
   second decoder reads back the same.

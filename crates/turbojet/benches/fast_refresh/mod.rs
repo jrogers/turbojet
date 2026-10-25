@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use turbojet::Message;
-use turbojet_fast::{Encoder, Templates};
+use turbojet::fast::{Encoder, Templates};
 
 pub const TEMPLATES: &str = r#"
 <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">

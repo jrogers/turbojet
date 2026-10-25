@@ -3329,12 +3329,14 @@ dependencies = [
  "chrono-tz",
  "compact_str",
  "criterion",
+ "fastlib",
  "flate2",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
  "p12-keystore",
  "rcgen",
+ "roxmltree",
  "rust_decimal",
  "shuttle",
  "tempfile",
@@ -3344,7 +3346,6 @@ dependencies = [
  "tracing-subscriber",
  "turbojet-config",
  "turbojet-dictionary",
- "turbojet-fast",
  "turbojet-fix",
  "x509-parser",
 ]
@@ -3389,17 +3390,6 @@ name = "turbojet-dictionary"
 version = "0.5.0"
 dependencies = [
  "roxmltree",
-]
-
-[[package]]
-name = "turbojet-fast"
-version = "0.5.0"
-dependencies = [
- "criterion",
- "fastlib",
- "roxmltree",
- "turbojet",
- "turbojet-fix",
 ]
 
 [[package]]

@@ -2,19 +2,19 @@
 //! values follow the previous one's (copies and small deltas, as a feed sends most), and one
 //! decoded from a reset decoder, every value explicit.
 
-mod common;
+mod fast_refresh;
 
 use std::hint::black_box;
 
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::Message;
-use turbojet_fast::{Decoder, Encoder};
+use turbojet::fast::{Decoder, Encoder};
 
 fn decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("fast");
     for entries in [1, 10, 50] {
-        let (first, second) = common::encoded(entries);
-        let mut decoder = Decoder::new(common::templates());
+        let (first, second) = fast_refresh::encoded(entries);
+        let mut decoder = Decoder::new(fast_refresh::templates());
         let mut msg = Message::default();
         decoder.decode_into(&first, &mut msg).unwrap();
         eprintln!("refresh of {entries}: {} bytes first, {} bytes after", first.len(), second.len());
@@ -32,10 +32,10 @@ fn decode(c: &mut Criterion) {
             })
         });
 
-        let refresh = common::refresh(2, entries);
-        let mut encoder = Encoder::new(common::templates());
+        let refresh = fast_refresh::refresh(2, entries);
+        let mut encoder = Encoder::new(fast_refresh::templates());
         let mut out = Vec::new();
-        encoder.encode_into(1, &common::refresh(1, entries), &mut out).unwrap();
+        encoder.encode_into(1, &fast_refresh::refresh(1, entries), &mut out).unwrap();
         group.bench_function(format!("encode refresh of {entries}, following the previous"), |b| {
             b.iter(|| {
                 out.clear();

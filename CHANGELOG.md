@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** FAST is now in `turbojet`, as `turbojet::fast` behind the `fast` feature, rather
+  than the `turbojet-fast` crate: depend on `turbojet` with `features = ["fast"]` and change
+  `turbojet_fast::` to `turbojet::fast::`. The API is the same. `turbojet-fast` stays at 0.5.0
+  on crates.io.
 - A guide, `docs/guide/`, also in the API documentation as `turbojet::guide`: eleven chapters
   from a first session to storage, recovery, schedules and operations, with every example
   compiled and run as a test. The readme's reference sections moved into it, and the readme is

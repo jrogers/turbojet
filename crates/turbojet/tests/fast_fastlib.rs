@@ -1,11 +1,12 @@
 //! Decoding checked against another implementation: random messages over templates that use
 //! every operator, encoded by `fastlib`, decoded by both, and compared field by field.
+#![cfg(feature = "fast")]
 
 use std::sync::Arc;
 
 use fastlib::{MessageFactory, TextMessageVisitor, Value};
 use turbojet::Message;
-use turbojet_fast::{Decoder, Templates};
+use turbojet::fast::{Decoder, Templates};
 
 const TEMPLATES: &str = r#"
 <templates xmlns="http://www.fixprotocol.org/ns/fast/td/1.1">
@@ -272,7 +273,7 @@ fn fastlib_decodes_what_we_encode() {
         }
         let templates = Arc::new(Templates::from_xml(TEMPLATES).expect("valid templates"));
         let mut decoder = Decoder::new(Arc::clone(&templates));
-        let mut encoder = turbojet_fast::Encoder::new(templates);
+        let mut encoder = turbojet::fast::Encoder::new(templates);
         let mut ours_encoded = Vec::new();
         let mut expected = Vec::new();
         let mut msg = Message::default();

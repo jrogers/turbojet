@@ -1,11 +1,12 @@
 //! The specification's own template (section 1, an incremental refresh), decoded from bytes
 //! encoded by hand and then read as a typed FIX 4.4 message.
+#![cfg(feature = "fast")]
 
 use std::sync::Arc;
 
 use turbojet::Message;
+use turbojet::fast::{Decoder, Templates};
 use turbojet::fields::Code;
-use turbojet_fast::{Decoder, Templates};
 use turbojet_fix::fix44::{MDEntryType, MDUpdateAction, MarketDataIncrementalRefresh};
 
 /// Section 1's example, with an `id` so the stream can name it.
@@ -96,7 +97,7 @@ fn encoding_the_decoded_refresh_gives_the_same_bytes() {
     let mut msg = Message::default();
     let input = message();
     let decoded = decoder.decode_into(&input, &mut msg).expect("decodes");
-    let mut encoder = turbojet_fast::Encoder::new(templates);
+    let mut encoder = turbojet::fast::Encoder::new(templates);
     let mut out = Vec::new();
     encoder.encode_into(decoded.template_id, &msg, &mut out).expect("encodes");
     assert_eq!(out, input);

@@ -895,18 +895,11 @@ version = "0.5.0"
 dependencies = [
  "chrono",
  "compact_str",
+ "roxmltree",
  "rust_decimal",
  "shuttle",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "turbojet-fast"
-version = "0.5.0"
-dependencies = [
- "roxmltree",
- "turbojet",
 ]
 
 [[package]]
@@ -924,7 +917,6 @@ dependencies = [
  "libfuzzer-sys",
  "tokio",
  "turbojet",
- "turbojet-fast",
  "turbojet-fix",
 ]
 

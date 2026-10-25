@@ -1,8 +1,8 @@
 //! The dictionaries' previous values (section 6.3.1), kept alike by the decoder and the encoder,
 //! and the values the operators work on.
 
-use crate::templates::{OperatorKind, Type, Value};
-use crate::{Code, Error};
+use crate::fast::templates::{OperatorKind, Type, Value};
+use crate::fast::{Code, Error};
 
 /// One previous value (section 6.3.1).
 #[derive(Debug, Default)]

@@ -8,7 +8,7 @@ use std::sync::{Arc, LazyLock};
 
 use libfuzzer_sys::fuzz_target;
 use turbojet::Message;
-use turbojet_fast::{Decoder, Encoder, ErrorKind, Templates};
+use turbojet::fast::{Decoder, Encoder, ErrorKind, Templates};
 
 static TEMPLATES: LazyLock<Arc<Templates>> =
     LazyLock::new(|| Arc::new(Templates::from_xml(include_str!("../fast.xml")).expect("valid templates")));

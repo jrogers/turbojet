@@ -18,9 +18,8 @@ arbitrary = { version = "1", features = ["derive"] }
 libfuzzer-sys = "0.4"
 # The operator's sequence commands reply on a oneshot channel.
 tokio = { version = "1", features = ["sync"] }
-turbojet = { path = ".." }
+turbojet = { path = "..", features = ["fast"] }
 turbojet-fix = { path = "../../turbojet-fix", features = ["fix40", "fix41", "fix42", "fix43", "fix44", "fix50", "fix50sp1", "fix50sp2"] }
-turbojet-fast = { path = "../../turbojet-fast" }
 
 # Symbols in stack traces.
 [profile.release]

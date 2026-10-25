@@ -9,7 +9,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   validation rejects them as repeated tags and typed parsing keeps the first: News and Email's
   RelatdSym(46), which may repeat, and Allocation's delivery instructions, BrokerOfCredit(92) and
   DlvyInst(86) repeated NoDlvyInst(85) times inside each NoAllocs entry.
-- FAST (`turbojet-fast`): reportable errors are always reported, so an encoder that writes an
+- FAST (`turbojet::fast`): reportable errors are always reported, so an encoder that writes an
   overlong integer or presence map is refused rather than read; a delta string's part is read as
   the specification has it, not nullable, so an encoder that writes it nullable, as `fastlib` does
   for optional fields, gives a stray NUL character. A field without an `id` is decoded but left out
