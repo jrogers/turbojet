@@ -100,7 +100,14 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
 - **Refusing on accept.** The connection limits and the allowed addresses are checked together
   as each connection is accepted, in the accept loop the FIX and FIXP acceptors share, so one
   refused costs an `accept` and a `close`: no TLS handshake, no task. The list sits behind a
-  read lock in the acceptor's limits, so a reload replaces it for the next connection.
+  read lock in the acceptor's limits, so a reload replaces it for the next connection. A
+  connection from a listed proxy can't be checked until its PROXY header has been read, on its
+  own task: it holds a place in the total meanwhile, and its header has a few seconds to come,
+  then its place moves to the client's address and is checked as any other. Only listed proxies
+  are read from, so a client can't name another's address. The header is read without reading
+  past it (six bytes, then a byte at a time to a version 1 header's CRLF, or a version 2
+  header's stated length, at most 536 bytes), so the connection's first bytes stay for the
+  session or the TLS handshake; it's a few dozen lines here rather than a crate.
 - **Proxies.** An initiator with a proxy connects to it, from its local address if set, asks for
   a tunnel to the endpoint by name (HTTP `CONNECT`, or SOCKS5 with a domain-name address, so the
   proxy resolves it), and carries on with the same `TcpStream`, so TLS, failover, reconnecting

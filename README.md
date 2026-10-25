@@ -888,8 +888,17 @@ use turbojet::AllowedIps;
 
 let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
 config.allowed_ips = Some(AllowedIps::new(["10.1.0.0/16", "203.0.113.5"])?);
+config.proxy_protocol = Some(AllowedIps::new(["10.9.0.10", "10.9.0.11"])?); // the load balancers
 let acceptor = Acceptor::new(config, storage, app)?;
 ```
+
+Behind a load balancer or TCP proxy, every connection comes from the device. With
+`AcceptorConfig::proxy_protocol` listing the devices, a connection from one must start with a
+PROXY protocol header (version 1 or 2, within `PROXY_HEADER_TIMEOUT`), and is taken as coming
+from the client the header names: for the allowed addresses, the per-address limit, and the
+`ConnectionInfo` that `verify_logon` sees. Connections from other addresses are taken as they
+come, so a client reaching the listener directly can't claim another's address. In a sessions
+file it's `proxy_protocol` in `[acceptor]`, fixed until a restart.
 
 All endpoints are treated as the same FIX session (e.g. a counterparty's primary and DR
 sites), so sequence numbers carry over and the `SessionHandle` stays valid across failovers.

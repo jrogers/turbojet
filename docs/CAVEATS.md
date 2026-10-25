@@ -63,8 +63,10 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - A PKCS#12 bundle gives an identity only: trusted CAs come as PEM, and a bundle holding more
   than one private key is refused.
 - Allowed addresses and connection limits see the address a connection comes from: behind a load
-  balancer or a TCP proxy, that's the device's, not the counterparty's (the PROXY protocol isn't
-  read), so list the device. Changing the list doesn't close connections already open.
+  balancer or a TCP proxy that doesn't send the PROXY protocol, that's the device's, so list the
+  device. A PROXY header's TLVs (TLS details, a unique ID) are skipped, and a header naming a
+  family other than TCP over IPv4 or IPv6 keeps the device's address. Changing the list doesn't
+  close connections already open.
 - Proxies: HTTP with `CONNECT` and Basic authentication, and SOCKS5 with no authentication or a
   username and password. Not SOCKS4, NTLM or Kerberos proxy authentication, or TLS to the proxy
   itself (an `https://` proxy). Through a proxy, a session's `ConnectionInfo` has the proxy's

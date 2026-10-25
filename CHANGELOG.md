@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `AcceptorConfig::proxy_protocol` (and `FixpAcceptorConfig`'s): connections from the listed
+  load balancers or proxies must start with a PROXY protocol header, version 1 or 2, and are
+  taken as coming from the client it names, for the allowed addresses, the per-address limit and
+  `ConnectionInfo`.
 - A `MessageLog` gets an acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`)
   with the session's `SessionId`, in the log a `Counterparty` sets if it sets one, rather than
   with none in the acceptor's own: it's logged just after the session handles it. A refused
@@ -58,6 +62,7 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- `proxy_protocol` in `[acceptor]`: the proxies whose connections start with a PROXY header.
 - A `[counterparty.NAME]` section with `target_comp_id` and `sender_sub_id`,
   `sender_location_id`, `target_sub_id` or `target_location_id` is for that one session, over
   the CompID's section. An initiator is refused only for a session the acceptor would serve for
