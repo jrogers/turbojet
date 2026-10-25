@@ -88,3 +88,5 @@ on, so check with `--all-features` and `--no-default-features` at least.
    kills the publish.
 5. `scripts/github-release.sh 0.6.0`: tags the release commit `v0.6.0` and makes a GitHub release
    of it, with the changelog's section as its notes.
+6. Once 0.6.0 is on crates.io, delete `assets/logo.svg` (and this step): the READMEs published
+   before it load the logo from there, and 0.6's from `docs/assets/`.

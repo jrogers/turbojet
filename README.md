@@ -1,4 +1,4 @@
-<p align="center"><img src="https://raw.githubusercontent.com/jrogers/turbojet/main/assets/logo.svg" width="120" alt=""></p>
+<p align="center"><img src="https://raw.githubusercontent.com/jrogers/turbojet/main/docs/assets/logo.svg" width="120" alt=""></p>
 
 <h1 align="center">turbojet</h1>
 
