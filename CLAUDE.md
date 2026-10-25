@@ -65,10 +65,12 @@ on, so check with `--all-features` and `--no-default-features` at least.
   check which branch the checkout is on.
 - Commits are small and each says why. Performance commits give before and after numbers (criterion
   medians on an idle machine). Running benchmarks needs no permission.
-- A feature ends with a commit that records it: how to use it in README.md (for users: no
-  measurement history or internals), how it works and its numbers in DESIGN.md, its entry taken
+- A feature ends with a commit that records it: how to use it in the guide's chapter for it
+  (`docs/guide/`, for users: no measurement history or internals; its examples are doctests, run
+  from `crates/turbojet/src/guide.rs`), and in README.md only if it changes the overview or the
+  quick start; how it works and its numbers in DESIGN.md, its entry taken
   off ROADMAP.md (not marked done), any caveat in CAVEATS.md, and CHANGELOG.md
-  (`## Unreleased`), e.g. "Record X in the readme, design notes and changelog".
+  (`## Unreleased`), e.g. "Record X in the guide, design notes and changelog".
 - Public documents (README, SECURITY.md, the changelog, crate docs) make no promises: no
   timelines, support commitments or fix commitments unless the maintainer says so.
 - Expensive checks that aren't regressions (long fuzzing) stay off the per-push CI path. They run

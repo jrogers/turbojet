@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- A guide, `docs/guide/`, also in the API documentation as `turbojet::guide`: eleven chapters
+  from a first session to storage, recovery, schedules and operations, with every example
+  compiled and run as a test. The readme's reference sections moved into it, and the readme is
+  now an overview, the quick start and the benchmarks.
 - An initiator (FIX or FIXP) that fails to connect while no `tracing` subscriber is installed
   says why once on stderr, rather than nothing, and suggests installing one.
 - The `quickstart` example: both roles in one program, logging on and placing an order. The
