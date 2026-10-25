@@ -66,6 +66,16 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     the generated API, and needs a rule, or per-venue configuration, for which fields are common.
   - A codegen option to generate only chosen fields per message, as the hand-written module
     did. Matches the old numbers, but the generated API then depends on configuration.
+- **Sending on the caller's thread** (M, research). `SessionHandle::send` queues each message
+  for the connection's task, and the hop to it is most of what separates a round trip sent one
+  at a time through a handle (31.2 µs over localhost TCP, M4 Pro) from one replying from
+  `on_message`, already on that task (11.2 µs; README, DESIGN.md Latency).
+  QuickFIX numbers, stores and encodes on the sender's thread under the session's lock, and in
+  its threaded mode writes there too. A handle could do the same when the connection is idle:
+  take a lock on the session, encode, commit and write without blocking, and fall back to the
+  queue when the connection is busy or the write would block. The reading side would then take
+  that lock too, and a commit that waits for the device (fsync) would hold up the sender. Wants a
+  prototype measured one at a time and with 1,000 in flight before the sans-IO session is shared.
 - **Generated code's build time** (S, research). Release builds of the generated versions take
   48 s for FIX 5.0 SP2 alone, 173 s and 10 GB for all eight, and 207 s for FIX Latest (clean, M3,
   2026-10-17), after the fixes in DESIGN.md. No single function dominates an LLVM time trace any
