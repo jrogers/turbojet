@@ -132,8 +132,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   - counterparty settings and stores chosen by CompID alone, and the sessions file refusing an
     initiator that differs from a counterparty only in its SubIDs;
   - a `MessageLog` seeing an acceptor's Logon with no `SessionId`;
-  - FIX 4.0 and 4.1 sessions writing SendingTime in whole seconds whatever the precision set;
-  - a `Message` that panics past 4 GiB rather than refusing to grow;
   - the PROXY protocol not read, so allowed addresses behind a load balancer see the device.
 - **Fuller documentation** (M to L). The README is long and the crate docs are reference
   material. Wanted: a guide that goes from a first initiator and acceptor to storage, recovery,

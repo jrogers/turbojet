@@ -4,7 +4,7 @@ Behaviour that is deliberate or documented, but worth knowing about before you r
 and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 
 - FIX 4.0 and 4.1 sessions always write SendingTime in whole seconds, ignoring
-  `timestamp_precision`; the typed crates' other timestamps are written as the application sets
+  `timestamp_precision`, since their UTCTimestamp has no fractions (they came in FIX 4.2); the typed crates' other timestamps are written as the application sets
   them. Two FIX 4.0 repetitions have no count field that a dictionary could make a group of, so
   validation rejects them as repeated tags and typed parsing keeps the first: News and Email's
   RelatdSym(46), which may repeat, and Allocation's delivery instructions, BrokerOfCredit(92) and
@@ -99,7 +99,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   can't cheaply model a BusinessMessageReject in place of a delivery. Session tests cover it.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
-  a huge outbound message can reach it.
+  a huge outbound message can reach it. Refusing instead would put a `Result` on every field
+  added, on the hot path, for that one case.
 - A rejected message is lost for good: a counterparty doesn't resend one we rejected, so an
   ExecutionReport carrying a fill is gone. The validator rejects an application message for any
   other reason that fails (a missing required tag, a bad format, a tag the dictionary doesn't
