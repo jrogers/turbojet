@@ -10,6 +10,9 @@
 #   scripts/check.sh --postgres # also the SQL stores on PostgreSQL, at TURBOJET_POSTGRES_URL (a
 #                               # database the tests may clear)
 #   scripts/check.sh --all      # interop, msrv and python
+#   scripts/check.sh --semver   # also each published crate's API against its last release on
+#                               # crates.io (cargo-semver-checks), before releasing: fails if the
+#                               # version doesn't say what changed (a 0.x API break needs 0.x+1)
 # cargo-deny and benchmark compilation are left to CI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,12 +21,14 @@ interop=false
 msrv=false
 postgres=false
 python=false
+semver=false
 for arg in "$@"; do
     case $arg in
         --interop) interop=true ;;
         --msrv) msrv=true ;;
         --postgres) postgres=true ;;
         --python) python=true ;;
+        --semver) semver=true ;;
         --all) interop=true; msrv=true; python=true ;;
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
@@ -87,6 +92,11 @@ fi
 if $interop; then
     step interop
     scripts/interop.sh
+fi
+if $semver; then
+    step semver
+    # Publishable crates only (publish = false ones are skipped), with every feature's API.
+    cargo semver-checks --workspace --all-features
 fi
 if $python; then
     step python
