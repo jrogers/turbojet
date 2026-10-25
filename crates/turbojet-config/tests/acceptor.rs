@@ -179,6 +179,14 @@ async fn a_bad_reload_keeps_the_file_in_use() {
             "counterparty FUND: max_latency",
         ),
         (FILE.replace("\"VENUE\"", "\"OTHER\""), "acceptor: sender_comp_id: can't change until a restart"),
+        (
+            FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nproxy_protocol = [\"10.0.0.1\"]"),
+            "acceptor: proxy_protocol: can't change until a restart",
+        ),
+        (
+            FILE.replace("listen = \"127.0.0.1:0\"", "listen = \"127.0.0.1:0\"\nproxy_protocol = [\"lb\"]"),
+            "acceptor: proxy_protocol: ",
+        ),
         (FILE.replace("store = \"broker\"", "store = \"memory\""), "counterparty BROKER: store: can't change"),
         // A session of BROKER's, listed whole, would move out of BROKER's store.
         (

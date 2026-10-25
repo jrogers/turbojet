@@ -36,6 +36,8 @@ pub struct FixpAcceptorConfig {
     pub max_connections_per_ip: usize,
     /// Accepts connections only from these addresses; see [`AcceptorConfig::allowed_ips`].
     pub allowed_ips: Option<AllowedIps>,
+    /// The proxies that send the PROXY protocol; see [`AcceptorConfig::proxy_protocol`].
+    pub proxy_protocol: Option<AllowedIps>,
 }
 
 impl FixpAcceptorConfig {
@@ -48,6 +50,7 @@ impl FixpAcceptorConfig {
             max_connections: AcceptorConfig::DEFAULT_MAX_CONNECTIONS,
             max_connections_per_ip: AcceptorConfig::DEFAULT_MAX_CONNECTIONS_PER_IP,
             allowed_ips: None,
+            proxy_protocol: None,
         }
     }
 }
@@ -95,11 +98,17 @@ impl FixpAcceptor {
         storage: Arc<dyn SessionStorage>,
         app: Arc<dyn FixpApplication>,
     ) -> Result<Self, ConfigError> {
-        let FixpAcceptorConfig { server, session: config, max_connections, max_connections_per_ip, allowed_ips } =
-            config.into();
+        let FixpAcceptorConfig {
+            server,
+            session: config,
+            max_connections,
+            max_connections_per_ip,
+            allowed_ips,
+            proxy_protocol,
+        } = config.into();
         config.check()?;
         let registry = Arc::new(FixpRegistry::with_storage(storage).with_clock(config.clock.clone()));
-        let limits = Arc::new(Limits::new(max_connections, max_connections_per_ip));
+        let limits = Arc::new(Limits::new(max_connections, max_connections_per_ip).with_proxies(proxy_protocol));
         limits.set_allowed(allowed_ips);
         Ok(Self { config, server, registry, app, shutdown: Arc::new(Shutdown::new()), limits })
     }
@@ -145,12 +154,10 @@ impl FixpAcceptor {
     /// only that connection.
     pub async fn serve(self, listener: TcpListener) -> io::Result<()> {
         let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
-        accept_loop(listener, &shutdown, &limits, |stream| {
-            let acceptor = self.clone();
-            async move {
-                let connection = ConnectionInfo::new(stream.peer_addr().ok(), Vec::new());
-                acceptor.run_connection(stream, connection).await
-            }
+        let acceptor = self.clone();
+        accept_loop(listener, &shutdown, &limits, move |stream, addr| {
+            let acceptor = acceptor.clone();
+            async move { acceptor.run_connection(stream, ConnectionInfo::new(Some(addr), Vec::new())).await }
         })
         .await
     }
@@ -165,10 +172,11 @@ impl FixpAcceptor {
     #[cfg(feature = "tls")]
     pub async fn serve_tls(self, listener: TcpListener, tls: crate::tls::TlsAcceptor) -> io::Result<()> {
         let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
-        accept_loop(listener, &shutdown, &limits, |stream| {
-            let (acceptor, tls) = (self.clone(), tls.clone());
+        let acceptor = self.clone();
+        accept_loop(listener, &shutdown, &limits, move |stream, addr| {
+            let (acceptor, tls) = (acceptor.clone(), tls.clone());
             async move {
-                let addr = stream.peer_addr().ok();
+                let addr = Some(addr);
                 let handshake = tokio::time::timeout(acceptor.config.handshake_timeout, tls.accept(stream));
                 let mut shutdown = acceptor.shutdown.signal();
                 let stream = tokio::select! {

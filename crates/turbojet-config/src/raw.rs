@@ -187,6 +187,7 @@ pub(crate) struct RawAcceptor {
     pub max_connections: Option<usize>,
     pub max_connections_per_ip: Option<usize>,
     pub allowed_ips: Option<Vec<String>>,
+    pub proxy_protocol: Option<Vec<String>>,
     pub tls: Option<RawTls>,
 }
 
@@ -194,6 +195,11 @@ impl RawAcceptor {
     /// `allowed_ips`, the addresses connections are accepted from: `None` for any.
     pub(crate) fn allowed(&self) -> Result<Option<turbojet::AllowedIps>, turbojet::ConfigError> {
         self.allowed_ips.as_ref().map(turbojet::AllowedIps::new).transpose()
+    }
+
+    /// `proxy_protocol`, the proxies whose connections start with a PROXY header: `None` for none.
+    pub(crate) fn proxies(&self) -> Result<Option<turbojet::AllowedIps>, turbojet::ConfigError> {
+        self.proxy_protocol.as_ref().map(turbojet::AllowedIps::new).transpose()
     }
 }
 

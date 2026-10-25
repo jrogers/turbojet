@@ -248,6 +248,7 @@ pub mod message;
 mod message_log;
 mod peer;
 mod proxy;
+mod proxy_header;
 mod reconnect;
 pub mod registry;
 pub mod sbe;
@@ -263,7 +264,7 @@ pub mod tls;
 #[cfg(feature = "validation")]
 pub mod validation;
 
-pub use acceptor::{Acceptor, AcceptorConfig};
+pub use acceptor::{Acceptor, AcceptorConfig, PROXY_HEADER_TIMEOUT};
 pub use allowed::AllowedIps;
 pub use application::{Application, Context, Disconnect, Hold, MessageReject};
 pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};

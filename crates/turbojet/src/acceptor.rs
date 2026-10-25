@@ -43,6 +43,13 @@ pub struct AcceptorConfig {
     /// accepted, as past `max_connections` (counted in `turbojet_connections_refused_total` with
     /// reason `not_allowed`). `None` (the default) accepts any.
     pub allowed_ips: Option<AllowedIps>,
+    /// The load balancers and TCP proxies that send the PROXY protocol: a connection from one of
+    /// these addresses must start with a PROXY header (version 1 or 2), within
+    /// [`PROXY_HEADER_TIMEOUT`], and is then taken as coming from the address the header gives,
+    /// for `allowed_ips`, `max_connections_per_ip` and [`ConnectionInfo`]. Connections from
+    /// other addresses are taken as they come, so a client reaching the listener directly can't
+    /// claim another's address. `None` (the default) reads no headers.
+    pub proxy_protocol: Option<AllowedIps>,
     /// Gives each counterparty the settings this resolves at its Logon, in place of `session`,
     /// or refuses it; see [`Counterparties`]. `None` (the default) gives every counterparty
     /// `session`.
@@ -70,6 +77,7 @@ impl AcceptorConfig {
             max_connections: Self::DEFAULT_MAX_CONNECTIONS,
             max_connections_per_ip: Self::DEFAULT_MAX_CONNECTIONS_PER_IP,
             allowed_ips: None,
+            proxy_protocol: None,
             counterparties: None,
         }
     }
@@ -88,6 +96,7 @@ impl std::fmt::Debug for AcceptorConfig {
             .field("max_connections", &self.max_connections)
             .field("max_connections_per_ip", &self.max_connections_per_ip)
             .field("allowed_ips", &self.allowed_ips)
+            .field("proxy_protocol", &self.proxy_protocol)
             .field("counterparties", &self.counterparties.is_some())
             .finish()
     }
@@ -137,11 +146,17 @@ impl Acceptor {
         storage: Arc<dyn SessionStorage>,
         app: Arc<dyn Application>,
     ) -> Result<Self, ConfigError> {
-        let AcceptorConfig { session: config, max_connections, max_connections_per_ip, allowed_ips, counterparties } =
-            config.into();
+        let AcceptorConfig {
+            session: config,
+            max_connections,
+            max_connections_per_ip,
+            allowed_ips,
+            proxy_protocol,
+            counterparties,
+        } = config.into();
         config.check()?;
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.clock.clone()));
-        let limits = Arc::new(Limits::new(max_connections, max_connections_per_ip));
+        let limits = Arc::new(Limits::new(max_connections, max_connections_per_ip).with_proxies(proxy_protocol));
         limits.set_allowed(allowed_ips);
         Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties })
     }
@@ -205,9 +220,8 @@ impl Acceptor {
     }
 
     async fn serve_listener(self, listener: impl Listen) -> io::Result<()> {
-        self.serve_with(listener, |acceptor, stream| async move {
-            let connection = ConnectionInfo::new(stream.peer_addr().ok(), Vec::new());
-            acceptor.run_connection(stream, connection).await
+        self.serve_with(listener, |acceptor, stream, addr| async move {
+            acceptor.run_connection(stream, ConnectionInfo::new(Some(addr), Vec::new())).await
         })
         .await
     }
@@ -220,10 +234,10 @@ impl Acceptor {
     /// As [`serve`](Acceptor::serve); a failed or slow handshake ends only its connection.
     #[cfg(feature = "tls")]
     pub async fn serve_tls(self, listener: TcpListener, tls: crate::tls::TlsAcceptor) -> io::Result<()> {
-        self.serve_with(listener, move |acceptor, stream| {
+        self.serve_with(listener, move |acceptor, stream, addr| {
             let tls = tls.clone();
             async move {
-                let addr = stream.peer_addr().ok();
+                let addr = Some(addr);
                 let handshake = tokio::time::timeout(acceptor.config.logon_timeout, tls.accept(stream));
                 let mut shutdown = acceptor.shutdown.signal();
                 let stream = tokio::select! {
@@ -245,14 +259,15 @@ impl Acceptor {
     async fn serve_with<L, F, Fut>(self, listener: L, handle: F) -> io::Result<()>
     where
         L: Listen,
-        F: Fn(Acceptor, TcpStream) -> Fut,
+        F: Fn(Acceptor, TcpStream, SocketAddr) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = io::Result<()>> + Send + 'static,
     {
         // At once, not at the first connection: a countdown from before a restart runs whether or
         // not its counterparty comes back.
         self.restore().await?;
         let (shutdown, limits) = (self.shutdown.clone(), self.limits.clone());
-        accept_loop(listener, &shutdown, &limits, |stream| handle(self.clone(), stream)).await
+        let acceptor = self.clone();
+        accept_loop(listener, &shutdown, &limits, move |stream, addr| handle(acceptor.clone(), stream, addr)).await
     }
 
     /// Runs one acceptor session over an already-established stream (e.g. from a custom
@@ -360,9 +375,10 @@ pub(crate) async fn accept_loop<L, F, Fut>(
 ) -> io::Result<()>
 where
     L: Listen,
-    F: Fn(TcpStream) -> Fut,
+    F: Fn(TcpStream, SocketAddr) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = io::Result<()>> + Send + 'static,
 {
+    let handle = Arc::new(handle);
     let mut signal = shutdown.signal();
     // One task per connection, at most `limits.max_total` of them; each session bounds how long
     // it waits for the counterparty's first message.
@@ -390,21 +406,42 @@ where
                 continue;
             }
         };
-        // Past a limit, closed at once: no handshake, no task.
-        let Some(place) = limits.admit(addr.ip()) else { continue };
+        // Past a limit, closed at once: no handshake, no task. One through a proxy counts toward
+        // the total until its header says where it's from.
+        let proxied = limits.is_proxy(addr.ip());
+        let Some(place) = (if proxied { limits.admit_proxied() } else { limits.admit(addr.ip()) }) else { continue };
         if let Err(e) = stream.set_nodelay(true) {
             warn!(%addr, "cannot set TCP_NODELAY: {e}");
         }
-        let connection = handle(stream);
-        let span = tracing::info_span!("conn", %addr);
+        let span = if proxied { tracing::info_span!("conn", via = %addr) } else { tracing::info_span!("conn", %addr) };
         // Counted from here, so shutdown also waits for TLS handshakes.
         let open = shutdown.track();
+        let (handle, limits, mut signal) = (handle.clone(), limits.clone(), shutdown.signal());
         tokio::spawn(
             async move {
                 let _open = open;
+                let (mut stream, mut place) = (stream, place);
+                let client = if proxied {
+                    let header = tokio::select! {
+                        header = tokio::time::timeout(PROXY_HEADER_TIMEOUT, crate::proxy_header::read(&mut stream)) => header,
+                        _ = signal.started() => return,
+                    };
+                    let client = match header {
+                        Ok(Ok(client)) => client.unwrap_or(addr),
+                        Ok(Err(e)) => return warn!("closing a connection from a proxy: {e}"),
+                        Err(_) => return warn!("closing a connection from a proxy: no PROXY header within {PROXY_HEADER_TIMEOUT:?}"),
+                    };
+                    // Its place moves to the client's address, past which limits are its own.
+                    drop(place);
+                    let Some(admitted) = limits.admit(client.ip()) else { return };
+                    place = admitted;
+                    client
+                } else {
+                    addr
+                };
                 let _place = place;
-                info!("connection accepted");
-                match connection.await {
+                info!(%client, "connection accepted");
+                match handle(stream, client).await {
                     Ok(()) => info!("connection closed"),
                     Err(e) => warn!("connection closed with error: {e}"),
                 }
@@ -414,6 +451,9 @@ where
     }
 }
 
+/// How long a connection from a proxy has to send its PROXY header: a proxy sends it at once.
+pub const PROXY_HEADER_TIMEOUT: Duration = Duration::from_secs(5);
+
 /// How many connections an acceptor has open, overall and by IP address, against its limits, and
 /// the addresses it accepts them from.
 pub(crate) struct Limits {
@@ -421,6 +461,8 @@ pub(crate) struct Limits {
     max_per_ip: usize,
     /// `None` accepts any address.
     allowed: RwLock<Option<AllowedIps>>,
+    /// The proxies whose connections start with a PROXY header; `None` for none.
+    proxies: Option<AllowedIps>,
     open: Mutex<Open>,
 }
 
@@ -437,7 +479,30 @@ struct Open {
 
 impl Limits {
     pub(crate) fn new(max_total: usize, max_per_ip: usize) -> Self {
-        Self { max_total, max_per_ip, allowed: RwLock::default(), open: Mutex::default() }
+        Self { max_total, max_per_ip, allowed: RwLock::default(), proxies: None, open: Mutex::default() }
+    }
+
+    /// Reads a PROXY header from connections from `proxies`.
+    pub(crate) fn with_proxies(mut self, proxies: Option<AllowedIps>) -> Self {
+        self.proxies = proxies;
+        self
+    }
+
+    fn is_proxy(&self, ip: IpAddr) -> bool {
+        self.proxies.as_ref().is_some_and(|proxies| proxies.contains(ip))
+    }
+
+    /// A place for a connection from a proxy before its header says where it's from: counted in
+    /// the total only, as the proxy's address isn't the client's.
+    fn admit_proxied(self: &Arc<Self>) -> Option<Place> {
+        let mut open = self.lock();
+        if open.total >= self.max_total {
+            drop(open);
+            telemetry::connection_refused("total");
+            return None;
+        }
+        open.total += 1;
+        Some(Place { limits: self.clone(), ip: None })
     }
 
     /// Accepts connections only from `allowed` from now on, or from anywhere if `None`.
@@ -473,7 +538,7 @@ impl Limits {
             open.total += 1;
             *open.per_ip.entry(ip).or_default() += 1;
             debug_assert!(open.total <= self.max_total && open.per_ip.len() <= open.total);
-            return Some(Place { limits: self.clone(), ip });
+            return Some(Place { limits: self.clone(), ip: Some(ip) });
         };
         telemetry::connection_refused(reason);
         open.refused += 1;
@@ -502,20 +567,22 @@ impl Limits {
     }
 }
 
-/// One open connection's place in its acceptor's limits.
+/// One open connection's place in its acceptor's limits: by its address, or, through a proxy
+/// that hasn't said where it's from yet, in the total alone.
 struct Place {
     limits: Arc<Limits>,
-    ip: IpAddr,
+    ip: Option<IpAddr>,
 }
 
 impl Drop for Place {
     fn drop(&mut self) {
         let mut open = self.limits.lock();
         open.total -= 1;
-        let from_ip = open.per_ip.get_mut(&self.ip).expect("a place is counted");
+        let Some(ip) = self.ip else { return };
+        let from_ip = open.per_ip.get_mut(&ip).expect("a place is counted");
         *from_ip -= 1;
         if *from_ip == 0 {
-            open.per_ip.remove(&self.ip);
+            open.per_ip.remove(&ip);
         }
     }
 }
@@ -656,6 +723,62 @@ mod tests {
         assert!(!refused(&mut TcpStream::connect(addr).await.unwrap()).await, "allowed once listed");
         handle.set_allowed_ips(None);
         assert!(!refused(&mut TcpStream::connect(addr).await.unwrap()).await, "any address without a list");
+    }
+
+    /// Records the address each Logon came from.
+    #[derive(Default)]
+    struct Addresses(std::sync::Mutex<Vec<Option<SocketAddr>>>);
+    impl Application for Addresses {
+        fn verify_logon(&self, _: &SessionHandle, _: &Message, connection: &ConnectionInfo) -> Result<(), String> {
+            self.0.lock().unwrap().push(connection.addr);
+            Ok(())
+        }
+    }
+
+    /// A connection from a listed proxy is taken as coming from where its PROXY header says:
+    /// allowed, limited and seen in `verify_logon` by that address. One without a header is closed.
+    #[tokio::test]
+    async fn a_proxys_connections_are_taken_from_the_address_its_header_gives() {
+        let app = Arc::new(Addresses::default());
+        let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "US"));
+        config.proxy_protocol = Some(AllowedIps::new(["127.0.0.1"]).unwrap());
+        config.allowed_ips = Some(AllowedIps::new(["10.0.0.0/8"]).unwrap());
+        config.max_connections_per_ip = 1;
+        let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), app.clone()).unwrap();
+        let limits = acceptor.limits.clone();
+        let addr = serving(acceptor).await;
+        let via_proxy = async |client: &str| {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            let header = format!("PROXY TCP4 {client} 127.0.0.1 5000 9876\r\n");
+            stream.write_all(header.as_bytes()).await.unwrap();
+            stream
+        };
+
+        let mut client = via_proxy("10.1.2.3").await;
+        let logon = Message::default()
+            .with(tags::BEGIN_STRING, "FIX.4.2")
+            .with(tags::MSG_TYPE, MsgType::Logon)
+            .with(tags::SENDER_COMP_ID, "PEER")
+            .with(tags::TARGET_COMP_ID, "US")
+            .with(tags::MSG_SEQ_NUM, 1u64)
+            .with(tags::SENDING_TIME, utc_timestamp())
+            .with(tags::ENCRYPT_METHOD, "0")
+            .with(tags::HEART_BT_INT, 30u64);
+        client.write_all(&encode(&logon).unwrap()).await.unwrap();
+        let mut reply = [0; 16];
+        let read = tokio::time::timeout(Duration::from_secs(5), client.read(&mut reply)).await;
+        assert!(read.expect("no Logon reply").unwrap() > 0);
+        assert_eq!(*app.0.lock().unwrap(), [Some("10.1.2.3:5000".parse().unwrap())]);
+
+        assert!(refused(&mut via_proxy("10.1.2.3").await).await, "one at a time from 10.1.2.3");
+        assert!(refused(&mut via_proxy("192.0.2.1").await).await, "192.0.2.1 isn't allowed");
+        assert!(!refused(&mut via_proxy("10.1.2.4").await).await, "another client is let in");
+        let mut no_header = TcpStream::connect(addr).await.unwrap();
+        no_header.write_all(&encode(&logon).unwrap()).await.unwrap();
+        assert!(refused(&mut no_header).await, "a connection from the proxy must start with a header");
+        drop(client);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(limits.open(), (0, 0), "every place is given back");
     }
 
     #[tokio::test]

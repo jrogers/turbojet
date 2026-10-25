@@ -454,6 +454,7 @@ fn fixed(acceptor: &RawAcceptor, context: &Context<'_>) -> Result<SessionConfig,
         }
     }
     acceptor.allowed().map_err(|e| Error::at("acceptor", "allowed_ips", e))?;
+    acceptor.proxies().map_err(|e| Error::at("acceptor", "proxy_protocol", e))?;
     Ok(config)
 }
 

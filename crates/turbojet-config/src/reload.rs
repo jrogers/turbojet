@@ -105,6 +105,7 @@ fn check_acceptor(old: &RawAcceptor, new: &RawAcceptor) -> Result<(), Error> {
         ("max_queued_sends", old.max_queued_sends == new.max_queued_sends),
         ("max_connections", old.max_connections == new.max_connections),
         ("max_connections_per_ip", old.max_connections_per_ip == new.max_connections_per_ip),
+        ("proxy_protocol", old.proxy_protocol == new.proxy_protocol),
         ("tls", old.tls.is_some() == new.tls.is_some()),
     ];
     match fixed.iter().find(|(_, same)| !same) {

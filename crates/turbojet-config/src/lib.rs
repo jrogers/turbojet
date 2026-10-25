@@ -53,7 +53,9 @@
 //! `sender_comp_id`, `listen`, `unknown` (`refuse`, the default, or `admit`), `logon_timeout`,
 //! `max_queued_sends`, `max_connections`, `max_connections_per_ip`, `allowed_ips` (the IP addresses and CIDR
 //! ranges connections are accepted from, `["10.1.0.0/16", "203.0.113.5"]`; any, if it's left
-//! out), and `tls = { cert, key, client_ca,
+//! out), `proxy_protocol` (the load balancers' addresses, the same way, whose connections start
+//! with a PROXY header giving the client's address; see
+//! [`AcceptorConfig::proxy_protocol`](turbojet::AcceptorConfig::proxy_protocol)), and `tls = { cert, key, client_ca,
 //! client_crl, client_certificate }` (feature `tls`; `client_certificate` is `optional`, the
 //! default, or `required`; `client_crl`, a PEM file of CRLs, checks client certificates for
 //! revocation; one past its next update is used and logged as a warning, or refused with
@@ -380,6 +382,7 @@ impl SessionsFile {
         config.max_connections = raw.max_connections.unwrap_or(config.max_connections);
         config.max_connections_per_ip = raw.max_connections_per_ip.unwrap_or(config.max_connections_per_ip);
         config.allowed_ips = raw.allowed().expect("checked when the file loaded");
+        config.proxy_protocol = raw.proxies().expect("checked when the file loaded");
         Some(Acceptor::new(config, storage, app).expect("checked when the file loaded"))
     }
 
