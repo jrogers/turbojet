@@ -1379,8 +1379,65 @@ fn messages_queued_behind_a_gap_wait_for_a_release() {
     assert_eq!(h.app.received(), usize::try_from(last - 1).unwrap(), "the rest");
 }
 
-/// A clean logout with a message held keeps the marker at it: holds end with their connection,
-/// so the next one asks for it again.
+/// Messages released after their connection ended move the stored marker on, one at a time, so
+/// the next connection doesn't ask for them again.
+#[test]
+fn a_release_after_the_connection_ends_moves_the_marker_on() {
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    runtime.block_on(async {
+        let storage = Arc::new(MemoryStorage::new());
+        let h = holding(&["A", "B"], storage.clone());
+        let mut s = h.logged_on();
+        for (seq, id) in [(2, "A"), (3, "B"), (4, "C")] {
+            s.recv(order(seq, id), h.t0);
+        }
+        assert_eq!(types(&s.recv(client(5, MsgType::Logout), h.t0)), ["Logout", "DISCONNECT"]);
+        drop(s);
+        let stored = || {
+            let log = storage.open(&client_id()).unwrap();
+            (log.next_incoming(), log.in_flight())
+        };
+        let settle = async || {
+            for _ in 0..10 {
+                tokio::task::yield_now().await;
+            }
+        };
+        assert_eq!(stored(), (6, Some(2)));
+        h.app.holds.lock().unwrap().remove(0).release(); // A
+        settle().await;
+        assert_eq!(stored(), (6, Some(3)), "B is still held");
+        h.app.holds.lock().unwrap().clear();
+        settle().await;
+        assert_eq!(stored(), (6, None));
+        let mut s = h.session();
+        assert_eq!(types(&s.recv(logon(6), h.t0)), ["Logon"], "nothing asked for again");
+    });
+}
+
+/// A release once the session has connected again leaves it be: the new connection has asked
+/// for the message already.
+#[test]
+fn a_release_after_reconnecting_changes_nothing() {
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    runtime.block_on(async {
+        let h = holding(&["A"], Arc::new(MemoryStorage::new()));
+        let mut s = h.logged_on();
+        s.recv(order(2, "A"), h.t0);
+        s.recv(client(3, MsgType::Logout), h.t0);
+        drop(s);
+        let mut s = h.session();
+        let out = s.recv(logon(4), h.t0);
+        assert_eq!(types(&out), ["Logon", "ResendRequest"]);
+        h.app.holds.lock().unwrap().clear();
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(s.peer().log.in_flight(), Some(2), "as the new connection left it");
+    });
+}
+
+/// A clean logout with a message held keeps the marker at it, for the next connection to ask
+/// for it again unless it's released first.
 #[test]
 fn a_clean_logout_with_a_message_held_keeps_the_marker() {
     let h = holding(&["A"], Arc::new(MemoryStorage::new()));

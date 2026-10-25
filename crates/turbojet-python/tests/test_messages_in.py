@@ -42,14 +42,15 @@ async def test_execution_report_arrives(gateway, tmp_path):
 
 async def test_unreleased_message_is_redelivered(gateway, tmp_path):
     path = sessions_file(tmp_path, gateway, DISK)
-    async with turbojet.load(path) as engine:
-        events = engine.events()
-        logon = await expect(events, Logon)
-        await logon.session.send(order())
-        first = await expect(events, AppMessage)
-        # Dropped unfinished, as by an exception: it stays held.
-        cl_ord_id = first.msg[11]
-        del first
+    # Dropped unfinished, as by an exception: it stays held, and says so once it's freed.
+    with pytest.warns(RuntimeWarning, match="dropped without done"):
+        async with turbojet.load(path) as engine:
+            events = engine.events()
+            logon = await expect(events, Logon)
+            await logon.session.send(order())
+            first = await expect(events, AppMessage)
+            cl_ord_id = first.msg[11]
+            del first
         gc.collect()
     async with turbojet.load(path) as engine:
         again = await expect(engine.events(), AppMessage)

@@ -629,7 +629,8 @@ impl AdminMessage {
 /// An application message from the counterparty, in sequence. It counts as received only once
 /// `done()` is called: until then, a restart has the counterparty send it again, with
 /// `maybe_redelivered` set. One never finished holds its session up: 256 messages later, the
-/// session reads nothing more until it's finished. Dropping the event doesn't finish it.
+/// session reads nothing more until it's finished. Dropping the event doesn't finish it, and
+/// warns (a `RuntimeWarning`).
 #[pyclass(frozen, module = "turbojet")]
 pub struct AppMessage {
     #[pyo3(get)]
@@ -662,9 +663,23 @@ impl AppMessage {
 
 impl Drop for AppMessage {
     /// A hold dropped is released, but an event dropped unfinished, by an exception say, isn't
-    /// finished: keep the message held, so it's sent again after a restart.
+    /// finished: keep the message held, so it's sent again after a restart. Warn, as it holds the
+    /// session up.
     fn drop(&mut self) {
         let hold = self.hold.get_mut().unwrap_or_else(PoisonError::into_inner).take();
+        if hold.is_some() {
+            let text = format!(
+                "an AppMessage on {} was dropped without done(): it stays held, so its session reads \
+                 nothing more 256 messages on",
+                self.session.get().0.id()
+            );
+            Python::attach(|py| {
+                let category = py.get_type::<pyo3::exceptions::PyRuntimeWarning>();
+                let text = std::ffi::CString::new(text).unwrap_or_default();
+                // Under warnings-as-errors this fails, but a drop has no one to raise to.
+                let _ = PyErr::warn(py, category.as_any(), &text, 1);
+            });
+        }
         std::mem::forget(hold);
     }
 }

@@ -3599,6 +3599,17 @@ impl Drop for Session {
         if let Some(opening) = self.opening_log.take() {
             self.registry.release(&opening.id, &self.commands);
         }
+        if let Some(peer) = &self.peer
+            && self.status == Status::Closed
+            && !self.store_failed
+            && let Some(stored) = peer.log.in_flight()
+            && self.holds.oldest().is_some()
+        {
+            // Messages still held when it ended: their releases move the marker on from now.
+            let next = peer.log.next_incoming();
+            let keep_marker = self.live_recovered(next).is_some();
+            self.holds.hand_over(self.registry.clone(), peer.id.clone(), next, stored, keep_marker);
+        }
         if let Some(peer) = self.peer.take() {
             peer.metrics.disconnected();
             // Close the log (releasing any file lock) before another connection can acquire it.

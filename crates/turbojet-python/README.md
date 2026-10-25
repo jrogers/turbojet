@@ -36,7 +36,7 @@ asyncio.run(main())
 
 Each application message arrives as an `AppMessage` and counts as received only once `done()` is
 called: until then, a restart has the counterparty send it again, with `maybe_redelivered` set.
-An event dropped without `done()`, by an exception say, stays unfinished. A session reads nothing
+An event dropped without `done()`, by an exception say, stays unfinished, with a `RuntimeWarning`. A session reads nothing
 more once it's 256 messages past one that isn't finished, so call `done()` for every message,
 rejected ones included (`session.reject(msg, reason, text, ref_id)` sends a BusinessMessageReject).
 

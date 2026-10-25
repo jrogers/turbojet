@@ -930,6 +930,30 @@ impl<T> SessionRegistry<T> {
         result
     }
 
+    /// Moves the in-flight marker of session `id`, disconnected with `next` the next incoming
+    /// number, from `from` to `to` (`None`: no message in flight), as a release of a message its
+    /// last connection held allows. Whether it moved: not if the store has another marker or
+    /// number, since a connection has taken the session up since.
+    pub(crate) async fn move_in_flight_offline(
+        &self,
+        id: &SessionId,
+        next: u64,
+        from: u64,
+        to: Option<u64>,
+    ) -> Result<bool, SequenceError> {
+        self.change_offline(id, |log| {
+            if log.in_flight() != Some(from) || log.next_incoming() != next {
+                return Ok(false);
+            }
+            match to {
+                Some(marker) => log.set_in_flight(marker)?,
+                None => log.set_next_incoming(next)?,
+            }
+            Ok(true)
+        })
+        .await
+    }
+
     /// Stores an operator's pause or resume of a session that isn't connected, as
     /// [`apply_offline`](Self::apply_offline) does a change to its numbers.
     async fn mark_paused_offline(&self, id: &SessionId, paused: bool) -> Result<(), SequenceError> {

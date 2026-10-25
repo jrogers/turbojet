@@ -1,6 +1,7 @@
 //! The interface between the engine and the code using it.
 
 use std::collections::VecDeque;
+use std::fmt;
 use std::sync::{Arc, Weak};
 
 use tracing::error;
@@ -8,9 +9,9 @@ use tracing::error;
 use crate::fields::{BusinessRejectReason, CompactString, SessionRejectReason};
 use crate::message::{FieldError, FixMessage, Message};
 use crate::peer::ConnectionInfo;
-use crate::registry::{CommandSender, SessionHandle};
+use crate::registry::{CommandSender, SessionHandle, SessionRegistry};
 use crate::store::SessionId;
-use crate::sync::{AtomicBool, Ordering};
+use crate::sync::{AtomicBool, Mutex, Ordering};
 
 /// Callbacks from the engine into the application. The engine handles the session layer
 /// (logon, sequencing, heartbeats, resends, logout); the application sees only what it needs.
@@ -253,8 +254,10 @@ impl<'a> Context<'a> {
     /// as usual, but the store's in-flight marker stays at it. If the process stops before the hold
     /// is released, the next connection asks for this message and everything after it again, each
     /// marked [`maybe_redelivered`](Self::maybe_redelivered): check whether you finished it before
-    /// acting on it again. Holds don't outlast the connection: one released after it ended does
-    /// nothing, and the next connection starts from the store's marker, as after a crash.
+    /// acting on it again. A hold released after its connection ended moves the stored marker on
+    /// (on a tokio task, as an operator's change to a disconnected session is made), so the next
+    /// connection doesn't ask for it again; one released only once the session has connected
+    /// again, or released with no tokio runtime current, is asked for again, as after a crash.
     ///
     /// A session hands over at most 256 messages past the oldest one held: then it reads nothing
     /// more from the counterparty until that hold is released, so TCP slows the counterparty, and
@@ -322,11 +325,13 @@ pub(crate) struct HoldEntry {
 }
 
 impl Drop for HoldEntry {
-    /// Wakes the session's connection, unless it's been woken since it last looked.
+    /// Wakes the session's connection, unless it's been woken since it last looked; once the
+    /// connection has ended, moves the store's in-flight marker on instead.
     fn drop(&mut self) {
         if !self.shared.woken.swap(true, Ordering::SeqCst) {
             self.shared.commands.hold_released();
         }
+        AfterClose::released(&self.shared);
     }
 }
 
@@ -338,6 +343,95 @@ struct HoldShared {
     /// A release has woken the connection since the session last looked at its holds, so later
     /// ones needn't: at most one wake-up waits in the control queue.
     woken: AtomicBool,
+    /// Set as the session ends with messages still held: see [`AfterClose`].
+    after_close: Mutex<Option<AfterClose>>,
+    /// Whether `after_close` has been set, so a release while connected takes no lock.
+    ended: AtomicBool,
+}
+
+/// The holds of a session whose connection has ended, and the in-flight marker it left in the
+/// store at the oldest of them. A release moves the marker on, so the next connection doesn't
+/// ask for the message again, through the registry, as an operator's change to a disconnected
+/// session is made: on a task of its own, one at a time. A store whose marker isn't the one
+/// left (the session has connected again, which already asked from it, or the last commit
+/// failed) is left alone, and so are the holds from then on.
+struct AfterClose {
+    registry: Arc<SessionRegistry>,
+    id: SessionId,
+    /// By MsgSeqNum, as the session held them.
+    entries: VecDeque<(u64, Weak<HoldEntry>)>,
+    /// The next incoming number as the session ended.
+    next: u64,
+    /// Messages recovered from before a restart may still come back, so with no message held
+    /// the marker stays at `next` rather than going.
+    keep_marker: bool,
+    /// The marker the store has, as this last wrote it or the session left it; `None` once gone.
+    stored: Option<u64>,
+    /// Whether a task is moving it.
+    moving: bool,
+}
+
+impl fmt::Debug for AfterClose {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AfterClose").field("id", &self.id).field("stored", &self.stored).finish_non_exhaustive()
+    }
+}
+
+impl AfterClose {
+    /// Where the marker belongs now: at the oldest message still held, or else at `next` while
+    /// recovered messages may come back, or gone.
+    fn target(&self) -> Option<u64> {
+        let oldest = self.entries.iter().find(|(_, entry)| entry.strong_count() > 0).map(|&(seq, _)| seq);
+        oldest.or(self.keep_marker.then_some(self.next))
+    }
+
+    /// A hold of `shared`'s was released: if its connection has ended and the marker should
+    /// move, starts the task that moves it, unless one runs. Without a tokio runtime to run it
+    /// on, the marker stays, and the next connection asks for the message again.
+    fn released(shared: &Arc<HoldShared>) {
+        if !shared.ended.load(Ordering::Acquire) {
+            return;
+        }
+        let mut after = shared.after_close.lock().expect("holds lock poisoned");
+        let Some(state) = after.as_mut() else { return };
+        if state.moving || state.target() == state.stored {
+            return;
+        }
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        state.moving = true;
+        runtime.spawn(Self::move_marker(shared.clone()));
+    }
+
+    /// Moves the stored marker until it's where the holds say, as they're released meanwhile.
+    async fn move_marker(shared: Arc<HoldShared>) {
+        loop {
+            let (registry, id, next, from, to) = {
+                let mut after = shared.after_close.lock().expect("holds lock poisoned");
+                let Some(state) = after.as_mut() else { return };
+                let to = state.target();
+                if to == state.stored {
+                    state.moving = false;
+                    return;
+                }
+                let from = state.stored.expect("a marker that's gone stays gone: no hold comes back");
+                (state.registry.clone(), state.id.clone(), state.next, from, to)
+            };
+            let moved = registry.move_in_flight_offline(&id, next, from, to).await;
+            let mut after = shared.after_close.lock().expect("holds lock poisoned");
+            match moved {
+                Ok(true) => {
+                    if let Some(state) = after.as_mut() {
+                        state.stored = to;
+                    }
+                }
+                // Connected again, or another marker: the next connection has it in hand.
+                Ok(false) | Err(_) => {
+                    *after = None;
+                    return;
+                }
+            }
+        }
+    }
 }
 
 /// The messages the application holds in a session.
@@ -357,9 +451,14 @@ impl Holds {
         if let Some(entry) = self.entries.get(at).filter(|(seq, _)| *seq == seq_num).and_then(|(_, e)| e.upgrade()) {
             return Hold { _entry: Some(entry) };
         }
-        let shared = self
-            .shared
-            .get_or_insert_with(|| Arc::new(HoldShared { commands: commands.clone(), woken: AtomicBool::new(false) }));
+        let shared = self.shared.get_or_insert_with(|| {
+            Arc::new(HoldShared {
+                commands: commands.clone(),
+                woken: AtomicBool::new(false),
+                after_close: Mutex::default(),
+                ended: AtomicBool::new(false),
+            })
+        });
         let entry = Arc::new(HoldEntry { shared: shared.clone() });
         self.entries.insert(at, (seq_num, Arc::downgrade(&entry)));
         Hold { _entry: Some(entry) }
@@ -388,6 +487,26 @@ impl Holds {
     /// Forgets every hold: the numbers they're for have been reset. Their releases do nothing.
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
+    }
+
+    /// The session `id` has ended, leaving the store's in-flight marker at `stored`, with `next`
+    /// the next incoming number: from now on, a release moves the marker on (see
+    /// [`AfterClose`]). `keep_marker`: recovered messages may still come back.
+    pub(crate) fn hand_over(
+        &mut self,
+        registry: Arc<SessionRegistry>,
+        id: SessionId,
+        next: u64,
+        stored: u64,
+        keep_marker: bool,
+    ) {
+        let Some(shared) = &self.shared else { return };
+        let entries = std::mem::take(&mut self.entries);
+        let state = AfterClose { registry, id, entries, next, keep_marker, stored: Some(stored), moving: false };
+        *shared.after_close.lock().expect("holds lock poisoned") = Some(state);
+        shared.ended.store(true, Ordering::Release);
+        // A release just before the hand-over found nothing to do: catch it up.
+        AfterClose::released(shared);
     }
 }
 
