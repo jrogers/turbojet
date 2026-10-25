@@ -75,3 +75,4 @@ turbojet-dictionary = { version = "0.5.0", path = "crates/turbojet-dictionary" }
 # Path only: turbojet dev-depends on them, and a version would force them onto crates.io first.
 turbojet-config = { path = "crates/turbojet-config" }
 turbojet-fix = { path = "crates/turbojet-fix" }
+turbojet-fast = { path = "crates/turbojet-fast" }

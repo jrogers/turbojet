@@ -9,6 +9,10 @@
 //!
 //! Turbojet is pre-1.0: its APIs will change, and it hasn't been run against a real counterparty.
 //!
+//! These docs get a first program running; the guide, `turbojet::guide` (built with every feature,
+//! as on docs.rs) or [`docs/guide`](https://github.com/jrogers/turbojet/blob/main/docs/guide/README.md)
+//! in the repository, goes on from there to storage, recovery, schedules and operations.
+//!
 //! # Getting started
 //!
 //! Typed application messages come from `turbojet-fix`, with a feature per FIX version (`fix40`,
@@ -236,6 +240,43 @@ extern crate self as turbojet;
 
 #[macro_use]
 mod macros;
+
+/// The guide's chapter links, as rustdoc resolves them: see `guide.rs`.
+#[cfg(all(
+    feature = "tls",
+    feature = "pkcs12",
+    feature = "metrics",
+    feature = "tz",
+    feature = "validation",
+    feature = "gzip"
+))]
+macro_rules! guide_links {
+    () => {
+        "[guide]: crate::guide\n\
+         [first-session]: crate::guide::first_session\n\
+         [messages]: crate::guide::messages\n\
+         [sessions]: crate::guide::sessions\n\
+         [acceptors]: crate::guide::acceptors\n\
+         [initiators]: crate::guide::initiators\n\
+         [tls]: crate::guide::tls\n\
+         [storage]: crate::guide::storage\n\
+         [schedules]: crate::guide::schedules\n\
+         [operations]: crate::guide::operations\n\
+         [performance]: crate::guide::performance\n\
+         [binary]: crate::guide::binary\n"
+    };
+}
+
+// The guide: from a first session to running sessions in production (docs/guide).
+#[cfg(all(
+    feature = "tls",
+    feature = "pkcs12",
+    feature = "metrics",
+    feature = "tz",
+    feature = "validation",
+    feature = "gzip"
+))]
+pub mod guide;
 
 mod acceptor;
 pub mod admin;

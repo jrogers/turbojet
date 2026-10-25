@@ -65,6 +65,8 @@ tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber = { workspace = true, features = ["json"] }
 # The gateway example's --config.
 turbojet-config = { workspace = true, features = ["tls", "tz", "metrics"] }
+# The guide's FAST example.
+turbojet-fast.workspace = true
 turbojet-fix = { workspace = true, features = ["fix40", "fix41", "fix42", "fix43", "fix44", "fix50", "fix50sp1", "fix50sp2"] }
 
 # Benchmarks use criterion; keep the libtest bench harness out of `cargo bench` so criterion

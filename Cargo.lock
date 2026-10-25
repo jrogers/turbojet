@@ -3344,6 +3344,7 @@ dependencies = [
  "tracing-subscriber",
  "turbojet-config",
  "turbojet-dictionary",
+ "turbojet-fast",
  "turbojet-fix",
  "x509-parser",
 ]
