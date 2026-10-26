@@ -782,9 +782,15 @@ into a `u64` mantissa and a scale, up to 19 digits (any usual price or quantity)
 values left to rust_decimal: 110 ns to 103 ns borrowed, 201 ns to 183 ns for an ExecutionReport.
 Copying the 1,184-byte result out of its `Result` in the caller took 10%; timestamps 7%.
 
-The struct's size matters less than it looks. Copying the whole of an owned FIX 4.2
-NewOrderSingle (1,376 bytes) takes 15 ns, and a FIX 4.4 one (3,080 bytes) 34 ns, but the
-compiler already builds most fields in the return slot. Building it in place with `MaybeUninit`
+The struct's size is about half the cost of a typed parse. A FIX 4.2 NewOrderSingle declaring
+only the benchmark order's 10 fields, with `fix_message!` alone, parses in 59.5 ns borrowed and
+62.8 ns owned, against 100.5 ns and 124.0 ns for the generated one's 68 (Apple M3, 2026-10-26,
+criterion medians; 176 and 224 bytes against 1,184 and 1,376). Profiled, the generated borrowed
+parse spent 30% in its own function, setting the slots, dispatching each field and building the
+result from them, and 20% in the caller's `unwrap`, copying the 1,184-byte result out of its
+`Result`; reading the values was the rest. An earlier reading (2026-10-15) took only the copy
+into account, 15 ns of an owned FIX 4.2 parse and 34 ns of a FIX 4.4 one (3,080 bytes), and
+judged size to matter less than it does. Building it in place with `MaybeUninit`
 isn't worth `unsafe`: Rust can't construct in the caller's slot, so it would only save the copy
 behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 16 (boxing
 `Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,

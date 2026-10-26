@@ -57,15 +57,18 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 - **Large generated messages** (M). Generated messages carry every field in the dictionary, so
   a FIX 4.2 NewOrderSingle is 1,376 bytes owned and 1,184 borrowed, and a FIX 4.4 one 3,080 and
-  2,768, mostly empty `Option`s. Measured on 2026-10-15 (see DESIGN.md), size costs less than
-  it looks: copying a whole FIX 4.2 NewOrderSingle takes 15 ns of its 130 ns owned parse, and
-  the largest share of a borrowed parse is setting its 68 slots empty and dispatching each field.
-  Options, cheapest first:
-  - Move rarely used fields into an `Option<Box<...>>` sub-struct per message: fewer slots to
-    set, copy and drop. Probably 10-20 ns on a FIX 4.2 NewOrderSingle, not yet measured. Changes
-    the generated API, and needs a rule, or per-venue configuration, for which fields are common.
-  - A codegen option to generate only chosen fields per message, as the hand-written module
-    did. Matches the old numbers, but the generated API then depends on configuration.
+  2,768, mostly empty `Option`s. That's about half of a typed parse: declaring only the 10
+  fields a FIX 4.2 order carries takes its parse from 100.5 ns to 59.5 ns borrowed and 124.0 ns
+  to 62.8 ns owned (Apple M3, 2026-10-26; see DESIGN.md). Each option changes what's generated;
+  cheapest first:
+  - A codegen option to generate only chosen fields per message, opt-in, as `--message` chooses
+    messages: the whole gain for those who use it, with the default crate unchanged. Strict
+    parsing should then skip a dictionary field left out rather than reject it as undefined.
+  - Move rarely used fields into a sub-struct per message: boxed in the owned form, parsed on
+    access in the borrowed one, which can't allocate. Changes the default API, needs a rule, or
+    per-venue configuration, for which fields are common, and wins only part of the gain.
+  - A borrowed view that keeps the message and a table from tag to field, and parses each field
+    as it's read: about one pass over the tags to parse, but the largest change.
 - **Sending on the caller's thread** (M, research). `SessionHandle::send` queues each message
   for the connection's task, and the hop to it is most of what separates a round trip sent one
   at a time through a handle (31.2 µs over localhost TCP, M4 Pro) from one replying from
