@@ -675,9 +675,17 @@ impl Initiator {
             };
             info!("TLS handshake complete");
             let certificates = crate::tls::peer_certificates(stream.get_ref().1.peer_certificates());
-            return self.run_session(stream, ConnectionInfo::new(addr, certificates), config).await;
+            return self.run_session(stream, ConnectionInfo::new(addr, certificates), config, None).await;
         }
-        self.run_session(stream, ConnectionInfo::new(addr, Vec::new()), config).await
+        // Plain TCP: application sends may be written on the caller's thread (see `direct`).
+        #[cfg(unix)]
+        let socket = {
+            use std::os::fd::AsFd;
+            stream.as_fd().try_clone_to_owned().ok().map(std::net::TcpStream::from)
+        };
+        #[cfg(not(unix))]
+        let socket = None;
+        self.run_session(stream, ConnectionInfo::new(addr, Vec::new()), config, socket).await
     }
 
     /// Connects to `addr`, through the configured proxy if there is one.
@@ -725,11 +733,18 @@ impl Initiator {
         (session, commands)
     }
 
-    async fn run_session<S>(&self, stream: S, info: ConnectionInfo, config: &InitiatorConfig) -> Attempt
+    async fn run_session<S>(
+        &self,
+        stream: S,
+        info: ConnectionInfo,
+        config: &InitiatorConfig,
+        socket: Option<std::net::TcpStream>,
+    ) -> Attempt
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let (session, commands) = self.session(config, info);
+        commands.direct.set_socket(socket);
         let mut logged_on = false;
         let signal = Some(self.shutdown.signal());
         let result = connection::run_tracked(stream, session, commands, &mut logged_on, signal).await;

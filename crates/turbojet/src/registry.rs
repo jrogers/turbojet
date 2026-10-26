@@ -12,6 +12,7 @@ use tracing::{info, warn};
 
 use crate::application::{Application, Disconnect};
 use crate::cancel::{CancelOnDisconnect, CancelTracker, CancelTrigger};
+use crate::direct::DirectSlot;
 use crate::fields::ApplVerID;
 use crate::message::Message;
 use crate::peer::ConnectionInfo;
@@ -328,11 +329,18 @@ pub(crate) struct CommandSender<T = Message> {
     control: mpsc::Sender<Control>,
     /// Sends queued so far, for a Logout to wait behind.
     queued: Arc<CachePadded<AtomicU64>>,
+    /// The session, while its driver lends it to send on the caller's thread.
+    direct: Arc<DirectSlot<T>>,
 }
 
 impl<T> Clone for CommandSender<T> {
     fn clone(&self) -> Self {
-        Self { sends: self.sends.clone(), control: self.control.clone(), queued: self.queued.clone() }
+        Self {
+            sends: self.sends.clone(),
+            control: self.control.clone(),
+            queued: self.queued.clone(),
+            direct: self.direct.clone(),
+        }
     }
 }
 
@@ -347,6 +355,17 @@ impl<T> CommandSender<T> {
     /// ended, there's nothing to tell.
     pub(crate) fn hold_released(&self) {
         let _ = self.control.try_send(Control::HoldReleased);
+    }
+
+    /// Sends on this thread if the connection's session is lent and nothing is queued ahead.
+    fn try_direct(&self, msg: T, reply: ReceiptSender) -> Result<(), crate::direct::Refused<T>>
+    where
+        T: 'static,
+    {
+        if self.sends.capacity() < self.sends.max_capacity() || self.control.capacity() < self.control.max_capacity() {
+            return Err((msg, Some(reply)));
+        }
+        self.direct.try_send(msg, Some(reply))
     }
 }
 
@@ -366,6 +385,7 @@ pub struct CommandReceiver<T = Message> {
     /// isn't counted in `taken` until it's handed out, so a Logout queued after it still waits.
     /// It has left the bounded queue, so while it's here one more send than `max_queued_sends` waits.
     noticed: Option<(T, ReceiptSender)>,
+    pub(crate) direct: Arc<DirectSlot<T>>,
 }
 
 /// What [`CommandReceiver::next_with`] does with application sends.
@@ -393,8 +413,9 @@ pub(crate) fn command_queues<T>(max_queued_sends: usize) -> (CommandSender<T>, C
     assert!(max_queued_sends > 0, "a send queue holds at least one message");
     let (sends, sends_rx) = mpsc::channel(max_queued_sends);
     let (control, control_rx) = mpsc::channel(CONTROL_QUEUE);
-    let sender = CommandSender { sends, control, queued: Arc::default() };
-    (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None, noticed: None })
+    let direct = Arc::new(DirectSlot::default());
+    let sender = CommandSender { sends, control, queued: Arc::default(), direct: direct.clone() };
+    (sender, CommandReceiver { sends: sends_rx, control: control_rx, taken: 0, held: None, noticed: None, direct })
 }
 
 impl<T> CommandReceiver<T> {
@@ -1475,10 +1496,17 @@ impl<T> SessionHandle<T> {
     ///
     /// [`SendError::NotConnected`] if no connection has the session, or [`SendError::Full`] if its
     /// send queue is full; either way the message comes back in it.
-    pub fn send(&self, msg: impl Into<T>) -> Result<Receipt, SendError<T>> {
+    pub fn send(&self, msg: impl Into<T>) -> Result<Receipt, SendError<T>>
+    where
+        T: 'static,
+    {
         let msg = msg.into();
         let Some(sender) = self.registry.sender(&self.id) else { return Err(SendError::NotConnected(msg)) };
         let (reply, receipt) = oneshot::channel();
+        let (msg, reply) = match sender.try_direct(msg, reply) {
+            Ok(()) => return Ok(Receipt(receipt)),
+            Err((msg, reply)) => (msg, reply.expect("given back as given")),
+        };
         match sender.sends.try_send((msg, reply)) {
             Ok(()) => {
                 sender.queued.fetch_add(1, Ordering::AcqRel);
