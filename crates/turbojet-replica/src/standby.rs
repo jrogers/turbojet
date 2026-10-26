@@ -75,7 +75,11 @@ impl<S: SessionStorage> Replica<S> {
                 self.epoch = epoch;
                 Ok(Some(Frame::Welcome { epoch }))
             }
-            Frame::Bind { handle, session } => {
+            // A deposed active's handles would collide with the active's: it may bind none.
+            Frame::Bind { handle, epoch, .. } if epoch < self.epoch => {
+                Ok(Some(Frame::Nack { handle, reason: NackReason::StaleEpoch }))
+            }
+            Frame::Bind { handle, session, .. } => {
                 let log = match self.storage.begin_open(&session)? {
                     Opened::Ready(log) => log,
                     Opened::Pending(job) => job.run()?,

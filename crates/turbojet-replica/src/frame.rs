@@ -32,8 +32,8 @@ pub enum Frame {
     Hello { version: u16, epoch: u64, node: String, app_record_kinds: Vec<u16> },
     /// From the standby: it accepts the active, at the highest epoch it has seen.
     Welcome { epoch: u64 },
-    /// From the active: `handle` names `session` in the batches that follow.
-    Bind { handle: u32, session: SessionId },
+    /// From the active, holding `epoch`: `handle` names `session` in the batches that follow.
+    Bind { handle: u32, epoch: u64, session: SessionId },
     /// From the standby: its copy of the session `handle` names, for the active to compare.
     Bound { handle: u32, summary: Summary },
     /// From the active: one commit of a session's changes.
@@ -179,9 +179,10 @@ impl Frame {
                 w.u8(kind::WELCOME);
                 w.u64(*epoch);
             }
-            Self::Bind { handle, session } => {
+            Self::Bind { handle, epoch, session } => {
                 w.u8(kind::BIND);
                 w.u32(*handle);
+                w.u64(*epoch);
                 for part in [&session.begin_string, &session.sender_comp_id, &session.target_comp_id] {
                     w.bytes(part.as_bytes());
                 }
@@ -253,11 +254,11 @@ impl Frame {
             }
             kind::WELCOME => Self::Welcome { epoch: r.u64()? },
             kind::BIND => {
-                let handle = r.u32()?;
+                let (handle, epoch) = (r.u32()?, r.u64()?);
                 let (begin_string, sender, target, suffix) = (r.text()?, r.text()?, r.text()?, r.text()?);
                 let session =
                     SessionId::from_key(begin_string, sender, target, &suffix).ok_or(FrameError::Invalid("session"))?;
-                Self::Bind { handle, session }
+                Self::Bind { handle, epoch, session }
             }
             kind::BOUND => {
                 let (handle, next_outgoing, next_incoming, in_flight) = (r.u32()?, r.u64()?, r.u64()?, r.u64()?);
@@ -442,7 +443,7 @@ mod tests {
         vec![
             Frame::Hello { version: VERSION, epoch: 7, node: "gw-a".into(), app_record_kinds: vec![1, 300] },
             Frame::Welcome { epoch: 7 },
-            Frame::Bind { handle: 3, session },
+            Frame::Bind { handle: 3, epoch: 7, session },
             Frame::Bound {
                 handle: 3,
                 summary: Summary {

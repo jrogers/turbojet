@@ -18,12 +18,13 @@ const SNAPSHOT_BATCH_BYTES: usize = 1024 * 1024;
 /// How batches reach the standby. Its calls block until the standby answers, so a store using
 /// it runs them on a blocking thread, in its jobs.
 pub trait Link: Send + Sync {
-    /// Binds `handle` to `session` on the standby, returning its copy of the session.
+    /// Binds `handle` to `session` on the standby, as the holder of `epoch`, returning its copy
+    /// of the session.
     ///
     /// # Errors
     ///
     /// The standby can't be reached, or refused.
-    fn bind(&self, handle: u32, session: &SessionId) -> io::Result<Summary>;
+    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary>;
 
     /// Sends a batch for a bound handle: a job that ends once the standby has committed it,
     /// failing if the standby refused it or can't be reached.
@@ -74,7 +75,7 @@ impl Attacher {
     /// committed here before a failure kept them from it.
     fn attach(self, inner: Box<dyn StoredSession>) -> io::Result<Box<dyn StoredSession>> {
         let Self { link, session, handle, epoch } = self;
-        let theirs = link.bind(handle, &session)?;
+        let theirs = link.bind(handle, epoch, &session)?;
         let mut log = ReplicatedLog { inner, link, handle, epoch, commit_no: 0, ops: Vec::new() };
         if theirs != summary(log.inner.as_ref()) {
             log.send_whole()?;
@@ -301,10 +302,12 @@ impl<S: SessionStorage + 'static> LocalLink<S> {
 }
 
 impl<S: SessionStorage + Send + 'static> Link for LocalLink<S> {
-    fn bind(&self, handle: u32, session: &SessionId) -> io::Result<Summary> {
-        let bind = Frame::Bind { handle, session: session.clone() };
-        match self.replica.lock().unwrap_or_else(PoisonError::into_inner).on_frame(bind)? {
+    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary> {
+        let bind = Frame::Bind { handle, epoch, session: session.clone() };
+        let mut replica = self.replica.lock().unwrap_or_else(PoisonError::into_inner);
+        match replica.on_frame(bind)? {
             Some(Frame::Bound { summary, .. }) => Ok(summary),
+            Some(Frame::Nack { reason: NackReason::StaleEpoch, .. }) => Err(deposed(epoch, replica.epoch())),
             other => Err(io::Error::other(format!("the standby answered a bind with {other:?}"))),
         }
     }
@@ -394,6 +397,9 @@ mod tests {
         log.commit().unwrap().unwrap().run().unwrap();
 
         let _taken = LocalLink::connect(standby.clone(), 2, "other").unwrap();
+        // Its handles would collide with the new active's, so it can't bind a session either.
+        let failed = active.open(&conformance::id("B")).err().expect("a stale bind is refused");
+        assert_eq!(failed.kind(), io::ErrorKind::PermissionDenied, "{failed}");
         assert_eq!(
             LocalLink::connect(standby, 1, "again").err().map(|e| e.kind()),
             Some(io::ErrorKind::PermissionDenied),
