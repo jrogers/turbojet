@@ -21,13 +21,15 @@ const SNAPSHOT_BATCH_BYTES: usize = 1024 * 1024;
 /// How batches reach the standby. Its calls block until the standby answers, so a store using
 /// it runs them on a blocking thread, in its jobs.
 pub trait Link: Send + Sync {
-    /// Binds `handle` to `session` on the standby, as the holder of `epoch`, returning its copy
-    /// of the session.
+    /// Binds `handle` to `session` on the standby, as the holder of `epoch` that leaves up to
+    /// `max_lag` of the session's outgoing numbers unacknowledged, returning its copy of the
+    /// session.
     ///
     /// # Errors
     ///
-    /// The standby can't be reached, or refused.
-    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary>;
+    /// The standby can't be reached, or refused: [`io::ErrorKind::InvalidInput`] if it accepts
+    /// less lag than `max_lag`.
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary>;
 
     /// Sends a batch for a bound handle: a job that ends once the standby has committed it,
     /// failing if the standby refused it or can't be reached.
@@ -59,6 +61,9 @@ struct Replication {
     held: Option<Arc<Held>>,
     /// A commit the standby can't take is made alone, rather than failing.
     degrade: bool,
+    /// The most outgoing numbers a session may leave unacknowledged by the standby, which each
+    /// bind tells it; none yet.
+    max_lag: u64,
     state: Mutex<State>,
     /// Signalled when [`catch_up`](ReplicatedStorage::catch_up) is done with a session.
     caught: Condvar,
@@ -137,8 +142,15 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
     /// Keeps sessions in `inner`, copying their commits over `link`, as the holder of the lease
     /// for `epoch`.
     pub fn new(inner: S, link: Arc<dyn Link>, epoch: u64) -> Self {
-        let shared =
-            Replication { link, epoch, held: None, degrade: false, state: Mutex::default(), caught: Condvar::new() };
+        let shared = Replication {
+            link,
+            epoch,
+            held: None,
+            degrade: false,
+            max_lag: 0,
+            state: Mutex::default(),
+            caught: Condvar::new(),
+        };
         Self { inner: Arc::new(inner), shared: Arc::new(shared), next_handle: Arc::default() }
     }
 
@@ -265,7 +277,7 @@ fn attach(
         bound: Arc::new(AtomicBool::new(false)),
         ops: Vec::new(),
     };
-    let sent = shared.link.bind(handle, shared.epoch, session).and_then(|theirs| {
+    let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, session).and_then(|theirs| {
         if theirs != summary(log.inner.as_ref()) || shared.is_behind(session) {
             let Whole { header, fetched } = Whole::of(log.inner.as_mut())?;
             send_whole(shared, handle, &log.commit_no, header, messages(fetched)?)?;
@@ -463,7 +475,7 @@ impl ReplicatedLog {
         let Whole { header, fetched } = Whole::of(self.inner.as_mut())?;
         let (handle, commit_no) = (self.handle, self.commit_no.clone());
         Ok(Commit::blocking(move || {
-            let sent = shared.link.bind(handle, shared.epoch, &session).and_then(|_| {
+            let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, &session).and_then(|_| {
                 commit_no.store(0, Ordering::Release);
                 send_whole(&shared, handle, &commit_no, header, messages(fetched)?)
             });
@@ -625,12 +637,13 @@ impl<S: SessionStorage + 'static> LocalLink<S> {
 }
 
 impl<S: SessionStorage + Send + 'static> Link for LocalLink<S> {
-    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary> {
-        let bind = Frame::Bind { handle, epoch, session: session.clone() };
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+        let bind = Frame::Bind { handle, epoch, max_lag, session: session.clone() };
         let mut replica = self.replica.lock().unwrap_or_else(PoisonError::into_inner);
         match replica.on_frame(bind)? {
             Some(Frame::Bound { summary, .. }) => Ok(summary),
             Some(Frame::Nack { reason: NackReason::StaleEpoch, .. }) => Err(deposed(epoch, replica.epoch())),
+            Some(Frame::Nack { reason: NackReason::Lag, .. }) => Err(lag_refused()),
             other => Err(io::Error::other(format!("the standby answered a bind with {other:?}"))),
         }
     }
@@ -650,6 +663,11 @@ impl<S: SessionStorage + Send + 'static> Link for LocalLink<S> {
             }
         })
     }
+}
+
+/// The error for a bind the standby refused: it accepts less lag than the active's bound.
+pub(crate) fn lag_refused() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "the standby accepts less lag than this active's bound")
 }
 
 /// The error for an active whose epoch is behind the standby's: another instance holds the lease.
@@ -815,6 +833,19 @@ mod tests {
         assert_eq!(failed.to_string(), "taken by gw-b");
     }
 
+    /// A standby refuses a bind from an active that may leave more unacknowledged than it accepts.
+    #[test]
+    fn a_standby_refuses_more_lag_than_it_accepts() {
+        let bind = |replica: Replica<MemoryStorage>| {
+            let mut replica = replica;
+            let hello = Frame::Hello { version: VERSION, epoch: 1, node: "a".into(), app_record_kinds: Vec::new() };
+            replica.on_frame(hello).unwrap();
+            replica.on_frame(Frame::Bind { handle: 1, epoch: 1, max_lag: 4, session: conformance::id("A") }).unwrap()
+        };
+        assert_eq!(bind(Replica::new(MemoryStorage::new())), Some(Frame::Nack { handle: 1, reason: NackReason::Lag }));
+        assert!(matches!(bind(Replica::new(MemoryStorage::new()).accepting_lag(4)), Some(Frame::Bound { .. })));
+    }
+
     /// A link the test can take down and bring back.
     struct Outage {
         link: LocalLink<MemoryStorage>,
@@ -822,11 +853,11 @@ mod tests {
     }
 
     impl Link for Outage {
-        fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary> {
+        fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
             if self.down.load(Ordering::Acquire) {
                 return Err(io::ErrorKind::ConnectionRefused.into());
             }
-            self.link.bind(handle, epoch, session)
+            self.link.bind(handle, epoch, max_lag, session)
         }
 
         fn send(&self, batch: Batch) -> Commit {

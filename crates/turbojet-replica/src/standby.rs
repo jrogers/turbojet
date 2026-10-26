@@ -23,6 +23,8 @@ pub struct Replica<S> {
     connections: u64,
     /// Taken over: no more frames are applied.
     promoted: bool,
+    /// The most outgoing numbers an active may leave unacknowledged per session.
+    max_lag: u64,
 }
 
 impl<S> std::fmt::Debug for Replica<S> {
@@ -40,7 +42,16 @@ struct Bound {
 impl<S: SessionStorage> Replica<S> {
     /// A standby keeping its copy in `storage`, having seen no epoch.
     pub fn new(storage: S) -> Self {
-        Self { storage, epoch: 0, bound: HashMap::new(), connections: 0, promoted: false }
+        Self { storage, epoch: 0, bound: HashMap::new(), connections: 0, promoted: false, max_lag: 0 }
+    }
+
+    /// Accepts actives that leave up to `n` outgoing numbers per session unacknowledged, rather
+    /// than none: a bind for more is refused. On promotion each session's next outgoing number
+    /// is to be skipped ahead by `n`, past any the active sent that this copy lacks.
+    #[must_use]
+    pub fn accepting_lag(mut self, n: u64) -> Self {
+        self.max_lag = n;
+        self
     }
 
     /// The highest epoch seen.
@@ -92,6 +103,10 @@ impl<S: SessionStorage> Replica<S> {
             // A deposed active's handles would collide with the active's: it may bind none.
             Frame::Bind { handle, epoch, .. } if epoch < self.epoch => {
                 Ok(Some(Frame::Nack { handle, reason: NackReason::StaleEpoch }))
+            }
+            // Promotion can only skip past what this standby accepts the active leaves unacknowledged.
+            Frame::Bind { handle, max_lag, .. } if max_lag > self.max_lag => {
+                Ok(Some(Frame::Nack { handle, reason: NackReason::Lag }))
             }
             Frame::Bind { handle, session, .. } => {
                 let log = match self.storage.begin_open(&session)? {

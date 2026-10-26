@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 use turbojet::SessionId;
 use turbojet::store::{Commit, SessionStorage};
 
-use crate::active::{Link, deposed};
+use crate::active::{Link, deposed, lag_refused};
 use crate::frame::{Batch, Frame, NackReason, Summary, VERSION};
 use crate::standby::Replica;
 
@@ -441,15 +441,16 @@ impl Conn {
 }
 
 impl Link for TcpLink {
-    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
         let shared = &self.shared;
         let conn = shared.conn()?;
-        match shared.request(&conn, handle, &Frame::Bind { handle, epoch, session: session.clone() })? {
+        match shared.request(&conn, handle, &Frame::Bind { handle, epoch, max_lag, session: session.clone() })? {
             Frame::Bound { summary, .. } => {
                 shared.bound.lock().unwrap_or_else(PoisonError::into_inner).insert(handle, conn.number);
                 Ok(summary)
             }
             Frame::Nack { reason: NackReason::StaleEpoch, .. } => Err(deposed(epoch, epoch + 1)),
+            Frame::Nack { reason: NackReason::Lag, .. } => Err(lag_refused()),
             other => Err(io::Error::other(format!("the standby answered a bind with {other:?}"))),
         }
     }

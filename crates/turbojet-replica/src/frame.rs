@@ -17,7 +17,7 @@ use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
 use turbojet::store::Marks;
 
 /// The version of the wire form this crate speaks.
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 /// The longest frame either side sends or accepts, length prefix excluded. A batch holds what one
 /// commit stored, which a session's driver bounds well below this; a standby catching up is sent
@@ -32,8 +32,9 @@ pub enum Frame {
     Hello { version: u16, epoch: u64, node: String, app_record_kinds: Vec<u16> },
     /// From the standby: it accepts the active, at the highest epoch it has seen.
     Welcome { epoch: u64 },
-    /// From the active, holding `epoch`: `handle` names `session` in the batches that follow.
-    Bind { handle: u32, epoch: u64, session: SessionId },
+    /// From the active, holding `epoch`: `handle` names `session` in the batches that follow, of
+    /// which the active may leave up to `max_lag` outgoing numbers unacknowledged.
+    Bind { handle: u32, epoch: u64, max_lag: u64, session: SessionId },
     /// From the standby: its copy of the session `handle` names, for the active to compare.
     Bound { handle: u32, summary: Summary },
     /// From the active: one commit of a session's changes.
@@ -104,6 +105,8 @@ pub enum NackReason {
     StaleEpoch,
     /// It doesn't follow the last batch the standby committed: the session must be sent whole.
     Diverged,
+    /// Its bind's `max_lag` is more than the standby accepts.
+    Lag,
 }
 
 /// A frame that can't be decoded.
@@ -179,10 +182,11 @@ impl Frame {
                 w.u8(kind::WELCOME);
                 w.u64(*epoch);
             }
-            Self::Bind { handle, epoch, session } => {
+            Self::Bind { handle, epoch, max_lag, session } => {
                 w.u8(kind::BIND);
                 w.u32(*handle);
                 w.u64(*epoch);
+                w.u64(*max_lag);
                 for part in [&session.begin_string, &session.sender_comp_id, &session.target_comp_id] {
                     w.bytes(part.as_bytes());
                 }
@@ -223,6 +227,7 @@ impl Frame {
                 w.u8(match reason {
                     NackReason::StaleEpoch => 1,
                     NackReason::Diverged => 2,
+                    NackReason::Lag => 3,
                 });
             }
         }
@@ -254,11 +259,11 @@ impl Frame {
             }
             kind::WELCOME => Self::Welcome { epoch: r.u64()? },
             kind::BIND => {
-                let (handle, epoch) = (r.u32()?, r.u64()?);
+                let (handle, epoch, max_lag) = (r.u32()?, r.u64()?, r.u64()?);
                 let (begin_string, sender, target, suffix) = (r.text()?, r.text()?, r.text()?, r.text()?);
                 let session =
                     SessionId::from_key(begin_string, sender, target, &suffix).ok_or(FrameError::Invalid("session"))?;
-                Self::Bind { handle, epoch, session }
+                Self::Bind { handle, epoch, max_lag, session }
             }
             kind::BOUND => {
                 let (handle, next_outgoing, next_incoming, in_flight) = (r.u32()?, r.u64()?, r.u64()?, r.u64()?);
@@ -286,6 +291,7 @@ impl Frame {
                 let reason = match r.u8()? {
                     1 => NackReason::StaleEpoch,
                     2 => NackReason::Diverged,
+                    3 => NackReason::Lag,
                     other => return Err(FrameError::Unknown("refusal", other)),
                 };
                 Self::Nack { handle, reason }
@@ -443,7 +449,7 @@ mod tests {
         vec![
             Frame::Hello { version: VERSION, epoch: 7, node: "gw-a".into(), app_record_kinds: vec![1, 300] },
             Frame::Welcome { epoch: 7 },
-            Frame::Bind { handle: 3, epoch: 7, session },
+            Frame::Bind { handle: 3, epoch: 7, max_lag: 4, session },
             Frame::Bound {
                 handle: 3,
                 summary: Summary {
@@ -484,6 +490,7 @@ mod tests {
             Frame::Ack { handle: 3, commit_no: 42 },
             Frame::Nack { handle: 3, reason: NackReason::StaleEpoch },
             Frame::Nack { handle: 3, reason: NackReason::Diverged },
+            Frame::Nack { handle: 3, reason: NackReason::Lag },
         ]
     }
 

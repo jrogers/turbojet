@@ -208,11 +208,11 @@ struct Outage {
 }
 
 impl Link for Outage {
-    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
         if self.down.load(Ordering::Acquire) {
             return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "the standby is down"));
         }
-        self.link.bind(handle, epoch, session)
+        self.link.bind(handle, epoch, max_lag, session)
     }
 
     fn send(&self, batch: Batch) -> Commit {
@@ -227,7 +227,7 @@ impl Link for Outage {
 struct Unbound;
 
 impl Link for Unbound {
-    fn bind(&self, _handle: u32, _epoch: u64, _session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, _handle: u32, _epoch: u64, _max_lag: u64, _session: &SessionId) -> io::Result<Summary> {
         Err(io::Error::other("unbound"))
     }
 
@@ -244,8 +244,8 @@ struct Dropping {
 }
 
 impl Link for Dropping {
-    fn bind(&self, handle: u32, epoch: u64, session: &SessionId) -> io::Result<Summary> {
-        self.link.bind(handle, epoch, session)
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+        self.link.bind(handle, epoch, max_lag, session)
     }
 
     fn send(&self, batch: Batch) -> Commit {
