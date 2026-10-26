@@ -433,6 +433,32 @@ mod tests {
         assert_eq!(copy.sent_messages(1, 2).unwrap().len(), 2);
     }
 
+    /// Promoted, a standby closes the logs it held, so its own store opens them (a disk store
+    /// locks a session while it's open), and refuses the old active.
+    #[test]
+    fn a_promoted_standby_releases_its_store_and_refuses_the_old_active() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(turbojet::DiskStorage::new(dir.path()).unwrap().with_fsync(false));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let replica = Arc::new(Mutex::new(Replica::new(store.clone())));
+        let serving = replica.clone();
+        std::thread::spawn(move || serve_standby(&listener, &serving));
+
+        let id = conformance::id("A");
+        let old = active(addr, 1);
+        let mut log = old.open(&id).unwrap();
+        log.record_outgoing(1, Some(&conformance::app_message(1))).unwrap();
+        log.commit().unwrap().unwrap().run().unwrap();
+        assert!(store.open(&id).is_err(), "the standby holds the session open");
+
+        replica.lock().unwrap().promote();
+        let taken = store.open(&id).expect("released");
+        assert_eq!(taken.next_outgoing(), 2, "with what the old active committed");
+        log.record_outgoing(2, Some(&conformance::app_message(2))).unwrap();
+        assert!(log.commit().unwrap().unwrap().run().is_err(), "the old active is refused");
+    }
+
     /// An active whose epoch the standby has seen pass can't connect.
     #[test]
     fn a_deposed_active_cant_connect() {

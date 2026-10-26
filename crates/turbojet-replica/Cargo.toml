@@ -16,6 +16,7 @@ tracing.workspace = true
 turbojet.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 turbojet = { workspace = true, features = ["conformance"] }
 
 [lints]

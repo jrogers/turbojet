@@ -21,6 +21,8 @@ pub struct Replica<S> {
     bound: HashMap<u32, Bound>,
     /// The connections accepted so far: the current one is the last.
     connections: u64,
+    /// Taken over: no more frames are applied.
+    promoted: bool,
 }
 
 impl<S> std::fmt::Debug for Replica<S> {
@@ -38,7 +40,7 @@ struct Bound {
 impl<S: SessionStorage> Replica<S> {
     /// A standby keeping its copy in `storage`, having seen no epoch.
     pub fn new(storage: S) -> Self {
-        Self { storage, epoch: 0, bound: HashMap::new(), connections: 0 }
+        Self { storage, epoch: 0, bound: HashMap::new(), connections: 0, promoted: false }
     }
 
     /// The highest epoch seen.
@@ -65,6 +67,9 @@ impl<S: SessionStorage> Replica<S> {
     /// bound, an unknown version, application records this standby wasn't told of): the
     /// connection must end, failing the active's commits under way.
     pub fn on_frame(&mut self, frame: Frame) -> io::Result<Option<Frame>> {
+        if self.promoted {
+            return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "this standby has taken over"));
+        }
         match frame {
             Frame::Hello { version, epoch, node, app_record_kinds } => {
                 if version != VERSION {
@@ -110,6 +115,15 @@ impl<S: SessionStorage> Replica<S> {
         if connection == self.connections {
             self.disconnected();
         }
+    }
+
+    /// This instance takes over: the sessions' logs it holds are closed, releasing the store for
+    /// the instance's own registry, and every frame from now on is refused, ending the old
+    /// active's connections. Take the lease first, under a higher epoch, so the old active is
+    /// fenced off wherever it is.
+    pub fn promote(&mut self) {
+        self.promoted = true;
+        self.disconnected();
     }
 
     /// The current connection has ended: its handles go, and the logs they held are closed.
