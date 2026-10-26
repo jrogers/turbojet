@@ -99,6 +99,13 @@ impl RecordingApp {
         self.held.lock().unwrap().clear();
     }
 
+    /// The seed ends as the process does: the handle and the holds go. A hold of an ended
+    /// session keeps its registry, whose cancel-on-disconnect countdowns keep this application.
+    pub fn exit(&self) {
+        *self.handle.lock().unwrap() = None;
+        self.held.lock().unwrap().clear();
+    }
+
     /// Whether this application holds orders.
     pub fn holds(&self) -> bool {
         self.holding.every > 0

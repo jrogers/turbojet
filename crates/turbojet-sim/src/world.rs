@@ -418,15 +418,15 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
         },
         Err(violation) => return Err(Failure { seed: options.seed, at, violation, trace, fixp: false }),
     };
-    // The seed ends as the process does: its applications let go of their handles, as in
-    // `RecordingApp::crash`. Otherwise a session dropped now, which starts its cancel on
+    // The seed ends as the process does: its applications let go of their handles and holds, as
+    // in `RecordingApp::crash`. Otherwise a session dropped now, which starts its cancel on
     // disconnect with its application, would leave application and registry holding each other
     // for good, every seed's world with them.
     let registries: Vec<_> = world
         .nodes
         .iter()
         .map(|node| {
-            *node.app.handle.lock().unwrap() = None;
+            node.app.exit();
             Arc::downgrade(&node.registry)
         })
         .collect();
