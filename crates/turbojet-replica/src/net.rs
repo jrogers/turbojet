@@ -1,16 +1,22 @@
-//! Links over TCP: the standby's listener, and the active's [`TcpLink`] to it.
+//! Links over TCP, or TLS: the standby's listener, and the active's [`TcpLink`] to it.
 //!
-//! Both ends block: the active's link calls are made in its store's jobs, which its sessions'
-//! drivers run on blocking threads, and the standby applies batches with its store's blocking
-//! calls. Each connection has a thread reading it.
+//! The active's link calls block: they're made in its store's jobs, which its sessions' drivers
+//! run on blocking threads. The link does its I/O on a runtime of its own, on one thread, so a
+//! caller can wait for it from any thread, a runtime's own included. The standby serves each
+//! connection on a thread of its own, since it applies batches with its store's blocking calls.
 
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
+use std::io;
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
 use std::time::Duration;
 
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::runtime::Handle;
+use tokio::sync::{mpsc as async_mpsc, oneshot};
+use tokio::task::AbortHandle;
 use tracing::{debug, info, warn};
 use turbojet::SessionId;
 use turbojet::store::{Commit, SessionStorage};
@@ -20,8 +26,12 @@ use crate::frame::{Batch, Frame, NackReason, Summary, VERSION};
 use crate::standby::Replica;
 
 /// How long the active waits for the standby's answer before giving the connection up: its
-/// sessions' commits wait as long.
+/// sessions' commits wait as long. Connecting, and the TLS handshake, are given as long too.
 pub const DEFAULT_ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long the standby gives a connection's TLS handshake.
+#[cfg(feature = "tls")]
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Serves the active instances that connect to `listener`, applying their batches to `replica`,
 /// each connection on a thread of its own. Returns only if accepting fails.
@@ -29,32 +39,83 @@ pub const DEFAULT_ANSWER_TIMEOUT: Duration = Duration::from_secs(5);
 /// # Errors
 ///
 /// Accepting a connection failed.
-pub fn serve_standby<S>(listener: &TcpListener, replica: &Arc<Mutex<Replica<S>>>) -> io::Result<()>
+pub async fn serve_standby<S>(listener: TcpListener, replica: Arc<Mutex<Replica<S>>>) -> io::Result<()>
 where
     S: SessionStorage + Send + 'static,
 {
-    for stream in listener.incoming() {
-        let stream = stream?;
-        let replica = replica.clone();
-        std::thread::spawn(move || {
-            let peer = stream.peer_addr().ok();
-            if let Err(e) = serve_connection(stream, &replica) {
-                debug!(?peer, error = %e, "replication connection ended");
-            }
+    loop {
+        let (stream, peer) = listener.accept().await?;
+        serve(stream, peer, replica.clone(), |stream| async { Ok(stream) });
+    }
+}
+
+/// As [`serve_standby`], over TLS: from [`ServerTls::acceptor`](turbojet::tls::ServerTls::acceptor),
+/// say, which can require the active to present a certificate. Each handshake must complete
+/// within five seconds.
+///
+/// # Errors
+///
+/// Accepting a connection failed; a failed or slow handshake ends only its connection.
+#[cfg(feature = "tls")]
+pub async fn serve_standby_tls<S>(
+    listener: TcpListener,
+    tls: turbojet::tls::TlsAcceptor,
+    replica: Arc<Mutex<Replica<S>>>,
+) -> io::Result<()>
+where
+    S: SessionStorage + Send + 'static,
+{
+    loop {
+        let (stream, peer) = listener.accept().await?;
+        let tls = tls.clone();
+        serve(stream, peer, replica.clone(), move |stream| async move {
+            let accepted = tokio::time::timeout(HANDSHAKE_TIMEOUT, tls.accept(stream)).await;
+            let stream = accepted.unwrap_or_else(|_| Err(io::Error::new(io::ErrorKind::TimedOut, "timed out")));
+            stream.inspect_err(|e| warn!(%peer, error = %e, "replication TLS handshake failed"))
         });
     }
-    Ok(())
+}
+
+/// Serves one connection, made ready by `upgrade` (a TLS handshake, say), on a thread of its own
+/// with a runtime of its own: the thread that applies a batch is the one its arrival wakes.
+fn serve<S, F, Fut, T>(stream: TcpStream, peer: SocketAddr, replica: Arc<Mutex<Replica<S>>>, upgrade: F)
+where
+    S: SessionStorage + Send + 'static,
+    F: FnOnce(TcpStream) -> Fut + Send + 'static,
+    Fut: Future<Output = io::Result<T>>,
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    let serving = move || -> io::Result<()> {
+        let stream = stream.into_std()?;
+        stream.set_nodelay(true)?;
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        runtime.block_on(async {
+            let stream = upgrade(TcpStream::from_std(stream)?).await?;
+            serve_connection(stream, &replica).await
+        })
+    };
+    let spawned = std::thread::Builder::new().name("turbojet-replica-standby".into()).spawn(move || {
+        if let Err(e) = serving() {
+            debug!(%peer, error = %e, "replication connection ended");
+        }
+    });
+    if let Err(e) = spawned {
+        warn!(%peer, error = %e, "no thread to serve a replication connection: dropping it");
+    }
 }
 
 /// One active's connection, until it ends: each frame applied, and its answer written back.
-fn serve_connection<S: SessionStorage>(stream: TcpStream, replica: &Mutex<Replica<S>>) -> io::Result<()> {
-    stream.set_nodelay(true)?;
-    let mut frames = FrameReader::new(stream.try_clone()?);
-    let mut writer = stream;
+async fn serve_connection<S, T>(stream: T, replica: &Mutex<Replica<S>>) -> io::Result<()>
+where
+    S: SessionStorage,
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    // Read and written in turn, so one stream serves both.
+    let mut frames = FrameReader::new(stream);
     let mut connection = None;
     let mut out = Vec::new();
     let result = loop {
-        let frame = match frames.next() {
+        let frame = match frames.next().await {
             Ok(Some(frame)) => frame,
             Ok(None) => break Ok(()),
             Err(e) => break Err(e),
@@ -72,7 +133,7 @@ fn serve_connection<S: SessionStorage>(stream: TcpStream, replica: &Mutex<Replic
             Ok(Some(answer)) => {
                 out.clear();
                 answer.encode(&mut out);
-                if let Err(e) = writer.write_all(&out) {
+                if let Err(e) = frames.inner.write_all(&out).await {
                     break Err(e);
                 }
             }
@@ -92,13 +153,13 @@ struct FrameReader<R> {
     buf: Vec<u8>,
 }
 
-impl<R: Read> FrameReader<R> {
+impl<R: AsyncRead + Unpin> FrameReader<R> {
     fn new(inner: R) -> Self {
         Self { inner, buf: Vec::new() }
     }
 
     /// The next frame, or `None` once the stream has ended between frames.
-    fn next(&mut self) -> io::Result<Option<Frame>> {
+    async fn next(&mut self) -> io::Result<Option<Frame>> {
         loop {
             match Frame::decode(&self.buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))? {
                 Some((frame, used)) => {
@@ -106,31 +167,41 @@ impl<R: Read> FrameReader<R> {
                     return Ok(Some(frame));
                 }
                 None => {
-                    let mut chunk = [0; 64 * 1024];
-                    let read = self.inner.read(&mut chunk)?;
-                    if read == 0 {
+                    self.buf.reserve(64 * 1024);
+                    if self.inner.read_buf(&mut self.buf).await? == 0 {
                         return if self.buf.is_empty() { Ok(None) } else { Err(io::ErrorKind::UnexpectedEof.into()) };
                     }
-                    self.buf.extend_from_slice(&chunk[..read]);
                 }
             }
         }
     }
 }
 
-/// The active's [`Link`] to a standby over TCP. It connects when first used, and again after
-/// losing the connection; a session bound before it was lost can't commit until it's opened
-/// again, which binds it afresh and sends the standby whatever it lacks.
+/// The active's [`Link`] to a standby over TCP, or TLS ([`with_tls`](Self::with_tls)). It
+/// connects when first used, and again after losing the connection; a session bound before it
+/// was lost can't commit until it's opened again, which binds it afresh and sends the standby
+/// whatever it lacks.
 #[derive(Clone)]
 pub struct TcpLink {
     shared: Arc<Shared>,
 }
 
-struct Shared {
+/// What a link is made with, kept so a builder method can make it afresh.
+#[derive(Clone)]
+struct Settings {
     addr: String,
     epoch: u64,
     node: String,
     timeout: Duration,
+    #[cfg(feature = "tls")]
+    tls: Option<turbojet::InitiatorTls>,
+}
+
+struct Shared {
+    settings: Settings,
+    /// The link's runtime, started at the first connection, and its stop: dropped with the link,
+    /// which ends the runtime's thread.
+    io: OnceLock<(Handle, oneshot::Sender<()>)>,
     conn: Mutex<Option<Arc<Conn>>>,
     connections: AtomicU64,
     /// The connection each handle was bound on.
@@ -140,10 +211,11 @@ struct Shared {
 /// One connection to the standby.
 struct Conn {
     number: u64,
-    /// Frames for the thread writing them, so a request goes out at once without its caller
-    /// writing to the socket, which could block it while the standby is slow to read.
-    outbox: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
-    stream: TcpStream,
+    /// Frames for the task writing them, so a request goes out at once without its caller
+    /// writing to the socket.
+    outbox: Mutex<Option<async_mpsc::UnboundedSender<Vec<u8>>>>,
+    /// The tasks reading and writing, stopped when the connection is lost.
+    tasks: Mutex<Vec<AbortHandle>>,
     /// Who waits for the answer for each handle: a session has one request at most under way.
     waiting: Mutex<HashMap<u32, mpsc::SyncSender<io::Result<Frame>>>>,
     alive: AtomicBool,
@@ -151,7 +223,8 @@ struct Conn {
 
 impl std::fmt::Debug for TcpLink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TcpLink").field("addr", &self.shared.addr).field("epoch", &self.shared.epoch).finish()
+        let settings = &self.shared.settings;
+        f.debug_struct("TcpLink").field("addr", &settings.addr).field("epoch", &settings.epoch).finish_non_exhaustive()
     }
 }
 
@@ -159,17 +232,35 @@ impl TcpLink {
     /// A link to the standby at `addr`, as the active `node` holding `epoch`. It connects when
     /// first used.
     pub fn new(addr: impl Into<String>, epoch: u64, node: impl Into<String>) -> Self {
-        Self::with_timeout(addr, epoch, node, DEFAULT_ANSWER_TIMEOUT)
+        Self::from(Settings {
+            addr: addr.into(),
+            epoch,
+            node: node.into(),
+            timeout: DEFAULT_ANSWER_TIMEOUT,
+            #[cfg(feature = "tls")]
+            tls: None,
+        })
     }
 
-    /// As [`new`](Self::new), waiting `timeout` for each of the standby's answers.
-    pub fn with_timeout(addr: impl Into<String>, epoch: u64, node: impl Into<String>, timeout: Duration) -> Self {
+    /// Waits `timeout` for each of the standby's answers, rather than [`DEFAULT_ANSWER_TIMEOUT`].
+    #[must_use]
+    pub fn with_timeout(self, timeout: Duration) -> Self {
+        Self::from(Settings { timeout, ..self.shared.settings.clone() })
+    }
+
+    /// Connects over TLS, verifying the standby's certificate against `tls.server_name` and, if
+    /// its connector has an identity, presenting that.
+    #[cfg(feature = "tls")]
+    #[must_use]
+    pub fn with_tls(self, tls: turbojet::InitiatorTls) -> Self {
+        Self::from(Settings { tls: Some(tls), ..self.shared.settings.clone() })
+    }
+
+    fn from(settings: Settings) -> Self {
         Self {
             shared: Arc::new(Shared {
-                addr: addr.into(),
-                epoch,
-                node: node.into(),
-                timeout,
+                settings,
+                io: OnceLock::new(),
                 conn: Mutex::new(None),
                 connections: AtomicU64::new(0),
                 bound: Mutex::new(HashMap::new()),
@@ -190,44 +281,37 @@ impl Shared {
         Ok(live)
     }
 
-    fn connect(&self) -> io::Result<Arc<Conn>> {
-        let addr = self.addr.to_socket_addrs()?.next().ok_or_else(|| io::Error::other("no address for the standby"))?;
-        let stream = TcpStream::connect_timeout(&addr, self.timeout)?;
-        stream.set_nodelay(true)?;
-        stream.set_read_timeout(Some(self.timeout))?;
-        let mut frames = FrameReader::new(stream.try_clone()?);
-        let mut hello = Vec::new();
-        Frame::Hello { version: VERSION, epoch: self.epoch, node: self.node.clone(), app_record_kinds: Vec::new() }
-            .encode(&mut hello);
-        (&stream).write_all(&hello)?;
-        match frames.next()? {
-            Some(Frame::Welcome { epoch }) if epoch == self.epoch => {}
-            Some(Frame::Welcome { epoch }) => return Err(deposed(self.epoch, epoch)),
-            other => return Err(io::Error::other(format!("the standby answered hello with {other:?}"))),
+    /// The link's runtime, started on a thread of its own if it isn't yet. Called only with the
+    /// connection locked, so it's started once.
+    fn io(&self) -> io::Result<&Handle> {
+        if let Some((handle, _)) = self.io.get() {
+            return Ok(handle);
         }
-        stream.set_read_timeout(None)?;
-        let number = self.connections.fetch_add(1, Ordering::Relaxed) + 1;
-        info!(standby = %self.addr, epoch = self.epoch, "connected to the standby");
-        let (outbox, frames_out) = mpsc::channel::<Vec<u8>>();
-        let mut writer = stream.try_clone()?;
-        let conn = Arc::new(Conn {
-            number,
-            outbox: Mutex::new(Some(outbox)),
-            stream,
-            waiting: Mutex::new(HashMap::new()),
-            alive: AtomicBool::new(true),
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+        let handle = runtime.handle().clone();
+        let (stop, stopped) = oneshot::channel::<()>();
+        std::thread::Builder::new().name("turbojet-replica-link".into()).spawn(move || {
+            runtime.block_on(async {
+                let _ = stopped.await;
+            });
+        })?;
+        Ok(&self.io.get_or_init(|| (handle, stop)).0)
+    }
+
+    /// Connects on the link's runtime, waiting here until it has.
+    fn connect(&self) -> io::Result<Arc<Conn>> {
+        let number = self.connections.load(Ordering::Relaxed) + 1;
+        let settings = self.settings.clone();
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.io()?.spawn(async move {
+            let connected = tokio::time::timeout(settings.timeout, open(&settings, number)).await;
+            let _ = tx.send(connected.unwrap_or_else(|_| {
+                Err(io::Error::new(io::ErrorKind::TimedOut, "the standby didn't answer the connection in time"))
+            }));
         });
-        let reading = conn.clone();
-        std::thread::spawn(move || reading.read(frames));
-        let writing = conn.clone();
-        std::thread::spawn(move || {
-            for frame in frames_out {
-                if writer.write_all(&frame).is_err() {
-                    writing.lost();
-                    break;
-                }
-            }
-        });
+        let conn = rx.recv().map_err(|_| io::Error::other("the replication link's runtime stopped"))??;
+        self.connections.store(number, Ordering::Relaxed);
+        info!(standby = %self.settings.addr, epoch = self.settings.epoch, "connected to the standby");
         Ok(conn)
     }
 
@@ -247,8 +331,61 @@ impl Shared {
 
     /// Sends `frame` for `handle` on `conn` and waits for the standby's answer.
     fn request(&self, conn: &Arc<Conn>, handle: u32, frame: &Frame) -> io::Result<Frame> {
-        Self::start(conn, handle, frame)?.wait(&self.addr, self.timeout)
+        Self::start(conn, handle, frame)?.wait(&self.settings.addr, self.settings.timeout)
     }
+}
+
+/// Connects to the standby, over TLS if the settings say so, as connection `number`.
+async fn open(settings: &Settings, number: u64) -> io::Result<Arc<Conn>> {
+    let stream = TcpStream::connect(&settings.addr).await?;
+    stream.set_nodelay(true)?;
+    #[cfg(feature = "tls")]
+    if let Some(tls) = &settings.tls {
+        let name = turbojet::tls::ServerName::try_from(tls.server_name.clone())
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let stream = tls.connector.connect(name, stream).await?;
+        return greet(settings, stream, number).await;
+    }
+    greet(settings, stream, number).await
+}
+
+/// Says hello on `stream` and, welcomed, starts its connection's tasks.
+async fn greet<T>(settings: &Settings, stream: T, number: u64) -> io::Result<Arc<Conn>>
+where
+    T: AsyncRead + AsyncWrite + Send + 'static,
+{
+    let (read, mut writer) = tokio::io::split(stream);
+    let mut frames = FrameReader::new(read);
+    let mut hello = Vec::new();
+    Frame::Hello { version: VERSION, epoch: settings.epoch, node: settings.node.clone(), app_record_kinds: Vec::new() }
+        .encode(&mut hello);
+    writer.write_all(&hello).await?;
+    match frames.next().await? {
+        Some(Frame::Welcome { epoch }) if epoch == settings.epoch => {}
+        Some(Frame::Welcome { epoch }) => return Err(deposed(settings.epoch, epoch)),
+        other => return Err(io::Error::other(format!("the standby answered hello with {other:?}"))),
+    }
+    let (outbox, mut frames_out) = async_mpsc::unbounded_channel::<Vec<u8>>();
+    let conn = Arc::new(Conn {
+        number,
+        outbox: Mutex::new(Some(outbox)),
+        tasks: Mutex::new(Vec::new()),
+        waiting: Mutex::new(HashMap::new()),
+        alive: AtomicBool::new(true),
+    });
+    let reading = conn.clone();
+    let read = tokio::spawn(async move { reading.read(frames).await });
+    let writing = conn.clone();
+    let write = tokio::spawn(async move {
+        while let Some(frame) = frames_out.recv().await {
+            if writer.write_all(&frame).await.is_err() {
+                writing.lost();
+                break;
+            }
+        }
+    });
+    conn.tasks.lock().unwrap_or_else(PoisonError::into_inner).extend([read.abort_handle(), write.abort_handle()]);
+    Ok(conn)
 }
 
 /// A request sent, waiting for its answer.
@@ -272,8 +409,8 @@ impl Answer {
 
 impl Conn {
     /// Reads the standby's answers until the connection ends, handing each to who waits for it.
-    fn read(&self, mut frames: FrameReader<TcpStream>) {
-        while let Ok(Some(frame)) = frames.next() {
+    async fn read<R: AsyncRead + Unpin>(&self, mut frames: FrameReader<R>) {
+        while let Ok(Some(frame)) = frames.next().await {
             let (Frame::Bound { handle, .. } | Frame::Ack { handle, .. } | Frame::Nack { handle, .. }) = &frame else {
                 warn!(?frame, "the standby sent a frame it shouldn't");
                 break;
@@ -289,11 +426,14 @@ impl Conn {
         self.lost();
     }
 
-    /// The connection is lost: everyone waiting is told so.
+    /// The connection is lost: its tasks are stopped, which closes it, and everyone waiting is
+    /// told so.
     fn lost(&self) {
         self.alive.store(false, Ordering::Release);
         self.outbox.lock().unwrap_or_else(PoisonError::into_inner).take();
-        let _ = self.stream.shutdown(std::net::Shutdown::Both);
+        for task in self.tasks.lock().unwrap_or_else(PoisonError::into_inner).drain(..) {
+            task.abort();
+        }
         for (_, waiter) in self.waiting.lock().unwrap_or_else(PoisonError::into_inner).drain() {
             let _ = waiter.send(Err(io::Error::new(io::ErrorKind::ConnectionAborted, "lost the standby")));
         }
@@ -334,7 +474,7 @@ impl Link for TcpLink {
                 "the connection to the standby was lost since the session opened: it must open again",
             )),
         };
-        let (standby, timeout) = (shared.addr.clone(), shared.timeout);
+        let (standby, timeout) = (shared.settings.addr.clone(), shared.settings.timeout);
         Commit::blocking(move || match started?.wait(&standby, timeout)? {
             Frame::Ack { .. } => Ok(()),
             Frame::Nack { reason: NackReason::StaleEpoch, .. } => Err(deposed(epoch, epoch + 1)),
@@ -349,7 +489,7 @@ impl Link for TcpLink {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::net::SocketAddr;
+    use std::net::TcpStream;
 
     use turbojet::MemoryStorage;
     use turbojet::store::{StoredSession, conformance};
@@ -361,13 +501,21 @@ mod tests {
 
     /// A standby on a port of its own, serving from a thread.
     fn standby() -> Standby {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
         let store = Arc::new(MemoryStorage::new());
         let replica = Arc::new(Mutex::new(Replica::new(store.clone())));
-        let serving = replica.clone();
-        std::thread::spawn(move || serve_standby(&listener, &serving));
-        (addr, replica, store)
+        (serving(replica.clone()), replica, store)
+    }
+
+    /// Serves `replica` on a port of its own, from a thread with a runtime of its own.
+    fn serving<S: SessionStorage + Send + 'static>(replica: Arc<Mutex<Replica<S>>>) -> SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            runtime.block_on(async { serve_standby(TcpListener::from_std(listener).unwrap(), replica).await })
+        });
+        addr
     }
 
     fn active(to: SocketAddr, epoch: u64) -> ReplicatedStorage<MemoryStorage> {
@@ -420,7 +568,7 @@ mod tests {
 
     impl Cuttable {
         fn to(upstream: SocketAddr) -> Self {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap();
             let streams: Arc<Mutex<Vec<TcpStream>>> = Arc::default();
             let kept = streams.clone();
@@ -480,11 +628,8 @@ mod tests {
     fn a_promoted_standby_releases_its_store_and_refuses_the_old_active() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(turbojet::DiskStorage::new(dir.path()).unwrap().with_fsync(false));
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
         let replica = Arc::new(Mutex::new(Replica::new(store.clone())));
-        let serving = replica.clone();
-        std::thread::spawn(move || serve_standby(&listener, &serving));
+        let addr = serving(replica.clone());
 
         let id = conformance::id("A");
         let old = active(addr, 1);

@@ -5,20 +5,21 @@
 //! [`ReplicatedStorage`] wraps the active's store: each session's commit is made there and copied
 //! over a [`Link`] to a [`Replica`], which applies it to the standby's own store and acknowledges
 //! it, and the commit, so everything it covers going out, waits for both. The standby serves
-//! actives over TCP with [`serve_standby`]; the active connects with a [`TcpLink`]. [`frame`] is
+//! actives over TCP with [`serve_standby`], or TLS ([below](#tls)); the active connects with a
+//! [`TcpLink`]. [`frame`] is
 //! the wire form between the two.
 //!
 //! ```no_run
-//! use std::net::TcpListener;
 //! use std::sync::{Arc, Mutex};
+//! use tokio::net::TcpListener;
 //! use turbojet::{DiskStorage, SessionRegistry};
 //! use turbojet_replica::{Lease, ManualLease, Replica, ReplicatedStorage, TcpLink, serve_standby};
 //!
 //! /// The standby's instance: keeps a copy of the active's sessions, until it takes over.
-//! fn standby() -> std::io::Result<()> {
+//! async fn standby() -> std::io::Result<()> {
 //!     let store = Arc::new(DiskStorage::new("./store")?);
 //!     let replica = Arc::new(Mutex::new(Replica::new(store)));
-//!     serve_standby(&TcpListener::bind("0.0.0.0:9800")?, &replica)
+//!     serve_standby(TcpListener::bind("0.0.0.0:9800").await?, replica).await
 //! }
 //!
 //! /// The active's instance: its sessions' store, copying each commit to the standby.
@@ -84,7 +85,13 @@
 //! # }
 //! ```
 //!
-//! The connection is plain TCP: run it on a private network, or through a tunnel.
+//! # TLS
+//!
+//! With the feature `tls`, the standby serves with [`serve_standby_tls`] and the active connects
+//! with [`TcpLink::with_tls`], each taking `turbojet::tls`'s configuration as an acceptor and an
+//! initiator do. Have the standby require a client certificate
+//! (`turbojet::tls::ClientTrust::Required`), so only an instance holding one can replicate to it.
+//! Without TLS the connection is plain TCP: run it on a private network, or through a tunnel.
 
 mod active;
 pub mod frame;
@@ -94,5 +101,7 @@ mod standby;
 
 pub use active::{Link, LocalLink, ReplicatedStorage};
 pub use lease::{Lease, ManualLease};
+#[cfg(feature = "tls")]
+pub use net::serve_standby_tls;
 pub use net::{DEFAULT_ANSWER_TIMEOUT, TcpLink, serve_standby};
 pub use standby::Replica;

@@ -3426,6 +3426,7 @@ name = "turbojet-replica"
 version = "0.6.0"
 dependencies = [
  "criterion",
+ "rcgen",
  "tempfile",
  "tokio",
  "tracing",

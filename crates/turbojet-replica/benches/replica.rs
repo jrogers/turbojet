@@ -2,7 +2,6 @@
 //! to a standby over loopback TCP, with memory stores and with disk stores (with and without
 //! fsync).
 
-use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -17,10 +16,14 @@ const CHUNK: u64 = 10_000;
 
 /// A standby serving on loopback, keeping its copy in `store`.
 fn standby<S: SessionStorage + Send + 'static>(store: S) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap().to_string();
+    listener.set_nonblocking(true).unwrap();
     let replica = Arc::new(Mutex::new(Replica::new(store)));
-    std::thread::spawn(move || serve_standby(&listener, &replica));
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async { serve_standby(tokio::net::TcpListener::from_std(listener).unwrap(), replica).await })
+    });
     addr
 }
 
