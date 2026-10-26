@@ -17,8 +17,10 @@ pub struct Replica<S> {
     storage: S,
     /// The highest epoch seen: batches under a lower one come from a deposed active.
     epoch: u64,
-    /// The sessions bound on this connection, by handle.
+    /// The sessions bound on the current connection, by handle.
     bound: HashMap<u32, Bound>,
+    /// The connections accepted so far: the current one is the last.
+    connections: u64,
 }
 
 impl<S> std::fmt::Debug for Replica<S> {
@@ -36,12 +38,18 @@ struct Bound {
 impl<S: SessionStorage> Replica<S> {
     /// A standby keeping its copy in `storage`, having seen no epoch.
     pub fn new(storage: S) -> Self {
-        Self { storage, epoch: 0, bound: HashMap::new() }
+        Self { storage, epoch: 0, bound: HashMap::new(), connections: 0 }
     }
 
     /// The highest epoch seen.
     pub fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    /// The connection accepted last, by the [`Frame::Hello`] that opened it: its bindings are
+    /// the ones kept. A network driver notes it for [`disconnected_from`](Self::disconnected_from).
+    pub fn connection(&self) -> u64 {
+        self.connections
     }
 
     /// The store holding the copy.
@@ -71,7 +79,8 @@ impl<S: SessionStorage> Replica<S> {
                 if epoch < self.epoch {
                     return Ok(Some(Frame::Welcome { epoch: self.epoch }));
                 }
-                self.disconnected();
+                self.bound.clear();
+                self.connections += 1;
                 self.epoch = epoch;
                 Ok(Some(Frame::Welcome { epoch }))
             }
@@ -95,7 +104,15 @@ impl<S: SessionStorage> Replica<S> {
         }
     }
 
-    /// The connection has ended: its handles go, and the logs they held are closed.
+    /// Connection `connection` has ended: if it's the current one, its handles go, and the logs
+    /// they held are closed. A later connection's are kept.
+    pub fn disconnected_from(&mut self, connection: u64) {
+        if connection == self.connections {
+            self.disconnected();
+        }
+    }
+
+    /// The current connection has ended: its handles go, and the logs they held are closed.
     pub fn disconnected(&mut self) {
         self.bound.clear();
     }
