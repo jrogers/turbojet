@@ -5,7 +5,8 @@
 //! caller can wait for it from any thread, a runtime's own included. The standby serves each
 //! connection on a thread of its own, since it applies batches with its store's blocking calls.
 
-use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -216,8 +217,9 @@ struct Conn {
     outbox: Mutex<Option<async_mpsc::UnboundedSender<Vec<u8>>>>,
     /// The tasks reading and writing, stopped when the connection is lost.
     tasks: Mutex<Vec<AbortHandle>>,
-    /// Who waits for the answer for each handle: a session has one request at most under way.
-    waiting: Mutex<HashMap<u32, mpsc::SyncSender<io::Result<Frame>>>>,
+    /// Who waits for each handle's answers, oldest first: the standby answers a connection's
+    /// frames in order, so a handle's answers come in the order of its requests.
+    waiting: Mutex<HashMap<u32, VecDeque<mpsc::SyncSender<io::Result<Frame>>>>>,
     alive: AtomicBool,
 }
 
@@ -318,7 +320,7 @@ impl Shared {
     /// Sends `frame` for `handle` on `conn`, at once, returning where its answer will come.
     fn start(conn: &Arc<Conn>, handle: u32, frame: &Frame) -> io::Result<Answer> {
         let (tx, rx) = mpsc::sync_channel(1);
-        conn.waiting.lock().unwrap_or_else(PoisonError::into_inner).insert(handle, tx);
+        conn.waiting.lock().unwrap_or_else(PoisonError::into_inner).entry(handle).or_default().push_back(tx);
         let mut out = Vec::new();
         frame.encode(&mut out);
         let queued = conn.outbox.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(|outbox| outbox.send(out));
@@ -415,7 +417,16 @@ impl Conn {
                 warn!(?frame, "the standby sent a frame it shouldn't");
                 break;
             };
-            let waiter = self.waiting.lock().unwrap_or_else(PoisonError::into_inner).remove(handle);
+            let waiter = match self.waiting.lock().unwrap_or_else(PoisonError::into_inner).entry(*handle) {
+                Entry::Occupied(mut queue) => {
+                    let waiter = queue.get_mut().pop_front();
+                    if queue.get().is_empty() {
+                        queue.remove();
+                    }
+                    waiter
+                }
+                Entry::Vacant(_) => None,
+            };
             match waiter {
                 Some(waiter) => {
                     let _ = waiter.send(Ok(frame));
@@ -434,7 +445,7 @@ impl Conn {
         for task in self.tasks.lock().unwrap_or_else(PoisonError::into_inner).drain(..) {
             task.abort();
         }
-        for (_, waiter) in self.waiting.lock().unwrap_or_else(PoisonError::into_inner).drain() {
+        for waiter in self.waiting.lock().unwrap_or_else(PoisonError::into_inner).drain().flat_map(|(_, queue)| queue) {
             let _ = waiter.send(Err(io::Error::new(io::ErrorKind::ConnectionAborted, "lost the standby")));
         }
     }
@@ -497,6 +508,7 @@ mod tests {
 
     use super::*;
     use crate::ReplicatedStorage;
+    use crate::frame::Op;
 
     type Standby = (SocketAddr, Arc<Mutex<Replica<Arc<MemoryStorage>>>>, Arc<MemoryStorage>);
 
@@ -644,6 +656,46 @@ mod tests {
         assert_eq!(taken.next_outgoing(), 2, "with what the old active committed");
         log.record_outgoing(2, Some(&conformance::app_message(2))).unwrap();
         assert!(log.commit().unwrap().unwrap().run().is_err(), "the old active is refused");
+    }
+
+    /// Batch `commit_no` for `handle`, recording outgoing message `commit_no`.
+    fn numbered(handle: u32, commit_no: u64) -> Batch {
+        let ops = vec![Op::Record { seq: commit_no, msg: Some(conformance::app_message(commit_no)) }];
+        Batch { handle, epoch: 1, commit_no, ops, app_records: Vec::new() }
+    }
+
+    /// A session's batches sent before any is answered are each answered, in order.
+    #[test]
+    fn a_link_carries_several_of_a_sessions_batches_at_once() {
+        let (addr, _replica, standby) = standby();
+        let link = TcpLink::new(addr.to_string(), 1, "active");
+        let id = conformance::id("A");
+        link.bind(1, 1, 0, &id).unwrap();
+        let jobs: Vec<_> = (1..=3).map(|n| link.send(numbered(1, n))).collect();
+        for job in jobs {
+            job.run().unwrap();
+        }
+        let mut copy = standby.open(&id).unwrap();
+        assert_eq!(copy.next_outgoing(), 4);
+        assert_eq!(copy.sent_messages(1, 3).unwrap().len(), 3);
+    }
+
+    /// Losing the standby fails every batch still under way, not just the latest.
+    #[test]
+    fn losing_the_standby_fails_every_batch_under_way() {
+        let (addr, replica, _) = standby();
+        let proxy = Cuttable::to(addr);
+        let link = TcpLink::new(proxy.addr.to_string(), 1, "active");
+        link.bind(1, 1, 0, &conformance::id("A")).unwrap();
+        // The standby answers nothing while its replica is held, so neither batch is answered.
+        let held = replica.lock().unwrap();
+        let jobs: Vec<_> = (1..=2).map(|n| link.send(numbered(1, n))).collect();
+        proxy.cut();
+        drop(held);
+        for job in jobs {
+            let failed = job.run().expect_err("lost");
+            assert_eq!(failed.kind(), io::ErrorKind::ConnectionAborted, "{failed}");
+        }
     }
 
     /// An active whose epoch the standby has seen pass can't connect.
