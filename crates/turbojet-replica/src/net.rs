@@ -140,7 +140,10 @@ struct Shared {
 /// One connection to the standby.
 struct Conn {
     number: u64,
-    writer: Mutex<TcpStream>,
+    /// Frames for the thread writing them, so a request goes out at once without its caller
+    /// writing to the socket, which could block it while the standby is slow to read.
+    outbox: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
+    stream: TcpStream,
     /// Who waits for the answer for each handle: a session has one request at most under way.
     waiting: Mutex<HashMap<u32, mpsc::SyncSender<io::Result<Frame>>>>,
     alive: AtomicBool,
@@ -205,33 +208,62 @@ impl Shared {
         stream.set_read_timeout(None)?;
         let number = self.connections.fetch_add(1, Ordering::Relaxed) + 1;
         info!(standby = %self.addr, epoch = self.epoch, "connected to the standby");
+        let (outbox, frames_out) = mpsc::channel::<Vec<u8>>();
+        let mut writer = stream.try_clone()?;
         let conn = Arc::new(Conn {
             number,
-            writer: Mutex::new(stream),
+            outbox: Mutex::new(Some(outbox)),
+            stream,
             waiting: Mutex::new(HashMap::new()),
             alive: AtomicBool::new(true),
         });
         let reading = conn.clone();
         std::thread::spawn(move || reading.read(frames));
+        let writing = conn.clone();
+        std::thread::spawn(move || {
+            for frame in frames_out {
+                if writer.write_all(&frame).is_err() {
+                    writing.lost();
+                    break;
+                }
+            }
+        });
         Ok(conn)
     }
 
-    /// Sends `frame` for `handle` on `conn` and waits for the standby's answer.
-    fn request(&self, conn: &Conn, handle: u32, frame: &Frame) -> io::Result<Frame> {
+    /// Sends `frame` for `handle` on `conn`, at once, returning where its answer will come.
+    fn start(conn: &Arc<Conn>, handle: u32, frame: &Frame) -> io::Result<Answer> {
         let (tx, rx) = mpsc::sync_channel(1);
         conn.waiting.lock().unwrap_or_else(PoisonError::into_inner).insert(handle, tx);
         let mut out = Vec::new();
         frame.encode(&mut out);
-        let written = conn.writer.lock().unwrap_or_else(PoisonError::into_inner).write_all(&out);
-        if let Err(e) = written {
+        let queued = conn.outbox.lock().unwrap_or_else(PoisonError::into_inner).as_ref().map(|outbox| outbox.send(out));
+        if !matches!(queued, Some(Ok(()))) {
             conn.lost();
-            return Err(e);
+            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "lost the standby"));
         }
-        match rx.recv_timeout(self.timeout) {
+        Ok(Answer { conn: conn.clone(), rx })
+    }
+
+    /// Sends `frame` for `handle` on `conn` and waits for the standby's answer.
+    fn request(&self, conn: &Arc<Conn>, handle: u32, frame: &Frame) -> io::Result<Frame> {
+        Self::start(conn, handle, frame)?.wait(&self.addr, self.timeout)
+    }
+}
+
+/// A request sent, waiting for its answer.
+struct Answer {
+    conn: Arc<Conn>,
+    rx: mpsc::Receiver<io::Result<Frame>>,
+}
+
+impl Answer {
+    fn wait(self, standby: &str, timeout: Duration) -> io::Result<Frame> {
+        match self.rx.recv_timeout(timeout) {
             Ok(answer) => answer,
             Err(_) => {
-                warn!(standby = %self.addr, "the standby didn't answer in time: dropping the connection");
-                conn.lost();
+                warn!(%standby, "the standby didn't answer in time: dropping the connection");
+                self.conn.lost();
                 Err(io::Error::new(io::ErrorKind::TimedOut, "the standby didn't answer in time"))
             }
         }
@@ -260,7 +292,8 @@ impl Conn {
     /// The connection is lost: everyone waiting is told so.
     fn lost(&self) {
         self.alive.store(false, Ordering::Release);
-        let _ = self.writer.lock().unwrap_or_else(PoisonError::into_inner).shutdown(std::net::Shutdown::Both);
+        self.outbox.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let _ = self.stream.shutdown(std::net::Shutdown::Both);
         for (_, waiter) in self.waiting.lock().unwrap_or_else(PoisonError::into_inner).drain() {
             let _ = waiter.send(Err(io::Error::new(io::ErrorKind::ConnectionAborted, "lost the standby")));
         }
@@ -281,26 +314,34 @@ impl Link for TcpLink {
         }
     }
 
+    /// Sends the batch at once, so the standby commits it while the active commits its own copy;
+    /// the job waits for the answer. Never connects: a session bound on a connection since lost
+    /// must open again.
     fn send(&self, batch: Batch) -> Commit {
-        let shared = self.shared.clone();
-        Commit::blocking(move || {
-            let conn = shared.conn()?;
-            let bound_on = shared.bound.lock().unwrap_or_else(PoisonError::into_inner).get(&batch.handle).copied();
-            if bound_on != Some(conn.number) {
-                return Err(io::Error::new(
-                    io::ErrorKind::ConnectionAborted,
-                    "the connection to the standby was lost since the session opened: it must open again",
-                ));
+        let shared = &self.shared;
+        let (handle, epoch) = (batch.handle, batch.epoch);
+        let live = shared
+            .conn
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .filter(|c| c.alive.load(Ordering::Acquire));
+        let bound_on = shared.bound.lock().unwrap_or_else(PoisonError::into_inner).get(&handle).copied();
+        let started = match live {
+            Some(conn) if bound_on == Some(conn.number) => Shared::start(&conn, handle, &Frame::Batch(batch)),
+            _ => Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "the connection to the standby was lost since the session opened: it must open again",
+            )),
+        };
+        let (standby, timeout) = (shared.addr.clone(), shared.timeout);
+        Commit::blocking(move || match started?.wait(&standby, timeout)? {
+            Frame::Ack { .. } => Ok(()),
+            Frame::Nack { reason: NackReason::StaleEpoch, .. } => Err(deposed(epoch, epoch + 1)),
+            Frame::Nack { reason: NackReason::Diverged, .. } => {
+                Err(io::Error::other("the standby's copy of the session has diverged"))
             }
-            let (handle, epoch) = (batch.handle, batch.epoch);
-            match shared.request(&conn, handle, &Frame::Batch(batch))? {
-                Frame::Ack { .. } => Ok(()),
-                Frame::Nack { reason: NackReason::StaleEpoch, .. } => Err(deposed(epoch, epoch + 1)),
-                Frame::Nack { reason: NackReason::Diverged, .. } => {
-                    Err(io::Error::other("the standby's copy of the session has diverged"))
-                }
-                other => Err(io::Error::other(format!("the standby answered a batch with {other:?}"))),
-            }
+            other => Err(io::Error::other(format!("the standby answered a batch with {other:?}"))),
         })
     }
 }
