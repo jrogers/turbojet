@@ -136,9 +136,34 @@ impl<S: SessionStorage> Replica<S> {
     /// the instance's own registry, and every frame from now on is refused, ending the old
     /// active's connections. Take the lease first, under a higher epoch, so the old active is
     /// fenced off wherever it is.
-    pub fn promote(&mut self) {
+    ///
+    /// With [`accepting_lag`](Self::accepting_lag), each session's next outgoing number is then
+    /// skipped ahead by the lag accepted: the old active may have sent numbers this copy lacks,
+    /// and one sent again would reach the counterparty too low. The skipped numbers hold no
+    /// messages, so they're gap-filled when the counterparty asks for them.
+    ///
+    /// # Errors
+    ///
+    /// The store's failure, listing the sessions or skipping one ahead: the instance mustn't take
+    /// over, since a session left behind would resume too low.
+    pub fn promote(&mut self) -> io::Result<()> {
         self.promoted = true;
         self.disconnected();
+        if self.max_lag == 0 {
+            return Ok(());
+        }
+        for id in self.storage.sessions().run()? {
+            let mut log = match self.storage.begin_open(&id)? {
+                Opened::Ready(log) => log,
+                Opened::Pending(job) => job.run()?,
+            };
+            let next = log.next_outgoing();
+            log.record_outgoing(next + self.max_lag - 1, None)?;
+            if let Some(commit) = log.commit()? {
+                commit.run()?;
+            }
+        }
+        Ok(())
     }
 
     /// The current connection has ended: its handles go, and the logs they held are closed.

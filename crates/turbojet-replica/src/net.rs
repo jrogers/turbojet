@@ -639,7 +639,7 @@ mod tests {
         log.commit().unwrap().unwrap().run().unwrap();
         assert!(store.open(&id).is_err(), "the standby holds the session open");
 
-        replica.lock().unwrap().promote();
+        replica.lock().unwrap().promote().unwrap();
         let taken = store.open(&id).expect("released");
         assert_eq!(taken.next_outgoing(), 2, "with what the old active committed");
         log.record_outgoing(2, Some(&conformance::app_message(2))).unwrap();

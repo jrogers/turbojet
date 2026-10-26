@@ -846,6 +846,28 @@ mod tests {
         assert!(matches!(bind(Replica::new(MemoryStorage::new()).accepting_lag(4)), Some(Frame::Bound { .. })));
     }
 
+    #[test]
+    fn promotion_skips_each_session_ahead_by_the_lag_accepted() {
+        let promoted = |max_lag| {
+            let mut replica = Replica::new(MemoryStorage::new()).accepting_lag(max_lag);
+            let hello = Frame::Hello { version: VERSION, epoch: 1, node: "a".into(), app_record_kinds: Vec::new() };
+            replica.on_frame(hello).unwrap();
+            let bind = Frame::Bind { handle: 1, epoch: 1, max_lag, session: conformance::id("A") };
+            replica.on_frame(bind).unwrap();
+            let ops = (1..=5).map(|seq| Op::Record { seq, msg: Some(conformance::app_message(seq)) }).collect();
+            let reply = replica.on_frame(Frame::Batch(batch(1, 1, &AtomicU64::new(0), ops))).unwrap();
+            assert_eq!(reply, Some(Frame::Ack { handle: 1, commit_no: 1 }));
+            replica.promote().unwrap();
+            replica.storage().open(&conformance::id("A")).unwrap()
+        };
+
+        let mut log = promoted(3);
+        assert_eq!(log.next_outgoing(), 9, "past what the active may have sent unacknowledged");
+        assert!(log.sent_messages(6, 9).unwrap().is_empty(), "the skipped numbers are gap-filled");
+        assert_eq!(log.sent_messages(1, 5).unwrap().len(), 5);
+        assert_eq!(promoted(0).next_outgoing(), 6);
+    }
+
     /// A link the test can take down and bring back.
     struct Outage {
         link: LocalLink<MemoryStorage>,
