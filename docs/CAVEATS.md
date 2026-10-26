@@ -19,8 +19,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - Python bindings: an `AppMessage` that's never `done()` stays held, even once Python drops it
   (which warns, with a `RuntimeWarning`), so its session stops reading 256 messages later. The hooks given to `turbojet.load` run with
   the GIL on the session's task, so a slow one, or Python busy elsewhere, holds the session up.
-  Initiators only: no acceptor and no FIXP sessions. One asyncio loop handles about 100,000 round
-  trips a second (see DESIGN.md). `log_to_stderr` writes to stderr, not to Python's `logging`.
+  Initiators only: no acceptor and no FIXP sessions. `log_to_stderr` writes to stderr, not to Python's `logging`.
 - `SessionHandle::send` returning `Ok` means queued, not sent: its `Receipt` says whether the
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
@@ -29,17 +28,16 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   within `DEFAULT_ANSWER_TIMEOUT`, or refusing a deposed active) fails the session, so the active
   is only as available as its standby. Degrading needs a lease that can fence (`SqlLease`, not
   `ManualLease`), and while the standby is out of sync a failover would lose commits: check the
-  lease's `in_sync` first. A session the standby fell behind on is sent whole, up to its byte
-  budget, when it catches up. The link is plain TCP unless TLS is set up on both sides. A reset waits
+  lease's `in_sync` first. A session the standby fell behind on, or hasn't seen, is sent whole, up
+  to its byte budget. The link is plain TCP unless TLS is set up on both sides. A reset waits
   for the standby where the built-in stores write it at once. The standby holds open every
-  session the active has open, so a `DiskStorage` under it is locked until `Replica::promote`.
-  `SqlLease`, like the session leases, compares the instances' clocks. A session's first open
-  against a standby that lacks it sends the whole session, up to its byte budget.
+  session the active has open, so a `DiskStorage` under it is locked while the active is connected,
+  until `Replica::promote`. `SqlLease`, like the session leases, compares the instances' clocks.
 - `MemoryStorage` and `DiskStorage` index what they keep in a buffer that doubles when full. When
   a full store comes to keep more messages than it ever has (smaller messages under the same byte
   budget), the send that grows it waits while part of the index is moved: about 0.7 ms at a
   million messages kept, 2.7 ms at four million.
-- A held message (`Context::hold`) is redelivered after a connection ends while it's held, a
+- Holds (`Context::hold`) are for FIX sessions only, not FIXP. A held message is redelivered after a connection ends while it's held, a
   clean logout included, unless it's released before the session connects again: a release
   then moves the stored marker on, from a task of its own, which opens the session's log (and
   holds the session meanwhile, so a Logon at that moment is refused as already connected). A
@@ -47,7 +45,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   session 256 messages past an unreleased hold reads nothing more until it's released. A custom
   store that makes each change durable as it's made should implement
   `StoredSession::set_next_incoming_in_flight` as one change, or a crash between its two calls can
-  lose a hold's marker. Holds aren't available on FIXP sessions.
+  lose a hold's marker.
 - While a session waits for a release (256 past a hold), it hands over nothing: a Logout, a
   shutdown or a schedule's end waits out `logout_timeout` for a reply it can't handle. It reads
   on, up to 1 MiB, so a counterparty that closes or goes quiet is noticed; past that it stops
@@ -120,8 +118,6 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - An inbound `Reject` limit never rejects recovery we asked for, and a counterparty controls its
   own gaps, so a hostile one can push one gap's worth of messages through. `Delay` doesn't have
   this hole.
-- The simulator exercises outbound limits and inbound `Delay`, but not `Reject`: its checker
-  can't cheaply model a BusinessMessageReject in place of a delivery. Session tests cover it.
 - A `Message` panics if it grows past 4 GiB: its field index holds 32-bit offsets. Inbound
   messages are far below that (BodyLength is capped at 64 KiB), so only an application building
   a huge outbound message can reach it. Refusing instead would put a `Result` on every field
@@ -157,7 +153,6 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   field in a Logon with an SOH in it could leave a password after it unmasked.
 - A driver of one's own for a sans-IO `Session` makes both `MessageLog` calls itself; for a
   `FixpSession`, only the outbound one, since `feed` makes the inbound call.
-- The simulator (`turbojet-sim`) doesn't exercise a `MessageLog`; connection tests do.
 - `FileMessageLog` drops messages, and writes a `dropped` line with how many, rather than block a
   session when its buffer is full (16 MiB by default) or a write fails. It doesn't `fsync`, so a
   machine's crash can lose its last records. Records reach the file about a millisecond after
@@ -169,5 +164,3 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   crash cut short); without `compress`, the file a crash left isn't handed to it at all. The hook
   runs on the thread that compresses files, so a slow hook delays the files after it, and one
   that panics stops compression and the hook for that log.
-- A few helpers are public only because the exported macros call them (`#[doc(hidden)]`); they
-  aren't a stable API.
