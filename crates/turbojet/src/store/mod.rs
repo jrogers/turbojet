@@ -286,6 +286,30 @@ pub trait SessionStorage: Send + Sync {
     }
 }
 
+/// A shared store is the store it shares: for one store given to several users, such as a
+/// replicating store and, after a failover, the registry that takes it over.
+impl<T: SessionStorage + ?Sized> SessionStorage for std::sync::Arc<T> {
+    fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
+        (**self).open(id)
+    }
+
+    fn begin_open(&self, id: &SessionId) -> io::Result<Opened> {
+        (**self).begin_open(id)
+    }
+
+    fn is_durable(&self) -> bool {
+        (**self).is_durable()
+    }
+
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        (**self).marked()
+    }
+
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        (**self).sessions()
+    }
+}
+
 /// What an operator or the session itself has marked a session with, which a store may keep so
 /// that a restart finds it: see [`StoredSession::marks`]. A sequence reset leaves them as they
 /// are.
