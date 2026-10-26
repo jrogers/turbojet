@@ -108,6 +108,44 @@ impl Lease for SqlLease {
         })
     }
 
+    fn set_in_sync(&self, epoch: u64, in_sync: bool) -> Job<()> {
+        let lease = self.clone();
+        Job::future(async move {
+            let Self { shared, name, .. } = &lease;
+            let set =
+                sqlx::query("UPDATE turbojet_leases SET in_sync = $3 WHERE name = $1 AND holder = $2 AND epoch = $4")
+                    .bind(name)
+                    .bind(&shared.config.holder)
+                    .bind(i64::from(in_sync))
+                    .bind(i64::try_from(epoch).unwrap_or(i64::MAX))
+                    .execute(&shared.pool)
+                    .await
+                    .map_err(database("recording whether the standby is in sync"))?;
+            if set.rows_affected() == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("lease {name} (epoch {epoch}) has been taken by another instance"),
+                ));
+            }
+            Ok(())
+        })
+    }
+
+    fn in_sync(&self) -> Job<bool> {
+        let lease = self.clone();
+        Job::future(async move {
+            let Self { shared, name, .. } = &lease;
+            let row = sqlx::query("SELECT in_sync FROM turbojet_leases WHERE name = $1")
+                .bind(name)
+                .fetch_optional(&shared.pool)
+                .await
+                .map_err(database("reading a lease"))?;
+            let Some(row) = row else { return Ok(true) };
+            let in_sync: i64 = row.try_get("in_sync").map_err(database("reading a lease"))?;
+            Ok(in_sync != 0)
+        })
+    }
+
     fn release(&self, epoch: u64) -> Job<()> {
         let lease = self.clone();
         Job::future(async move {

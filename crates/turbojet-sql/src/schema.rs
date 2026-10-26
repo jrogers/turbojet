@@ -70,13 +70,14 @@ const MESSAGES_POSTGRES: &str = "CREATE TABLE IF NOT EXISTS turbojet_messages (
 )";
 
 /// Leases on whole instances, by name, for replication: who holds one, the epoch they took it
-/// under (raised by each acquire), and until when (milliseconds since the Unix epoch). The same
-/// in either backend.
+/// under (raised by each acquire), until when (milliseconds since the Unix epoch), and whether
+/// the holder's standby is in sync (1) or lacks commits (0). The same in either backend.
 const LEASES: &str = "CREATE TABLE IF NOT EXISTS turbojet_leases (
     name TEXT PRIMARY KEY,
     holder TEXT,
     epoch BIGINT NOT NULL DEFAULT 0,
-    lease_until BIGINT
+    lease_until BIGINT,
+    in_sync BIGINT NOT NULL DEFAULT 1
 )";
 
 pub async fn migrate(pool: &AnyPool, backend: Backend) -> io::Result<()> {

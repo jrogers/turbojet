@@ -42,6 +42,22 @@ async fn one_holder_at_a_time(url: &str) {
     b.renew(second).run_async().await.expect("a stale release changes nothing");
 }
 
+/// The holder records whether its standby is in sync, for whoever takes the lease over to see;
+/// an instance it was taken from can't.
+async fn in_sync_is_the_holders_to_say(url: &str) {
+    let name = fresh_name();
+    let a = store(url, "gw-a", Duration::from_secs(60)).await.lease(&name);
+    let b = store(url, "gw-b", Duration::from_secs(60)).await.lease(&name);
+    assert!(b.in_sync().run_async().await.unwrap(), "a lease never taken is in sync");
+    let first = a.acquire().run_async().await.unwrap();
+    a.set_in_sync(first, false).run_async().await.unwrap();
+    assert!(!b.in_sync().run_async().await.unwrap());
+    let refused = b.set_in_sync(first, true).run_async().await.unwrap_err();
+    assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied, "only the holder says");
+    a.set_in_sync(first, true).run_async().await.unwrap();
+    assert!(b.in_sync().run_async().await.unwrap());
+}
+
 /// A lease that has run out is taken over without being given up.
 async fn an_expired_lease_is_taken_over(url: &str) {
     let name = fresh_name();
@@ -61,6 +77,7 @@ async fn sqlite() {
     let url = format!("sqlite://{}?mode=rwc", dir.path().join("leases.db").display());
     one_holder_at_a_time(&url).await;
     an_expired_lease_is_taken_over(&url).await;
+    in_sync_is_the_holders_to_say(&url).await;
 }
 
 #[cfg(feature = "postgres")]
@@ -69,4 +86,5 @@ async fn postgres() {
     let Some(url) = std::env::var("TURBOJET_POSTGRES_URL").ok().filter(|url| !url.is_empty()) else { return };
     one_holder_at_a_time(&url).await;
     an_expired_lease_is_taken_over(&url).await;
+    in_sync_is_the_holders_to_say(&url).await;
 }

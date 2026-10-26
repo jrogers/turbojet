@@ -29,11 +29,26 @@ pub trait Lease: Send + Sync {
 
     /// Gives up the lease held under `epoch`, so another instance can take it at once.
     fn release(&self, epoch: u64) -> Job<()>;
+
+    /// Records, as the holder under `epoch`, whether the standby holds everything committed:
+    /// false before the first commit it won't have, true once it has caught up again.
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::PermissionDenied`] if another instance has taken the lease; any other
+    /// error if it couldn't be recorded. The active then fails the commit, rather than make one
+    /// the standby lacks without saying so.
+    fn set_in_sync(&self, epoch: u64, in_sync: bool) -> Job<()>;
+
+    /// Whether the standby was in sync when the lease's holder last said: an instance taking
+    /// the lease over checks it first, since a standby out of sync lacks commits.
+    fn in_sync(&self) -> Job<bool>;
 }
 
 /// A lease an operator decides: [`acquire`](Lease::acquire) takes the epoch given, which the
 /// operator raises at each failover; renewing always succeeds, so fencing is left to the
-/// standby, which refuses epochs below one it has seen.
+/// standby, which refuses epochs below one it has seen. It records nothing of the standby being
+/// in sync, which is the operator's to know: [`in_sync`](Lease::in_sync) is always true.
 #[derive(Debug, Clone, Copy)]
 pub struct ManualLease {
     epoch: u64,
@@ -63,6 +78,14 @@ impl Lease for ManualLease {
     fn release(&self, _epoch: u64) -> Job<()> {
         Job::blocking(|| Ok(()))
     }
+
+    fn set_in_sync(&self, _epoch: u64, _in_sync: bool) -> Job<()> {
+        Job::blocking(|| Ok(()))
+    }
+
+    fn in_sync(&self) -> Job<bool> {
+        Job::blocking(|| Ok(true))
+    }
 }
 
 /// An active's hold on its lease: renewed in its commits once half of it has gone.
@@ -81,6 +104,14 @@ impl Held {
 
     pub(crate) fn release(&self) -> Job<()> {
         self.lease.release(self.epoch)
+    }
+
+    pub(crate) fn set_in_sync(&self, in_sync: bool) -> Job<()> {
+        self.lease.set_in_sync(self.epoch, in_sync)
+    }
+
+    pub(crate) fn in_sync(&self) -> Job<bool> {
+        self.lease.in_sync()
     }
 
     /// A renewal, if the lease is half gone: it fails only if the lease was taken, or has run
@@ -149,6 +180,14 @@ mod tests {
 
         fn release(&self, _epoch: u64) -> Job<()> {
             Job::blocking(|| Ok(()))
+        }
+
+        fn set_in_sync(&self, _epoch: u64, _in_sync: bool) -> Job<()> {
+            Job::blocking(|| Ok(()))
+        }
+
+        fn in_sync(&self) -> Job<bool> {
+            Job::blocking(|| Ok(true))
         }
     }
 
