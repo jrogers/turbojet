@@ -509,13 +509,19 @@ mod tests {
     use super::*;
     use crate::ReplicatedStorage;
     use crate::frame::Op;
+    use crate::standby::summary;
 
     type Standby = (SocketAddr, Arc<Mutex<Replica<Arc<MemoryStorage>>>>, Arc<MemoryStorage>);
 
     /// A standby on a port of its own, serving from a thread.
     fn standby() -> Standby {
+        standby_accepting(0)
+    }
+
+    /// A standby as [`standby`], that accepts actives leaving up to `max_lag` unacknowledged.
+    fn standby_accepting(max_lag: u64) -> Standby {
         let store = Arc::new(MemoryStorage::new());
-        let replica = Arc::new(Mutex::new(Replica::new(store.clone())));
+        let replica = Arc::new(Mutex::new(Replica::new(store.clone()).accepting_lag(max_lag)));
         (serving(replica.clone()), replica, store)
     }
 
@@ -541,6 +547,41 @@ mod tests {
         conformance::check_blocking(&active(addr, 1));
         let (addr, ..) = standby();
         conformance::check_sessions_blocking(&active(addr, 1));
+    }
+
+    #[test]
+    fn async_conforms_over_tcp() {
+        let (addr, ..) = standby_accepting(8);
+        conformance::check_blocking(&active(addr, 1).asynchronous(8));
+        let (addr, ..) = standby_accepting(8);
+        conformance::check_sessions_blocking(&active(addr, 1).asynchronous(8));
+    }
+
+    /// Over TCP a batch goes out as it's committed, though no commit has waited for its answer:
+    /// the batches of a log dropped with answers unwaited for still reach the standby, or the
+    /// session's next opening sends it whole. Either way the copies then match. Whether the
+    /// standby had them all by the drop is a race, so it isn't asserted.
+    #[test]
+    fn async_batches_reach_the_standby_over_tcp() {
+        let (addr, _replica, standby) = standby_accepting(8);
+        let active = active(addr, 1).asynchronous(8);
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=20 {
+            log.record_outgoing(seq, Some(&conformance::app_message(seq))).unwrap();
+            if let Some(job) = log.commit().unwrap() {
+                job.run().unwrap();
+            }
+        }
+        drop(log);
+
+        let mut log = active.open(&id).unwrap();
+        let mine = summary(log.as_ref());
+        let messages = log.sent_messages(1, u64::MAX).unwrap();
+        drop(log);
+        let mut copy = standby.open(&id).unwrap();
+        assert_eq!(summary(copy.as_ref()), mine);
+        assert_eq!(copy.sent_messages(1, u64::MAX).unwrap(), messages);
     }
 
     /// As over the in-process link: the standby's copy, taken over at a session's second opening

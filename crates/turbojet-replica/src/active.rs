@@ -1222,6 +1222,35 @@ mod tests {
         assert!(active.in_sync());
     }
 
+    /// The worst case for a failover: `LocalLink` applies a batch only when a commit waits for it,
+    /// so the standby lacks the last batches the active sent. Promoted, it skips past them: the
+    /// next number it sends is above every number the active sent, and it holds only messages
+    /// the active stored, none in the numbers skipped.
+    #[test]
+    fn an_async_failover_resumes_above_every_number_sent() {
+        let (active, standby) = async_pair(3);
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=10 {
+            store_and_commit(log.as_mut(), seq).unwrap();
+        }
+        let sent = log.sent_messages(1, u64::MAX).unwrap();
+        assert_eq!(sent.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(), (1..=10).collect::<Vec<_>>());
+        drop(log);
+
+        let held_through = standby_has(&standby, &id) - 1;
+        assert!(held_through < 10, "the standby lacks the batches no commit waited for");
+        standby.lock().unwrap().promote().unwrap();
+        let mut taken = standby.lock().unwrap().storage().open(&id).unwrap();
+        assert!(taken.next_outgoing() > 10, "{}", taken.next_outgoing());
+        let held = taken.sent_messages(1, u64::MAX).unwrap();
+        assert!(!held.is_empty());
+        for message in &held {
+            assert!(sent.contains(message), "{} isn't one the active stored", message.0);
+            assert!(message.0 <= held_through, "{} is in the numbers skipped", message.0);
+        }
+    }
+
     /// A commit's job dropped unrun leaves the batches it would have waited for unacknowledged:
     /// the next commit sends the session whole rather than count them held.
     #[test]
