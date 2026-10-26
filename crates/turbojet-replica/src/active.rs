@@ -229,9 +229,16 @@ impl StoredSession for ReplicatedLog {
         }))
     }
 
+    /// Written at once, as the built-in stores write a reset: the standby resets first, with the
+    /// changes before it, so a standby that refuses (a deposed active) leaves both copies as they
+    /// were, and a failover never finds one reset and the other not. Resets are rare (at logon,
+    /// a new schedule period, an operator's), so the wait for the standby is too.
     fn reset(&mut self) -> io::Result<()> {
-        let result = self.inner.reset();
-        self.made(result, Op::Reset)
+        let mut ops = std::mem::take(&mut self.ops);
+        ops.push(Op::Reset);
+        let batch = self.batch(ops);
+        self.link.send(batch).run()?;
+        self.inner.reset()
     }
 
     fn evicted_through(&self) -> Option<u64> {
@@ -408,6 +415,11 @@ mod tests {
         log.record_outgoing(2, Some(&conformance::app_message(2))).unwrap();
         let failed = log.commit().unwrap().unwrap().run().unwrap_err();
         assert_eq!(failed.kind(), io::ErrorKind::PermissionDenied, "{failed}");
+
+        // Nor reset: neither copy is, so a failover can't find one reset and the other not.
+        let next = log.next_outgoing();
+        assert_eq!(log.reset().unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+        assert_eq!(log.next_outgoing(), next, "its own copy as it was");
     }
 
     /// A session the standby lacks is sent whole: its numbers, the numbers used without a message
