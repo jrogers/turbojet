@@ -53,10 +53,36 @@
 //! missed commits, or joins late, catches up. A reset is sent at once, as the built-in stores
 //! write it at once, so a failover never finds one copy reset and the other not.
 //!
-//! A commit the standby can't take, because it can't be reached in time
+//! By default a commit the standby can't take, because it can't be reached in time
 //! ([`DEFAULT_ANSWER_TIMEOUT`]) or has seen a higher epoch, fails, as any store failure does: the
 //! session disconnects, and when it opens again the standby is caught up. The active's
-//! availability is therefore tied to the standby's.
+//! availability is then tied to the standby's.
+//!
+//! Made [`degrading`](ReplicatedStorage::degrading), the store keeps its sessions up through a
+//! standby outage: before the first commit the standby won't have, it tells the lease the
+//! standby is out of sync ([`Lease::set_in_sync`]), then commits alone. When the standby is back,
+//! each open session sends itself whole at its next commit, and
+//! [`catch_up`](ReplicatedStorage::catch_up), run every few seconds, sends the rest and tells the
+//! lease once the standby is in sync. An instance about to take over checks
+//! [`Lease::in_sync`] first. Degrading needs a lease that fences a replaced active, which the
+//! standby can't while it's unreachable: [`ManualLease`] can't, so with one a commit the standby
+//! can't take still fails.
+//!
+//! ```no_run
+//! # use std::sync::Arc;
+//! # use turbojet_replica::ReplicatedStorage;
+//! # fn example(storage: Arc<ReplicatedStorage<turbojet::DiskStorage>>) {
+//! // Catch the standby up after an outage, every few seconds.
+//! tokio::spawn(async move {
+//!     loop {
+//!         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+//!         if let Err(e) = storage.catch_up().run_async().await {
+//!             tracing::warn!(error = %e, "catching the standby up");
+//!         }
+//!     }
+//! });
+//! # }
+//! ```
 //!
 //! The connection is plain TCP: run it on a private network, or through a tunnel.
 

@@ -25,9 +25,12 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
-- `turbojet-replica`: a commit the standby can't take (unreachable within
-  `DEFAULT_ANSWER_TIMEOUT`, or refusing a deposed active) fails the session, so the active is only
-  as available as its standby; there's no degraded mode yet. The link is plain TCP. A reset waits
+- `turbojet-replica`: unless the store is `degrading`, a commit the standby can't take (unreachable
+  within `DEFAULT_ANSWER_TIMEOUT`, or refusing a deposed active) fails the session, so the active
+  is only as available as its standby. Degrading needs a lease that can fence (`SqlLease`, not
+  `ManualLease`), and while the standby is out of sync a failover would lose commits: check the
+  lease's `in_sync` first. A session the standby fell behind on is sent whole, up to its byte
+  budget, when it catches up. The link is plain TCP. A reset waits
   for the standby where the built-in stores write it at once. The standby holds open every
   session the active has open, so a `DiskStorage` under it is locked until `Replica::promote`.
   `SqlLease`, like the session leases, compares the instances' clocks. A session's first open

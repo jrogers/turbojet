@@ -24,12 +24,14 @@ Notable changes to the published crates.
   sends each commit to a `Replica` over a `TcpLink` (`serve_standby` on the standby), waiting for
   both; a `Lease` under a rising epoch fences off a replaced active; `Replica::promote` takes
   over. A commit the standby can't take fails the session, which catches the standby up when it
-  opens again.
+  opens again; made `degrading`, the store commits alone instead once the lease says the standby
+  is out of sync (`Lease::set_in_sync`, `in_sync`), and `catch_up` brings the standby back in
+  sync.
 
 ### `turbojet-sql`
 
 - `SqlLease` (feature `replica`): a lease on a whole instance in `turbojet_leases`, which
-  `migrate` creates, for `turbojet-replica`.
+  `migrate` creates, for `turbojet-replica`, recording whether the holder's standby is in sync.
 
 ## 0.6.0 (2026-10-25)
 

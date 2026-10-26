@@ -115,12 +115,7 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     the database's own clock would remove that requirement but differs between SQLite and
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
-- **Replication, next steps** (`turbojet-replica`; S to M each). A commit the standby can't take
-  fails the session today, which ties the active's availability to the standby's. Still to do:
-  - carrying on without a lost standby (degrade): committing alone, marking the lease out of sync
-    so an automatic promotion waits, and catching every session up in the background (open ones
-    at their next commit, closed ones from `SessionStorage::sessions`) before marking it in sync
-    again;
+- **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
   - replicating asynchronously, for latency first: batches queued, a bounded number unacknowledged;
   - TLS on the link (it's plain TCP);
   - an application's own records (the gateway's book) committed with a session's batch, which the

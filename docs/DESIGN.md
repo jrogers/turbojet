@@ -313,6 +313,17 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     it at once: otherwise a deposed active could reset its own copy and not the standby's, and a
     failover find the old numbers. The simulator found it, on a seed whose schedule reset both
     sides at a day's start.
+  - Degrading, a commit the standby can't take is made alone, but only once the lease records
+    the standby out of sync, fenced on holder and epoch: the lease is what fences an active the
+    standby can't reach, so one that can't fence (`ManualLease`) refuses, and the commit fails.
+    The simulator found that: with a lease that didn't fence, a deposed acceptor committed alone
+    during an outage. Sessions the standby fell behind on are counted; each is sent whole at its
+    next commit (the snapshot taken after the local commit, so it holds that commit), and
+    `catch_up` sends the closed ones, counting a session's open logs so an opening waits while it
+    sends one, and marks the lease in sync once none is behind. A new holder leaves the mark as
+    it is, so after a forced failover the first catch-up counts every session behind. The
+    simulator degrades on half its replicated seeds, with standby outages, and only fails over
+    once the lease says in sync; a planted failover that doesn't wait is caught.
   - Over TCP the link blocks: its calls run in the store's jobs, on blocking threads, and the
     standby applies batches with blocking store calls, a thread per connection. Sessions share
     one connection, each with one request at most under way, so a reader thread hands each answer

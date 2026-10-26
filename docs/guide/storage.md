@@ -141,8 +141,19 @@ calls `Replica::promote` (which closes the sessions it holds, releasing its stor
 registry over its store, replicating in turn to the old active's instance once that's back.
 
 When a session opens, the active compares the standby's copy with its own and sends the session
-whole if they differ, so a standby that missed commits, or joins late, catches up. A commit the
-standby can't take, because it's unreachable or has seen a higher epoch, fails: the session
-disconnects, as for any store failure, and catches the standby up when it opens again. The
-connection is plain TCP, so run it on a private network or through a tunnel. The crate's
+whole if they differ, so a standby that missed commits, or joins late, catches up. By default a
+commit the standby can't take, because it's unreachable or has seen a higher epoch, fails: the
+session disconnects, as for any store failure, and catches the standby up when it opens again.
+
+A store made `degrading` keeps the sessions up instead: when the standby can't be reached, it
+tells the lease the standby is out of sync and commits alone. Nothing a commit covers goes out
+before the lease has been told, and if it can't be, the commit fails after all. When the standby
+is back, each open session sends itself whole at its next commit; run `catch_up` every few
+seconds to send the rest, which tells the lease once the standby is in sync again. Before taking
+over, check the lease's `in_sync`: a standby out of sync lacks commits. Degrading needs a lease
+that can fence, such as `SqlLease`: an operator's `ManualLease` can't stop a replaced active while
+the standby is unreachable, so with one a commit the standby can't take still fails. A refusal
+because another instance holds the lease always fails.
+
+The connection is plain TCP, so run it on a private network or through a tunnel. The crate's
 documentation has a full example.
