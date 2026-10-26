@@ -7,11 +7,16 @@
 //! it, and the commit, so everything it covers going out, waits for both. [`frame`] is the wire
 //! form between the two.
 //!
-//! Work in progress: links run in-process only ([`LocalLink`]) so far.
+//! The standby serves actives over TCP with [`serve_standby`]; the active connects with a
+//! [`TcpLink`]. [`LocalLink`] links the two in one process, for tests.
+//!
+//! Work in progress: no TLS, leases or degraded mode yet.
 
 mod active;
 pub mod frame;
+mod net;
 mod standby;
 
 pub use active::{Link, LocalLink, ReplicatedStorage};
+pub use net::{DEFAULT_ANSWER_TIMEOUT, TcpLink, serve_standby};
 pub use standby::Replica;
