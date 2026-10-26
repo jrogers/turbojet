@@ -1,7 +1,6 @@
 # Performance
 
-The repository's README has the benchmark numbers; this chapter is about the choices that move
-them.
+This chapter is about the choices that move latency and throughput.
 
 ## Send from the callback
 

@@ -237,7 +237,7 @@ handled it, so it has the session's `SessionId` and goes to the log a `Counterpa
 if it sets one; a refused Logon goes to the acceptor's own log, with the session it named. A
 message the session ignored as garbled (a CheckSum that doesn't match, say) goes to `garbled`,
 with why, if it framed as a FIX message; it does nothing unless you implement it, and bytes that
-don't frame aren't seen. docs/CAVEATS.md in the repository lists the finer points.
+don't frame aren't seen.
 
 ## Message log files
 

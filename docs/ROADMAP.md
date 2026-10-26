@@ -142,8 +142,5 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 ## 7. Usability and outreach
 
-- **A public website** (M). An introduction, the guide and the architecture overview, the
-  benchmark numbers, and links to the crates and repository: built from the repository's own
-  docs so it doesn't drift from them.
 - **Announcement posts** (S). Posts introducing Turbojet where Rust and trading-systems
-  developers read, once the website and guide are up for them to land on.
+  developers read, pointing to the website and guide.
