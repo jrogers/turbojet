@@ -11,7 +11,9 @@ and [CAVEATS.md](docs/CAVEATS.md) the behaviour worth knowing about.
 `scripts/check.sh` runs the per-push CI checks (fmt, clippy and tests for each feature combination,
 rustdoc with `-D warnings`, the fuzz crate's lints and regression inputs, the codegen diff). Run it before calling work
 done or committing it; it takes about 3 minutes warm. `--interop` adds the QuickFIX/J and QuickFIX/n tests and
-`--msrv` the 1.89 tests. While iterating, narrower runs are fine:
+`--msrv` the 1.89 tests. Read its exit status before acting on it. A timing assertion has to hold on a
+loaded machine (two checks at once, say): bound waits from below, and from above only well short of
+the timeout it guards against. While iterating, narrower runs are fine:
 
 ```sh
 cargo test -p turbojet --all-features                       # the engine
@@ -63,10 +65,14 @@ on, so check with `--all-features` and `--no-default-features` at least.
 
 - Plans and working notes go in `docs/plans/` (gitignored). Feature branches are git worktrees under
   `.worktrees/` (gitignored). Leave the main checkout on `main`: several sessions may share it, and
-  one that switches branch there makes another's merge land on the wrong branch. Before merging,
-  check which branch the checkout is on.
+  one that switches branch there makes another's merge land on the wrong branch. Merge with
+  `scripts/merge.sh [--push] BRANCH`: it fast-forwards `main` only if the main checkout is on `main`
+  and the branch's tip passed `check.sh` on a clean tree, checks that `main` moved, and pushes only
+  then. Don't chain a merge and a push by hand: a pipe hides the merge's failure.
 - Commits are small and each says why. Performance commits give before and after numbers (criterion
-  medians on an idle machine). Running benchmarks needs no permission.
+  medians on an idle machine). Running benchmarks needs no permission. The maintainer uses more than
+  one Mac: label numbers with `sysctl -n machdep.cpu.brand_string`, never with what a table's header
+  says. README.md's benchmark table is M4 Pro numbers only; other machines' go in DESIGN.md.
 - A feature ends with a commit that records it: how to use it in the guide's chapter for it
   (`docs/guide/`, for users: no measurement history or internals; its examples are doctests, run
   from `crates/turbojet/src/guide.rs`), and in README.md only if it changes the overview or the
@@ -74,7 +80,8 @@ on, so check with `--all-features` and `--no-default-features` at least.
   off ROADMAP.md (not marked done), any caveat in CAVEATS.md, and CHANGELOG.md
   (`## Unreleased`), e.g. "Record X in the guide, design notes and changelog".
 - Public documents (README, SECURITY.md, the changelog, crate docs) make no promises: no
-  timelines, support commitments or fix commitments unless the maintainer says so.
+  timelines, support commitments or fix commitments unless the maintainer says so. They name no
+  commercial FIX engine vendors.
 - Expensive checks that aren't regressions (long fuzzing) stay off the per-push CI path. They run
   in scheduled or manual workflows (`fuzz.yml`, nightly).
 

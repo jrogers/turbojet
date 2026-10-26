@@ -36,6 +36,9 @@ done
 
 step() { echo "== $*"; }
 
+# Shared by every worktree, for the record of checked commits at the end.
+common=$(cd "$(git rev-parse --git-common-dir)" && pwd)
+
 step fmt
 cargo fmt --all --check
 cargo fmt --manifest-path crates/turbojet/fuzz/Cargo.toml --check
@@ -115,4 +118,6 @@ if $msrv; then
     step msrv
     cargo +1.89 test --workspace --all-features --locked --quiet
 fi
+# Record a clean tree's commit as checked, for scripts/merge.sh.
+[ -z "$(git status --porcelain)" ] && git rev-parse HEAD >>"$common/checked-commits"
 step ok
