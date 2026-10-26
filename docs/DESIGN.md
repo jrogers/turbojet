@@ -729,6 +729,16 @@ As of 2026-10-25 the engine makes 1 allocation per order with the memory store (
 message) and none with the disk store, and the example application none.
 `tests/allocations.rs` counts them by stage, and the build fails if a count changes.
 
+The memory store's copy stays an allocation of its own. Keeping its messages back to back in one
+ring buffer instead, evicting from the front, removes it, but isn't faster (Apple M3, 2026-10-26,
+criterion medians, interleaved with the store as it is): storing a message took 14.0 ns against
+13.6 ns, since a warm `malloc` of a 245-byte message costs about what copying it into the ring and
+keeping its place does, and with 1,000 orders in flight on each of 1 to 32 sessions
+(`benches/sessions.rs`, `--quick`, means of three and four runs) it managed 0.55 / 1.14 / 1.95 /
+2.30 / 2.31 / 2.33 M orders a second against 0.54 / 1.24 / 1.94 / 2.23 / 2.32 / 2.25, within
+the runs' noise. The allocator lock was 1.6% of busy time at 8 sessions (see Many sessions), so
+there was little to win.
+
 ### Parsing and encoding
 
 Profiling the decode of a FIX 4.2 NewOrderSingle into a reused message (2026-10-05) showed the
