@@ -26,7 +26,7 @@ use crate::hostile::Proxy;
 use crate::net::{ConnId, Net, Params};
 use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
-use crate::replica::{Pair, Switching};
+use crate::replica::{Pair, Setup, Switching};
 use crate::rng::Rng;
 use crate::store::{Call, LedgerStorage, Trap};
 use crate::time::{Clocks, SimTime, wall_start};
@@ -73,6 +73,9 @@ pub enum Plant {
     /// On replicated seeds, from the acceptor's 10th batch, its standby is told each batch was
     /// committed without getting it, so a failover finds a copy behind what was sent.
     StaleStandby,
+    /// On degrading seeds, a failover goes ahead though the lease says the standby is out of
+    /// sync, finding a copy behind what was sent.
+    UnsyncedFailover,
 }
 
 impl Options {
@@ -297,6 +300,11 @@ enum Event {
     /// On a replicated seed: another instance takes the acceptor's lease while it runs on, so
     /// its commits fail, until a failover follows.
     Depose,
+    /// On a degrading seed: the standby can't be reached, until it's up again.
+    StandbyDown,
+    StandbyUp,
+    /// On a degrading seed: the active's task catching the standby up, every second.
+    CatchUp,
     /// A trap is set in the next store call of a kind on one node.
     Trap,
     /// The OS writes back both disk stores (without sync).
@@ -335,6 +343,9 @@ struct Pending {
 /// driver used to write all its output before reading again, so once both send buffers filled,
 /// neither read again; it now reads while output waits, and this would be a regression.
 pub const WRITE_DEADLOCK: &str = "write deadlock";
+
+/// How often a degrading active's task catches its standby up.
+const CATCH_UP_EVERY: Duration = Duration::from_secs(1);
 
 /// How often a reset of both sides checks whether neither is connected yet, and how long it
 /// waits for that before giving up.
@@ -464,6 +475,10 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
 struct Replication {
     failover_every: Option<Duration>,
     depose_every: Option<Duration>,
+    /// The acceptor commits alone while its standby is down, rather than failing its sessions.
+    degrade: bool,
+    /// On degrading seeds, the mean time between the standby going down for a while.
+    outage_every: Option<Duration>,
 }
 
 /// A replicated seed's settings, the random stream its failovers are timed from, and the pair of
@@ -478,11 +493,17 @@ fn replication(
         return None;
     }
     let secs = Duration::from_secs;
-    let replication = Replication {
-        failover_every: rng.pick(&[None, Some(secs(30)), Some(secs(8))]),
-        depose_every: rng.pick(&[None, Some(secs(30)), Some(secs(8))]),
+    let failover_every = rng.pick(&[None, Some(secs(30)), Some(secs(8))]);
+    let depose_every = rng.pick(&[None, Some(secs(30)), Some(secs(8))]);
+    let degrade = rng.chance(500_000);
+    let outage_every = if degrade { rng.pick(&[None, Some(secs(20)), Some(secs(5))]) } else { None };
+    let replication = Replication { failover_every, depose_every, degrade, outage_every };
+    let setup = Setup {
+        degrade,
+        stale: plant == Some(Plant::StaleStandby),
+        unsynced_failover: plant == Some(Plant::UnsyncedFailover),
     };
-    Some((replication, rng, Pair::new(plant == Some(Plant::StaleStandby))))
+    Some((replication, rng, Pair::new(setup)))
 }
 
 /// On half the seeds, disk stores in segments of a few messages, keeping a few segments, so that
@@ -816,6 +837,10 @@ impl World {
         if let Some((replication, ..)) = self.replication {
             self.replication_again(true, SimTime(0), replication.failover_every, Event::Failover { deposed: false });
             self.replication_again(true, SimTime(0), replication.depose_every, Event::Depose);
+            if replication.degrade {
+                self.replication_again(true, SimTime(0), replication.outage_every, Event::StandbyDown);
+                self.queue.push(SimTime(0).after(CATCH_UP_EVERY), Event::CatchUp);
+            }
         }
         self.queue.push(SimTime(0), Event::Connect(0));
         self.queue.push(SimTime(0), Event::SendOrder);
@@ -1148,8 +1173,12 @@ impl World {
                 let (replication, _, pair) = self.replication.as_ref().expect("a replicated seed");
                 let (every, pair) = (replication.failover_every, pair.clone());
                 let mut pair = pair.lock().unwrap();
-                // Only with the acceptor up, and a plain failover not while one deposed waits.
-                let happens = !self.down[Side::Acceptor.index()] && pair.deposed() == deposed;
+                // Only with the acceptor up, and a plain failover not while one deposed waits, nor
+                // to a standby the lease says is out of sync (a deposed acceptor's lease was
+                // taken only from one in sync).
+                let happens = !self.down[Side::Acceptor.index()]
+                    && pair.deposed() == deposed
+                    && (deposed || pair.may_fail_over());
                 if happens {
                     self.crash(Side::Acceptor, now);
                     pair.fail_over();
@@ -1169,7 +1198,8 @@ impl World {
                 let failover_in = Duration::from_millis(rng.between(0, 3_000));
                 let pair = pair.clone();
                 let mut pair = pair.lock().unwrap();
-                if !pair.deposed() {
+                // Another instance takes the lease only from a standby in sync.
+                if !pair.deposed() && pair.may_fail_over() {
                     pair.depose();
                     let describe = pair.describe();
                     self.record(&format!("deposed: {describe}"));
@@ -1177,6 +1207,32 @@ impl World {
                 }
                 drop(pair);
                 self.replication_again(busy, now, every, Event::Depose);
+            }
+            Event::StandbyDown => {
+                let (replication, rng, pair) = self.replication.as_mut().expect("a replicated seed");
+                let every = replication.outage_every;
+                let lasts = Duration::from_millis(rng.between(0, 10_000));
+                pair.lock().unwrap().standby_down();
+                self.record("standby down");
+                self.queue.push(now.after(lasts), Event::StandbyUp);
+                self.replication_again(busy, now, every, Event::StandbyDown);
+            }
+            Event::StandbyUp => {
+                let (_, _, pair) = self.replication.as_ref().expect("a replicated seed");
+                pair.lock().unwrap().standby_up();
+                self.record("standby up");
+            }
+            Event::CatchUp => {
+                let (_, _, pair) = self.replication.as_ref().expect("a replicated seed");
+                let pair = pair.clone();
+                let pair = pair.lock().unwrap();
+                if !self.down[Side::Acceptor.index()]
+                    && let Err(e) = pair.catch_up()
+                {
+                    self.record(&format!("catch-up failed: {e}"));
+                }
+                drop(pair);
+                self.queue.push(now.after(CATCH_UP_EVERY), Event::CatchUp);
             }
             Event::Trap => {
                 let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
