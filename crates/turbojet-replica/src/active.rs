@@ -9,6 +9,7 @@ use turbojet::fields::UtcTimestamp;
 use turbojet::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, SessionStorage, StoredSession};
 
 use crate::frame::{Batch, Frame, NackReason, Op, Summary, VERSION};
+use crate::lease::{Held, Lease};
 use crate::standby::{Replica, summary};
 
 /// The most a batch of a session sent whole carries in messages: a large session is sent in
@@ -41,6 +42,8 @@ pub struct ReplicatedStorage<S> {
     link: Arc<dyn Link>,
     /// The epoch of the lease this instance holds.
     epoch: u64,
+    /// The lease itself, renewed in commits, if it was given.
+    held: Option<Arc<Held>>,
     next_handle: AtomicU32,
 }
 
@@ -48,7 +51,24 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
     /// Keeps sessions in `inner`, copying their commits over `link`, as the holder of the lease
     /// for `epoch`.
     pub fn new(inner: S, link: Arc<dyn Link>, epoch: u64) -> Self {
-        Self { inner, link, epoch, next_handle: AtomicU32::new(0) }
+        Self { inner, link, epoch, held: None, next_handle: AtomicU32::new(0) }
+    }
+
+    /// Renews `lease`, taken under this store's epoch, in its sessions' commits once half of it
+    /// has gone; a commit fails once another instance has taken it, or it has run out unrenewed.
+    #[must_use]
+    pub fn with_lease(mut self, lease: Arc<dyn Lease>) -> Self {
+        self.held = Some(Held::new(lease, self.epoch));
+        self
+    }
+
+    /// Gives the lease up, so the standby's instance can take it at once: for an orderly
+    /// handover, once this instance's sessions have closed. Nothing to do without one.
+    pub fn release(&self) -> Job<()> {
+        match &self.held {
+            Some(held) => held.release(),
+            None => Job::blocking(|| Ok(())),
+        }
     }
 
     fn attacher(&self, id: &SessionId) -> Attacher {
@@ -57,6 +77,7 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
             session: id.clone(),
             handle: self.next_handle.fetch_add(1, Ordering::Relaxed),
             epoch: self.epoch,
+            held: self.held.clone(),
         }
     }
 }
@@ -67,6 +88,7 @@ struct Attacher {
     session: SessionId,
     handle: u32,
     epoch: u64,
+    held: Option<Arc<Held>>,
 }
 
 impl Attacher {
@@ -74,9 +96,9 @@ impl Attacher {
     /// session whole: the standby may have missed changes, made and never committed, or
     /// committed here before a failure kept them from it.
     fn attach(self, inner: Box<dyn StoredSession>) -> io::Result<Box<dyn StoredSession>> {
-        let Self { link, session, handle, epoch } = self;
+        let Self { link, session, handle, epoch, held } = self;
         let theirs = link.bind(handle, epoch, &session)?;
-        let mut log = ReplicatedLog { inner, link, handle, epoch, commit_no: 0, ops: Vec::new() };
+        let mut log = ReplicatedLog { inner, link, handle, epoch, held, commit_no: 0, ops: Vec::new() };
         if theirs != summary(log.inner.as_ref()) {
             log.send_whole()?;
         }
@@ -124,6 +146,7 @@ struct ReplicatedLog {
     link: Arc<dyn Link>,
     handle: u32,
     epoch: u64,
+    held: Option<Arc<Held>>,
     /// The commits replicated so far.
     commit_no: u64,
     /// The changes since the last commit.
@@ -222,7 +245,10 @@ impl StoredSession for ReplicatedLog {
         let ops = std::mem::take(&mut self.ops);
         let batch = self.batch(ops);
         let local = self.inner.commit()?;
-        let remote = self.link.send(batch);
+        let mut remote = self.link.send(batch);
+        if let Some(renewal) = self.held.as_ref().and_then(Held::renewal) {
+            remote = renewal.join(remote);
+        }
         Ok(Some(match local {
             Some(local) => local.join(remote),
             None => remote,
@@ -456,6 +482,38 @@ mod tests {
 
         // The same again isn't sent: nothing to replace.
         assert!(active.open(&id).unwrap().commit().unwrap().is_none());
+    }
+
+    /// A lease another instance has taken fails the commit, though the standby would take it:
+    /// fencing that doesn't need the standby.
+    #[test]
+    fn a_lease_taken_fails_commits() {
+        struct Taken;
+
+        impl Lease for Taken {
+            fn duration(&self) -> std::time::Duration {
+                std::time::Duration::ZERO
+            }
+
+            fn acquire(&self) -> Job<u64> {
+                Job::blocking(|| Ok(1))
+            }
+
+            fn renew(&self, _epoch: u64) -> Job<()> {
+                Job::blocking(|| Err(io::Error::new(io::ErrorKind::PermissionDenied, "taken by gw-b")))
+            }
+
+            fn release(&self, _epoch: u64) -> Job<()> {
+                Job::blocking(|| Ok(()))
+            }
+        }
+
+        let (active, _standby) = pair();
+        let active = active.with_lease(Arc::new(Taken));
+        let mut log = active.open(&conformance::id("A")).unwrap();
+        log.record_outgoing(1, Some(&conformance::app_message(1))).unwrap();
+        let failed = log.commit().unwrap().unwrap().run().unwrap_err();
+        assert_eq!(failed.to_string(), "taken by gw-b");
     }
 
     /// Nothing changed, nothing to copy: the commit is the local store's alone.

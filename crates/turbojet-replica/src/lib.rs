@@ -14,9 +14,11 @@
 
 mod active;
 pub mod frame;
+mod lease;
 mod net;
 mod standby;
 
 pub use active::{Link, LocalLink, ReplicatedStorage};
+pub use lease::{Lease, ManualLease};
 pub use net::{DEFAULT_ANSWER_TIMEOUT, TcpLink, serve_standby};
 pub use standby::Replica;
