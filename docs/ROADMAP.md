@@ -117,6 +117,12 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     on a timer would let an idle session notice sooner.
 - **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
   - replicating asynchronously, for latency first: batches queued, a bounded number unacknowledged;
+  - batching across sessions. A commit's batch already carries everything since the session's
+    last commit, but each session's batch is its own frame, write and wait. The active's writer
+    could write every queued frame in one write, and the standby its answers (S; measure with
+    many busy sessions). The standby could apply several sessions' batches and sync once, as a
+    group commit (M; each session's store syncs on its own today). The tokio link costs about
+    1.6 µs a round trip over the blocking one it replaced (see DESIGN.md).
   - an application's own records (the gateway's book) committed with a session's batch, which the
     wire form has room for;
   - shuttle tests of the link's reconnects racing commits, once its I/O can be stood in for.
