@@ -935,6 +935,22 @@ mod tests {
         assert!(!d.lease.out_of_sync.load(Ordering::Acquire));
     }
 
+    /// A manual lease can't fence a replaced active while the standby is down, so degrading with
+    /// one fails the commit rather than make it alone.
+    #[test]
+    fn a_manual_lease_doesnt_degrade() {
+        let standby = Arc::new(Mutex::new(Replica::new(MemoryStorage::new())));
+        let link =
+            Arc::new(Outage { link: LocalLink::connect(standby, 1, "a").unwrap(), down: AtomicBool::new(false) });
+        let active = ReplicatedStorage::new(MemoryStorage::new(), link.clone(), 1)
+            .with_lease(Arc::new(crate::ManualLease::new(1)))
+            .degrading();
+        let mut log = active.open(&conformance::id("A")).unwrap();
+        link.down.store(true, Ordering::Release);
+        let failed = store_and_commit(log.as_mut(), 1).unwrap_err();
+        assert_eq!(failed.kind(), io::ErrorKind::Unsupported, "{failed}");
+    }
+
     /// A commit the standby lacks is made only once the lease says so.
     #[test]
     fn a_lease_that_cant_be_told_fails_the_commit() {

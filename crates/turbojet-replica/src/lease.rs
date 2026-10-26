@@ -47,8 +47,11 @@ pub trait Lease: Send + Sync {
 
 /// A lease an operator decides: [`acquire`](Lease::acquire) takes the epoch given, which the
 /// operator raises at each failover; renewing always succeeds, so fencing is left to the
-/// standby, which refuses epochs below one it has seen. It records nothing of the standby being
-/// in sync, which is the operator's to know: [`in_sync`](Lease::in_sync) is always true.
+/// standby, which refuses epochs below one it has seen. It can't record that the standby is out
+/// of sync, since it can't fence an active the operator has replaced while the standby is
+/// unreachable: a [`degrading`](crate::ReplicatedStorage::degrading) store holding one fails a
+/// commit the standby can't take, as one not degrading does. [`in_sync`](Lease::in_sync) is
+/// always true.
 #[derive(Debug, Clone, Copy)]
 pub struct ManualLease {
     epoch: u64,
@@ -79,8 +82,16 @@ impl Lease for ManualLease {
         Job::blocking(|| Ok(()))
     }
 
-    fn set_in_sync(&self, _epoch: u64, _in_sync: bool) -> Job<()> {
-        Job::blocking(|| Ok(()))
+    fn set_in_sync(&self, _epoch: u64, in_sync: bool) -> Job<()> {
+        Job::blocking(move || {
+            if in_sync {
+                return Ok(());
+            }
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "a manual lease can't fence a replaced active, so the standby can't be left out of sync",
+            ))
+        })
     }
 
     fn in_sync(&self) -> Job<bool> {
