@@ -1,6 +1,6 @@
 //! The active's side: a store that copies each session's commits to a standby.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -17,6 +17,12 @@ use crate::standby::{Replica, summary};
 /// The most a batch of a session sent whole carries in messages: a large session is sent in
 /// several, well within a frame each.
 const SNAPSHOT_BATCH_BYTES: usize = 1024 * 1024;
+
+/// The most batches an asynchronous session leaves unacknowledged, however few outgoing numbers
+/// they cover: the bound for commits that carry none (inbound only), which the lag doesn't count.
+/// Enough that a session's own pace, not the cap, sets when such commits wait.
+// ponytail: a fixed cap, raised or made a setting only if inbound-only commits dominate.
+const MAX_QUEUED: usize = 64;
 
 /// How batches reach the standby. Its calls block until the standby answers, so a store using
 /// it runs them on a blocking thread, in its jobs.
@@ -37,7 +43,8 @@ pub trait Link: Send + Sync {
 }
 
 /// A [`SessionStorage`] that keeps each session in `S` and copies every commit to a standby over
-/// a [`Link`]: a session's commit, and so everything it covers going out, waits for both.
+/// a [`Link`]: a session's commit, and so everything it covers going out, waits for both, unless
+/// [`asynchronous`](Self::asynchronous).
 ///
 /// A commit that one side made and the other didn't leaves that side ahead of what was sent, as
 /// a crash between a commit and its write does, which a session's recovery already handles.
@@ -62,7 +69,7 @@ struct Replication {
     /// A commit the standby can't take is made alone, rather than failing.
     degrade: bool,
     /// The most outgoing numbers a session may leave unacknowledged by the standby, which each
-    /// bind tells it; none yet.
+    /// bind tells it: none unless [`asynchronous`](ReplicatedStorage::asynchronous).
     max_lag: u64,
     state: Mutex<State>,
     /// Signalled when [`catch_up`](ReplicatedStorage::catch_up) is done with a session.
@@ -179,6 +186,19 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
         self
     }
 
+    /// Commits don't wait for the standby until a session has more than `max_unacked` outgoing
+    /// numbers it hasn't acknowledged: a session's output goes out at its own store's pace. What
+    /// it trades: a failover can lose up to that many of a session's outgoing numbers, which
+    /// [`Replica::promote`] skips, so the standby must accept the lag
+    /// ([`Replica::accepting_lag`]) or opening a session fails. A batch the standby fails to take
+    /// fails a later commit of the session, the one that waits for it, or, made
+    /// [`degrading`](Self::degrading), puts the standby out of sync.
+    #[must_use]
+    pub fn asynchronous(mut self, max_unacked: u64) -> Self {
+        self.configure().max_lag = max_unacked;
+        self
+    }
+
     /// Gives the lease up, so the standby's instance can take it at once: for an orderly
     /// handover, once this instance's sessions have closed. Nothing to do without one.
     pub fn release(&self) -> Job<()> {
@@ -276,7 +296,10 @@ fn attach(
         commit_no: Arc::default(),
         bound: Arc::new(AtomicBool::new(false)),
         ops: Vec::new(),
+        queued: VecDeque::new(),
+        drained_through: 0,
     };
+    log.drained_through = log.inner.next_outgoing() - 1;
     let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, session).and_then(|theirs| {
         if theirs != summary(log.inner.as_ref()) || shared.is_behind(session) {
             let Whole { header, fetched } = Whole::of(log.inner.as_mut())?;
@@ -445,6 +468,12 @@ struct ReplicatedLog {
     bound: Arc<AtomicBool>,
     /// The changes since the last commit.
     ops: Vec<Op>,
+    /// Asynchronous, the batches sent that no commit has waited for yet, oldest first, each with
+    /// the highest outgoing number it covers. Dropped with the log unrun: the next opening
+    /// compares the standby's copy and sends the session whole if it lacks them.
+    queued: VecDeque<(u64, Commit)>,
+    /// The highest outgoing number covered by a batch a commit has waited for.
+    drained_through: u64,
 }
 
 impl ReplicatedLog {
@@ -458,6 +487,21 @@ impl ReplicatedLog {
     /// Whether the standby is behind on this session: it's sent whole at the next commit.
     fn behind(&self) -> bool {
         !self.bound.load(Ordering::Acquire) || self.shared.is_behind(&self.session)
+    }
+
+    /// Queues `remote`, the batch covering outgoing numbers through `last`, and returns a job
+    /// waiting for the oldest batches queued, in order, until the session's unacknowledged
+    /// numbers are within the bound again: a batch with more numbers than the bound waits for
+    /// itself.
+    fn queue(&mut self, last: u64, remote: Commit) -> Option<Commit> {
+        self.queued.push_back((last, remote));
+        let mut drain = Vec::new();
+        while last.saturating_sub(self.drained_through) > self.shared.max_lag || self.queued.len() > MAX_QUEUED {
+            let (through, job) = self.queued.pop_front().expect("over the bound with batches queued");
+            self.drained_through = through;
+            drain.push(job);
+        }
+        (!drain.is_empty()).then(|| Commit::blocking(move || drain.into_iter().try_for_each(Job::run)))
     }
 
     /// The standby's half of a commit of `ops`, made in `S` already: the batch, or the session
@@ -540,14 +584,30 @@ impl StoredSession for ReplicatedLog {
         }
         let ops = std::mem::take(&mut self.ops);
         let local = self.inner.commit()?;
-        let mut remote = self.remote(ops)?;
+        let was_behind = self.behind();
+        let remote = self.remote(ops)?;
+        let last = self.inner.next_outgoing() - 1;
+        let mut remote = if self.shared.max_lag == 0 {
+            Some(remote)
+        } else if was_behind {
+            // The batches queued went on a connection since lost, or are moot: this sends the
+            // session whole.
+            self.queued.clear();
+            self.drained_through = last;
+            Some(remote)
+        } else {
+            self.queue(last, remote)
+        };
         if let Some(renewal) = self.shared.held.as_ref().and_then(Held::renewal) {
-            remote = renewal.join(remote);
+            remote = Some(match remote {
+                Some(remote) => renewal.join(remote),
+                None => renewal,
+            });
         }
-        Ok(Some(match local {
-            Some(local) => local.join(remote),
-            None => remote,
-        }))
+        Ok(match (local, remote) {
+            (Some(local), Some(remote)) => Some(local.join(remote)),
+            (local, remote) => local.or(remote),
+        })
     }
 
     /// Written at once, as the built-in stores write a reset: the standby resets first, with the
@@ -558,7 +618,12 @@ impl StoredSession for ReplicatedLog {
     fn reset(&mut self) -> io::Result<()> {
         let mut ops = std::mem::take(&mut self.ops);
         ops.push(Op::Reset);
-        let sent = if self.behind() {
+        // The standby takes the batches queued before it first, or it would refuse them after.
+        let drained = std::mem::take(&mut self.queued).into_iter().try_for_each(|(_, job)| job.run());
+        self.drained_through = 0;
+        let sent = if let Err(e) = drained {
+            Err(e)
+        } else if self.behind() {
             Err(io::Error::other("the standby is behind on the session"))
         } else {
             self.shared.link.send(batch(self.handle, self.shared.epoch, &self.commit_no, ops)).run()
@@ -1044,6 +1109,97 @@ mod tests {
         assert_eq!(standby_has(&d.standby, &id), 2);
         assert!(d.active.in_sync() && !d.lease.out_of_sync.load(Ordering::Acquire));
         drop(d.own);
+    }
+
+    /// A pair whose active leaves up to `max_lag` outgoing numbers unacknowledged, and whose
+    /// standby accepts it.
+    fn async_pair(max_lag: u64) -> (ReplicatedStorage<MemoryStorage>, Arc<Mutex<Replica<MemoryStorage>>>) {
+        let replica = Arc::new(Mutex::new(Replica::new(MemoryStorage::new()).accepting_lag(max_lag)));
+        let link = LocalLink::connect(replica.clone(), 1, "active").unwrap();
+        (ReplicatedStorage::new(MemoryStorage::new(), Arc::new(link), 1).asynchronous(max_lag), replica)
+    }
+
+    #[test]
+    fn async_commits_conform() {
+        conformance::check_blocking(&async_pair(4).0);
+        conformance::check_marks_blocking(&async_pair(4).0);
+        conformance::check_sessions_blocking(&async_pair(4).0);
+    }
+
+    /// `LocalLink` applies a batch when its job runs, so the standby's copy shows which of the
+    /// batches queued a commit's job has waited for.
+    #[test]
+    fn the_lag_is_bounded() {
+        let (active, standby) = async_pair(3);
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=3 {
+            store_and_commit(log.as_mut(), seq).unwrap();
+        }
+        assert_eq!(standby_has(&standby, &id), 1, "three unacknowledged is within the bound");
+        store_and_commit(log.as_mut(), 4).unwrap();
+        assert_eq!(standby_has(&standby, &id), 2, "the fourth waits for the first");
+    }
+
+    #[test]
+    fn a_batch_over_the_bound_waits_for_itself() {
+        let (active, standby) = async_pair(2);
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=3 {
+            log.record_outgoing(seq, Some(&conformance::app_message(seq))).unwrap();
+        }
+        log.commit().unwrap().unwrap().run().unwrap();
+        assert_eq!(standby_has(&standby, &id), 4);
+    }
+
+    /// A batch sent while the standby is down fails the commit that waits for it, two later with
+    /// a bound of two; degrading, that commit is made alone instead.
+    #[test]
+    fn a_failed_answer_fails_a_later_commit() {
+        let run = |degrade: bool| {
+            let standby = Arc::new(Mutex::new(Replica::new(MemoryStorage::new()).accepting_lag(2)));
+            let link =
+                Arc::new(Outage { link: LocalLink::connect(standby, 1, "a").unwrap(), down: AtomicBool::new(false) });
+            let mut active = ReplicatedStorage::new(MemoryStorage::new(), link.clone(), 1).asynchronous(2);
+            if degrade {
+                active = active.with_lease(Arc::new(Remembering::default())).degrading();
+            }
+            let mut log = active.open(&conformance::id("A")).unwrap();
+            store_and_commit(log.as_mut(), 1).unwrap();
+            link.down.store(true, Ordering::Release);
+            store_and_commit(log.as_mut(), 2).unwrap();
+            store_and_commit(log.as_mut(), 3).expect("waits only for the batch sent before the outage");
+            (store_and_commit(log.as_mut(), 4), active.in_sync())
+        };
+        let (failed, _) = run(false);
+        assert_eq!(failed.unwrap_err().kind(), io::ErrorKind::ConnectionRefused);
+        let (made, in_sync) = run(true);
+        made.expect("made alone");
+        assert!(!in_sync);
+    }
+
+    #[test]
+    fn an_async_active_needs_a_standby_that_accepts_it() {
+        let replica = Arc::new(Mutex::new(Replica::new(MemoryStorage::new())));
+        let link = LocalLink::connect(replica, 1, "active").unwrap();
+        let active = ReplicatedStorage::new(MemoryStorage::new(), Arc::new(link), 1).asynchronous(4);
+        let failed = active.open(&conformance::id("A")).err().expect("the bind is refused");
+        assert_eq!(failed.kind(), io::ErrorKind::InvalidInput, "{failed}");
+    }
+
+    /// The standby takes the batches queued before a reset first: in order, so it doesn't refuse
+    /// them as diverged, and the reset leaves its copy as the active's.
+    #[test]
+    fn a_reset_runs_the_batches_queued_first() {
+        let (active, standby) = async_pair(4);
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        store_and_commit(log.as_mut(), 1).unwrap();
+        store_and_commit(log.as_mut(), 2).unwrap();
+        log.reset().unwrap();
+        assert_eq!(standby_has(&standby, &id), 1);
+        store_and_commit(log.as_mut(), 1).unwrap();
     }
 
     /// Nothing changed, nothing to copy: the commit is the local store's alone.

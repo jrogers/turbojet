@@ -4,7 +4,8 @@
 //!
 //! [`ReplicatedStorage`] wraps the active's store: each session's commit is made there and copied
 //! over a [`Link`] to a [`Replica`], which applies it to the standby's own store and acknowledges
-//! it, and the commit, so everything it covers going out, waits for both. The standby serves
+//! it, and the commit, so everything it covers going out, waits for both, unless
+//! [`asynchronous`](ReplicatedStorage::asynchronous). The standby serves
 //! actives over TCP with [`serve_standby`], or TLS ([below](#tls)); the active connects with a
 //! [`TcpLink`]. [`frame`] is
 //! the wire form between the two.
