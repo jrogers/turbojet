@@ -11,7 +11,20 @@
       "Bash(cargo +1.89 test *)",
       "Bash(scripts/check.sh)",
       "Bash(scripts/check.sh *)",
-      "Bash(rustup toolchain list)"
+      "Bash(rustup toolchain list)",
+      "Bash(command grep *)",
+      "Bash(command ls *)",
+      "Bash(scripts/sim.sh *)",
+      "Bash(cargo tree *)",
+      "Bash(cargo deny check *)",
+      "Bash(sysctl -n *)",
+      "Bash(scripts/nightly.sh)",
+      "Bash(scripts/nightly.sh *)",
+      "Bash(scripts/github-release.sh --dry-run *)",
+      "Bash(cargo metadata *)",
+      "Bash(cargo info *)",
+      "Bash(nm *)",
+      "Bash(objdump *)"
     ]
   }
 }
