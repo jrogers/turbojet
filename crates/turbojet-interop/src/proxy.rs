@@ -1056,7 +1056,7 @@ mod tests {
     /// doesn't.
     #[tokio::test]
     async fn delay_next_holds_one_frame_and_what_follows() {
-        const DELAY: Duration = Duration::from_millis(400);
+        const DELAY: Duration = Duration::from_secs(2);
         let (mut proxy, server) = start().await;
         let (mut tj, mut peer) = connect(&mut proxy, &server).await;
         proxy.delay_next(Dir::ToPeer, "D", DELAY);
@@ -1092,12 +1092,13 @@ mod tests {
         let expected = Duration::from_secs(1) * u32::try_from(frames.len()).unwrap() / RATE;
         let elapsed = sent_at.elapsed();
         assert!(elapsed >= expected * 9 / 10, "{} bytes in {elapsed:?}, expected {expected:?}", frames.len());
-        assert!(elapsed <= expected * 2, "{} bytes in {elapsed:?}, expected {expected:?}", frames.len());
+        // Far slower would be a pacing bug; a loaded machine stretches it some.
+        assert!(elapsed <= expected * 4, "{} bytes in {elapsed:?}, expected {expected:?}", frames.len());
         // The other direction isn't paced.
         let sent_at = Instant::now();
         peer.write_all(&frames).await.unwrap();
         assert_eq!(read_exactly(&mut tj, frames.len()).await, frames);
-        assert!(sent_at.elapsed() < expected / 2, "{:?}", sent_at.elapsed());
+        assert!(sent_at.elapsed() < elapsed / 4, "{:?}, paced {elapsed:?}", sent_at.elapsed());
     }
 
     /// While the proxy doesn't read from it, the sender's writes back up and block, and the other

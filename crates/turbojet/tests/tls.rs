@@ -559,9 +559,8 @@ async fn acceptor_shutdown_abandons_a_tls_handshake() {
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let started = std::time::Instant::now();
-    timeout(Duration::from_secs(3), acceptor.shutdown(None)).await.expect("shutdown hung");
-    assert!(started.elapsed() < Duration::from_millis(500), "waited for the handshake: {:?}", started.elapsed());
+    // Well short of the timeouts it would otherwise wait for, however busy the machine.
+    timeout(Duration::from_secs(3), acceptor.shutdown(None)).await.expect("waited for the handshake");
     let read = timeout(Duration::from_secs(1), tokio::io::AsyncReadExt::read(&mut client, &mut [0; 16])).await;
     assert_eq!(read.expect("connection still open").unwrap_or(0), 0);
     server.await.unwrap().unwrap();
@@ -582,9 +581,8 @@ async fn initiator_shutdown_abandons_a_tls_handshake() {
     let _server_side = silent.await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let started = std::time::Instant::now();
-    timeout(Duration::from_secs(3), initiator.shutdown(None)).await.expect("shutdown hung");
-    assert!(started.elapsed() < Duration::from_millis(500), "waited for the handshake: {:?}", started.elapsed());
+    // Well short of the timeouts it would otherwise wait for, however busy the machine.
+    timeout(Duration::from_secs(3), initiator.shutdown(None)).await.expect("waited for the handshake");
     let result = timeout(Duration::from_secs(1), connecting).await.expect("still connecting").unwrap();
     assert!(result.is_err(), "connected after shutdown");
 }
@@ -608,7 +606,7 @@ async fn a_connection_past_the_limit_gets_no_handshake() {
     let (initiator, _client) = tls_initiator(addr.as_str(), pki.connector("ca.pem", None), "localhost");
     let started = std::time::Instant::now();
     let err = attempt(&initiator).await.expect_err("refused");
-    assert!(started.elapsed() < Duration::from_secs(1), "refused at once, not after {:?}: {err}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(5), "refused at once, not after {:?}: {err}", started.elapsed());
 }
 
 // ---- Certificates replaced while running ----

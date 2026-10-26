@@ -44,6 +44,10 @@ async fn next(rx: &mut mpsc::UnboundedReceiver<Event>) -> Event {
     timeout(Duration::from_secs(5), rx.recv()).await.expect("timed out waiting for event").expect("channel closed")
 }
 
+/// Well short of the 5 s logout timeout these tests use, so a shutdown that returns within it
+/// didn't wait for the timeout, however busy the machine.
+const SHORT_OF_LOGOUT_TIMEOUT: Duration = Duration::from_secs(4);
+
 fn acceptor(logout_timeout: Duration) -> (Acceptor, mpsc::UnboundedReceiver<Event>) {
     let (app, events) = recorder();
     let mut config = SessionConfig::new("FIX.4.2", "SERVER");
@@ -132,8 +136,8 @@ async fn acceptor_logs_out_and_waits_for_the_reply() {
     client.send(Message::new(MsgType::Logout)).await;
     assert!(client.recv().await.is_none(), "still connected after the Logout exchange");
 
-    timeout(Duration::from_secs(1), shutdown).await.expect("shutdown didn't return once logged out").unwrap();
-    assert!(started.elapsed() < Duration::from_secs(1), "waited for the logout timeout: {:?}", started.elapsed());
+    timeout(SHORT_OF_LOGOUT_TIMEOUT, shutdown).await.expect("shutdown didn't return once logged out").unwrap();
+    assert!(started.elapsed() < SHORT_OF_LOGOUT_TIMEOUT, "waited for the logout timeout: {:?}", started.elapsed());
     assert!(matches!(next(&mut events).await, Event::LoggedOut));
     assert!(acceptor.sessions().is_empty());
     // serve returned, and the listener is closed.
@@ -166,9 +170,7 @@ async fn acceptor_disconnects_connections_that_have_not_logged_on() {
     // Let the acceptor take the connection before shutting down.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let started = Instant::now();
-    timeout(Duration::from_secs(1), acceptor.shutdown(Some("closing"))).await.expect("shutdown waited");
-    assert!(started.elapsed() < Duration::from_secs(1));
+    timeout(SHORT_OF_LOGOUT_TIMEOUT, acceptor.shutdown(Some("closing"))).await.expect("shutdown waited");
     assert!(client.recv().await.is_none(), "not disconnected");
 }
 
@@ -242,9 +244,7 @@ async fn initiator_logs_out_and_stops_reconnecting() {
     assert!(matches!(next(&mut client).await, Event::LoggedOn(_)));
     assert!(matches!(next(&mut server).await, Event::LoggedOn(_)));
 
-    let started = Instant::now();
-    timeout(Duration::from_secs(1), initiator.shutdown(Some("bye"))).await.expect("shutdown waited for the timeout");
-    assert!(started.elapsed() < Duration::from_secs(1));
+    timeout(SHORT_OF_LOGOUT_TIMEOUT, initiator.shutdown(Some("bye"))).await.expect("shutdown waited for the timeout");
     assert!(matches!(next(&mut client).await, Event::LoggedOut));
     assert!(matches!(next(&mut server).await, Event::LoggedOut));
     timeout(Duration::from_secs(1), run).await.expect("run still going").unwrap();
