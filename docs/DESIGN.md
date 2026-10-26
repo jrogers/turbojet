@@ -264,7 +264,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   buffer (`VecDeque`) in sequence order, not a `BTreeMap`. The numbers stored only increase, so a
   message goes on the back and eviction takes from the front, and a resend finds its range by
   binary search. A `BTreeMap` allocated a node every six messages or so, and its insert was most
-  of a memory store's: storing a message took 48 ns, now 14 ns (M4 Pro, 2026-10-25, criterion
+  of a memory store's: storing a message took 48 ns, now 14 ns (Apple M3, 2026-10-25, criterion
   medians of two interleaved rounds each), and 70 ns to 40 ns in the disk store at 100 per
   commit; an order → ack through the session with the memory store 813 ns to 784 ns. The cost is
   growth: the buffer doubles when full, and once eviction has wrapped it around, growing moves
@@ -967,10 +967,14 @@ different version of PostgreSQL. When each row was last measured on the M3, and 
   runtime. Earlier that day, p50 / p99: 559 µs / 1,037 µs at 1,000 a second, 86 / 107 µs at
   10,000, 88 / 140 µs at 15,000, 117 µs / 11 ms at 20,000, and answers queued for seconds at
   30,000.
-- Storing a message in memory and 100 per commit on disk was re-measured 2026-10-25, after the
-  stores' indexes became ring buffers: 48.4 ns and 69.9 ns just before, in the same session
-  (the table's 43 and 60 ns were measured earlier that day, on a quieter machine). The
-  allocation counts changed with it: 1.17 / 0.17 allocations per order with the memory / disk
+- The stores' indexes became ring buffers 2026-10-25, measured on an Apple M3, not the
+  table's M4 Pro: storing a message in memory 48.4 ns to 13.6 ns, 100 per commit on disk
+  69.9 ns to 40.2 ns, and order → ack with the memory store 813 ns to 784 ns. The table's store
+  rows (43 and 60 ns) are the M4 Pro's from before the change, until they're re-measured there.
+  The commit that made the change (eddd24c) says M4 Pro by mistake. On the M3, 1,000 orders in
+  flight on each of 1 to 32 sessions (`benches/sessions.rs`, `--quick`, means of two
+  interleaved runs) rose about 5% at every count: 0.52 / 1.21 / 1.85 / 2.15 / 2.09 / 2.16 to
+  0.55 / 1.23 / 1.95 / 2.24 / 2.23 / 2.26 M orders a second. The allocation counts changed with it: 1.17 / 0.17 allocations per order with the memory / disk
   store, 280 / 49 bytes, and no reallocs, for FIX; 1.17 / 0.17 and 182 / 49 for FIXP.
 - The allocation counts were taken 2026-09-30; the application's were re-counted 2026-10-03,
   before which the reply list and message cost 3 allocations more, and `String` fields in place

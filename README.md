@@ -324,8 +324,8 @@ how the compiler happens to partition the crate.
 | Format a timestamp (same second / new second) | 8.9 ns / 27 ns | |
 | Session: order → ack, no I/O, encoded reply (memory store) | 716 ns | 1.40M msg/s |
 | Session: order → ack, wire to wire (decode + session, which encodes) | 864 ns | 1.16M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 14 ns / 1.5 µs / 3.9 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync | 40 ns / 39 µs | |
+| Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.5 µs / 3.9 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 60 ns / 39 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.0 ms / 140 µs | |
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 49 µs / 7.1 µs | |
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.6 µs / 179 µs / 146 µs | |
