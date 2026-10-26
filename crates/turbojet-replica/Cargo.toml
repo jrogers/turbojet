@@ -1,0 +1,22 @@
+[package]
+name = "turbojet-replica"
+description = "Replicated session state for Turbojet: a hot standby that takes over FIX sessions with no gap"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "replication", "failover"]
+categories = ["finance", "network-programming"]
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+turbojet.workspace = true
+
+[dev-dependencies]
+turbojet = { workspace = true, features = ["conformance"] }
+
+[lints]
+workspace = true

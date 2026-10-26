@@ -3422,6 +3422,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "turbojet-replica"
+version = "0.6.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "turbojet",
+]
+
+[[package]]
 name = "turbojet-sim"
 version = "0.6.0"
 dependencies = [
