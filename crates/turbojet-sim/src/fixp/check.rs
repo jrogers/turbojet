@@ -96,7 +96,11 @@ impl Sent {
                 self.recorded.insert(*seq, bytes.clone());
                 self.next_recorded = seq + 1;
             }
-            Stored::Opened { .. } | Stored::OpenFailed(_) | Stored::Uncertain(_) | Stored::Log(_) => {
+            Stored::Opened { .. }
+            | Stored::OpenFailed(_)
+            | Stored::Fenced(_)
+            | Stored::Uncertain(_)
+            | Stored::Log(_) => {
                 unreachable!("handled by stored")
             }
         }
@@ -319,6 +323,7 @@ impl Checker {
             match entry {
                 Stored::Uncertain(changes) => self.sent[i].uncertain.extend(changes.iter().cloned()),
                 Stored::OpenFailed(e) => return Err(violation("9 store", format!("{side:?}'s store won't open: {e}"))),
+                Stored::Fenced(_) => {}
                 Stored::Opened { next_outgoing, next_incoming } => {
                     self.opened(side, (*next_outgoing, *next_incoming))?
                 }

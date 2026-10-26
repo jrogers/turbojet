@@ -119,6 +119,11 @@ fn a_hold_the_session_forgets_is_caught() {
 }
 
 #[test]
+fn a_stale_standby_is_caught() {
+    caught(Plant::StaleStandby, &["6 store"]);
+}
+
+#[test]
 fn fixp_regressions_pass() {
     for seed in listed(include_str!("../fixp_regressions.txt")).keys() {
         if let Err(failure) = turbojet_sim::fixp::run(&Options::per_push(*seed)) {

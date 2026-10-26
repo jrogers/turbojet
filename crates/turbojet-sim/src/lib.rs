@@ -14,6 +14,7 @@ pub mod hostile;
 pub mod net;
 pub mod node;
 pub mod queue;
+pub mod replica;
 pub mod rng;
 pub mod store;
 pub mod time;

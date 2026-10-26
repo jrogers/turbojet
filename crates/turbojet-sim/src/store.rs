@@ -26,6 +26,9 @@ pub enum Stored {
     Opened { next_outgoing: u64, next_incoming: u64 },
     /// The store failed to open.
     OpenFailed(String),
+    /// The store refused to open: its instance has been deposed, another holding its lease. It
+    /// changes nothing, so a replicated store that refuses is right to.
+    Fenced(String),
     /// These changes, in order, may have taken effect, wholly or in part, as the next open shows:
     /// a power loss tore their commit, or the session ended before committing them.
     Uncertain(Vec<Stored>),
@@ -184,7 +187,10 @@ impl SessionStorage for LedgerStorage {
 
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
         let ledger = LogLedger { ledger: self.ledger.clone(), writer: self.writer.clone(), id: id.clone() };
-        let inner = self.inner.open(id).inspect_err(|e| ledger.entries().push(Stored::OpenFailed(e.to_string())))?;
+        let inner = self.inner.open(id).inspect_err(|e| {
+            let entry = if e.kind() == io::ErrorKind::PermissionDenied { Stored::Fenced } else { Stored::OpenFailed };
+            ledger.entries().push(entry(e.to_string()));
+        })?;
         let opened = Stored::Opened { next_outgoing: inner.next_outgoing(), next_incoming: inner.next_incoming() };
         let evicted = inner.evicted_through();
         ledger.entries().push(opened);
@@ -301,6 +307,15 @@ impl LedgerLog {
 
     /// The store's commit, sprung by a trap: it takes effect or not and fails, or with `tear`,
     /// its writes are cut short by a power loss, and what took effect is uncertain.
+    /// Commits the inner store at once: a replicating one hands back the copy to its standby as a
+    /// job, run here, since the simulator's link is in the same process and takes no time.
+    fn commit_inner(&mut self) -> io::Result<()> {
+        match self.inner.commit()? {
+            None => Ok(()),
+            Some(job) => job.run(),
+        }
+    }
+
     fn trapped_commit(&mut self, trap: Trap) -> io::Result<Option<Commit>> {
         match (trap.tear, self.files.clone()) {
             (Some(tear), Some(files)) => {
@@ -315,10 +330,14 @@ impl LedgerLog {
             }
             _ => {
                 if trap.applies {
-                    assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
+                    let committed = self.commit_inner();
                     self.note_evictions();
                     let changes = std::mem::take(&mut self.pending);
-                    self.ledger.entries().extend(changes);
+                    if committed.is_ok() {
+                        self.ledger.entries().extend(changes);
+                    } else {
+                        self.ledger.entries().push(Stored::Uncertain(changes));
+                    }
                 } else {
                     // Not committed, so lost with the log: a memory store keeps them, though.
                     let changes = std::mem::take(&mut self.pending);
@@ -393,10 +412,15 @@ impl StoredSession for LedgerLog {
         if let Some(trap) = self.spring(Call::Commit) {
             return self.trapped_commit(trap);
         }
-        // The inner stores commit at once (a disk store without fsync, or memory); a slow one
-        // hands the commit back, finishing when the world says. With nothing to commit, there's
-        // nothing to wait for.
-        assert!(self.inner.commit()?.is_none(), "the simulator's stores commit at once");
+        // The inner stores commit at once (a disk store without fsync, memory, or a replicating
+        // store over memory); a slow one hands the commit back, finishing when the world says.
+        // With nothing to commit, there's nothing to wait for. A replicating store's commit fails
+        // once its instance is deposed, having committed its own copy but not the standby's.
+        if let Err(e) = self.commit_inner() {
+            let changes = std::mem::take(&mut self.pending);
+            self.ledger.entries().push(Stored::Uncertain(changes));
+            return Err(e);
+        }
         self.note_evictions();
         if self.pending.is_empty() {
             return Ok(None);

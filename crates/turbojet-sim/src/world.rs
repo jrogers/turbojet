@@ -26,6 +26,7 @@ use crate::hostile::Proxy;
 use crate::net::{ConnId, Net, Params};
 use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
+use crate::replica::{Pair, Switching};
 use crate::rng::Rng;
 use crate::store::{Call, LedgerStorage, Trap};
 use crate::time::{Clocks, SimTime, wall_start};
@@ -69,6 +70,9 @@ pub enum Plant {
     SpuriousCancel,
     /// The acceptor's application's holds do nothing, as if the session forgot them.
     IgnoreHolds,
+    /// On replicated seeds, from the acceptor's 10th batch, its standby is told each batch was
+    /// committed without getting it, so a failover finds a copy behind what was sent.
+    StaleStandby,
 }
 
 impl Options {
@@ -285,6 +289,14 @@ enum Event {
     /// A node's process crashes, and later restarts.
     Crash,
     Restart(Side),
+    /// On a replicated seed: the acceptor's process crashes, and restarts as the standby, which
+    /// takes over at the next epoch. One `deposed` is the second half of a [`Event::Depose`].
+    Failover {
+        deposed: bool,
+    },
+    /// On a replicated seed: another instance takes the acceptor's lease while it runs on, so
+    /// its commits fail, until a failover follows.
+    Depose,
     /// A trap is set in the next store call of a kind on one node.
     Trap,
     /// The OS writes back both disk stores (without sync).
@@ -352,6 +364,8 @@ struct World {
     commit_rng: Option<Rng>,
     /// The initiator's reconnect jitter, apart from `rng` for the same reason.
     reconnect_rng: Rng,
+    /// A replicated seed's failovers, timed from their own random stream for the same reason.
+    replication: Option<(Replication, Rng, Arc<std::sync::Mutex<Pair>>)>,
     /// Connects in a row that haven't logged on, as Initiator::run counts them.
     reconnect_attempt: u32,
     queue: Queue<Event>,
@@ -379,6 +393,9 @@ struct World {
     operators: Vec<Operator>,
     /// A reset of both sides under way, since when: the initiator doesn't connect meanwhile.
     resetting: Option<SimTime>,
+    /// The sides a reset of both has yet to reset: one refused because its instance was deposed is
+    /// tried again, as an operator would once the failover has happened.
+    reset_left: [bool; 2],
     /// The daily schedule both sides run to, if any.
     schedule: Option<SessionSchedule>,
     /// When the workload and faults stop.
@@ -437,6 +454,35 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
         return Err(Failure { seed: options.seed, at, violation, trace: report.trace, fixp: false });
     }
     Ok(report)
+}
+
+/// On a third of the seeds that keep their state in memory, the acceptor's store replicates to a
+/// standby: the mean times between failovers, and between another instance taking the lease while
+/// the acceptor runs on, if they happen. Drawn apart from the world's random stream so that seeds
+/// keep the faults they had before.
+#[derive(Debug, Clone, Copy)]
+struct Replication {
+    failover_every: Option<Duration>,
+    depose_every: Option<Duration>,
+}
+
+/// A replicated seed's settings, the random stream its failovers are timed from, and the pair of
+/// stores, the standby's stale if `plant` says so.
+fn replication(
+    seed: u64,
+    store: StoreKind,
+    plant: Option<Plant>,
+) -> Option<(Replication, Rng, Arc<std::sync::Mutex<Pair>>)> {
+    let mut rng = Rng::new(seed ^ 0x2e91_1ca7);
+    if store != StoreKind::Memory || !rng.chance(333_333) {
+        return None;
+    }
+    let secs = Duration::from_secs;
+    let replication = Replication {
+        failover_every: rng.pick(&[None, Some(secs(30)), Some(secs(8))]),
+        depose_every: rng.pick(&[None, Some(secs(30)), Some(secs(8))]),
+    };
+    Some((replication, rng, Pair::new(plant == Some(Plant::StaleStandby))))
 }
 
 /// On half the seeds, disk stores in segments of a few messages, keeping a few segments, so that
@@ -506,6 +552,7 @@ fn stores(
     slow: bool,
     early: bool,
     segments: Option<(u64, u64)>,
+    pair: Option<&Arc<std::sync::Mutex<Pair>>>,
 ) -> (Option<tempfile::TempDir>, [Arc<LedgerStorage>; 2]) {
     let dir = matches!(kind, StoreKind::Disk { .. }).then(|| tempfile::tempdir().expect("a temp dir"));
     let store = |name: &str| -> Arc<dyn SessionStorage> {
@@ -522,7 +569,11 @@ fn stores(
     };
     let ledger = |name: &str, early: bool| {
         let files = dir.as_ref().map(|dir| DiskFiles::new(dir.path().join(name)));
-        let storage = LedgerStorage::new(store(name), files);
+        let inner = match pair {
+            Some(pair) if name == "acceptor" => Arc::new(Switching(pair.clone())),
+            _ => store(name),
+        };
+        let storage = LedgerStorage::new(inner, files);
         Arc::new(if slow || early { storage.slow_commits(early) } else { storage })
     };
     let storage = [ledger("initiator", false), ledger("acceptor", early)];
@@ -616,6 +667,25 @@ fn holding(seed: u64) -> Holding {
     Holding { every: rng.between(1, 5), hold_for: Duration::from_millis(rng.between(0, 1_000)) }
 }
 
+/// The initiator's configuration, as session `id`, and the random stream its reconnects are
+/// jittered from.
+fn initiator(
+    session: SessionConfig,
+    id: &SessionId,
+    heartbeat: Duration,
+    reconnect: Duration,
+    seed: u64,
+) -> (InitiatorConfig, Rng) {
+    let mut initiator = InitiatorConfig::new(session, "GATEWAY");
+    initiator.sender_sub_id.clone_from(&id.sender_sub_id);
+    initiator.sender_location_id.clone_from(&id.sender_location_id);
+    initiator.target_sub_id.clone_from(&id.target_sub_id);
+    initiator.heartbeat_interval = heartbeat;
+    let mut reconnect_rng = Rng::new(seed ^ 0x7ec0_22ec);
+    initiator.reconnect = reconnect_policy(reconnect, &mut reconnect_rng);
+    (initiator, reconnect_rng)
+}
+
 /// The initiator's reconnects, fixed or backing off from `reconnect`, chosen and jittered from
 /// `rng`, apart from the world's random stream so that seeds keep the faults they had before
 /// reconnects backed off.
@@ -646,17 +716,13 @@ impl World {
             config
         };
         let ids = session_ids(options.seed);
-        let mut initiator = InitiatorConfig::new(config("CLIENT"), "GATEWAY");
-        initiator.sender_sub_id.clone_from(&ids[0].sender_sub_id);
-        initiator.sender_location_id.clone_from(&ids[0].sender_location_id);
-        initiator.target_sub_id.clone_from(&ids[0].target_sub_id);
-        initiator.heartbeat_interval = heartbeat;
-        let mut reconnect_rng = Rng::new(options.seed ^ 0x7ec0_22ec);
-        initiator.reconnect = reconnect_policy(reconnect, &mut reconnect_rng);
+        let (initiator, reconnect_rng) = initiator(config("CLIENT"), &ids[0], heartbeat, reconnect, options.seed);
         let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
         let early = options.plant == Some(Plant::EarlyCommit);
         let slow = commit_rng.chance(500_000) || early;
-        let (dir, storage) = stores(faults.store, slow, early, segment_sizes(options.seed));
+        let replication = replication(options.seed, faults.store, options.plant);
+        let pair = replication.as_ref().map(|(_, _, pair)| pair);
+        let (dir, storage) = stores(faults.store, slow, early, segment_sizes(options.seed), pair);
         if options.plant == Some(Plant::ForgetMessages) {
             storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
         }
@@ -673,6 +739,7 @@ impl World {
             rng,
             commit_rng: slow.then_some(commit_rng),
             reconnect_rng,
+            replication,
             reconnect_attempt: 0,
             queue: Queue::new(),
             nodes,
@@ -689,6 +756,7 @@ impl World {
             ids,
             operators: Vec::new(),
             resetting: None,
+            reset_left: [false; 2],
             schedule,
             busy_end,
             proxy,
@@ -732,6 +800,9 @@ impl World {
         if let Some(InboundLimit::Delay(limit)) = inbound {
             header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
         }
+        if let Some((replication, ..)) = &self.replication {
+            header.push_str(&format!(", acceptor replicated: {replication:?}"));
+        }
         if !self.ids[0].key_suffix().is_empty() {
             header.push_str(&format!(", sessions {} and {}", self.ids[0], self.ids[1]));
         }
@@ -742,6 +813,10 @@ impl World {
             }
         }
         self.record(&header);
+        if let Some((replication, ..)) = self.replication {
+            self.replication_again(true, SimTime(0), replication.failover_every, Event::Failover { deposed: false });
+            self.replication_again(true, SimTime(0), replication.depose_every, Event::Depose);
+        }
         self.queue.push(SimTime(0), Event::Connect(0));
         self.queue.push(SimTime(0), Event::SendOrder);
         self.queue.push(SimTime(0), Event::SendReport);
@@ -1069,6 +1144,40 @@ impl World {
                 }
                 self.again(busy, now, self.faults.crash_every, Event::Crash);
             }
+            Event::Failover { deposed } => {
+                let (replication, _, pair) = self.replication.as_ref().expect("a replicated seed");
+                let (every, pair) = (replication.failover_every, pair.clone());
+                let mut pair = pair.lock().unwrap();
+                // Only with the acceptor up, and a plain failover not while one deposed waits.
+                let happens = !self.down[Side::Acceptor.index()] && pair.deposed() == deposed;
+                if happens {
+                    self.crash(Side::Acceptor, now);
+                    pair.fail_over();
+                    self.record(&format!("failover: {}", pair.describe()));
+                }
+                drop(pair);
+                if !deposed {
+                    self.replication_again(busy, now, every, Event::Failover { deposed: false });
+                } else if !happens {
+                    // A deposed acceptor that's down fails over once it's up again.
+                    self.queue.push(now.after(Duration::from_millis(100)), Event::Failover { deposed: true });
+                }
+            }
+            Event::Depose => {
+                let (replication, rng, pair) = self.replication.as_mut().expect("a replicated seed");
+                let every = replication.depose_every;
+                let failover_in = Duration::from_millis(rng.between(0, 3_000));
+                let pair = pair.clone();
+                let mut pair = pair.lock().unwrap();
+                if !pair.deposed() {
+                    pair.depose();
+                    let describe = pair.describe();
+                    self.record(&format!("deposed: {describe}"));
+                    self.queue.push(now.after(failover_in), Event::Failover { deposed: true });
+                }
+                drop(pair);
+                self.replication_again(busy, now, every, Event::Depose);
+            }
             Event::Trap => {
                 let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
                 let crash = self.rng.chance(self.faults.trap_crashes);
@@ -1146,6 +1255,7 @@ impl World {
             Event::ResetBoth => {
                 if self.resetting.is_none() {
                     self.resetting = Some(now);
+                    self.reset_left = [true; 2];
                     for side in [Side::Initiator, Side::Acceptor] {
                         let _ = self.handle(side).logout(Some("operator reset"));
                         self.after_all(side, now)?;
@@ -1243,11 +1353,17 @@ impl World {
         let idle = self.nodes.iter().all(|n| n.conns().next().is_none());
         if idle {
             for side in [Side::Initiator, Side::Acceptor] {
+                if !self.reset_left[side.index()] {
+                    continue;
+                }
                 let handle = self.handle(side);
                 let result = poll_once(std::pin::pin!(handle.reset_sequence_numbers()));
                 self.record(&format!("operator: reset {side:?}: {result:?}"));
+                let fenced = matches!(&result, Some(Err(SequenceError::Storage(e))) if e.kind() == std::io::ErrorKind::PermissionDenied);
+                self.reset_left[side.index()] = fenced;
             }
-        } else if now.since(since) < RESET_BOTH_LIMIT {
+        }
+        if (!idle || self.reset_left.contains(&true)) && now.since(since) < RESET_BOTH_LIMIT {
             self.queue.push(now.after(RESET_BOTH_CHECK), Event::ResetBothStep);
             return Ok(());
         }
@@ -1336,6 +1452,17 @@ impl World {
     fn again(&mut self, busy: bool, now: SimTime, every: Option<Duration>, event: Event) {
         if let (true, Some(every)) = (busy, every) {
             let at = self.after_about(now, every);
+            let at = self.active_from(at);
+            self.queue.push(at, event);
+        }
+    }
+
+    /// As [`again`](Self::again), timed from the replication's own random stream.
+    fn replication_again(&mut self, busy: bool, now: SimTime, every: Option<Duration>, event: Event) {
+        let Some((_, rng, _)) = self.replication.as_mut() else { return };
+        if let (true, Some(every)) = (busy, every) {
+            let mean = SimTime::from_duration(every).0;
+            let at = SimTime(now.0 + rng.between(mean / 2, mean + mean / 2));
             let at = self.active_from(at);
             self.queue.push(at, event);
         }
