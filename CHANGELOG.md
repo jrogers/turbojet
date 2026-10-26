@@ -21,8 +21,8 @@ Notable changes to the published crates.
 
 - New: copies each session's committed state to a hot standby that can take the sessions over
   with no sequence gap and no resend storm. `ReplicatedStorage` wraps the active's store and
-  sends each commit to a `Replica` over a `TcpLink` (`serve_standby` on the standby), waiting for
-  both; a `Lease` under a rising epoch fences off a replaced active; `Replica::promote` takes
+  sends each commit to a `Replica` over a `TcpLink` (`serve_standby` on the standby), over TLS
+  with the feature `tls` (`TcpLink::with_tls`, `serve_standby_tls`), waiting for both; a `Lease` under a rising epoch fences off a replaced active; `Replica::promote` takes
   over. A commit the standby can't take fails the session, which catches the standby up when it
   opens again; made `degrading`, the store commits alone instead once the lease says the standby
   is out of sync (`Lease::set_in_sync`, `in_sync`), and `catch_up` brings the standby back in

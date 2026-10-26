@@ -30,7 +30,7 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   is only as available as its standby. Degrading needs a lease that can fence (`SqlLease`, not
   `ManualLease`), and while the standby is out of sync a failover would lose commits: check the
   lease's `in_sync` first. A session the standby fell behind on is sent whole, up to its byte
-  budget, when it catches up. The link is plain TCP. A reset waits
+  budget, when it catches up. The link is plain TCP unless TLS is set up on both sides. A reset waits
   for the standby where the built-in stores write it at once. The standby holds open every
   session the active has open, so a `DiskStorage` under it is locked until `Replica::promote`.
   `SqlLease`, like the session leases, compares the instances' clocks. A session's first open

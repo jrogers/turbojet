@@ -324,23 +324,32 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     it is, so after a forced failover the first catch-up counts every session behind. The
     simulator degrades on half its replicated seeds, with standby outages, and only fails over
     once the lease says in sync; a planted failover that doesn't wait is caught.
-  - Over TCP the link blocks: its calls run in the store's jobs, on blocking threads, and the
-    standby applies batches with blocking store calls, a thread per connection. Sessions share
-    one connection, each with one request at most under way, so a reader thread hands each answer
-    to its waiter by handle. A batch is sent at once, by a writer thread, so the standby commits
-    while the active does; a session bound on a connection since lost fails its commits until
-    it opens again and catches the standby up.
+  - Over TCP, or TLS (`turbojet::tls`, as for FIX sessions), the link's calls block: they run in
+    the store's jobs, on blocking threads. The active's link does its I/O on a current-thread
+    runtime of its own, on one thread, so a caller can wait on it from any thread without
+    deadlocking a runtime, a current-thread one included. Sessions share one connection, each
+    with one request at most under way, so a reader task hands each answer to its waiter by
+    handle. A batch is sent at once, by a writer task, so the standby commits while the active
+    does; a session bound on a connection since lost fails its commits until it opens again and
+    catches the standby up. The standby applies batches with blocking store calls, so each
+    connection has a thread with a runtime of its own, doing its handshake and its I/O: the
+    thread that applies a batch is the one its arrival wakes. Serving it on a blocking thread of
+    the caller's runtime instead (`Handle::block_on`) cost 2.8 µs a commit, another thread
+    driving its I/O and waking it.
   - The simulator replicates the acceptor's store on a third of the seeds that keep state in
     memory, with failovers (crash, restart over the standby's copy at the next epoch) and
     deposals (the acceptor runs on while another instance takes the lease, so its commits and
     opens must fail). A planted standby that acknowledges batches it never got is caught when a
     failover finds its copy behind.
   - Cost, storing one message and committing it, alone and replicated over loopback (Apple M3,
-    2026-10-26, criterion medians of two interleaved runs, `benches/replica.rs`): memory 14.6 ns
-    alone, 19.4 µs replicated; `DiskStorage` without fsync 1.7 µs and 24.9 µs; with fsync 4.0 ms
-    and 6.8 ms, both copies syncing to the one SSD. Sending the batch in the commit's job, after
-    the active's own commit, took 17.6 µs, 23.1 µs and 8.2 ms: sending it at once overlaps the
-    two syncs, at the cost of a thread hop (about 1.8 µs) when nothing syncs.
+    2026-10-26, criterion medians, `benches/replica.rs`): memory 14.6 ns alone, 21.2 µs
+    replicated; `DiskStorage` without fsync 1.7 µs and 27.9 µs; with fsync 4.1 ms and 6.9 ms,
+    both copies syncing to the one SSD. Over TLS (mutual, TLS 1.3), memory replicated took
+    22.6 µs. With the link on blocking threads rather than tokio the plain-TCP figures were
+    19.6 µs, 25.0 µs and 7.7 ms: the tokio link's wake-ups cost about 1.6 µs a round trip, which
+    TLS needed. Sending the batch in the commit's job, after the active's own commit, took
+    17.6 µs, 23.1 µs and 8.2 ms: sending it at once overlaps the two syncs, at the cost of a
+    thread hop (about 1.8 µs) when nothing syncs.
 - **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
   operator's pause and the cancel on disconnect a session logged on with. They're the session's,
   kept through resets, and written rarely (a logon, an ending, an operator), so the disk store

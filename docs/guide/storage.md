@@ -155,5 +155,9 @@ that can fence, such as `SqlLease`: an operator's `ManualLease` can't stop a rep
 the standby is unreachable, so with one a commit the standby can't take still fails. A refusal
 because another instance holds the lease always fails.
 
-The connection is plain TCP, so run it on a private network or through a tunnel. The crate's
-documentation has a full example.
+With the feature `tls`, the link runs over TLS: the standby serves with `serve_standby_tls`, given
+a `ServerTls` acceptor, and the active's link is made `TcpLink::with_tls`, given an
+`InitiatorTls`, as for FIX sessions (see [TLS](tls.md)). Have the standby require a client
+certificate, so only an instance holding one can replicate to it. Without TLS the connection is
+plain TCP, so run it on a private network or through a tunnel. The crate's documentation has a
+full example.

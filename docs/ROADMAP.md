@@ -117,7 +117,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     on a timer would let an idle session notice sooner.
 - **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
   - replicating asynchronously, for latency first: batches queued, a bounded number unacknowledged;
-  - TLS on the link (it's plain TCP);
   - an application's own records (the gateway's book) committed with a session's batch, which the
     wire form has room for;
   - shuttle tests of the link's reconnects racing commits, once its I/O can be stood in for.
