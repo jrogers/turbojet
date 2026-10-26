@@ -293,6 +293,7 @@ mod cancel;
 pub mod codec;
 pub mod connection;
 mod counterparty;
+mod direct;
 #[cfg(feature = "fast")]
 pub mod fast;
 pub mod fields;

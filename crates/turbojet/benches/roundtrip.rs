@@ -167,6 +167,26 @@ fn spinning(c: &mut Criterion) {
     let mut group = c.benchmark_group("roundtrip tcp, spinning");
     group.throughput(Throughput::Elements(1));
     let mut next_id = 0u64;
+    // TEMPORARY: sent through the handle, the ack spun on.
+    group.bench_function("latency, spinning on the ack", |b| {
+        b.iter_custom(|iters| {
+            runtime.block_on(async {
+                let start = Instant::now();
+                for _ in 0..iters {
+                    next_id += 1;
+                    conn.handle.send(common::new_order_single(next_id)).unwrap();
+                    loop {
+                        match conn.acks.try_recv() {
+                            Ok(_) => break,
+                            Err(mpsc::error::TryRecvError::Empty) => std::hint::spin_loop(),
+                            Err(e) => panic!("{e}"),
+                        }
+                    }
+                }
+                start.elapsed()
+            })
+        })
+    });
     group.bench_function("latency, replying from on_message", |b| {
         b.iter_custom(|iters| {
             runtime.block_on(async {
@@ -217,6 +237,27 @@ fn transport_with(
                     next_id += 1;
                     conn.handle.send(common::new_order_single(next_id)).unwrap();
                     conn.acks.recv().await.unwrap();
+                }
+                start.elapsed()
+            })
+        })
+    });
+
+    // TEMPORARY: as "latency", but spinning on the ack rather than sleeping until it's sent over.
+    group.bench_function("latency, spinning on the ack", |b| {
+        b.iter_custom(|iters| {
+            runtime.block_on(async {
+                let start = Instant::now();
+                for _ in 0..iters {
+                    next_id += 1;
+                    conn.handle.send(common::new_order_single(next_id)).unwrap();
+                    loop {
+                        match conn.acks.try_recv() {
+                            Ok(_) => break,
+                            Err(mpsc::error::TryRecvError::Empty) => std::hint::spin_loop(),
+                            Err(e) => panic!("{e}"),
+                        }
+                    }
                 }
                 start.elapsed()
             })

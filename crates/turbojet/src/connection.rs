@@ -75,7 +75,7 @@ const _: () = assert!(MAX_READS_PER_BATCH > 0);
 /// the public entry points take each kind by name. The methods are [`Session`]'s, which documents
 /// them; a FIXP session that doesn't resend, throttle or wait for its store answers as one that
 /// never does.
-pub(crate) trait Driven {
+pub(crate) trait Driven: Send + 'static {
     /// What the session's handle queues for it to send.
     type Item;
     /// Kept by the driver for [`feed`](Self::feed) from one read to the next: the FIX session
@@ -258,7 +258,10 @@ where
     let (mut reader, mut writer) = tokio::io::split(stream);
     let mut d = Driver::new(session, commands);
     d.start(&mut shutdown);
-    match serve(&mut d, &mut reader, &mut writer, logged_on, shutdown).await {
+    let served = serve(&mut d, &mut reader, &mut writer, logged_on, shutdown).await;
+    d.reclaim();
+    d.commands.direct.close();
+    match served {
         Ok(Ended::Closed) => {
             d.assert_finished();
             // Everything the session sent, a Logout before a close included, has gone. Release
@@ -434,6 +437,8 @@ where
         if timer.deadline() != d.timer_at {
             timer.as_mut().reset(d.timer_at);
         }
+        let lent = d.lend_if_idle(&step);
+        let direct = lent.then(|| d.commands.direct.clone());
         let Step { closed, committing, resending, nothing_pending, sends, sends_free_at, input_held, held_back, reads } =
             step;
         let pending = &d.outbox[d.written..];
@@ -447,6 +452,7 @@ where
             result = async {
                 if pending.is_empty() { writer.flush().await.map(|()| 0) } else { writer.write(pending).await }
             }, if !nothing_pending || d.unflushed => {
+                d.reclaim();
                 match result? {
                     0 if !nothing_pending => return Err(io::ErrorKind::WriteZero.into()),
                     0 => d.unflushed = false,
@@ -457,6 +463,7 @@ where
             // once it ends. Input waiting for a resend or a commit is handled before a close
             // behind it; input waiting for a release isn't, since that may never come.
             read = reader.read_buf(&mut d.buf), if reads => {
+                d.reclaim();
                 match read? {
                     0 if d.deferred && !held_back => d.peer_closed = true,
                     0 => return Ok(Ended::Lost),
@@ -466,33 +473,60 @@ where
             // Logout and operator commands, whatever else is going on (a Logout once the sends
             // queued before it have been taken, which the outbound limit may slow); application
             // sends when `takes_sends` and the outbound window allows.
-            Some(next) = d.commands.next_with(sends), if !closed && !committing => d.on_next(next),
+            Some(next) = d.commands.next_with(sends), if !closed && !committing => {
+                d.reclaim();
+                d.on_next(next);
+            }
+            // A caller's send left output the socket didn't take.
+            () = async { direct.as_ref().expect("guarded by lent").wake.notified().await }, if lent => d.reclaim(),
             // The outbound window has freed up for the sends it held: they're taken next time
             // round. Not the timer, which a stuck deadline can hold at the ceiling.
             () = async {
                 tokio::time::sleep_until(Instant::from_std(sends_free_at.expect("guarded by is_some"))).await;
-            }, if sends_free_at.is_some() => {}
+            }, if sends_free_at.is_some() => d.reclaim(),
             // The inbound window has freed up: next time round, the input it held is fed and the
             // socket read again. Not the timer, as for sends.
             () = async {
                 tokio::time::sleep_until(Instant::from_std(input_held.expect("guarded by is_some"))).await;
-            }, if input_held.is_some() => {}
+            }, if input_held.is_some() => d.reclaim(),
             // One step of the resend each time round, once the last step has been written.
             () = std::future::ready(()), if resending && nothing_pending && !closed && !committing => {
+                d.reclaim();
                 d.session.on_resume(Instant::now().into_std());
             }
             // Once only: after that the session's logout (or its timeout) ends the connection.
             text = async { shutdown.as_mut().expect("guarded by is_some").started().await }, if shutdown.is_some() && !closed && !committing => {
+                d.reclaim();
                 shutdown = None;
                 d.session.on_shutdown(text.as_deref(), Instant::now().into_std());
             }
             // The store's commit has ended, and what it covers can be written; or its read, and
             // the resend step goes on.
             done = async { store.as_mut().expect("guarded by is_some").finished().await }, if committing => {
+                d.reclaim();
                 d.on_store_done(done);
             }
-            () = &mut timer, if !closed && !committing => d.on_timer(),
+            () = &mut timer, if !closed && !committing => {
+                d.reclaim();
+                d.on_timer();
+            }
         }
+    }
+}
+
+/// The driver's session, boxed so it can be lent to callers while the driver waits.
+struct Lendable<P>(Option<Box<P>>);
+
+impl<P> std::ops::Deref for Lendable<P> {
+    type Target = P;
+    fn deref(&self) -> &P {
+        self.0.as_deref().expect("the session isn't lent while the driver runs")
+    }
+}
+
+impl<P> std::ops::DerefMut for Lendable<P> {
+    fn deref_mut(&mut self) -> &mut P {
+        self.0.as_deref_mut().expect("the session isn't lent while the driver runs")
     }
 }
 
@@ -521,7 +555,9 @@ struct Step {
 /// A connection's state between wake-ups: the session, what's been read and not yet handled,
 /// what it sent and hasn't been written, and the store's work under way.
 struct Driver<P: Driven> {
-    session: P,
+    session: Lendable<P>,
+    /// Whether the session is lent to callers (see [`crate::direct`]).
+    lent: bool,
     commands: CommandReceiver<P::Item>,
     /// After each read it keeps only an incomplete frame, which the codec caps at MAX_BODY_LENGTH
     /// plus header and trailer, so it grows to no more than that and one read, except during a
@@ -562,7 +598,8 @@ struct Driver<P: Driven> {
 impl<P: Driven> Driver<P> {
     fn new(session: P, commands: CommandReceiver<P::Item>) -> Self {
         Self {
-            session,
+            session: Lendable(Some(Box::new(session))),
+            lent: false,
             commands,
             buf: Vec::with_capacity(READ_BUFFER_SIZE),
             deferred: false,
@@ -625,10 +662,10 @@ impl<P: Driven> Driver<P> {
             && self.session.has_logged_on()
             && !resending
             && self.unwritten() < COMMANDS_PAUSE_AT;
-        let (sends, sends_free_at) = sends_this_time(&self.session, &self.commands, takes_sends);
+        let (sends, sends_free_at) = sends_this_time(&*self.session, &self.commands, takes_sends);
         // While the inbound window holds input, the socket isn't read: input waits there, in
         // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
-        let input_held = input_held_until(&self.session);
+        let input_held = input_held_until(&*self.session);
         let held_back = self.session.is_held_back();
         let reads = input_held.is_none() && !self.peer_closed && (!held_back || self.buf.len() < MAX_HELD_INPUT);
         if held_back {
@@ -651,6 +688,41 @@ impl<P: Driven> Driver<P> {
             held_back,
             reads,
         }))
+    }
+
+    /// Lends the session to callers if the driver is about to wait with nothing to do but read:
+    /// any send then goes out on the caller's thread.
+    fn lend_if_idle(&mut self, step: &Step) -> bool {
+        let idle = step.sends == Sends::Take
+            && !step.closed
+            && !step.committing
+            && !step.resending
+            && step.nothing_pending
+            && !self.unflushed
+            && !step.held_back
+            && step.input_held.is_none()
+            && step.sends_free_at.is_none()
+            && !self.deferred
+            // A commit that waits (fsync) isn't made on the caller's thread.
+            && !self.commits_wait
+            && !self.commands.has_sends()
+            && self.commands.direct.has_socket();
+        if idle {
+            self.commands.direct.lend(self.session.0.take().expect("not lent"));
+            self.lent = true;
+        }
+        idle
+    }
+
+    /// Takes the session back from callers, with whatever they sent that the socket didn't take.
+    fn reclaim(&mut self) {
+        if std::mem::take(&mut self.lent) {
+            if self.written == self.outbox.len() {
+                self.outbox.clear();
+                self.written = 0;
+            }
+            self.session.0 = Some(self.commands.direct.reclaim(&mut self.outbox));
+        }
     }
 
     /// Only ever brings the timer forward to the session's next deadline: most sends and
@@ -703,7 +775,7 @@ impl<P: Driven> Driver<P> {
         !self.session.is_resending()
             && !self.session.is_closed()
             && !self.session.is_waiting_on_store()
-            && input_held_until(&self.session).is_none()
+            && input_held_until(&*self.session).is_none()
             && !self.session.is_held_back()
     }
 
@@ -745,7 +817,7 @@ impl<P: Driven> Driver<P> {
             && !self.session.is_closed()
             && !self.session.is_resending()
             && self.buf.len() < MAX_UNPROCESSED
-            && input_held_until(&self.session).is_none()
+            && input_held_until(&*self.session).is_none()
             && !self.session.is_held_back()
             && let Some(read) = poll_once(reader.read_buf(&mut self.buf))
         {
@@ -756,7 +828,7 @@ impl<P: Driven> Driver<P> {
                 read => {
                     self.unattributed_bytes += read;
                     let now = Instant::now();
-                    self.timings.read(&self.session, now);
+                    self.timings.read(&*self.session, now);
                     self.deferred = self.session.feed(&mut self.buf, &mut self.scratch, now.into_std());
                 }
             }
@@ -773,18 +845,18 @@ impl<P: Driven> Driver<P> {
         if let Some(job) = self.session.take_commit(Instant::now().into_std()) {
             self.store = Some(StoreTask::Commit(job.spawn()));
             self.commits_wait = true;
-            self.timings.commit_started(&self.session, self.deferred);
+            self.timings.commit_started(&*self.session, self.deferred);
         } else if let Some(job) = self.session.take_fetch() {
             self.store = Some(StoreTask::Fetch(job.spawn()));
         } else if let Some(job) = self.session.take_open() {
             self.store = Some(StoreTask::Open(job.spawn()));
         }
         if let Some(store) = &self.store {
-            store.debug_check(&self.session);
+            store.debug_check(&*self.session);
         }
         if self.store.is_none() && !self.deferred {
             // Committed at once: what was read has all been handled and can be written.
-            self.timings.handled(&self.session);
+            self.timings.handled(&*self.session);
         }
     }
 
@@ -865,11 +937,11 @@ impl<P: Driven> Driver<P> {
                 self.session.on_read_while_held(Instant::now().into_std());
             }
             if self.session.times_latency() {
-                self.timings.read(&self.session, Instant::now());
+                self.timings.read(&*self.session, Instant::now());
             }
         } else {
             let now = Instant::now();
-            self.timings.read(&self.session, now);
+            self.timings.read(&*self.session, now);
             self.deferred = self.session.feed(&mut self.buf, &mut self.scratch, now.into_std());
         }
     }
@@ -918,14 +990,14 @@ impl<P: Driven> Driver<P> {
         let store = self.store.take();
         debug_assert!(store.is_some());
         if let Some(store) = &store {
-            store.debug_check(&self.session);
+            store.debug_check(&*self.session);
             debug_assert_eq!(store.kind(), done.kind(), "a job's result is the kind of job it was");
         }
         let now = Instant::now();
         if let StoreDone::Committed(result) = &done {
-            self.timings.commit_finished(&self.session, result.is_ok(), now);
+            self.timings.commit_finished(&*self.session, result.is_ok(), now);
         }
-        done.deliver(&mut self.session, now.into_std());
+        done.deliver(&mut *self.session, now.into_std());
     }
 }
 
