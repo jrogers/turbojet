@@ -306,6 +306,24 @@ pub async fn marked(shared: Arc<Shared>) -> io::Result<Vec<(SessionId, Marks)>> 
     Ok(marked)
 }
 
+/// Every session with a row, for [`SessionStorage::sessions`](turbojet::SessionStorage::sessions):
+/// opening a session makes its row.
+pub async fn sessions(shared: Arc<Shared>) -> io::Result<Vec<SessionId>> {
+    let rows = sqlx::query("SELECT begin_string, sender_comp_id, target_comp_id, extra FROM turbojet_sessions")
+        .fetch_all(&shared.pool)
+        .await
+        .map_err(database("reading sessions"))?;
+    let mut sessions = Vec::with_capacity(rows.len());
+    for row in rows {
+        let text = |column: &str| -> io::Result<String> { row.try_get(column).map_err(database("reading a session")) };
+        let extra = text("extra")?;
+        let id = SessionId::from_key(text("begin_string")?, text("sender_comp_id")?, text("target_comp_id")?, &extra)
+            .ok_or_else(|| corrupt("extra", &extra))?;
+        sessions.push(id);
+    }
+    Ok(sessions)
+}
+
 impl Drop for SqlLog {
     /// Gives the lease up, if a runtime is there to do it on; otherwise it expires. A later log
     /// of the session has a new token, so this never gives up its lease.

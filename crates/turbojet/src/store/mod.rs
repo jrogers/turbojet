@@ -277,6 +277,13 @@ pub trait SessionStorage: Send + Sync {
     fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
         Job::blocking(|| Ok(Vec::new()))
     }
+
+    /// Every session this store holds state for, in no particular order, as a [`Job`] since it
+    /// may be a query: for tools that work on all of them, such as copying a store to a standby.
+    /// The default fails with [`io::ErrorKind::Unsupported`].
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        Job::blocking(|| Err(io::Error::new(io::ErrorKind::Unsupported, "this store can't list its sessions")))
+    }
 }
 
 /// What an operator or the session itself has marked a session with, which a store may keep so
@@ -648,6 +655,27 @@ impl<T: Send + 'static> Job<Vec<T>> {
     }
 }
 
+impl Job<()> {
+    /// Runs this job and `other`, done once both are, failing with the first's error if either
+    /// fails: a blocking job running one after the other if both are, otherwise a future running
+    /// them at once, a blocking one on a blocking thread. For a store whose commit is two others'
+    /// (a local store's and a copy's elsewhere).
+    #[must_use]
+    pub fn join(self, other: Self) -> Self {
+        if matches!((&self.0, &other.0), (Work::Blocking(_), Work::Blocking(_))) {
+            return Self::blocking(move || {
+                let first = self.run();
+                let second = other.run();
+                first.and(second)
+            });
+        }
+        Self::future(async move {
+            let (first, second) = tokio::join!(self.run_async(), other.run_async());
+            first.and(second)
+        })
+    }
+}
+
 impl<T> fmt::Debug for Job<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self.0 {
@@ -874,6 +902,35 @@ mod tests {
 
         let current = tokio::runtime::Builder::new_current_thread().build().unwrap();
         assert!(current.block_on(async { future().run() }).is_err(), "would deadlock");
+    }
+
+    /// Joined, two jobs both run, even when the first fails, which fails the whole; two blocking
+    /// jobs make a blocking one, and a future with either makes a future.
+    #[test]
+    fn joined_jobs_both_run() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let ran = Arc::new(AtomicU64::new(0));
+        let counting = |fail: bool| {
+            let ran = ran.clone();
+            Commit::blocking(move || {
+                ran.fetch_add(1, Ordering::Relaxed);
+                if fail { Err(io::Error::other("disk full")) } else { Ok(()) }
+            })
+        };
+        let joined = counting(false).join(counting(false));
+        assert_eq!(format!("{joined:?}"), "Job::Blocking");
+        assert!(joined.run().is_ok());
+        assert_eq!(counting(true).join(counting(false)).run().unwrap_err().to_string(), "disk full");
+        assert_eq!(counting(false).join(counting(true)).run().unwrap_err().to_string(), "disk full");
+        assert_eq!(ran.load(Ordering::Relaxed), 6, "both halves ran each time");
+
+        let joined = counting(false).join(Commit::future(async { Err(io::Error::other("link down")) }));
+        assert_eq!(format!("{joined:?}"), "Job::Future");
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).build().unwrap();
+        assert_eq!(runtime.block_on(joined.run_async()).unwrap_err().to_string(), "link down");
+        assert_eq!(ran.load(Ordering::Relaxed), 7);
     }
 
     /// The suite runs a store's jobs, whatever it returns as one.

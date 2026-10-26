@@ -99,6 +99,24 @@ impl SessionStorage for StorageByCounterparty {
             .collect();
         Job::concat(jobs)
     }
+
+    /// Each store's sessions that route to it, as for [`marked`](SessionStorage::marked).
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        let mut stores: Vec<&Arc<dyn SessionStorage>> = Vec::new();
+        for store in self.stores() {
+            if !stores.iter().any(|seen| same(seen, store)) {
+                stores.push(store);
+            }
+        }
+        let jobs = stores
+            .into_iter()
+            .map(|store| {
+                let (store, routes) = (store.clone(), self.clone_routes());
+                store.sessions().map(move |ids| ids.into_iter().filter(|id| same(routes.route(id), &store)).collect())
+            })
+            .collect();
+        Job::concat(jobs)
+    }
 }
 
 impl StorageByCounterparty {
@@ -155,6 +173,11 @@ mod tests {
         let routed =
             StorageByCounterparty::new(Arc::new(MemoryStorage::new())).with("H", Arc::new(MemoryStorage::new()));
         conformance::check_marks_blocking(&routed);
+        // L's store is shared with N, so it's asked once; M goes to the default.
+        let shared: Arc<dyn SessionStorage> = Arc::new(MemoryStorage::new());
+        let routed =
+            StorageByCounterparty::new(Arc::new(MemoryStorage::new())).with("L", shared.clone()).with("N", shared);
+        conformance::check_sessions_blocking(&routed);
     }
 
     /// Each store's marks are listed once, however many counterparties share it, and only for

@@ -184,6 +184,10 @@ impl SessionStorage for SqlStorage {
     fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
         Job::future(log::marked(self.shared.clone()))
     }
+
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        Job::future(log::sessions(self.shared.clone()))
+    }
 }
 
 impl Backend {

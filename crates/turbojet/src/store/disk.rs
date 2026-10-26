@@ -164,6 +164,23 @@ impl SessionStorage for DiskStorage {
         let dir = self.dir.clone();
         Job::blocking(move || marked(&dir))
     }
+
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        let dir = self.dir.clone();
+        Job::blocking(move || sessions(&dir))
+    }
+}
+
+/// The sessions under `dir`: every one has a seqnums file, made when it's first opened.
+fn sessions(dir: &Path) -> io::Result<Vec<SessionId>> {
+    let mut sessions = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let name = entry?.file_name();
+        if let Some(id) = name.to_str().and_then(|name| name.strip_suffix(".seqnums")).and_then(parse_stem) {
+            sessions.push(id);
+        }
+    }
+    Ok(sessions)
 }
 
 /// The sessions under `dir` with a marks file, and their marks. A name that isn't a session's
@@ -1069,7 +1086,7 @@ fn invalid_data(msg: String) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::super::commit_now;
-    use super::super::conformance::{app_message, check_blocking, check_marks_blocking, id};
+    use super::super::conformance::{app_message, check_blocking, check_marks_blocking, check_sessions_blocking, id};
     use super::*;
 
     fn storage(dir: &tempfile::TempDir) -> DiskStorage {
@@ -1086,6 +1103,7 @@ mod tests {
         check_blocking(&storage(&dir));
         check_blocking(&DiskStorage::new(dir.path().join("synced")).unwrap());
         check_marks_blocking(&storage(&dir));
+        check_sessions_blocking(&storage(&dir));
     }
 
     #[test]

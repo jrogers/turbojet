@@ -1201,7 +1201,9 @@ impl Session {
     }
 
     /// Runs the store's work on this thread until none is left, the commits, resend reads and
-    /// opening it returns as jobs: for drivers that may block (tests, tools).
+    /// opening it returns as jobs: for drivers that may block (tests, tools). A store whose jobs
+    /// are futures (one that waits on a network) needs a multi-threaded tokio runtime current on
+    /// this thread, as [`Job::run`](crate::store::Job::run) does.
     pub fn commit_blocking(&mut self, now: Instant) {
         loop {
             if let Some(commit) = self.take_commit(now) {

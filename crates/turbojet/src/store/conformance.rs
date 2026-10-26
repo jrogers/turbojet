@@ -152,6 +152,40 @@ pub fn check_marks_blocking(storage: &dyn SessionStorage) {
     runtime.block_on(check_marks(storage));
 }
 
+/// For a store that lists its sessions: every session opened is listed by
+/// [`sessions`](SessionStorage::sessions) with its full ID, once, whether it stored anything or
+/// not. Needs a tokio runtime, as [`check`] does.
+///
+/// # Panics
+///
+/// On the first behaviour that differs from what a tool listing sessions relies on.
+pub async fn check_sessions(storage: &dyn SessionStorage) {
+    let before = storage.sessions().run_async().await.unwrap();
+    let full = id("L").with_target_sub_id("TRADER 7").with_qualifier("a;b");
+    let mut log = open(storage, &full).await.unwrap();
+    log.record_outgoing(1, Some(&app_message(1))).unwrap();
+    commit(log.as_mut()).await.unwrap();
+    drop(log);
+    drop(open(storage, &id("M")).await.unwrap());
+    drop(open(storage, &full).await.unwrap());
+    let mut added: Vec<SessionId> =
+        storage.sessions().run_async().await.unwrap().into_iter().filter(|id| !before.contains(id)).collect();
+    added.sort_by_key(ToString::to_string);
+    let mut expected = vec![full, id("M")];
+    expected.sort_by_key(ToString::to_string);
+    assert_eq!(added, expected, "each session opened, listed once with its full ID");
+}
+
+/// [`check_sessions`] on a runtime of its own, for synchronous tests.
+///
+/// # Panics
+///
+/// As [`check_sessions`] does, or if a runtime can't be started.
+pub fn check_sessions_blocking(storage: &dyn SessionStorage) {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a runtime starts");
+    runtime.block_on(check_sessions(storage));
+}
+
 /// Sequence numbers and messages survive reopening; sessions are independent; a reset clears
 /// both and persists.
 async fn check_round_trip(storage: &dyn SessionStorage) {

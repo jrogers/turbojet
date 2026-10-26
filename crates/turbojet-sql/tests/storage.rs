@@ -76,6 +76,7 @@ const CHECKS: [Check; 6] = [
 async fn conforms(database: &Database) {
     conformance::check(&database.store("A", |_| {}).await).await;
     conformance::check_marks(&database.store("A", |_| {}).await).await;
+    conformance::check_sessions(&database.store("A", |_| {}).await).await;
 }
 
 /// While one gateway holds a session's lease, another can't open it; the same gateway can

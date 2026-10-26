@@ -164,6 +164,12 @@ impl SessionStorage for MemoryStorage {
             .collect();
         Job::blocking(move || Ok(marked))
     }
+
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        let sessions: Vec<SessionId> =
+            self.sessions.lock().expect("memory storage lock poisoned").keys().cloned().collect();
+        Job::blocking(move || Ok(sessions))
+    }
 }
 
 struct MemoryLog {
@@ -273,6 +279,7 @@ mod tests {
     fn conforms() {
         super::super::conformance::check_blocking(&MemoryStorage::new());
         super::super::conformance::check_marks_blocking(&MemoryStorage::new());
+        super::super::conformance::check_sessions_blocking(&MemoryStorage::new());
     }
 
     fn stored(log: &mut Box<dyn StoredSession>) -> Vec<u64> {
