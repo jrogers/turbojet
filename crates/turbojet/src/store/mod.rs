@@ -650,9 +650,18 @@ impl<T: Send + 'static> Job<T> {
     /// The job, with `f` applied to what it returns: still blocking if it was, for a store
     /// wrapping another's jobs.
     pub fn map<U: Send + 'static>(self, f: impl FnOnce(T) -> U + Send + 'static) -> Job<U> {
+        self.map_result(move |result| result.map(f))
+    }
+
+    /// The job, with `f` applied to its result, its error included: still blocking if it was.
+    /// For work whose failure its caller can sometimes bear.
+    pub fn map_result<U: Send + 'static>(
+        self,
+        f: impl FnOnce(io::Result<T>) -> io::Result<U> + Send + 'static,
+    ) -> Job<U> {
         match self.0 {
-            Work::Blocking(job) => Job::blocking(move || job().map(f)),
-            Work::Future(job) => Job::future(async move { job.await.map(f) }),
+            Work::Blocking(job) => Job::blocking(move || f(job())),
+            Work::Future(job) => Job::future(async move { f(job.await) }),
         }
     }
 }
