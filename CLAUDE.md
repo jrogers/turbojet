@@ -47,7 +47,8 @@ on, so check with `--all-features` and `--no-default-features` at least.
   fix42`.
 - **The allocation budget** (`crates/turbojet/tests/allocations.rs`) is exact. It fails if any
   stage's count changes, up or down. When a change moves it on purpose, update the budget and the
-  README table, say why in the commit, and add the old numbers to DESIGN.md's measurement history.
+  tables (README.md, and DESIGN.md's current numbers), say why in the commit, and add the old
+  numbers to DESIGN.md's measurement history.
 - **Acceptance known failures.** `crates/turbojet-acceptance/known_failures.txt` lists scenarios
   expected to fail, with a reason. A listed scenario that passes fails its test, so remove it from
   the list when it's fixed.

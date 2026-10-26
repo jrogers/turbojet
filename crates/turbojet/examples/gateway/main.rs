@@ -1,7 +1,16 @@
 //! A FIX 4.2 order-entry gateway: an [`Acceptor`] serving [`GatewayApp`], an
 //! [`Application`](turbojet::Application) that validates, books and cancels orders. A
 //! counterparty's orders are also cancelled when its session drops without a Logout and it doesn't
-//! log back on within 5 seconds (`CANCEL_ON_DISCONNECT`).
+//! log back on within 5 seconds (`CANCEL_ON_DISCONNECT`); no ExecutionReports are sent for those,
+//! and an OrderStatusRequest after it logs back on reports them Canceled.
+//!
+//! It handles NewOrderSingle (→ ExecutionReport New or Rejected), OrderCancelRequest (→ Canceled
+//! or OrderCancelReject), OrderCancelReplaceRequest (quantity, price and time in force can change)
+//! and OrderStatusRequest (found by any ClOrdID the order has had); other application messages get
+//! a BusinessMessageReject. Market and Limit orders, Day and GTC. A malformed field, or an unknown
+//! Side, OrdType or TimeInForce, gets a Reject(3); business rejections without a FIX 4.2 reason
+//! code use "Broker option" with a Text. Orders live in memory, up to a million (past that new ones
+//! are rejected until it restarts), and are acknowledged but not routed or matched.
 //!
 //! `cargo run --example gateway --all-features -- --help`
 

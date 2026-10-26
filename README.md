@@ -10,128 +10,45 @@
 </p>
 
 > [!WARNING]
-> **Pre-1.0, and not yet proven in production.** Turbojet is tested against two other FIX engines,
-> QuickFIX/J and QuickFIX/n, in CI; passes 440 of QuickFIX's 467 scripted session acceptance scenarios (the rest
-> are listed with their reasons); and has its parsers and session state machine fuzzed. It hasn't
-> been certified with any venue or run against a real counterparty, its APIs will change before
-> 1.0, and it has known gaps (see [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) and [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md)). Don't use it to trade real money or to
-> connect to real counterparties without testing it thoroughly yourself. It is provided as is,
-> without warranty of any kind; see the licenses below.
+> [!WARNING]
+> **Pre-1.0, and not yet proven in production.** Turbojet
+> passes 440 of QuickFIX's 467 scripted session acceptance scenarios, runs against QuickFIX/J and
+> QuickFIX/n in CI, and is fuzzed, but it hasn't been certified with any venue or run against a
+> real counterparty, and its APIs will change before 1.0. Test it thoroughly yourself before trading real money with it. It is provided as is,
+> without warranty of any kind; known gaps are in [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md).
 
-**Turbojet** ([`crates/turbojet`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet)) is a FIX engine in Rust (tokio): codec,
-session layer, storage, `Acceptor` and `Initiator`, with typed messages for FIX 4.0, 4.1, 4.2, 4.3,
-4.4, 5.0, 5.0 SP1 and 5.0 SP2. Its examples are an order-entry gateway (an `Application` served by an `Acceptor`, in
-[`examples/gateway`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet/examples/gateway)) and a client for it (an `Initiator`).
-The gateway needs the `tls`, `metrics`, `tz` and `gzip` features, the client `tls`.
+**Turbojet** is a FIX engine in Rust, on tokio: codec, session layer, storage, `Acceptor` and
+`Initiator`, with typed messages for FIX 4.0 to 5.0 SP2, FIXT.1.1 sessions, and SBE, FIXP and
+FAST for binary venues. It puts **safety first, then performance, then developer experience**: a
+bug in a FIX engine can send a duplicate order or lose a fill.
 
-Typed application messages are generated from FIX data dictionaries:
-[`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary) loads FIX Orchestra and QuickFIX-format XML
-and merges venue customisations onto it, [`turbojet-codegen`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-codegen) generates
-messages, groups and enums from it (from a `build.rs`, or as a command), and
-[`turbojet-fix`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix) has every FIX 4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1 and
-5.0 SP2 application message, one feature per version, generated from the FIX Trading
-Community's official data and checked in. `turbojet-codegen sbe` generates codecs for SBE (Simple
-Binary Encoding) message schemas, the binary encoding venues such as B3 and CME publish (see
-[Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md)), and `turbojet::fixp` runs FIXP sessions, the FIX Performance Session
-Layer, to carry them (see [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md#fixp-sessions)).
+- **Safe.** What a counterparty sends is bounded, invariants are asserted, and your application
+  gets each message at least once. The parsers and session are fuzzed, and both ends run against
+  each other in a deterministic simulator through crashes, store failures, power loss and a
+  hostile network. [STYLE.md](https://github.com/jrogers/turbojet/blob/main/docs/STYLE.md) says how, after TigerBeetle's
+  [Tiger Style](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md).
+- **Interoperable.** CI runs sessions against QuickFIX/J and QuickFIX/n in both roles, on FIX
+  4.2 to 5.0 SP2, over TLS and through a proxy that loses, garbles and delays messages.
+- **Fast.** An order to its acknowledgement takes under 1 µs wire to wire, and decoding, the
+  session and encoding allocate nothing ([Benchmarks](#benchmarks)).
+- **Embeddable.** A library, not a server. Every layer is public, from the codec through the
+  sans-IO session to the transports, and stores, clocks and transports can be replaced.
+- **Pure Rust.** No `unsafe` in the engine. The only C and assembly are in `ring`, under the
+  optional `tls` feature.
 
-`turbojet::fast`, behind the `fast` feature, decodes and
-encodes FAST 1.1, the compressed encoding some venues use for market data, into and from Turbojet
-messages, with the venue's templates loaded at runtime (see [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md#fast)).
+| Crate | |
+|---|---|
+| [`turbojet`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet) | The engine: codec, sessions, stores, acceptor and initiator, FIXP sessions, FAST (`fast` feature), message logs |
+| [`turbojet-fix`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix) | Every FIX 4.0 to 5.0 SP2 application message, generated from the FIX Trading Community's data, a feature per version |
+| [`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary), [`turbojet-codegen`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-codegen) | Load Orchestra or QuickFIX XML with a venue's changes, and generate typed messages or SBE codecs from it |
+| [`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) | Session state in SQLite or PostgreSQL, with leases so instances can share a database |
+| [`turbojet-replica`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-replica) | A hot standby that takes sessions over with no sequence gap |
+| [`turbojet-config`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-config) | Acceptors and initiators from a TOML file, reloaded while running; converts QuickFIX `.cfg` files |
+| [`turbojet-log`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-log) | Prints and filters message logs |
+| [`turbojet-python`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-python) | Initiators from Python's asyncio (built with maturin; not on PyPI) |
 
-[`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) keeps session
-state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
-sessions.
-
-[`turbojet-replica`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-replica) copies
-each session's committed state to a hot standby, which can take the sessions over with no sequence
-gap and no resend storm (see [Storage and recovery](https://github.com/jrogers/turbojet/blob/main/docs/guide/storage.md#a-hot-standby)).
-
-[`turbojet-config`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-config) reads an
-acceptor, its counterparties, initiators and their stores from a TOML file, and reloads it while
-running.
-
-[`turbojet-python`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-python) runs
-initiators from Python's asyncio, loaded from a `turbojet-config` file, with application messages
-delivered at least once. It's built with maturin and isn't on PyPI.
-
-[`turbojet-log`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-log) is a command
-that prints a message log's files with FIX field names, filtered by session, direction, MsgType, a
-field's value or a time range. The same filter is `turbojet::LogFilter`, to search the logs from
-code.
-
-CI runs Turbojet's sessions against QuickFIX/J and QuickFIX/n, in both roles, on FIX 4.2, 4.3 and 4.4 and on
-FIXT.1.1 with FIX 5.0 SP2 ([`turbojet-interop`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-interop)), directly and through a proxy that
-loses, garbles, cuts and delays messages, slows the link and silences or stalls either side, and
-over TLS and mutual TLS; and through QuickFIX's 467 scripted session acceptance scenarios ([`turbojet-acceptance`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-acceptance)).
-
-```sh
-cargo run --example gateway --all-features --release -- --listen 0.0.0.0:9876 --comp-id GATEWAY \
-    --allow CLIENT1,CLIENT2 [--store-dir ./store [--fsync]] \
-    [--tls-cert server.pem --tls-key server.key \
-      [--tls-client-ca ca.pem [--tls-client-auth optional] [--tls-match-comp-id]]] \
-    [--schedule "daily 08:00-17:00 mon-fri America/New_York" [--holidays holidays.txt]] \
-    [--inbound-limit 100/1s [--over-limit reject]] \
-    [--metrics-listen 127.0.0.1:9000 [--latency-metrics]] [--log-format json] \
-    [--message-log ./messages [--message-log-days 2555]]
-cargo run --example gateway --all-features -- --help   # every option, including --config FILE
-cargo run --example client --features tls     # an Initiator: logon → order → cancel → logout
-cargo run --example client --features tls -- --tls-ca ca.pem [--tls-cert client.pem --tls-key client.key]
-cargo run --example client --features tls -- primary:9876 --failover backup:9876
-cargo run --release --example ack     # an acceptor that answers each order and keeps nothing, to load
-cargo run --release --example load -- [ADDR] --sessions 4 --rate 50000 --duration 10   # latency under load
-RUST_LOG=info,turbojet::messages=debug cargo run --example gateway --all-features -- --allow CLIENT1  # log messages
-cargo run --example gateway --all-features -- seqnums --store-dir ./store --session CLIENT1 [--reset] \
-    [--set-next-incoming N] [--set-next-outgoing N]   # operator: a disconnected session's seqnums
-cargo test --all-features     # includes the gateway's tests
-```
-
-The `load` example sizes a deployment against any acceptor: it opens `--sessions` sessions
-(`LOAD1` to `LOADN`), sends NewOrderSingles at `--rate` orders a second across them, and reports
-the latency of their ExecutionReports at p50 to p99.99 and the max. Latency runs from when each
-order was due, not when it was sent, so a stall counts against everything queued behind it. The
-report also says how far the sender fell behind its schedule: when that's large, the generator's
-machine is the bottleneck, not the acceptor. The `ack` example is an acceptor to measure the
-engine against: it answers each NewOrderSingle with an ExecutionReport and keeps nothing. The
-gateway keeps every order, up to a million (past that it rejects new ones until it restarts), and
-logs each at `info`, so against it `load` measures its order book too.
-
-## Motivation
-
-Turbojet aims to be a FIX engine that a trading or order execution system can build on. A bug in
-one can send a duplicate order or lose a fill, so it puts **safety first, then performance, then
-developer experience**, after TigerBeetle's
-[Tiger Style](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md);
-[STYLE.md](https://github.com/jrogers/turbojet/blob/main/docs/STYLE.md) says what that means in
-practice, and where Turbojet differs.
-
-- **Safe.** What a counterparty sends is bounded (message size, header fields, messages held
-  ahead of a gap, how much of a resend is held at once, output it won't read), and what still
-  grows without a limit is listed in [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md). Invariants are asserted, paired where they can
-  be (a message is checked as it's stored and again as it's read back), and the parsers and
-  session state machine are fuzzed with those assertions on. Two sessions, FIX or FIXP, are also
-  run against each other in a deterministic simulator (`crates/turbojet-sim`), over a network
-  that delays, stalls, resets and black-holes connections, through crashes, store failures and
-  power loss, with every run replayable from its seed. The session is tested against QuickFIX/J,
-  QuickFIX/n and QuickFIX's scripted acceptance scenarios (see the warning above for what that does and doesn't
-  cover).
-- **Pure Rust.** No bindings to a C++ or Java engine, and no `unsafe` code in the engine; lints
-  deny it. The one exception is optional: the `tls` feature uses rustls with the `ring` crypto
-  provider, which includes C and assembly.
-- **Fast.** Performance is part of the design, not an afterthought: outbound messages are
-  batched into one buffer, and allocations per message are counted by stage against an exact
-  budget on every test run. Encoding, decoding, the session layer and storage have benchmarks (see
-  [Benchmarks](#benchmarks)); taking an order to its acknowledgement costs about 1 µs, wire
-  to wire.
-- **Embeddable.** Turbojet is a library, not a server: your code owns the process, the runtime and
-  the business logic. Every layer is public, from the codec up through the sans-IO session state
-  machine to the TCP transports, so you can use only the layers you need. Storage, clocks and
-  transports are traits or plain streams you can replace.
-- **Tested.** CI tests every feature combination and the minimum supported Rust version, runs
-  clippy with warnings as errors, and checks every dependency's licence and known advisories.
-  Planned work is in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md), how the pieces fit in
-  [ARCHITECTURE.md](https://github.com/jrogers/turbojet/blob/main/docs/ARCHITECTURE.md), and how Turbojet is built in
-  [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md). Until a 1.0 release, APIs may still change (see the warning above).
+How the pieces fit is in [ARCHITECTURE.md](https://github.com/jrogers/turbojet/blob/main/docs/ARCHITECTURE.md), how they're built and
+measured in [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md), and planned work in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md).
 
 ## Using the engine
 
@@ -148,8 +65,8 @@ dependencies:
 
 ```toml
 [dependencies]
-turbojet = "0.5"
-turbojet-fix = { version = "0.5", features = ["fix44"] }
+turbojet = "0.6"
+turbojet-fix = { version = "0.6", features = ["fix44"] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = "0.3"
 ```
@@ -283,90 +200,48 @@ examples are compiled and run as tests, and it's also in the API documentation, 
 10. [Performance](https://github.com/jrogers/turbojet/blob/main/docs/guide/performance.md): the lowest-latency ways to send, and spinning connections.
 11. [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md): SBE codecs, FIXP sessions and FAST.
 
-## The gateway
+## Examples
 
-Speaks FIX 4.2. Handles NewOrderSingle `D` (→ ExecutionReport New/Rejected, or Reject `3` for
-malformed fields), OrderCancelRequest `F` (→ ExecutionReport Canceled or OrderCancelReject `9`),
-OrderCancelReplaceRequest `G` (→ ExecutionReport Replaced, or OrderCancelReject; quantity, price
-and time in force can change, symbol/side/type can't) and OrderStatusRequest `H` (→ status
-ExecutionReport, found by any ClOrdID the order has had); other message types get a
-BusinessMessageReject `j`. Market and Limit orders, TimeInForce Day/GTC, Side
-Buy/Sell/SellShort/SellShortExempt. Business rejections without a specific FIX 4.2 reason code
-use the spec's "Broker option", named BrokerCredit (OrdRejReason 0, CxlRejReason 2), with an
-explanatory Text. An unknown Side, OrdType or TimeInForce code gets a Reject `3` (value
-incorrect); one in a field the gateway doesn't use (e.g. Rule80A 47 or OpenClose 77) is ignored.
+In [`crates/turbojet/examples`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet/examples); each says at its top how to run
+it, and takes `--help`.
 
-The gateway cancels on disconnect, as most venues do: when a session drops without a Logout and
-the counterparty doesn't log back on within 5 seconds, its open orders are cancelled and the count
-logged. No ExecutionReports are sent, since the counterparty has gone; an OrderStatusRequest after
-it logs back on reports them Canceled. With `--config`, the sessions file sets it
-(`cancel_on_disconnect = "disconnect"`, `cancel_grace = "5s"`).
+- `quickstart`: the program above.
+- `gateway`: a FIX 4.2 order-entry acceptor that keeps orders in memory, with the engine's
+  options (TLS, schedules, rate limits, metrics, message logs) on the command line or from a
+  config file. It's a test bed for the engine, not a product.
+- `client`: an initiator for the gateway: logon, order, cancel, logout.
+- `ack` and `load`: an acceptor that answers each order and keeps nothing, and a load generator
+  that reports round-trip latency percentiles at a fixed rate against any acceptor.
 
 ## Benchmarks
 
 ```sh
-cargo bench -p turbojet --all-features            # everything (~13 minutes)
-cargo bench -p turbojet --bench codec             # one group: codec, session, roundtrip or fixp
-cargo bench -p turbojet --all-features -- --quick # fast smoke run
-cargo bench -p turbojet-sql --all-features        # the SQL stores (PostgreSQL at TURBOJET_POSTGRES_URL)
-cargo bench -p turbojet --features fast --bench fast  # FAST decoding and encoding
+cargo bench -p turbojet --all-features -- --quick   # fast smoke run
+cargo bench -p turbojet --bench codec               # one group: codec, session, roundtrip or fixp
 ```
 
 Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; criterion medians.
-Benchmarks build with one codegen unit and fat LTO (`[profile.bench]`), so results don't shift with
-how the compiler happens to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
 | Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 134 ns | 987 / 1,203 MiB/s |
-| Encode NewOrderSingle (169 B) | 39 ns | 4.0 GiB/s |
 | Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 85 ns / 137 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 112 ns / 174 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 383 ns / 614 ns / 482 ns | |
-| Typed build ExecutionReport | 137 ns | |
-| Format a timestamp (same second / new second) | 8.9 ns / 27 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store) | 716 ns | 1.40M msg/s |
 | Session: order → ack, wire to wire (decode + session, which encodes) | 864 ns | 1.16M msg/s |
 | Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.5 µs / 3.9 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync | 60 ns / 39 µs | |
-| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.0 ms / 140 µs | |
-| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 49 µs / 7.1 µs | |
-| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.6 µs / 179 µs / 146 µs | |
-| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 6.7 ns / 30 ns | |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.7 ns / 219 ns | |
-| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 200 ns / 1.32 µs / 6.20 µs | |
-| FAST: encode the same refreshes | 297 ns / 1.90 µs / 8.28 µs | |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.2 µs | 3.20M msg/s |
-| Round trip over localhost TCP, one at a time | 31.2 µs | 32.1k/s |
 | Round trip over localhost TCP, one at a time, replying from `on_message` | 11.2 µs | 89.3k/s |
 | The same, both ends spinning (`run_spinning`) | 9.2 µs | 109k/s |
 | Round trip over localhost TCP, 1,000 in flight | | 1.03M msg/s |
-| Round trip over localhost TLS, one at a time | 31.8 µs | 31.4k/s |
-| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.3 µs | 46.9k/s |
 | Round trip over localhost TLS, 1,000 in flight | | 962k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.4 µs | 885k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 3.9 ms | 18.3k msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.2 µs | 3.20M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.7 ns / 219 ns | |
 
-Round trips are initiator → acceptor application → initiator application, using a store that
-discards messages (storage is measured separately), except the disk rows, where the acceptor
-stores to `DiskStorage`. Most send each order from the benchmark's task through a `SessionHandle`;
-the "replying from `on_message`" rows send the next order from the initiator's application, with
-no hop between tasks (see [Performance](https://github.com/jrogers/turbojet/blob/main/docs/guide/performance.md)). The SBE rows use B3's Binary
-Entrypoint schema; the FIXP rows carry its orders under FIXP 1.0 with recoverable flows, each end
-storing in memory. The FAST rows use the FAST specification's own incremental refresh template,
-each message following the one before. The SQL rows used PostgreSQL 18 on the same machine over
-TCP, and SQLite synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. Rows
-were measured 2026-10-25;
-[DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#measurement-history)
-says what each was before.
+Round trips go initiator → acceptor application → initiator, with a store that discards
+messages. [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#current-numbers) has every benchmark, what
+each measures, and their history.
 
-A test counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
-count changes, up or down, so both regressions and improvements show up in CI:
-
-```sh
-cargo test -p turbojet --test allocations -- --nocapture   # prints the table
-```
+A test counts heap allocations per order → ack, wire to wire, by stage, and fails CI if any count
+changes (`cargo test -p turbojet --test allocations -- --nocapture`):
 
 | Stage | Allocations | Reallocs | Bytes |
 |---|---|---|---|
@@ -376,42 +251,13 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 | Store: memory / disk | 1 / 0 | 0.004 | 278 / 46 |
 | Engine (all but the application): memory / disk | 1 / 0 | 0.004 | 278 / 46 |
 
-Means of 1,000 orders after 100 warm-up, with each store (the disk store without fsync). The
-memory store's allocation is its copy of each message it keeps; the reallocs are the stores'
-indexes doubling as they grow, 4 in 1,000 orders. Debug and release builds count the same. The
-application parses the order borrowed, without allocating, and copies the strings it needs into
-its owned ExecutionReport, whose `CompactString`s keep them inline. `Context::send` writes the
-ExecutionReport into a message the session reuses, which allocates nothing once warmed up.
-
-The same test counts a FIXP server (`turbojet::fixp`) answering each B3 NewOrderSingle with an
-order, recoverable flows both ways, as the FIXP benchmark does:
-
-| Stage | Allocations | Reallocs | Bytes |
-|---|---|---|---|
-| Session (framing, the session's own messages, encoding the answer) | 0 | 0 | 0 |
-| Application (B3 decode and answer) | 0 | 0 | 0 |
-| Store: memory / disk | 1 / 0 | 0.004 | 180 / 46 |
-
-Means of 1,000 orders after 100 warm-up. The stores cost what they do for FIX: the
-memory store copies each answer it keeps.
-
-Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
-
-| Parse | Allocations | Reallocs | Bytes |
-|---|---|---|---|
-| `NewOrderSingleRef`: no groups / 3 allocations, every entry read | 0 / 0 | 0 | 0 / 0 |
-| `NewOrderSingle`: no groups / 3 allocations | 0 / 1 | 0 | 0 / 144 |
-
-The owned form allocates a `Vec` for each group, and a text value only if it's longer than 24
-bytes; ClOrdID, Symbol and Account here are kept inline.
+The memory store copies each message it keeps; the reallocs are the stores' indexes growing.
 
 ## Limitations
 
 [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) lists behaviour worth knowing about, and
 [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md) the planned work. In brief:
 
-- Gateway orders live in memory; a restart keeps session state but forgets orders, and orders
-  are acknowledged but not routed or matched.
 - Resends read the disk store on the connection task, and opening a session's store scans its
   segments (up to 1 GiB by default) there.
 - Typed messages come for FIX 4.0, 4.1, 4.2, 4.3, 4.4, 5.0, 5.0 SP1 and 5.0 SP2; other versions need `turbojet-codegen`,

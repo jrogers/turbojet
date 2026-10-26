@@ -749,7 +749,9 @@ invariants, and tests that look for bugs rather than confirm what already works.
   random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write
   deadlock in the connection driver, torn sequence-number records in `DiskStorage`, and an
   operator's skip ahead making a counterparty abandon a gap, all since fixed. It exercises outbound
-  limits and inbound `Delay`, but not `Reject` (see [CAVEATS.md](CAVEATS.md)).
+  limits and inbound `Delay`, but not `Reject`, since its checker can't cheaply model a
+  BusinessMessageReject in place of a delivery, and no `MessageLog`; session and connection tests
+  cover both.
 - **Concurrency tests** with [shuttle](https://github.com/awslabs/shuttle), on every push. Built
   with `--cfg shuttle`, the registry's and the holds' locks and atomics are shuttle's
   (`src/sync.rs`), and the tests run each protocol threads share in thousands of interleavings:
@@ -969,9 +971,107 @@ the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 
 1.1 ms; 100,000 a second over 4 or 16 sessions, 40 µs and p99 75 µs, with the sender within
 70 µs of schedule.
 
+### Current numbers
+
+Run with `cargo bench -p turbojet --all-features` (about 13 minutes); `cargo bench -p turbojet-sql
+--all-features` for the SQL stores, with PostgreSQL at `TURBOJET_POSTGRES_URL`. The README shows a
+selection of these rows.
+
+Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; criterion medians.
+Benchmarks build with one codegen unit and fat LTO (`[profile.bench]`), so results don't shift with
+how the compiler happens to partition the crate.
+
+| Benchmark | Time | Rate |
+|---|---|---|
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 134 ns | 987 / 1,203 MiB/s |
+| Encode NewOrderSingle (169 B) | 39 ns | 4.0 GiB/s |
+| Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 85 ns / 137 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 112 ns / 174 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 383 ns / 614 ns / 482 ns | |
+| Typed build ExecutionReport | 137 ns | |
+| Format a timestamp (same second / new second) | 8.9 ns / 27 ns | |
+| Session: order → ack, no I/O, encoded reply (memory store) | 716 ns | 1.40M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 864 ns | 1.16M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.5 µs / 3.9 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 60 ns / 39 µs | |
+| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.0 ms / 140 µs | |
+| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 49 µs / 7.1 µs | |
+| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.6 µs / 179 µs / 146 µs | |
+| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 6.7 ns / 30 ns | |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.7 ns / 219 ns | |
+| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 200 ns / 1.32 µs / 6.20 µs | |
+| FAST: encode the same refreshes | 297 ns / 1.90 µs / 8.28 µs | |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.2 µs | 3.20M msg/s |
+| Round trip over localhost TCP, one at a time | 31.2 µs | 32.1k/s |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 11.2 µs | 89.3k/s |
+| The same, both ends spinning (`run_spinning`) | 9.2 µs | 109k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 1.03M msg/s |
+| Round trip over localhost TLS, one at a time | 31.8 µs | 31.4k/s |
+| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.3 µs | 46.9k/s |
+| Round trip over localhost TLS, 1,000 in flight | | 962k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.4 µs | 885k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 3.9 ms | 18.3k msg/s |
+
+Round trips are initiator → acceptor application → initiator application, using a store that
+discards messages (storage is measured separately), except the disk rows, where the acceptor
+stores to `DiskStorage`. Most send each order from the benchmark's task through a `SessionHandle`;
+the "replying from `on_message`" rows send the next order from the initiator's application, with
+no hop between tasks (see [Performance](guide/performance.md)). The SBE rows use B3's Binary
+Entrypoint schema; the FIXP rows carry its orders under FIXP 1.0 with recoverable flows, each end
+storing in memory. The FAST rows use the FAST specification's own incremental refresh template,
+each message following the one before. The SQL rows used PostgreSQL 18 on the same machine over
+TCP, and SQLite synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. Rows
+were measured 2026-10-25;
+[Measurement history](#measurement-history) says what each was before.
+
+`tests/allocations.rs` counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
+count changes, up or down, so both regressions and improvements show up in CI:
+
+```sh
+cargo test -p turbojet --test allocations -- --nocapture   # prints the table
+```
+
+| Stage | Allocations | Reallocs | Bytes |
+|---|---|---|---|
+| Decode (into one message reused per connection) | 0 | 0 | 0 |
+| Session (including encoding the ack) | 0 | 0 | 0 |
+| Application (typed parse and ack) | 0 | 0 | 0 |
+| Store: memory / disk | 1 / 0 | 0.004 | 278 / 46 |
+| Engine (all but the application): memory / disk | 1 / 0 | 0.004 | 278 / 46 |
+
+Means of 1,000 orders after 100 warm-up, with each store (the disk store without fsync). The
+memory store's allocation is its copy of each message it keeps; the reallocs are the stores'
+indexes doubling as they grow, 4 in 1,000 orders. Debug and release builds count the same. The
+application parses the order borrowed, without allocating, and copies the strings it needs into
+its owned ExecutionReport, whose `CompactString`s keep them inline. `Context::send` writes the
+ExecutionReport into a message the session reuses, which allocates nothing once warmed up.
+
+The same test counts a FIXP server (`turbojet::fixp`) answering each B3 NewOrderSingle with an
+order, recoverable flows both ways, as the FIXP benchmark does:
+
+| Stage | Allocations | Reallocs | Bytes |
+|---|---|---|---|
+| Session (framing, the session's own messages, encoding the answer) | 0 | 0 | 0 |
+| Application (B3 decode and answer) | 0 | 0 | 0 |
+| Store: memory / disk | 1 / 0 | 0.004 | 180 / 46 |
+
+Means of 1,000 orders after 100 warm-up. The stores cost what they do for FIX: the
+memory store copies each answer it keeps.
+
+Another test counts typed parsing alone, per FIX 4.2 NewOrderSingle:
+
+| Parse | Allocations | Reallocs | Bytes |
+|---|---|---|---|
+| `NewOrderSingleRef`: no groups / 3 allocations, every entry read | 0 / 0 | 0 | 0 / 0 |
+| `NewOrderSingle`: no groups / 3 allocations | 0 / 1 | 0 | 0 / 144 |
+
+The owned form allocates a `Vec` for each group, and a text value only if it's longer than 24
+bytes; ClOrdID, Symbol and Account here are kept inline.
+
 ### Measurement history
 
-The README's benchmark table gives current numbers. Every row was re-measured 2026-10-25 on the
+[Current numbers](#current-numbers) has the latest. Every row was re-measured 2026-10-25 on the
 same machine, the SQL rows against PostgreSQL 18.6. A round trip replying from `on_message` varies
 more from run to run than the table's other rows (9.4 to 11.6 µs over TCP in seven runs), so it and
 the spinning, one-at-a-time TLS and pipelined TCP and FIXP rows are medians of three to seven runs. On 2026-10-18,
