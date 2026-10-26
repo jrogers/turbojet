@@ -501,7 +501,18 @@ impl ReplicatedLog {
             self.drained_through = through;
             drain.push(job);
         }
-        (!drain.is_empty()).then(|| Commit::blocking(move || drain.into_iter().try_for_each(Job::run)))
+        if drain.is_empty() {
+            return None;
+        }
+        // The numbers drained count as held from now: a job that panics, or is dropped unrun,
+        // unbinds the session so its next commit sends it whole. An error has been through
+        // `lost` already.
+        let unbinding = Unbinding(Some(self.bound.clone()));
+        Some(Commit::blocking(move || {
+            let ran = drain.into_iter().try_for_each(Job::run);
+            unbinding.disarm();
+            ran
+        }))
     }
 
     /// The standby's half of a commit of `ops`, made in `S` already: the batch, or the session
@@ -532,6 +543,23 @@ impl ReplicatedLog {
                 Err(e) => lost(&shared, &session, &bound, e),
             }
         }))
+    }
+}
+
+/// Unbinds a session when dropped holding its flag.
+struct Unbinding(Option<Arc<AtomicBool>>);
+
+impl Unbinding {
+    fn disarm(mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for Unbinding {
+    fn drop(&mut self) {
+        if let Some(bound) = self.0.take() {
+            bound.store(false, Ordering::Release);
+        }
     }
 }
 
@@ -1154,13 +1182,16 @@ mod tests {
     }
 
     /// A batch sent while the standby is down fails the commit that waits for it, two later with
-    /// a bound of two; degrading, that commit is made alone instead.
+    /// a bound of two; degrading, that commit is made alone instead, and once the standby is
+    /// back the session is sent whole, the batches queued during the outage dropped unrun.
     #[test]
     fn a_failed_answer_fails_a_later_commit() {
         let run = |degrade: bool| {
             let standby = Arc::new(Mutex::new(Replica::new(MemoryStorage::new()).accepting_lag(2)));
-            let link =
-                Arc::new(Outage { link: LocalLink::connect(standby, 1, "a").unwrap(), down: AtomicBool::new(false) });
+            let link = Arc::new(Outage {
+                link: LocalLink::connect(standby.clone(), 1, "a").unwrap(),
+                down: AtomicBool::new(false),
+            });
             let mut active = ReplicatedStorage::new(MemoryStorage::new(), link.clone(), 1).asynchronous(2);
             if degrade {
                 active = active.with_lease(Arc::new(Remembering::default())).degrading();
@@ -1170,13 +1201,40 @@ mod tests {
             link.down.store(true, Ordering::Release);
             store_and_commit(log.as_mut(), 2).unwrap();
             store_and_commit(log.as_mut(), 3).expect("waits only for the batch sent before the outage");
-            (store_and_commit(log.as_mut(), 4), active.in_sync())
+            (store_and_commit(log.as_mut(), 4), active, log, link, standby)
         };
-        let (failed, _) = run(false);
+        let (failed, ..) = run(false);
         assert_eq!(failed.unwrap_err().kind(), io::ErrorKind::ConnectionRefused);
-        let (made, in_sync) = run(true);
+        let (made, active, mut log, link, standby) = run(true);
         made.expect("made alone");
-        assert!(!in_sync);
+        assert!(!active.in_sync());
+        // Its first pass asks the lease, which counts every session behind, this one included.
+        active.catch_up().run().unwrap();
+
+        link.down.store(false, Ordering::Release);
+        store_and_commit(log.as_mut(), 5).unwrap();
+        assert_eq!(standby_has(&standby, &conformance::id("A")), log.next_outgoing(), "sent whole");
+        // Far enough past the bound that a batch from the outage, still queued, would be waited for.
+        for seq in 6..=8 {
+            store_and_commit(log.as_mut(), seq).unwrap();
+        }
+        active.catch_up().run().unwrap();
+        assert!(active.in_sync());
+    }
+
+    /// A commit's job dropped unrun leaves the batches it would have waited for unacknowledged:
+    /// the next commit sends the session whole rather than count them held.
+    #[test]
+    fn a_commit_dropped_unrun_sends_the_session_whole_next() {
+        let (active, standby) = async_pair(2);
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=3 {
+            log.record_outgoing(seq, Some(&conformance::app_message(seq))).unwrap();
+        }
+        drop(log.commit().unwrap().unwrap());
+        store_and_commit(log.as_mut(), 4).unwrap();
+        assert_eq!(standby_has(&standby, &id), 5);
     }
 
     #[test]
@@ -1195,11 +1253,23 @@ mod tests {
         let (active, standby) = async_pair(4);
         let id = conformance::id("A");
         let mut log = active.open(&id).unwrap();
-        store_and_commit(log.as_mut(), 1).unwrap();
-        store_and_commit(log.as_mut(), 2).unwrap();
+        // One batch over the bound, which waits for itself, then two queued.
+        for seq in 1..=10 {
+            log.record_outgoing(seq, Some(&conformance::app_message(seq))).unwrap();
+        }
+        log.commit().unwrap().unwrap().run().unwrap();
+        store_and_commit(log.as_mut(), 11).unwrap();
+        store_and_commit(log.as_mut(), 12).unwrap();
         log.reset().unwrap();
         assert_eq!(standby_has(&standby, &id), 1);
-        store_and_commit(log.as_mut(), 1).unwrap();
+
+        // The lag counts from the reset, not from the numbers before it.
+        for seq in 1..=4 {
+            store_and_commit(log.as_mut(), seq).unwrap();
+        }
+        assert_eq!(standby_has(&standby, &id), 1);
+        store_and_commit(log.as_mut(), 5).unwrap();
+        assert_eq!(standby_has(&standby, &id), 2);
     }
 
     /// Nothing changed, nothing to copy: the commit is the local store's alone.
