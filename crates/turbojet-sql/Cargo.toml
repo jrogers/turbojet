@@ -19,7 +19,7 @@ sqlx = { workspace = true, features = ["any"] }
 tokio.workspace = true
 tracing.workspace = true
 turbojet.workspace = true
-turbojet-replica = { path = "../turbojet-replica", optional = true }
+turbojet-replica = { workspace = true, optional = true }
 
 [features]
 default = ["sqlite"]
