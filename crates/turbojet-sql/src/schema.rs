@@ -69,6 +69,16 @@ const MESSAGES_POSTGRES: &str = "CREATE TABLE IF NOT EXISTS turbojet_messages (
     PRIMARY KEY (session, seq)
 )";
 
+/// Leases on whole instances, by name, for replication: who holds one, the epoch they took it
+/// under (raised by each acquire), and until when (milliseconds since the Unix epoch). The same
+/// in either backend.
+const LEASES: &str = "CREATE TABLE IF NOT EXISTS turbojet_leases (
+    name TEXT PRIMARY KEY,
+    holder TEXT,
+    epoch BIGINT NOT NULL DEFAULT 0,
+    lease_until BIGINT
+)";
+
 pub async fn migrate(pool: &AnyPool, backend: Backend) -> io::Result<()> {
     let (sessions, messages) = match backend {
         Backend::Sqlite => (SESSIONS_SQLITE, MESSAGES_SQLITE),
@@ -77,6 +87,7 @@ pub async fn migrate(pool: &AnyPool, backend: Backend) -> io::Result<()> {
     let mut tx = pool.begin().await.map_err(database("starting the migration"))?;
     tx.execute(sessions).await.map_err(database("creating turbojet_sessions"))?;
     tx.execute(messages).await.map_err(database("creating turbojet_messages"))?;
+    tx.execute(LEASES).await.map_err(database("creating turbojet_leases"))?;
     tx.commit().await.map_err(database("committing the migration"))?;
     match backend {
         Backend::Sqlite => add_extra_sqlite(pool).await?,

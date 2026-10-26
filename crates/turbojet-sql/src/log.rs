@@ -521,12 +521,12 @@ fn byte_count(msg: &[u8]) -> u64 {
     u64::try_from(msg.len()).unwrap_or(u64::MAX)
 }
 
-fn millis(duration: Duration) -> i64 {
+pub(crate) fn millis(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
 
 /// The time on this gateway's clock, in milliseconds since the Unix epoch, as leases record it.
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     millis(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default())
 }
 

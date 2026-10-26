@@ -48,8 +48,13 @@
 //! PostgreSQL. The URL given to [`SqlStorage::connect`] picks one: `sqlite://path?mode=rwc` or
 //! `postgres://user:password@host/database`.
 
+#[cfg(feature = "replica")]
+mod lease;
 mod log;
 mod schema;
+
+#[cfg(feature = "replica")]
+pub use lease::SqlLease;
 
 use std::io;
 use std::sync::Arc;
@@ -163,6 +168,13 @@ impl SqlStorage {
     /// If the database refuses the statements.
     pub async fn migrate(&self) -> io::Result<()> {
         schema::migrate(&self.shared.pool, self.shared.backend).await
+    }
+
+    /// The lease named `name` on a whole instance, for replication (turbojet-replica): whoever
+    /// holds it is the active. It lasts [`SqlConfig::lease`] and is held by [`SqlConfig::holder`].
+    #[cfg(feature = "replica")]
+    pub fn lease(&self, name: &str) -> SqlLease {
+        SqlLease::new(self.shared.clone(), name)
     }
 }
 

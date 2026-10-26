@@ -19,6 +19,7 @@ sqlx = { workspace = true, features = ["any"] }
 tokio.workspace = true
 tracing.workspace = true
 turbojet.workspace = true
+turbojet-replica = { path = "../turbojet-replica", optional = true }
 
 [features]
 default = ["sqlite"]
@@ -26,6 +27,9 @@ default = ["sqlite"]
 sqlite = ["sqlx/sqlite"]
 # PostgreSQL.
 postgres = ["sqlx/postgres"]
+# SqlLease: a lease on a whole instance for turbojet-replica, deciding which of an active and its
+# standby runs the sessions.
+replica = ["dep:turbojet-replica"]
 # TLS for PostgreSQL connections (rustls with the ring crypto provider), trusting the operating
 # system's certificate store.
 tls = ["sqlx/tls-rustls-ring-native-roots"]
