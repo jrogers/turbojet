@@ -120,3 +120,29 @@ asked for again, as after a crash. Each release costs one message to the session
 session waiting for a release logs a warning, once per connection, and sets the
 `turbojet_held_back` gauge (feature `metrics`). `Context::new`, for unit tests, and replays
 (`turbojet::replay`) give holds that do nothing. Holds aren't available on FIXP sessions.
+
+## A hot standby
+
+`turbojet-replica`, a separate crate, keeps a copy of every session's state on a standby, which
+can take the sessions over with no sequence gap and no resend storm. On the active,
+`ReplicatedStorage` wraps the store the sessions use: each commit is made there and sent to the
+standby, which applies it to a store of its own and acknowledges it, and nothing the commit covers
+goes out until both have it. The standby serves with `serve_standby`; the active reaches it with a
+`TcpLink`. Both take the store they wrap as usual, so a disk store on each side is the common
+setup.
+
+A lease decides which instance is active. The active takes it under an epoch, a number raised
+each time the lease changes hands, which its commits carry: a standby refuses an epoch below one
+it has seen, so an active that has been replaced can't commit, and the active renews the lease as
+it commits, so one that has lost it stops even if it can't reach the standby. `SqlLease`
+(`turbojet-sql`, feature `replica`) keeps the lease in the database; `ManualLease` leaves the
+epoch to an operator. To fail over, the standby's instance takes the lease, under a higher epoch,
+calls `Replica::promote` (which closes the sessions it holds, releasing its store) and starts its
+registry over its store, replicating in turn to the old active's instance once that's back.
+
+When a session opens, the active compares the standby's copy with its own and sends the session
+whole if they differ, so a standby that missed commits, or joins late, catches up. A commit the
+standby can't take, because it's unreachable or has seen a higher epoch, fails: the session
+disconnects, as for any store failure, and catches the standby up when it opens again. The
+connection is plain TCP, so run it on a private network or through a tunnel. The crate's
+documentation has a full example.

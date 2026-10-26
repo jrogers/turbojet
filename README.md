@@ -43,6 +43,10 @@ messages, with the venue's templates loaded at runtime (see [Binary encodings](h
 state in SQLite or PostgreSQL, with leases so that gateways sharing a database each run their own
 sessions.
 
+[`turbojet-replica`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-replica) copies
+each session's committed state to a hot standby, which can take the sessions over with no sequence
+gap and no resend storm (see [Storage and recovery](https://github.com/jrogers/turbojet/blob/main/docs/guide/storage.md#a-hot-standby)).
+
 [`turbojet-config`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-config) reads an
 acceptor, its counterparties, initiators and their stores from a TOML file, and reloads it while
 running.

@@ -290,6 +290,46 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   Sessions are keyed on an `extra` column as well as BeginString and CompIDs; `migrate` adds it to
   a database made before it, PostgreSQL altering the table under a lock and SQLite rebuilding it
   with foreign keys off, so a second gateway migrating at once waits and finds nothing to do.
+- **Replication** (`turbojet-replica`): a store that wraps the active's and copies each commit to a
+  hot standby. Everything durable goes through `StoredSession`'s mutations and `commit`, and a
+  session writes nothing a commit covers until it's done, so the wrapper changes nothing in the
+  session or driver: it records each mutation as an op, and a commit with any is made in the
+  wrapped store and sent as one batch, the commit's job waiting for both. The standby
+  (`Replica`, sans-IO) applies a batch through the same trait to a store of its own and commits
+  it before acknowledging. A commit one side made and the other didn't leaves that side ahead
+  of the wire, as a crash between a commit and its write does, which recovery already handles.
+  - Divergence is checked, not trusted away. A batch carries the session's commit number and its
+    records must follow the standby's copy (an outgoing number not yet used, a stored message
+    the next), or the standby refuses it. When a session opens, the active compares the
+    standby's summary of it (numbers, in-flight marker, created time, marks) with its own and,
+    if they differ, sends it whole, in batches of a megabyte of messages: `MemoryStorage` keeps
+    changes never committed, so a log dropped without a commit leaves the standby behind.
+  - Fencing is by epoch. A `Lease` is taken under an epoch raised at each change of hands;
+    hello, bind and batch frames carry it, and a standby refuses anything under one it has seen
+    (bind too: a deposed active's handles, numbered from 0 like its successor's, would replace
+    the active's bindings). The active renews the lease in its commits once half of it has gone
+    and fails them once it was taken or ran out, so it stops even if the standby can't reach it.
+  - A reset is sent at once and waited for, unlike other changes, as the built-in stores write
+    it at once: otherwise a deposed active could reset its own copy and not the standby's, and a
+    failover find the old numbers. The simulator found it, on a seed whose schedule reset both
+    sides at a day's start.
+  - Over TCP the link blocks: its calls run in the store's jobs, on blocking threads, and the
+    standby applies batches with blocking store calls, a thread per connection. Sessions share
+    one connection, each with one request at most under way, so a reader thread hands each answer
+    to its waiter by handle. A batch is sent at once, by a writer thread, so the standby commits
+    while the active does; a session bound on a connection since lost fails its commits until
+    it opens again and catches the standby up.
+  - The simulator replicates the acceptor's store on a third of the seeds that keep state in
+    memory, with failovers (crash, restart over the standby's copy at the next epoch) and
+    deposals (the acceptor runs on while another instance takes the lease, so its commits and
+    opens must fail). A planted standby that acknowledges batches it never got is caught when a
+    failover finds its copy behind.
+  - Cost, storing one message and committing it, alone and replicated over loopback (Apple M3,
+    2026-10-26, criterion medians of two interleaved runs, `benches/replica.rs`): memory 14.6 ns
+    alone, 19.4 µs replicated; `DiskStorage` without fsync 1.7 µs and 24.9 µs; with fsync 4.0 ms
+    and 6.8 ms, both copies syncing to the one SSD. Sending the batch in the commit's job, after
+    the active's own commit, took 17.6 µs, 23.1 µs and 8.2 ms: sending it at once overlaps the
+    two syncs, at the cost of a thread hop (about 1.8 µs) when nothing syncs.
 - **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
   operator's pause and the cancel on disconnect a session logged on with. They're the session's,
   kept through resets, and written rarely (a logon, an ending, an operator), so the disk store

@@ -9,6 +9,27 @@ Notable changes to the published crates.
 - `MemoryStorage` and `DiskStorage` index the messages they keep in a ring buffer in sequence
   order rather than a `BTreeMap`: storing a message no longer allocates an index node, and takes
   about a third of the time in memory.
+- `SessionStorage::sessions` lists every session a store holds state for (the built-in stores,
+  `StorageByCounterparty` and `turbojet-sql`'s do; the default is `Unsupported`), with
+  `conformance::check_sessions`. `SessionStorage` is implemented for `Arc<T>`, so one store can
+  be shared. `Job::join` runs two jobs as one, and `Job::map` and `Job::map_result` map a job's
+  result, for stores wrapping others.
+- **Changed:** an application's own `impl SessionStorage for Arc<MyStore>` now conflicts with the
+  one Turbojet provides, which forwards to `MyStore`: remove it.
+
+### `turbojet-replica`
+
+- New: copies each session's committed state to a hot standby that can take the sessions over
+  with no sequence gap and no resend storm. `ReplicatedStorage` wraps the active's store and
+  sends each commit to a `Replica` over a `TcpLink` (`serve_standby` on the standby), waiting for
+  both; a `Lease` under a rising epoch fences off a replaced active; `Replica::promote` takes
+  over. A commit the standby can't take fails the session, which catches the standby up when it
+  opens again.
+
+### `turbojet-sql`
+
+- `SqlLease` (feature `replica`): a lease on a whole instance in `turbojet_leases`, which
+  `migrate` creates, for `turbojet-replica`.
 
 ## 0.6.0 (2026-10-25)
 

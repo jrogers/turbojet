@@ -14,6 +14,7 @@ flowchart LR
     fix[turbojet-fix<br/>FIX 4.0 to 5.0 SP2 messages]
     config[turbojet-config<br/>sessions files]
     sql[turbojet-sql]
+    replica[turbojet-replica<br/>hot standby]
     log[turbojet-log]
     python[turbojet-python]
 
@@ -24,6 +25,8 @@ flowchart LR
     engine --> config
     dictionary --> config
     engine --> sql
+    engine --> replica
+    replica -- "feature replica" --> sql
     engine --> log
     dictionary --> log
     config --> python
@@ -121,7 +124,9 @@ flowchart TB
   operator commands through a small control queue of their own, so a full send queue never holds
   them up. Each send returns a `Receipt`, resolved once the session has stored the message.
 - **Stores** are traits. `MemoryStorage` and `DiskStorage` are here, `SqlStorage` in
-  `turbojet-sql`, and `StorageByCounterparty` routes sessions between others. A commit that waits
+  `turbojet-sql`, and `StorageByCounterparty` routes sessions between others.
+  `turbojet-replica`'s `ReplicatedStorage` wraps another, copying each commit to a standby's
+  store, which can take the sessions over. A commit that waits
   for a device or a network is handed to the driver, which runs it on a blocking thread or awaits
   its future (`store::Job`), so the runtime never waits on a disk.
 

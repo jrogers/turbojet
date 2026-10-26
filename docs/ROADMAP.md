@@ -115,10 +115,17 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     the database's own clock would remove that requirement but differs between SQLite and
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
-- **Replicated session state** (L). For a hot standby that takes over a session on failover
-  with no gap and no resend storm: replicate the session journal, every sequence number change
-  and stored message as it happens, to the standby, with the exclusive-session lease deciding
-  which instance is active. Failover itself, and the gateway's own state, are Turbojet Gateway's.
+- **Replication, next steps** (`turbojet-replica`; S to M each). A commit the standby can't take
+  fails the session today, which ties the active's availability to the standby's. Still to do:
+  - carrying on without a lost standby (degrade): committing alone, marking the lease out of sync
+    so an automatic promotion waits, and catching every session up in the background (open ones
+    at their next commit, closed ones from `SessionStorage::sessions`) before marking it in sync
+    again;
+  - replicating asynchronously, for latency first: batches queued, a bounded number unacknowledged;
+  - TLS on the link (it's plain TCP);
+  - an application's own records (the gateway's book) committed with a session's batch, which the
+    wire form has room for;
+  - shuttle tests of the link's reconnects racing commits, once its I/O can be stood in for.
 - **More TLS revocation sources** (S each). Revocation is checked against CRLs the application
   gives; OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points
   aren't supported.

@@ -4,13 +4,61 @@
 //!
 //! [`ReplicatedStorage`] wraps the active's store: each session's commit is made there and copied
 //! over a [`Link`] to a [`Replica`], which applies it to the standby's own store and acknowledges
-//! it, and the commit, so everything it covers going out, waits for both. [`frame`] is the wire
-//! form between the two.
+//! it, and the commit, so everything it covers going out, waits for both. The standby serves
+//! actives over TCP with [`serve_standby`]; the active connects with a [`TcpLink`]. [`frame`] is
+//! the wire form between the two.
 //!
-//! The standby serves actives over TCP with [`serve_standby`]; the active connects with a
-//! [`TcpLink`]. [`LocalLink`] links the two in one process, for tests.
+//! ```no_run
+//! use std::net::TcpListener;
+//! use std::sync::{Arc, Mutex};
+//! use turbojet::{DiskStorage, SessionRegistry};
+//! use turbojet_replica::{Lease, ManualLease, Replica, ReplicatedStorage, TcpLink, serve_standby};
 //!
-//! Work in progress: no TLS, leases or degraded mode yet.
+//! /// The standby's instance: keeps a copy of the active's sessions, until it takes over.
+//! fn standby() -> std::io::Result<()> {
+//!     let store = Arc::new(DiskStorage::new("./store")?);
+//!     let replica = Arc::new(Mutex::new(Replica::new(store)));
+//!     serve_standby(&TcpListener::bind("0.0.0.0:9800")?, &replica)
+//! }
+//!
+//! /// The active's instance: its sessions' store, copying each commit to the standby.
+//! async fn active() -> std::io::Result<SessionRegistry> {
+//!     let lease = Arc::new(ManualLease::new(1));
+//!     let epoch = lease.acquire().run_async().await?;
+//!     let link = TcpLink::new("standby.internal:9800", epoch, "gateway-a");
+//!     let storage = ReplicatedStorage::new(DiskStorage::new("./store")?, Arc::new(link), epoch).with_lease(lease);
+//!     Ok(SessionRegistry::new(Arc::new(storage)))
+//! }
+//! ```
+//!
+//! # Which instance is active
+//!
+//! A [`Lease`] decides: the active takes it under an epoch, raised each time it changes hands,
+//! which every batch carries. A standby refuses batches, and bindings, under an epoch below one it
+//! has seen, so an active that has been replaced can't commit while the standby can reach it; and
+//! the active renews the lease in its commits once half of it has gone, failing them once another
+//! instance has taken it or it has run out, so it stops even when the standby can't be reached.
+//! `turbojet-sql`'s `SqlLease` (feature `replica`) keeps the lease in a database;
+//! [`ManualLease`] leaves the epoch to an operator, and fencing to the standby.
+//!
+//! To fail over, the standby's instance takes the lease, under a higher epoch, calls
+//! [`Replica::promote`], which closes the sessions the standby holds and refuses the old active
+//! from then on, and starts its own registry over its store, replicating in turn to the old
+//! active's instance once that's back.
+//!
+//! # Catching up
+//!
+//! When a session opens, the active compares the standby's copy of it with its own, and sends the
+//! session whole if they differ (in batches of a megabyte of messages at most): a standby that
+//! missed commits, or joins late, catches up. A reset is sent at once, as the built-in stores
+//! write it at once, so a failover never finds one copy reset and the other not.
+//!
+//! A commit the standby can't take, because it can't be reached in time
+//! ([`DEFAULT_ANSWER_TIMEOUT`]) or has seen a higher epoch, fails, as any store failure does: the
+//! session disconnects, and when it opens again the standby is caught up. The active's
+//! availability is therefore tied to the standby's.
+//!
+//! The connection is plain TCP: run it on a private network, or through a tunnel.
 
 mod active;
 pub mod frame;
