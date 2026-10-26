@@ -6,9 +6,9 @@
 //! fields run past its end, is an error rather than an allocation.
 //!
 //! The active sends [`Frame::Hello`], is answered with [`Frame::Welcome`], then [`Frame::Bind`]s
-//! a handle to each session it replicates and sends a [`Frame::Batch`] for each of its commits,
-//! which the standby answers with [`Frame::Ack`] once its own store has committed it, or
-//! [`Frame::Nack`].
+//! a handle to each session it replicates, answered with the standby's [`Summary`] of it, and
+//! sends a [`Frame::Batch`] for each of its commits, which the standby answers with
+//! [`Frame::Ack`] once its own store has committed it, or [`Frame::Nack`].
 
 use std::fmt;
 
@@ -34,12 +34,25 @@ pub enum Frame {
     Welcome { epoch: u64 },
     /// From the active: `handle` names `session` in the batches that follow.
     Bind { handle: u32, session: SessionId },
+    /// From the standby: its copy of the session `handle` names, for the active to compare.
+    Bound { handle: u32, summary: Summary },
     /// From the active: one commit of a session's changes.
     Batch(Batch),
     /// From the standby: its store has committed the session's batch `commit_no`.
     Ack { handle: u32, commit_no: u64 },
     /// From the standby: it refused a batch, and why.
     Nack { handle: u32, reason: NackReason },
+}
+
+/// A session's stored state, as far as an active and its standby compare it: when they differ,
+/// the active sends the standby the whole session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Summary {
+    pub next_outgoing: u64,
+    pub next_incoming: u64,
+    pub in_flight: Option<u64>,
+    pub created_at: Option<UtcTimestamp>,
+    pub marks: Marks,
 }
 
 /// One commit's changes to a session's stored state, in the order they were made, and the
@@ -127,6 +140,7 @@ mod kind {
     pub const BATCH: u8 = 4;
     pub const ACK: u8 = 5;
     pub const NACK: u8 = 6;
+    pub const BOUND: u8 = 7;
 }
 
 mod op {
@@ -172,6 +186,15 @@ impl Frame {
                     w.bytes(part.as_bytes());
                 }
                 w.bytes(session.key_suffix().as_bytes());
+            }
+            Self::Bound { handle, summary } => {
+                w.u8(kind::BOUND);
+                w.u32(*handle);
+                w.u64(summary.next_outgoing);
+                w.u64(summary.next_incoming);
+                w.u64(summary.in_flight.unwrap_or(0));
+                w.bytes(summary.created_at.map(|at| at.to_fix()).unwrap_or_default().as_bytes());
+                w.bytes(summary.marks.to_string().as_bytes());
             }
             Self::Batch(batch) => {
                 w.u8(kind::BATCH);
@@ -235,6 +258,16 @@ impl Frame {
                 let session =
                     SessionId::from_key(begin_string, sender, target, &suffix).ok_or(FrameError::Invalid("session"))?;
                 Self::Bind { handle, session }
+            }
+            kind::BOUND => {
+                let (handle, next_outgoing, next_incoming, in_flight) = (r.u32()?, r.u64()?, r.u64()?, r.u64()?);
+                let created_at = r.text()?;
+                let created_at = (!created_at.is_empty())
+                    .then(|| UtcTimestamp::from_fix(&created_at).map_err(|_| FrameError::Invalid("timestamp")))
+                    .transpose()?;
+                let marks = r.text()?.parse().map_err(|_| FrameError::Invalid("marks"))?;
+                let in_flight = (in_flight > 0).then_some(in_flight);
+                Self::Bound { handle, summary: Summary { next_outgoing, next_incoming, in_flight, created_at, marks } }
             }
             kind::BATCH => {
                 let (handle, epoch, commit_no) = (r.u32()?, r.u64()?, r.u64()?);
@@ -410,6 +443,26 @@ mod tests {
             Frame::Hello { version: VERSION, epoch: 7, node: "gw-a".into(), app_record_kinds: vec![1, 300] },
             Frame::Welcome { epoch: 7 },
             Frame::Bind { handle: 3, session },
+            Frame::Bound {
+                handle: 3,
+                summary: Summary {
+                    next_outgoing: 12,
+                    next_incoming: 9,
+                    in_flight: Some(8),
+                    created_at: Some(UtcTimestamp::from_fix("20261026-09:30:00.125").unwrap()),
+                    marks: paused,
+                },
+            },
+            Frame::Bound {
+                handle: 4,
+                summary: Summary {
+                    next_outgoing: 1,
+                    next_incoming: 1,
+                    in_flight: None,
+                    created_at: None,
+                    marks: Marks::default(),
+                },
+            },
             Frame::Batch(Batch {
                 handle: 3,
                 epoch: 7,
@@ -475,7 +528,7 @@ mod tests {
     #[test]
     fn corrupt_frames_are_errors() {
         let mut wire = Vec::new();
-        every_frame()[3].encode(&mut wire);
+        every_frame()[5].encode(&mut wire);
         for at in 4..wire.len() {
             for byte in [0x00, 0x7f, 0xff] {
                 let mut corrupt = wire.clone();
