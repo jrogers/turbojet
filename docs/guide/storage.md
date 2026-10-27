@@ -140,6 +140,13 @@ epoch to an operator. To fail over, the standby's instance takes the lease, unde
 calls `Replica::promote` (which closes the sessions it holds, releasing its store) and starts its
 registry over its store, replicating in turn to the old active's instance once that's back.
 
+Only the sessions' state is replicated, not the application's. A promoted standby starts as the
+application would after a restart: the sessions redeliver what it hadn't finished handling, and it
+recovers the rest from where it keeps its own state. So keep that state where the standby can reach
+it, and as current as a restart needs it: a database on a host of its own, say, or one replicated
+synchronously. A copy that lags, replicated asynchronously, may lack changes whose messages the
+sessions have already counted as handled, and so won't redeliver.
+
 When a session opens, the active compares the standby's copy with its own and sends the session
 whole if they differ, so a standby that missed commits, or joins late, catches up. By default a
 commit the standby can't take, because it's unreachable or has seen a higher epoch, fails: the

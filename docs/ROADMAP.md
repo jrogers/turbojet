@@ -122,8 +122,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     answers likewise, would raise. With fsync, replicated commits cost one sync on each side in
     turn, and the store alone already caps them at a few hundred a second (DESIGN.md), so a group
     commit on the standby would at best halve that. See "Group commit in `DiskStorage`" below.
-  - an application's own records (the gateway's book) committed with a session's batch, which the
-    wire form has room for.
 - **Group commit in `DiskStorage`** (M to L, research). Each session's commit syncs its own
   file, and concurrent syncs barely overlap on macOS (`F_FULLFSYNC` flushes the whole drive
   cache each time): 64 sessions committing at once take 3.4 ms a commit in all (DESIGN.md).
