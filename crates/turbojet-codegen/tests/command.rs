@@ -108,6 +108,24 @@ fn merge_applies_a_venue_dictionary() {
 }
 
 #[test]
+fn merge_trims_a_message_to_the_venues_fields() {
+    // A re-listed message replaces the base's whole, so it declares only what the venue lists:
+    // the smaller struct parses faster.
+    let venue = overlay(
+        "<fix><messages><message name='NewOrderSingle' msgtype='D'>
+          <field name='ClOrdID' required='Y'/><field name='Price' required='N'/>
+         </message></messages></fix>",
+    );
+    let base = workspace().join("dictionaries/orchestra/OrchestraFIX42.xml");
+    let out = generate(&[base.as_os_str(), "--merge".as_ref(), venue.path().as_os_str()]);
+    let messages = read(&out, "messages.rs");
+    let start = messages.find("NewOrderSingle / NewOrderSingleRef = \"D\" {").unwrap();
+    let body = &messages[start..start + messages[start..].find("\n        }").unwrap()];
+    assert!(body.contains("= CL_ORD_ID,") && body.contains("= PRICE,"), "{body}");
+    assert_eq!(body.matches(" = ").count(), 3, "the msgtype and two fields: {body}");
+}
+
+#[test]
 fn optional_corrects_the_dictionary() {
     let base = workspace().join("dictionaries/orchestra/OrchestraFIX42.xml");
     let strict = read(&generate(&[base.as_os_str()]), "messages.rs");
