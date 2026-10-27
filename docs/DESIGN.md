@@ -387,7 +387,12 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     TLS needed. Sending the batch in the commit's job, after the active's own commit, took
     17.6 µs, 23.1 µs and 8.2 ms: sending it at once overlaps the two syncs, at the cost of a
     thread hop (about 1.8 µs) when nothing syncs.
-    <!-- async numbers: Task 7 -->
+    Asynchronously, 64 numbers behind (Apple M3, 2026-10-27, the same benchmark, committing back
+    to back): memory 2.10 µs against 21.3 µs synchronously, `DiskStorage` without fsync 4.95 µs
+    against 27.6 µs, with fsync 7.9 ms against 7.5 ms. Back to back the standby sets the pace, so a
+    commit costs what the standby takes to apply a batch, not the active's own commit: a burst
+    within the bound costs less. With fsync on the one SSD the two syncs contend either way, so
+    asynchronous gains nothing there.
 - **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
   operator's pause and the cancel on disconnect a session logged on with. They're the session's,
   kept through resets, and written rarely (a logon, an ending, an operator), so the disk store
