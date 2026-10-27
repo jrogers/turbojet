@@ -66,10 +66,12 @@ for features in --no-default-features "--features tls" "--features metrics" "--f
 done
 
 step shuttle
-# The concurrency tests (src/sync.rs), with shuttle's locks and atomics in place of std's; nothing
-# else runs under them. Their own target directory, as RUSTFLAGS rebuilds everything.
-RUSTFLAGS="--cfg shuttle" CARGO_TARGET_DIR=target/shuttle cargo clippy -p turbojet --lib --tests --locked --quiet -- -D warnings
+# The concurrency tests (src/sync.rs in turbojet and turbojet-replica), with shuttle's locks and
+# atomics in place of std's; nothing else runs under them. Their own target directory, as
+# RUSTFLAGS rebuilds everything.
+RUSTFLAGS="--cfg shuttle" CARGO_TARGET_DIR=target/shuttle cargo clippy -p turbojet -p turbojet-replica --lib --tests --locked --quiet -- -D warnings
 RUSTFLAGS="--cfg shuttle" CARGO_TARGET_DIR=target/shuttle cargo test -p turbojet --lib --locked --quiet shuttle_tests
+RUSTFLAGS="--cfg shuttle" CARGO_TARGET_DIR=target/shuttle cargo test -p turbojet-replica --lib --locked --quiet shuttle_tests
 
 step docs
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps --locked --quiet
