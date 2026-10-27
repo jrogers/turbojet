@@ -378,6 +378,14 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     behind, where the checker accepts what a promotion's skip allows (the next outgoing number
     above all written, skipped numbers gap-filled, incoming repeated) and nothing more; a planted
     promotion that doesn't skip is caught.
+  - Shuttle tests (see "Concurrency tests" below) run the races the simulator's single thread
+    can't: a TCP connection's waiters, registered by two sessions' commits, answered by the
+    reader and failed by a loss at any point, each get their own answer or the loss, once; and a
+    degrading, asynchronous store with a session committing through an outage, another opened in
+    it and again after, and the catch-up running, never deadlocks an opening against the
+    catch-up, says it's in sync only while the standby holds every commit but the lag's, and ends
+    in sync with matching copies. They use shuttle's random scheduler: PCT, at as many
+    iterations, missed a planted catch-up that ignored a session still behind one run in three.
   - Cost, storing one message and committing it, alone and replicated over loopback (Apple M3,
     2026-10-26, criterion medians, `benches/replica.rs`): memory 14.6 ns alone, 21.2 µs
     replicated; `DiskStorage` without fsync 1.7 µs and 27.9 µs; with fsync 4.1 ms and 6.9 ms,
@@ -804,11 +812,13 @@ invariants, and tests that look for bugs rather than confirm what already works.
   cover both.
 - **Concurrency tests** with [shuttle](https://github.com/awslabs/shuttle), on every push. Built
   with `--cfg shuttle`, the registry's and the holds' locks and atomics are shuttle's
-  (`src/sync.rs`), and the tests run each protocol threads share in thousands of interleavings:
+  (`src/sync.rs`), as are replication's state and link waiters (`turbojet-replica`'s
+  `src/sync.rs`), and the tests run each protocol threads share in thousands of interleavings:
   a hold released on another thread is either seen or wakes the session; two Logons at once bind
   the session once; a pause racing a Logon either refuses it or finds it connected, to log it
-  out; a send queued before a logout goes out first. A bug planted in each shows its test
-  catches it. What shuttle doesn't model, and these tests can't find: orderings weaker than
+  out; a send queued before a logout goes out first; replication's link and catch-up racing
+  commits and outages (see Replication above). A bug planted in each shows its test catches it.
+  What shuttle doesn't model, and these tests can't find: orderings weaker than
   `SeqCst`, since it runs every atomic as `SeqCst`; and races inside tokio's `mpsc`, `oneshot`
   and `Notify`, where it never switches threads. A lost wake-up planted in waiting for a resume,
   between our lock and tokio's `Notify`, goes unfound for that reason.

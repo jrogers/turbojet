@@ -225,7 +225,7 @@ sessions, paused, a store that won't open) are also published as `SessionEventKi
 | Interop | `turbojet-interop` (`scripts/interop.sh`) | Disagreements with QuickFIX/J and QuickFIX/n, over a hostile proxy and TLS. |
 | Deterministic simulation | `turbojet-sim` (`scripts/sim.sh`) | Bugs in the session, driver and stores under faults, crashes and power loss, replayable from a seed. |
 | Fuzzing | `crates/turbojet/fuzz` (`scripts/fuzz.sh`) | Panics and broken invariants in the parsers and session state machines. |
-| Concurrency | `--cfg shuttle` tests | Races in the registry's and holds' locks and atomics. |
+| Concurrency | `--cfg shuttle` tests | Races in the registry's and holds' locks and atomics, and in replication's link and catch-up. |
 | Allocations | `tests/allocations.rs` | Any change, up or down, in allocations per order by stage. |
 | The guide's examples | `src/guide.rs` | Documentation that no longer compiles or runs. |
 
