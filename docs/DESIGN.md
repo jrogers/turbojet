@@ -365,11 +365,19 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     use as the worst case (the standby lacks every batch no commit has waited for); `TcpLink`
     writes each batch as it's committed, so the standby is usually nearer than the bound, and its
     tests check only what doesn't race.
+    Equal numbers don't make equal copies when asynchronous: after a failover with the lag full,
+    the old active's copy can end where the promoted one does, holding messages in the numbers the
+    promotion skipped. The summary a bind answers with carries a digest (FNV-1a, stable across
+    builds) of the last `max_lag` outgoing slots, where alone the copies can differ, and a copy
+    whose digest differs is sent whole. Synchronous binds read nothing for it.
   - The simulator replicates the acceptor's store on a third of the seeds that keep state in
     memory, with failovers (crash, restart over the standby's copy at the next epoch) and
     deposals (the acceptor runs on while another instance takes the lease, so its commits and
     opens must fail). A planted standby that acknowledges batches it never got is caught when a
-    failover finds its copy behind.
+    failover finds its copy behind. A third of those replicate asynchronously, 1 to 8 numbers
+    behind, where the checker accepts what a promotion's skip allows (the next outgoing number
+    above all written, skipped numbers gap-filled, incoming repeated) and nothing more; a planted
+    promotion that doesn't skip is caught.
   - Cost, storing one message and committing it, alone and replicated over loopback (Apple M3,
     2026-10-26, criterion medians, `benches/replica.rs`): memory 14.6 ns alone, 21.2 µs
     replicated; `DiskStorage` without fsync 1.7 µs and 27.9 µs; with fsync 4.1 ms and 6.9 ms,
