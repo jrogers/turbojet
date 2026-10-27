@@ -922,7 +922,9 @@ parse spent 30% in its own function, setting the slots, dispatching each field a
 result from them, and 20% in the caller's `unwrap`, copying the 1,184-byte result out of its
 `Result`; reading the values was the rest. An earlier reading (2026-10-15) took only the copy
 into account, 15 ns of an owned FIX 4.2 parse and 34 ns of a FIX 4.4 one (3,080 bytes), and
-judged size to matter less than it does. Building it in place with `MaybeUninit`
+judged size to matter less than it does. An application gets the whole gain by re-listing the
+messages it parses, with only the fields it uses, in a `--merge` file, which replaces a message
+whole; the default crate stays complete, since which fields matter is the counterparty's. Building it in place with `MaybeUninit`
 isn't worth `unsafe`: Rust can't construct in the caller's slot, so it would only save the copy
 behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 16 (boxing
 `Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,

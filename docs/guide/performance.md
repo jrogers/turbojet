@@ -31,6 +31,15 @@ A store that syncs every commit to its device costs what the device does: `DiskS
 so under load many messages share a sync; one at a time, each waits for its own. Without `fsync`,
 a commit survives a process crash but not an OS crash (see [Storage and recovery][storage]).
 
+## Typed parsing
+
+A generated message declares every field the dictionary gives it, mostly empty `Option`s, and its
+size is about half the cost of parsing it: a FIX 4.2 NewOrderSingle declares 68 fields, and one
+declaring only the 10 an order carries parses in about 60% of the time borrowed and half owned.
+To generate messages with only the fields your counterparty sends, re-list them in a QuickFIX-format
+file given to `turbojet-codegen --merge` (see the `turbojet-codegen` README). A field that arrives
+but isn't declared is ignored by `parse`, and rejected by `parse_strict`.
+
 ## Allocations
 
 Decoding into the message a connection reuses, the session, and an application that parses its

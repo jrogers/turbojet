@@ -50,6 +50,28 @@ the messages named, with just the groups and enums they use. For a dictionary as
 Latest's, whose 172 application messages take minutes to build in release, that's the difference
 between generating it all and generating what an application sends and receives.
 
+A message re-listed in a `--merge` file replaces the base dictionary's whole, so it declares only
+the fields the file lists. That makes it smaller and faster to parse: a FIX 4.2 NewOrderSingle
+declares 68 fields, and one declaring only the 10 an order carries parses in about 60% of the time
+borrowed and half owned. A venue's QuickFIX dictionary already lists its messages' fields; without
+one, a file of just the messages you trim will do, with the rest of the dictionary unchanged:
+
+```xml
+<fix>
+  <messages>
+    <message name="NewOrderSingle" msgtype="D">
+      <field name="ClOrdID" required="Y"/>
+      <field name="Symbol" required="Y"/>
+      <field name="Side" required="Y"/>
+      <!-- ... -->
+    </message>
+  </messages>
+</fix>
+```
+
+A field that arrives but isn't declared is ignored by `parse`, and rejected by `parse_strict` as
+not defined for the message.
+
 ## SBE codecs
 
 `turbojet-codegen sbe schema.xml --out codec.rs` (or `SbeGenerator::load(path)?.render()?` from a

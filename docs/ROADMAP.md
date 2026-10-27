@@ -59,11 +59,9 @@ Each item needs a benchmark that shows the cost before the change is worth its c
   a FIX 4.2 NewOrderSingle is 1,376 bytes owned and 1,184 borrowed, and a FIX 4.4 one 3,080 and
   2,768, mostly empty `Option`s. That's about half of a typed parse: declaring only the 10
   fields a FIX 4.2 order carries takes its parse from 100.5 ns to 59.5 ns borrowed and 124.0 ns
-  to 62.8 ns owned (Apple M3, 2026-10-26; see DESIGN.md). Each option changes what's generated;
-  cheapest first:
-  - A codegen option to generate only chosen fields per message, opt-in, as `--message` chooses
-    messages: the whole gain for those who use it, with the default crate unchanged. Strict
-    parsing should then skip a dictionary field left out rather than reject it as undefined.
+  to 62.8 ns owned (Apple M3, 2026-10-26; see DESIGN.md). An application can have that already,
+  by re-listing its messages with only their fields in a `--merge` file; what's left would shrink
+  the default crate's messages, and each option changes what's generated:
   - Move rarely used fields into a sub-struct per message: boxed in the owned form, parsed on
     access in the borrowed one, which can't allocate. Changes the default API, needs a rule, or
     per-venue configuration, for which fields are common, and wins only part of the gain.
