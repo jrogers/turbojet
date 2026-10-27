@@ -763,4 +763,81 @@ mod tests {
         let failed = active(addr, 1).open(&id).err().expect("deposed");
         assert_eq!(failed.kind(), io::ErrorKind::PermissionDenied, "{failed}");
     }
+
+    #[cfg(shuttle)]
+    mod shuttle_tests {
+        use shuttle::scheduler::PctScheduler;
+        use shuttle::{Config, MaxSteps, Runner};
+        use tokio::sync::mpsc::error::TryRecvError;
+
+        use super::*;
+
+        /// Runs `test` in many interleavings of its threads. A thread that waits with nothing left
+        /// to wake it fails as a deadlock, or past the step limit if it spins.
+        fn check(test: impl Fn() + Send + Sync + 'static) {
+            let mut config = Config::new();
+            config.max_steps = MaxSteps::FailAfter(20_000);
+            Runner::new(PctScheduler::new(3, 2_000), config).run(test);
+        }
+
+        /// A session's commits on `handle`: batches 1 and 2 sent, then each waited for. Each gets
+        /// exactly one result: its own Ack, or the connection lost.
+        fn commits(conn: Arc<Conn>, handle: u32) -> shuttle::thread::JoinHandle<()> {
+            shuttle::thread::spawn(move || {
+                let started: Vec<_> =
+                    (1..=2).map(|n| (n, Shared::start(&conn, handle, &Frame::Batch(numbered(handle, n))))).collect();
+                for (commit_no, started) in started {
+                    // Refused at once, as the connection was lost: that's its result.
+                    let Ok(answer) = started else { continue };
+                    match answer.rx.recv().expect("answered, or told the connection is lost") {
+                        Ok(frame) => assert_eq!(frame, Frame::Ack { handle, commit_no }),
+                        Err(e) => assert_eq!(e.kind(), io::ErrorKind::ConnectionAborted, "{e}"),
+                    }
+                    assert!(answer.rx.recv().is_err(), "a second result for {handle}/{commit_no}");
+                }
+            })
+        }
+
+        /// Two sessions' commits, the standby answering what reaches it in order, and the
+        /// connection lost at any point: each request gets its own answer or the loss, once, and
+        /// none waits forever. A handle's commits are made one after another, as a store's are
+        /// (`StoredSession::commit`), so each session is one thread.
+        #[test]
+        fn every_request_gets_its_own_answer_or_the_loss() {
+            check(|| {
+                let (outbox, mut frames) = async_mpsc::unbounded_channel();
+                let conn = Arc::new(Conn::new(1, outbox));
+                let sessions = [commits(conn.clone(), 1), commits(conn.clone(), 2)];
+                let standby = {
+                    let conn = conn.clone();
+                    shuttle::thread::spawn(move || {
+                        // Until the connection is lost: its reader is stopped then, so what's
+                        // still in the outbox is never answered.
+                        while conn.alive.load(Ordering::Acquire) {
+                            match frames.try_recv() {
+                                Ok(bytes) => {
+                                    let Ok(Some((Frame::Batch(batch), _))) = Frame::decode(&bytes) else {
+                                        panic!("not a batch")
+                                    };
+                                    assert!(
+                                        conn.answered(Frame::Ack { handle: batch.handle, commit_no: batch.commit_no })
+                                    );
+                                }
+                                Err(TryRecvError::Empty | TryRecvError::Disconnected) => shuttle::thread::yield_now(),
+                            }
+                        }
+                    })
+                };
+                let losing = {
+                    let conn = conn.clone();
+                    shuttle::thread::spawn(move || conn.lost())
+                };
+                for thread in sessions.into_iter().chain([standby, losing]) {
+                    thread.join().unwrap();
+                }
+                assert!(!conn.alive.load(Ordering::Acquire));
+                assert!(conn.waiting.lock().unwrap().is_empty(), "nobody left waiting");
+            });
+        }
+    }
 }
