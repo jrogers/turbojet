@@ -2,7 +2,7 @@
 
 Replicated session state for [Turbojet](https://github.com/jrogers/turbojet): an active instance
 copies each FIX session's committed state to a hot standby, which can take the sessions over
-with no sequence gap and no resend storm.
+with no sequence gap and no resend storm (synchronously; asynchronously, within a bound).
 
 `ReplicatedStorage` wraps the active's session store; each commit is made there and copied to the
 standby, which applies it to a store of its own before acknowledging it, and nothing the commit

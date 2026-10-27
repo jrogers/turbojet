@@ -124,7 +124,7 @@ session waiting for a release logs a warning, once per connection, and sets the
 ## A hot standby
 
 `turbojet-replica`, a separate crate, keeps a copy of every session's state on a standby, which
-can take the sessions over with no sequence gap and no resend storm. On the active,
+can take the sessions over with no sequence gap and no resend storm (when synchronous, the default; see below). On the active,
 `ReplicatedStorage` wraps the store the sessions use: each commit is made there and sent to the
 standby, which applies it to a store of its own and acknowledges it, and nothing the commit covers
 goes out until both have it. The standby serves with `serve_standby`; the active reaches it with a
