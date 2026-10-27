@@ -393,6 +393,13 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     commit costs what the standby takes to apply a batch, not the active's own commit: a burst
     within the bound costs less. With fsync on the one SSD the two syncs contend either way, so
     asynchronous gains nothing there.
+    Many sessions committing at once over one link (Apple M3, 2026-10-27, `replicated commits at
+    once`, wall time per commit across all sessions): memory 22.2 µs for 1 session, 4.55 µs for
+    8, 3.09 µs for 64 synchronously, and 2.05 µs, 2.09 µs and 2.36 µs asynchronously, 64 behind:
+    the link's per-batch cost (a frame, a write and an answer each, applied in turn) caps it near
+    450,000 commits a second. With fsync, replicated, 6.9 ms, 7.3 ms and 6.1 ms; `DiskStorage`
+    alone, 4.03 ms, 2.36 ms and 3.43 ms, since concurrent `F_FULLFSYNC`s barely overlap. Not
+    measured on Linux, where `fdatasync` is per file and journals merge concurrent ones.
 - **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
   operator's pause and the cancel on disconnect a session logged on with. They're the session's,
   kept through resets, and written rarely (a logon, an ending, an operator), so the disk store

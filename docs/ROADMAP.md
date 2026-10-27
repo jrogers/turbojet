@@ -116,15 +116,24 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
 - **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
-  - batching across sessions. A commit's batch already carries everything since the session's
-    last commit, but each session's batch is its own frame, write and wait. The active's writer
-    could write every queued frame in one write, and the standby its answers (S; measure with
-    many busy sessions). The standby could apply several sessions' batches and sync once, as a
-    group commit (M; each session's store syncs on its own today). The tokio link costs about
-    1.6 µs a round trip over the blocking one it replaced (see DESIGN.md).
+  - batching across sessions (S, measured, parked). Many sessions committing at once over one
+    link cost about 2 µs a commit in all with memory stores, sync or async, however many share
+    it: some 450,000 a second, which writing every queued frame in one write, and the standby's
+    answers likewise, would raise. With fsync, replicated commits cost one sync on each side in
+    turn, and the store alone already caps them at a few hundred a second (DESIGN.md), so a group
+    commit on the standby would at best halve that. See "Group commit in `DiskStorage`" below.
   - an application's own records (the gateway's book) committed with a session's batch, which the
     wire form has room for;
   - shuttle tests of the link's reconnects racing commits, once its I/O can be stood in for.
+- **Group commit in `DiskStorage`** (M to L, research). Each session's commit syncs its own
+  file, and concurrent syncs barely overlap on macOS (`F_FULLFSYNC` flushes the whole drive
+  cache each time): 64 sessions committing at once take 3.4 ms a commit in all (DESIGN.md).
+  Sessions committing together could share one flush, replicated or not, the standby included.
+  On macOS that's a plain `fsync` per file and one `F_FULLFSYNC` a group, which std can't express
+  (its `sync_data` is the full flush; `rustix` can). On Linux there's no flush covering other
+  files, and the filesystem's journal already merges concurrent `fdatasync`s, so a group commit
+  there needs every session's records in one shared file per store: a new format and recovery.
+  Wants measuring on Linux first, where gateways run.
 - **More TLS revocation sources** (S each). Revocation is checked against CRLs the application
   gives; OCSP (stapled, or fetched) and fetching CRLs from a certificate's distribution points
   aren't supported.
