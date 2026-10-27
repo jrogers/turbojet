@@ -144,6 +144,10 @@ fn many_sessions(c: &mut Criterion) {
     group.sample_size(10);
     for sessions in [1, 8, 64] {
         let disk = |name: &str| DiskStorage::new(dir.path().join(format!("{name} {sessions}"))).unwrap();
+        let mut logs = open_sessions(&disk("alone"), sessions);
+        group.bench_function(format!("disk + fsync alone, {sessions} sessions"), |b| {
+            b.iter_custom(|iters| at_once(&mut logs, iters))
+        });
         let to = standby(disk("standby"), 0);
         let replicated = ReplicatedStorage::new(disk("active"), Arc::new(TcpLink::new(to, 1, "bench")), 1);
         let mut logs = open_sessions(&replicated, sessions);
