@@ -140,7 +140,9 @@ impl<S: SessionStorage> Replica<S> {
     /// With [`accepting_lag`](Self::accepting_lag), each session's next outgoing number is then
     /// skipped ahead by the lag accepted: the old active may have sent numbers this copy lacks,
     /// and one sent again would reach the counterparty too low. The skipped numbers hold no
-    /// messages, so they're gap-filled when the counterparty asks for them.
+    /// messages, so they're gap-filled when the counterparty asks for them. Skipping needs a
+    /// store that lists its sessions ([`SessionStorage::sessions`]; the built-in ones do): with
+    /// one that doesn't, this fails.
     ///
     /// # Errors
     ///

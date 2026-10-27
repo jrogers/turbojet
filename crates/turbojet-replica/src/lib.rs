@@ -86,6 +86,51 @@
 //! # }
 //! ```
 //!
+//! # Asynchronously
+//!
+//! Made [`asynchronous`](ReplicatedStorage::asynchronous), a session's commits don't wait for the
+//! standby until it has more than a bound of outgoing sequence numbers unacknowledged, or 64
+//! batches, for commits that carry only incoming state; a later commit waits for the answers
+//! instead, so what it covers goes out at the active's own store's pace. A batch with more numbers
+//! than the bound waits for itself, and a reset for the batches queued before it. The standby's
+//! bound is the one that counts: each binding carries the active's, and a standby made
+//! [`accepting_lag`](Replica::accepting_lag) less refuses it, failing the opening with
+//! [`InvalidInput`](std::io::ErrorKind::InvalidInput).
+//!
+//! ```no_run
+//! # use std::sync::{Arc, Mutex};
+//! # use turbojet::DiskStorage;
+//! # use turbojet_replica::{Replica, ReplicatedStorage, TcpLink};
+//! # fn example() -> std::io::Result<()> {
+//! // On the standby: accept actives up to 8 outgoing numbers per session behind.
+//! let replica = Arc::new(Mutex::new(Replica::new(DiskStorage::new("./store")?).accepting_lag(8)));
+//! // On the active: leave up to 8 unacknowledged.
+//! let link = TcpLink::new("standby.internal:9800", 1, "gateway-a");
+//! let storage = ReplicatedStorage::new(DiskStorage::new("./store")?, Arc::new(link), 1).asynchronous(8);
+//! // Taking over, the standby skips each session's next outgoing number ahead by 8.
+//! replica.lock().unwrap().promote()?;
+//! # drop(storage);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! What it trades is what a failover keeps. The old active may have sent up to the bound of a
+//! session's outgoing numbers the standby lacks, so [`Replica::promote`] skips each session's next
+//! outgoing number ahead by the lag it accepts: sent again, a number would reach the counterparty
+//! too low, which ends the session; skipped too high, the counterparty asks for a resend and is
+//! sent a gap fill. The messages in those numbers are lost to the new active, which the
+//! application must reconcile (an order's status, say). An unacknowledged batch carries incoming
+//! state too, so the new active may expect a lower incoming number than the old one had reached:
+//! the counterparty resends, and the application is handed again, marked as possible duplicates,
+//! messages the old active had already handed it. Promoting needs a store that lists its sessions
+//! ([`SessionStorage::sessions`](turbojet::SessionStorage::sessions); the built-in ones do).
+//!
+//! A batch the standby fails to take fails the later commit of the session that waits for it,
+//! with the session disconnecting and catching the standby up when it opens again, as
+//! [above](#catching-up); made [`degrading`](ReplicatedStorage::degrading), that commit puts the
+//! standby out of sync in the lease instead. [`in_sync`](ReplicatedStorage::in_sync) then means
+//! within the bound, not holding every commit.
+//!
 //! # TLS
 //!
 //! With the feature `tls`, the standby serves with [`serve_standby_tls`] and the active connects

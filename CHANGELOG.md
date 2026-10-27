@@ -27,6 +27,17 @@ Notable changes to the published crates.
   opens again; made `degrading`, the store commits alone instead once the lease says the standby
   is out of sync (`Lease::set_in_sync`, `in_sync`), and `catch_up` brings the standby back in
   sync.
+- Asynchronous replication: `ReplicatedStorage::asynchronous(n)` commits without waiting for
+  the standby until a session has more than `n` outgoing sequence numbers unacknowledged (or 64
+  batches). The standby must accept the lag, `Replica::accepting_lag(n)` or more, or opening a
+  session fails with `InvalidInput`. A failover can lose up to `n` of a session's outgoing
+  messages, and the counterparty may resend, as PossDup duplicates, messages already handed to
+  the application; a failed answer fails a later commit of the session, or, `degrading`, marks
+  the standby out of sync. Synchronous stays the default.
+- `Replica::promote` returns `io::Result<()>`: with a lag accepted, it skips each session's next
+  outgoing number ahead by it, past any the old active sent that the standby lacks, which needs
+  a store that lists its sessions (`SessionStorage::sessions`).
+- The wire form is version 2: a bind carries the active's lag bound. A version 1 peer is refused.
 
 ### `turbojet-sql`
 

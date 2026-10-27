@@ -33,6 +33,14 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   for the standby where the built-in stores write it at once. The standby holds open every
   session the active has open, so a `DiskStorage` under it is locked while the active is connected,
   until `Replica::promote`. `SqlLease`, like the session leases, compares the instances' clocks.
+  Made `asynchronous(n)`, a failover can lose up to `n` of each session's outgoing messages: the
+  promoted standby skips their numbers, and the counterparty is gap-filled, so the application
+  must reconcile what it sent (orders' status, say). The standby can lack incoming state too, so
+  after a failover the counterparty resends messages the application was already handed, as
+  PossDup duplicates. A batch the standby fails to take is noticed only at a later commit of the
+  session, the one that waits for it, and `in_sync` means within the bound. With a bound,
+  `Replica::promote` needs a store that lists its sessions (`SessionStorage::sessions`), and
+  fails without one.
 - `MemoryStorage` and `DiskStorage` index what they keep in a buffer that doubles when full. When
   a full store comes to keep more messages than it ever has (smaller messages under the same byte
   budget), the send that grows it waits while part of the index is moved: about 0.7 ms at a

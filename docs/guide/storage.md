@@ -161,3 +161,27 @@ a `ServerTls` acceptor, and the active's link is made `TcpLink::with_tls`, given
 certificate, so only an instance holding one can replicate to it. Without TLS the connection is
 plain TCP, so run it on a private network or through a tunnel. The crate's documentation has a
 full example.
+
+### Asynchronously
+
+By default a commit waits for the standby, which adds a round trip to it. Made asynchronous, the
+active's commits don't wait until a session has more than a bound of outgoing sequence numbers the
+standby hasn't acknowledged; a later commit waits for the answers instead. Set the bound on both
+sides: `ReplicatedStorage::asynchronous(8)` on the active, and `Replica::accepting_lag(8)`, or
+more, on the standby. A standby accepting less refuses the active, and opening a session fails.
+
+What it trades is what a failover keeps. The standby can lack up to the bound of a session's
+outgoing messages, which the counterparty has. On promotion, `Replica::promote` moves each
+session's next outgoing number on by the lag the standby accepts, so the new active never sends a
+number the counterparty has seen; the counterparty asks for the numbers skipped and is sent a gap
+fill. The messages themselves are lost to the new active, so the application must reconcile what
+it sent around the failover, such as orders' status, with the counterparty. The standby can lack
+incoming state too: the new active asks again for messages the old one had already handed to the
+application, and they arrive marked `maybe_redelivered`, which the application must recognise.
+
+A standby's answer that fails is noticed at a later commit of the session: that commit fails, and
+the session disconnects and catches the standby up when it opens again, or, if the store is
+`degrading`, the lease is told the standby is out of sync. While asynchronous, `in_sync` means the
+standby is within the bound, not that it has everything. Promotion needs a store that lists its
+sessions, as the built-in ones do; with one that can't, it fails and the instance mustn't take over.
+The crate's documentation has an example.

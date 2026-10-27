@@ -116,7 +116,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
 - **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
-  - replicating asynchronously, for latency first: batches queued, a bounded number unacknowledged;
   - batching across sessions. A commit's batch already carries everything since the session's
     last commit, but each session's batch is its own frame, write and wait. The active's writer
     could write every queued frame in one write, and the standby its answers (S; measure with

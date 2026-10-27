@@ -190,7 +190,10 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
     /// numbers it hasn't acknowledged: a session's output goes out at its own store's pace. What
     /// it trades: a failover can lose up to that many of a session's outgoing numbers, which
     /// [`Replica::promote`] skips, so the standby must accept the lag
-    /// ([`Replica::accepting_lag`]) or opening a session fails. A batch the standby fails to take
+    /// ([`Replica::accepting_lag`]) or opening a session fails. The batches unacknowledged carry
+    /// incoming state too: after a failover the counterparty may resend messages the old active
+    /// already handed the application, as possible duplicates (PossDupFlag=Y), where a synchronous
+    /// store's in-flight marker hands them over exactly once. A batch the standby fails to take
     /// fails a later commit of the session, the one that waits for it, or, made
     /// [`degrading`](Self::degrading), puts the standby out of sync.
     #[must_use]
@@ -208,7 +211,9 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
         }
     }
 
-    /// Whether the standby holds everything this instance committed, as far as it knows.
+    /// Whether the standby holds everything this instance committed, as far as it knows; made
+    /// [`asynchronous`](Self::asynchronous), everything but up to the bound's last outgoing
+    /// numbers a session hasn't had acknowledged.
     pub fn in_sync(&self) -> bool {
         !self.shared.state().out_of_sync
     }

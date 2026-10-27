@@ -294,7 +294,8 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   hot standby. Everything durable goes through `StoredSession`'s mutations and `commit`, and a
   session writes nothing a commit covers until it's done, so the wrapper changes nothing in the
   session or driver: it records each mutation as an op, and a commit with any is made in the
-  wrapped store and sent as one batch, the commit's job waiting for both. The standby
+  wrapped store and sent as one batch, the commit's job waiting for both (unless asynchronous,
+  below). The standby
   (`Replica`, sans-IO) applies a batch through the same trait to a store of its own and commits
   it before acknowledging. A commit one side made and the other didn't leaves that side ahead
   of the wire, as a crash between a commit and its write does, which recovery already handles.
@@ -328,14 +329,42 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     the store's jobs, on blocking threads. The active's link does its I/O on a current-thread
     runtime of its own, on one thread, so a caller can wait on it from any thread without
     deadlocking a runtime, a current-thread one included. Sessions share one connection, each
-    with one request at most under way, so a reader task hands each answer to its waiter by
-    handle. A batch is sent at once, by a writer task, so the standby commits while the active
+    with several requests under way when asynchronous; the standby answers a connection's frames
+    in order, so a reader task hands each answer to the oldest waiter on its handle. A batch is sent at once, by a writer task, so the standby commits while the active
     does; a session bound on a connection since lost fails its commits until it opens again and
     catches the standby up. The standby applies batches with blocking store calls, so each
     connection has a thread with a runtime of its own, doing its handshake and its I/O: the
     thread that applies a batch is the one its arrival wakes. Serving it on a blocking thread of
     the caller's runtime instead (`Handle::block_on`) cost 2.8 µs a commit, another thread
     driving its I/O and waking it.
+  - Asynchronously (`asynchronous(n)`), a session's log queues each batch it sends, with the
+    highest outgoing number it covers, and keeps `drained_through`, the highest number covered by
+    a batch some commit has waited for. A commit's job waits for the oldest batches, in order,
+    only while the newest is more than `n` past `drained_through`, or more than `MAX_QUEUED` (64)
+    are queued: commits that carry only incoming state add no outgoing numbers, so without the
+    cap they'd queue without limit. A batch over the bound on its own waits for itself; a reset
+    waits for everything queued first, so the standby doesn't refuse those batches as diverged
+    after it. The bound counts outgoing numbers, not batches, because that's what a failover
+    must get past: the old active may have sent up to `n` numbers the standby lacks, and the
+    promoted standby skips each session's next outgoing number ahead by `n`. Sent again, a number
+    would be too low, which the counterparty takes as fatal; skipped too high, the counterparty
+    asks for a resend and is gap-filled, since the numbers skipped hold no messages. So the skip
+    has to be known at promotion, on the standby: each Bind carries the active's bound (wire
+    version 2: a version 1 peer and this one refuse each other at hello) and a standby accepting less
+    (`accepting_lag`) refuses it, failing the opening with `InvalidInput`. Promotion lists the
+    standby store's sessions (`SessionStorage::sessions`) to skip each. Incoming state isn't
+    bounded the same way: the new active may expect a lower incoming number than the old one
+    reached, and the counterparty's resend hands the application PossDup duplicates of messages
+    already handed over.
+    A failed answer surfaces at the commit that waits for it: it fails, or degrading, marks the
+    standby out of sync and commits alone. A commit that finds the session behind clears the
+    queue, since it sends the session whole anyway. The batches a commit's job waits for count as
+    drained when the job is made, so a guard unbinds the session if the job panics or is dropped
+    unrun: the next commit then sends the session whole, rather than trust numbers the standby
+    never acknowledged. `LocalLink` applies a batch only when a job waits for it, which the tests
+    use as the worst case (the standby lacks every batch no commit has waited for); `TcpLink`
+    writes each batch as it's committed, so the standby is usually nearer than the bound, and its
+    tests check only what doesn't race.
   - The simulator replicates the acceptor's store on a third of the seeds that keep state in
     memory, with failovers (crash, restart over the standby's copy at the next epoch) and
     deposals (the acceptor runs on while another instance takes the lease, so its commits and
@@ -350,6 +379,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     TLS needed. Sending the batch in the commit's job, after the active's own commit, took
     17.6 µs, 23.1 µs and 8.2 ms: sending it at once overlaps the two syncs, at the cost of a
     thread hop (about 1.8 µs) when nothing syncs.
+    <!-- async numbers: Task 7 -->
 - **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
   operator's pause and the cancel on disconnect a session logged on with. They're the session's,
   kept through resets, and written rarely (a logon, an ending, an operator), so the disk store
