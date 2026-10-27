@@ -766,18 +766,19 @@ mod tests {
 
     #[cfg(shuttle)]
     mod shuttle_tests {
-        use shuttle::scheduler::PctScheduler;
+        use shuttle::scheduler::RandomScheduler;
         use shuttle::{Config, MaxSteps, Runner};
         use tokio::sync::mpsc::error::TryRecvError;
 
         use super::*;
 
-        /// Runs `test` in many interleavings of its threads. A thread that waits with nothing left
-        /// to wake it fails as a deadlock, or past the step limit if it spins.
+        /// Runs `test` in many random interleavings of its threads, as `active.rs`'s do. A thread
+        /// that waits with nothing left to wake it fails as a deadlock, or past the step limit if
+        /// it spins.
         fn check(test: impl Fn() + Send + Sync + 'static) {
             let mut config = Config::new();
             config.max_steps = MaxSteps::FailAfter(20_000);
-            Runner::new(PctScheduler::new(3, 2_000), config).run(test);
+            Runner::new(RandomScheduler::new(5_000), config).run(test);
         }
 
         /// A session's commits on `handle`: batches 1 and 2 sent, then each waited for. Each gets

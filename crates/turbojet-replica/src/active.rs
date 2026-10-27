@@ -1035,13 +1035,17 @@ mod tests {
         lease: Arc<Remembering>,
     }
 
-    fn degrading(own: Arc<MemoryStorage>, lease: Arc<Remembering>) -> Degrading {
-        let standby = Arc::new(Mutex::new(Replica::new(MemoryStorage::new())));
+    /// A degrading store, leaving up to `max_lag` outgoing numbers unacknowledged, and its standby.
+    fn degrading(own: Arc<MemoryStorage>, lease: Arc<Remembering>, max_lag: u64) -> Degrading {
+        let standby = Arc::new(Mutex::new(Replica::new(MemoryStorage::new()).accepting_lag(max_lag)));
         let link = Arc::new(Outage {
             link: LocalLink::connect(standby.clone(), 1, "a").unwrap(),
             down: AtomicBool::new(false),
         });
-        let active = ReplicatedStorage::new(own.clone(), link.clone(), 1).with_lease(lease.clone()).degrading();
+        let active = ReplicatedStorage::new(own.clone(), link.clone(), 1)
+            .with_lease(lease.clone())
+            .degrading()
+            .asynchronous(max_lag);
         Degrading { active, own, standby, link, lease }
     }
 
@@ -1059,7 +1063,7 @@ mod tests {
     /// catch-up the rest, then tells the lease the standby is in sync.
     #[test]
     fn a_degrading_store_commits_alone_and_catches_the_standby_up() {
-        let d = degrading(Arc::default(), Arc::default());
+        let d = degrading(Arc::default(), Arc::default(), 0);
         let (open_id, closed_id) = (conformance::id("A"), conformance::id("B"));
         let mut open = d.active.open(&open_id).unwrap();
         let mut closed = d.active.open(&closed_id).unwrap();
@@ -1105,7 +1109,7 @@ mod tests {
     /// A commit the standby lacks is made only once the lease says so.
     #[test]
     fn a_lease_that_cant_be_told_fails_the_commit() {
-        let d = degrading(Arc::default(), Arc::default());
+        let d = degrading(Arc::default(), Arc::default(), 0);
         let mut log = d.active.open(&conformance::id("A")).unwrap();
         d.link.down.store(true, Ordering::Release);
         d.lease.unreachable.store(true, Ordering::Release);
@@ -1116,7 +1120,7 @@ mod tests {
     /// it's back.
     #[test]
     fn a_session_opens_while_the_standby_is_down() {
-        let d = degrading(Arc::default(), Arc::default());
+        let d = degrading(Arc::default(), Arc::default(), 0);
         d.link.down.store(true, Ordering::Release);
         let id = conformance::id("A");
         let mut log = d.active.open(&id).expect("opened alone");
@@ -1137,7 +1141,7 @@ mod tests {
         drop(log);
         let lease = Arc::new(Remembering::default());
         lease.out_of_sync.store(true, Ordering::Release);
-        let d = degrading(own, lease);
+        let d = degrading(own, lease, 0);
         d.active.catch_up().run().unwrap();
         assert_eq!(standby_has(&d.standby, &id), 2);
         assert!(d.active.in_sync() && !d.lease.out_of_sync.load(Ordering::Acquire));
@@ -1344,5 +1348,90 @@ mod tests {
         let (active, _standby) = pair();
         let mut log = active.open(&conformance::id("A")).unwrap();
         assert!(log.commit().unwrap().is_none());
+    }
+
+    #[cfg(shuttle)]
+    mod shuttle_tests {
+        use shuttle::scheduler::RandomScheduler;
+        use shuttle::{Config, MaxSteps, Runner};
+
+        use super::*;
+
+        const MAX_LAG: u64 = 2;
+
+        /// Runs `test` in many random interleavings of its threads: random rather than PCT, which
+        /// at as many missed a planted bug in the catch-up's race with an open session's commits
+        /// one run in three. A thread that waits with nothing left to wake it fails as a
+        /// deadlock, or past the step limit if it spins.
+        fn check(test: impl Fn() + Send + Sync + 'static) {
+            let mut config = Config::new();
+            config.max_steps = MaxSteps::FailAfter(20_000);
+            Runner::new(RandomScheduler::new(5_000), config).run(test);
+        }
+
+        /// One session committing while the standby goes down and comes back, a second session
+        /// opened in the outage and again after, and the catch-up running meanwhile: an opening
+        /// waits out the catch-up's sending of its session and is woken; the store says it's in
+        /// sync only while the standby holds every commit made but the lag's; and once the standby
+        /// is back, a few commits and a catch-up leave it in sync, and the copies the same.
+        #[test]
+        fn reconnects_racing_commits_leave_the_standby_in_sync() {
+            check(|| {
+                let d = Arc::new(degrading(Arc::default(), Arc::default(), MAX_LAG));
+                let (a, b) = (conformance::id("A"), conformance::id("B"));
+                let mut log = d.active.open(&a).unwrap();
+                let session = {
+                    let (d, a) = (d.clone(), a.clone());
+                    shuttle::thread::spawn(move || {
+                        for seq in 1..=4 {
+                            store_and_commit(log.as_mut(), seq).expect("degrading, made alone");
+                            if d.active.in_sync() {
+                                let held = standby_has(&d.standby, &a) - 1;
+                                assert!(held + MAX_LAG >= seq, "in sync with {held} of {seq} held");
+                            }
+                        }
+                        log
+                    })
+                };
+                let outage = {
+                    let (d, b) = (d.clone(), b.clone());
+                    shuttle::thread::spawn(move || {
+                        d.link.down.store(true, Ordering::Release);
+                        store_and_commit(d.active.open(&b).unwrap().as_mut(), 1).expect("made alone");
+                        d.link.down.store(false, Ordering::Release);
+                        store_and_commit(d.active.open(&b).unwrap().as_mut(), 2).unwrap();
+                    })
+                };
+                let catching_up = {
+                    let d = d.clone();
+                    shuttle::thread::spawn(move || {
+                        for _ in 0..2 {
+                            d.active.catch_up().run().unwrap();
+                        }
+                    })
+                };
+                let mut log = session.join().unwrap();
+                outage.join().unwrap();
+                catching_up.join().unwrap();
+
+                // A batch sent in the outage fails only the commit that waits for it, up to the
+                // lag's commits later, which puts the session behind; the next sends it whole.
+                for seq in 5..=5 + MAX_LAG {
+                    store_and_commit(log.as_mut(), seq).unwrap();
+                }
+                d.active.catch_up().run().unwrap();
+                assert!(d.active.in_sync());
+                assert!(!d.lease.out_of_sync.load(Ordering::Acquire));
+                // The batches still queued are dropped; opening again sends what they carried.
+                drop(log);
+                for id in [a, b] {
+                    drop(d.active.open(&id).unwrap());
+                    let mut mine = d.own.open(&id).unwrap();
+                    let mut copy = d.standby.lock().unwrap().storage().open(&id).unwrap();
+                    assert_eq!(summary(copy.as_mut(), MAX_LAG).unwrap(), summary(mine.as_mut(), MAX_LAG).unwrap());
+                    assert_eq!(copy.sent_messages(1, u64::MAX).unwrap(), mine.sent_messages(1, u64::MAX).unwrap());
+                }
+            });
+        }
     }
 }
