@@ -50,6 +50,8 @@ struct Sent {
     next_recorded: u64,
     /// The next incoming MsgSeqNum the store last recorded.
     incoming: u64,
+    /// The highest it has recorded: it goes back to take up messages that were in flight.
+    highest_incoming: u64,
     /// Every MsgSeqNum recorded: an application message with the message, a session one `None`,
     /// as is one the store has since evicted.
     recorded: BTreeMap<u64, Option<Message>>,
@@ -57,6 +59,12 @@ struct Sent {
     evicted: BTreeMap<u64, Message>,
     /// The last new (not PossDup) MsgSeqNum written.
     last_new: u64,
+    /// The highest MsgSeqNum written, new or resent.
+    last_written: u64,
+    /// The store's standby took over since it last opened.
+    promoted: Option<Promoted>,
+    /// Application messages a promotion may have skipped, which may be gap-filled.
+    may_gap_fill: BTreeSet<u64>,
     /// Ledger entries already checked.
     ledger_seen: usize,
     /// Changes that may or may not have taken effect (a commit a power loss tore, or changes never
@@ -85,7 +93,10 @@ impl Sent {
                 let previous = std::mem::take(&mut self.recorded);
                 *self = Sent { ledger_seen: self.ledger_seen, skip_to, previous, ..Sent::default() };
             }
-            Stored::Incoming { seq } => self.incoming = *seq,
+            Stored::Incoming { seq } => {
+                self.incoming = *seq;
+                self.highest_incoming = self.highest_incoming.max(*seq);
+            }
             // Its messages need no longer be resent or delivered.
             Stored::Evicted { through } => {
                 for (seq, msg) in self.recorded.range_mut(..=*through) {
@@ -123,6 +134,7 @@ impl Sent {
             | Stored::OpenFailed(_)
             | Stored::Fenced(_)
             | Stored::Uncertain(_)
+            | Stored::Promoted { .. }
             | Stored::Log(_) => {
                 unreachable!("handled by stored")
             }
@@ -154,9 +166,88 @@ impl Sent {
             return None;
         }
         after.incoming = opened.1;
+        after.highest_incoming = after.highest_incoming.max(opened.1);
         after.skip_to.clone_from(&self.skip_to);
         Some(after)
     }
+}
+
+impl Sent {
+    /// Rule 6 on a store whose standby took over, by `promoted`, opening with `opened` (next
+    /// outgoing, next incoming), after `changes` that may or may not have taken effect. A standby
+    /// may lack up to its lag of the numbers recorded, and its promotion skips that many past what
+    /// it holds: the next outgoing number is above every one written, and at most the promotions'
+    /// lags in all above what was recorded. Those the last promotion skipped are gap-filled, never
+    /// resent; those an earlier one may have skipped, on a copy promoted again before it opened,
+    /// are either. A standby may lack incoming numbers too: the next incoming may be any up to
+    /// the highest recorded (a copy can hold one the active has since gone back from, to take up
+    /// messages in flight, with the same marker that sends it back).
+    fn promote(
+        &mut self,
+        side: Side,
+        promoted: Promoted,
+        changes: &[Stored],
+        skips: &BTreeSet<u64>,
+        opened: (u64, u64),
+    ) -> Result<(), Violation> {
+        let refuse = |sent: &Self| {
+            violation(
+                "6 store",
+                format!(
+                    "{side:?}'s store, promoted ({promoted:?}), opened at {} out, {} in; it recorded {} out, {} in, \
+                     and wrote up to {}",
+                    opened.0, opened.1, sent.next_recorded, sent.incoming, sent.last_written
+                ),
+            )
+        };
+        // The most the active may have recorded, counting what it wasn't sure of.
+        let (most_out, most_in) =
+            changes.iter().fold((self.next_recorded, self.highest_incoming), |(out, inc), change| match change {
+                Stored::Sent { seq, .. } => (out.max(seq + 1), inc),
+                Stored::Incoming { seq } => (out, inc.max(*seq)),
+                _ => (out, inc),
+            });
+        let (out, inc) = opened;
+        if out <= self.last_written || out > most_out + promoted.skipped || inc == 0 || inc > most_in {
+            return Err(refuse(self));
+        }
+        // The standby held the numbers before `surely`, and perhaps those up to `held`, some of
+        // them perhaps uncertain.
+        let surely = out.saturating_sub(promoted.skipped).max(1);
+        let held = out.saturating_sub(promoted.last).max(1);
+        let mut after = self.clone();
+        after.skip_to.extend(skips.iter().copied());
+        for change in changes {
+            match change {
+                Stored::Sent { seq, .. } if *seq >= held => break,
+                Stored::Sent { .. } => after.apply(side, change).map_err(|_| refuse(self))?,
+                _ => {}
+            }
+        }
+        if after.next_recorded < surely {
+            return Err(refuse(self));
+        }
+        after.skip_to.clone_from(&self.skip_to);
+        after.recorded.retain(|seq, _| *seq < held);
+        after.evicted.retain(|seq, _| *seq < held);
+        after.recorded.extend((after.next_recorded.min(held)..out).map(|seq| (seq, None)));
+        after.may_gap_fill.extend(after.recorded.range(surely..held).filter(|(_, m)| m.is_some()).map(|(seq, _)| *seq));
+        after.next_recorded = out;
+        after.incoming = inc;
+        after.highest_incoming = after.highest_incoming.max(inc);
+        *self = after;
+        Ok(())
+    }
+}
+
+/// The promotions of a store's standby since it last opened.
+#[derive(Debug, Clone, Copy)]
+struct Promoted {
+    /// Their lags in all: each skips again, so a standby promoted, then promoted back before it
+    /// opened the session, skips twice.
+    skipped: u64,
+    /// The last one's lag.
+    last: u64,
 }
 
 impl Default for Sent {
@@ -164,8 +255,12 @@ impl Default for Sent {
         Self {
             next_recorded: 1,
             incoming: 1,
+            highest_incoming: 1,
             recorded: BTreeMap::new(),
             last_new: 0,
+            last_written: 0,
+            promoted: None,
+            may_gap_fill: BTreeSet::new(),
             ledger_seen: 0,
             uncertain: Vec::new(),
             evicted: BTreeMap::new(),
@@ -184,6 +279,9 @@ struct Received {
     seen: usize,
     last_seq: u64,
     ids: BTreeMap<String, u64>,
+    /// MsgSeqNums received before a promoted standby took over, missing some of them: the
+    /// counterparty resends them, and the application may get them again, unmarked.
+    may_repeat: BTreeSet<u64>,
 }
 
 /// One side's cancel on disconnect, as its application saw it.
@@ -412,14 +510,25 @@ impl Checker {
                 Stored::Fenced(_) => {}
                 // A FIX node keeps one session's log.
                 Stored::Log(_) => {}
+                Stored::Promoted { max_lag } => {
+                    let skipped = sent.promoted.map_or(0, |p| p.skipped) + max_lag;
+                    sent.promoted = Some(Promoted { skipped, last: *max_lag });
+                }
                 Stored::Opened { next_outgoing, next_incoming } => {
                     let opened = (*next_outgoing, *next_incoming);
                     let uncertain = std::mem::take(&mut sent.uncertain);
                     let uncertain_skips = std::mem::take(&mut sent.uncertain_skips);
+                    let promoted = sent.promoted.take();
                     if lossy {
                         // What was lost is lost: carry on from what the store has.
                         sent.recorded.retain(|seq, _| *seq < opened.0);
                         (sent.next_recorded, sent.incoming) = opened;
+                    } else if let Some(promoted) = promoted {
+                        sent.promote(side, promoted, &uncertain, &uncertain_skips, opened)?;
+                        // What was received from the next incoming number on is asked for again.
+                        let received = &mut self.received[side.index()];
+                        received.may_repeat.extend(received.ids.values().filter(|seq| **seq >= opened.1));
+                        received.last_seq = received.last_seq.min(opened.1 - 1);
                     } else if opened != (sent.next_recorded, sent.incoming) {
                         // Rule 6: a store reopens with what it recorded, crash or not; changes it
                         // wasn't sure of took effect or didn't.
@@ -440,6 +549,7 @@ impl Checker {
                     if matches!(change, Stored::Reset) {
                         // Both numbers start again at 1: so do the deliveries this side receives.
                         self.received[side.index()].last_seq = 0;
+                        self.received[side.index()].may_repeat.clear();
                     }
                     sent.apply(side, change).or_else(|e| if lossy { Ok(()) } else { Err(e) })?;
                 }
@@ -494,6 +604,7 @@ impl Checker {
                 format!("{side:?} wrote {seq}, which its store never recorded: {msg}"),
             ));
         };
+        sent.last_written = sent.last_written.max(seq);
         if msg.get(tags::POSS_DUP_FLAG) != Some("Y") {
             // Rule 2: new messages go out in order, each once, as recorded.
             if seq <= sent.last_new {
@@ -513,8 +624,13 @@ impl Checker {
         // Rule 3: a resend is the original, and a gap fill covers no application message.
         if msg.msg_type() == MsgType::SequenceReset {
             let new_seq_no = number(msg, tags::NEW_SEQ_NO);
-            if let Some((covered, _)) = sent.recorded.range(seq..new_seq_no).find(|(_, m)| m.is_some()) {
+            let skipped = |(seq, m): &(&u64, &Option<Message>)| m.is_none() || sent.may_gap_fill.contains(seq);
+            if let Some((covered, _)) = sent.recorded.range(seq..new_seq_no).find(|entry| !skipped(entry)) {
                 return Err(violation("3 resend", format!("{side:?} gap-filled {seq}..{new_seq_no} over {covered}")));
+            }
+            // Any messages it covers, a promotion skipped: they're lost.
+            for (_, msg) in sent.recorded.range_mut(seq..new_seq_no) {
+                *msg = None;
             }
             return Ok(());
         }
@@ -567,7 +683,7 @@ impl Checker {
                 ));
             }
             match received.ids.get(&delivery.id) {
-                Some(_) if delivery.redelivered => {}
+                Some(_) if delivery.redelivered || received.may_repeat.contains(&delivery.seq) => {}
                 Some(seq) => {
                     return Err(violation(
                         "4 delivery",
@@ -738,6 +854,27 @@ mod tests {
         assert_eq!(h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule), Ok(()));
         h.ledger.push(Stored::Opened { next_outgoing: 1, next_incoming: 1 });
         assert_eq!(h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule), Err("6 store"));
+    }
+
+    /// A store whose standby was promoted with a lag of 2 opens with its outgoing number skipped
+    /// past every one written, by no more than the lag; what it skipped is gap-filled.
+    #[test]
+    fn a_promoted_store_skips_past_what_was_written_or_rule_6_breaks() {
+        let promoted_open = |next_outgoing| {
+            let mut h = Harness::default();
+            h.send(order("a"), 1).unwrap();
+            h.send(order("b"), 2).unwrap();
+            h.store(order("c"), 3).unwrap();
+            h.ledger.push(Stored::Promoted { max_lag: 2 });
+            h.ledger.push(Stored::Opened { next_outgoing, next_incoming: 1 });
+            h.checker.stored(Side::Initiator, &h.ledger).map_err(|e| e.rule).map(|()| h)
+        };
+        let mut h = promoted_open(4).unwrap();
+        let gap_fill = Message::new(MsgType::SequenceReset).with(tags::GAP_FILL_FLAG, "Y").with(tags::NEW_SEQ_NO, 4u64);
+        assert_eq!(h.write(&resend(gap_fill, 2)), Ok(()), "2 and 3 skipped");
+        assert_eq!(h.write(&resend(order("a"), 1)), Ok(()), "1 held");
+        assert_eq!(promoted_open(2).err(), Some("6 store"), "2 was written");
+        assert_eq!(promoted_open(7).err(), Some("6 store"), "more than the lag past 4, the next recorded");
     }
 
     #[test]

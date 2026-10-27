@@ -100,6 +100,7 @@ impl Sent {
             | Stored::OpenFailed(_)
             | Stored::Fenced(_)
             | Stored::Uncertain(_)
+            | Stored::Promoted { .. }
             | Stored::Log(_) => {
                 unreachable!("handled by stored")
             }

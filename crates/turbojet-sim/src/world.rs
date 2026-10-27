@@ -28,7 +28,7 @@ use crate::node::{Effects, Node, Role};
 use crate::queue::Queue;
 use crate::replica::{Pair, Setup, Switching};
 use crate::rng::Rng;
-use crate::store::{Call, LedgerStorage, Trap};
+use crate::store::{Call, LedgerStorage, Stored, Trap};
 use crate::time::{Clocks, SimTime, wall_start};
 
 /// How a simulation runs.
@@ -76,6 +76,9 @@ pub enum Plant {
     /// On degrading seeds, a failover goes ahead though the lease says the standby is out of
     /// sync, finding a copy behind what was sent.
     UnsyncedFailover,
+    /// On replicated seeds, all asynchronous, a failover promotes the standby without skipping
+    /// its sessions' outgoing numbers past those it may lack.
+    NoSkipOnPromote,
 }
 
 impl Options {
@@ -502,8 +505,19 @@ fn replication(
         degrade,
         stale: plant == Some(Plant::StaleStandby),
         unsynced_failover: plant == Some(Plant::UnsyncedFailover),
+        max_lag: max_lag(seed, plant),
+        no_skip_on_promote: plant == Some(Plant::NoSkipOnPromote),
     };
     Some((replication, rng, Pair::new(setup)))
+}
+
+/// How many outgoing numbers a replicated seed's sessions may leave the standby behind: up to 8
+/// on a third of them, and on all with the planted bug of a promotion that doesn't skip; none,
+/// waiting for it, on the rest. Drawn apart from the replication's random stream so that
+/// replicated seeds keep the failovers they had before.
+fn max_lag(seed: u64, plant: Option<Plant>) -> u64 {
+    let mut rng = Rng::new(seed ^ 0x1a6_5a7e);
+    if rng.chance(333_333) || plant == Some(Plant::NoSkipOnPromote) { rng.between(1, 8) } else { 0 }
 }
 
 /// On half the seeds, disk stores in segments of a few messages, keeping a few segments, so that
@@ -821,8 +835,12 @@ impl World {
         if let Some(InboundLimit::Delay(limit)) = inbound {
             header.push_str(&format!(", acceptor inbound limit {limit}, delayed"));
         }
-        if let Some((replication, ..)) = &self.replication {
+        if let Some((replication, _, pair)) = &self.replication {
             header.push_str(&format!(", acceptor replicated: {replication:?}"));
+            let max_lag = pair.lock().unwrap().max_lag();
+            if max_lag > 0 {
+                header.push_str(&format!(", asynchronously, at most {max_lag} behind"));
+            }
         }
         if !self.ids[0].key_suffix().is_empty() {
             header.push_str(&format!(", sessions {} and {}", self.ids[0], self.ids[1]));
@@ -1182,6 +1200,10 @@ impl World {
                 if happens {
                     self.crash(Side::Acceptor, now);
                     pair.fail_over();
+                    if pair.max_lag() > 0 {
+                        let promoted = Stored::Promoted { max_lag: pair.max_lag() };
+                        self.storage[Side::Acceptor.index()].ledger.lock().unwrap().push(promoted);
+                    }
                     self.record(&format!("failover: {}", pair.describe()));
                 }
                 drop(pair);

@@ -9,6 +9,10 @@
 //! A degrading pair commits alone while the standby is down, once its lease says the standby is
 //! out of sync, and catches it up when it's back; a failover waits until the lease says it's in
 //! sync again, as a promotion checks it.
+//!
+//! An asynchronous pair's active commits without waiting for the standby, up to a bound of
+//! outgoing numbers behind it; a failover promotes the standby, skipping each session's next
+//! outgoing number ahead by that bound, past any it lacks.
 
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -46,6 +50,10 @@ pub struct Pair {
     down: Arc<AtomicBool>,
     /// The planted bug of failing over to a standby the lease says is out of sync.
     unsynced_failover: bool,
+    /// How many outgoing numbers a session's commits may leave the standby behind: 0 waits.
+    max_lag: u64,
+    /// The planted bug of a promotion that doesn't skip.
+    no_skip_on_promote: bool,
 }
 
 /// What a pair is, and the bugs planted in it.
@@ -56,6 +64,10 @@ pub struct Setup {
     pub stale: bool,
     /// A failover goes ahead though the lease says the standby is out of sync.
     pub unsynced_failover: bool,
+    /// How many outgoing numbers a session's commits may leave the standby behind: 0 waits.
+    pub max_lag: u64,
+    /// A failover promotes the standby without skipping its sessions' outgoing numbers ahead.
+    pub no_skip_on_promote: bool,
 }
 
 impl Pair {
@@ -73,6 +85,8 @@ impl Pair {
             lease: Arc::default(),
             down: Arc::default(),
             unsynced_failover: setup.unsynced_failover,
+            max_lag: setup.max_lag,
+            no_skip_on_promote: setup.no_skip_on_promote,
         };
         pair.replicate();
         Arc::new(Mutex::new(pair))
@@ -84,10 +98,14 @@ impl Pair {
         self.unsynced_failover || !self.lease.out_of_sync.load(Ordering::Acquire)
     }
 
-    /// The standby takes over: its copy becomes the active's, at the next epoch (or the one taken
-    /// when the active was deposed), and the old active's copy the standby's. The acceptor's
+    /// The standby takes over, promoted: its copy becomes the active's, at the next epoch (or the
+    /// one taken when the active was deposed), and the old active's copy the standby's. The acceptor's
     /// process must restart over it, as after a crash.
     pub fn fail_over(&mut self) {
+        if !self.no_skip_on_promote {
+            let mut standby = self.standby.lock().unwrap_or_else(PoisonError::into_inner);
+            standby.promote().expect("a memory store doesn't fail");
+        }
         if !self.deposed {
             self.epoch += 1;
         }
@@ -101,7 +119,8 @@ impl Pair {
     fn replicate(&mut self) {
         let (active, epoch) = (self.active, self.epoch);
         self.lease.epoch.store(epoch, Ordering::Release);
-        self.standby = Arc::new(Mutex::new(Replica::new(self.stores[1 - active].clone())));
+        let standby = Replica::new(self.stores[1 - active].clone()).accepting_lag(self.max_lag);
+        self.standby = Arc::new(Mutex::new(standby));
         let link = LocalLink::connect(self.standby.clone(), epoch, &format!("instance {active}"))
             .expect("a new epoch connects");
         let link: Arc<dyn Link> = match &self.planted {
@@ -113,6 +132,9 @@ impl Pair {
             ReplicatedStorage::new(self.stores[active].clone(), link, epoch).with_lease(self.lease.clone());
         if self.degrade {
             current = current.degrading();
+        }
+        if self.max_lag > 0 {
+            current = current.asynchronous(self.max_lag);
         }
         self.current = Arc::new(current);
     }
@@ -147,6 +169,10 @@ impl Pair {
 
     pub fn deposed(&self) -> bool {
         self.deposed
+    }
+
+    pub fn max_lag(&self) -> u64 {
+        self.max_lag
     }
 
     pub fn describe(&self) -> String {

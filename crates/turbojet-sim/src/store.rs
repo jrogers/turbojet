@@ -37,6 +37,10 @@ pub enum Stored {
     Evicted { through: u64 },
     /// The changes that follow are to this session's log.
     Log(SessionId),
+    /// The store's standby took over, promoted with a lag of up to `max_lag` outgoing numbers:
+    /// the next open may find each session's outgoing number skipped ahead past those it lacks,
+    /// and its incoming number behind.
+    Promoted { max_lag: u64 },
 }
 
 pub type Ledger = Arc<Mutex<Vec<Stored>>>;
