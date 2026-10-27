@@ -9,8 +9,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
+use std::sync::{Arc, OnceLock, PoisonError};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -25,6 +24,7 @@ use turbojet::store::{Commit, SessionStorage};
 use crate::active::{Link, deposed, lag_refused};
 use crate::frame::{Batch, Frame, NackReason, Summary, VERSION};
 use crate::standby::Replica;
+use crate::sync::{AtomicBool, AtomicU64, Mutex, Ordering, mpsc};
 
 /// How long the active waits for the standby's answer before giving the connection up: its
 /// sessions' commits wait as long. Connecting, and the TLS handshake, are given as long too.
@@ -40,7 +40,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// # Errors
 ///
 /// Accepting a connection failed.
-pub async fn serve_standby<S>(listener: TcpListener, replica: Arc<Mutex<Replica<S>>>) -> io::Result<()>
+pub async fn serve_standby<S>(listener: TcpListener, replica: Arc<std::sync::Mutex<Replica<S>>>) -> io::Result<()>
 where
     S: SessionStorage + Send + 'static,
 {
@@ -61,7 +61,7 @@ where
 pub async fn serve_standby_tls<S>(
     listener: TcpListener,
     tls: turbojet::tls::TlsAcceptor,
-    replica: Arc<Mutex<Replica<S>>>,
+    replica: Arc<std::sync::Mutex<Replica<S>>>,
 ) -> io::Result<()>
 where
     S: SessionStorage + Send + 'static,
@@ -79,7 +79,7 @@ where
 
 /// Serves one connection, made ready by `upgrade` (a TLS handshake, say), on a thread of its own
 /// with a runtime of its own: the thread that applies a batch is the one its arrival wakes.
-fn serve<S, F, Fut, T>(stream: TcpStream, peer: SocketAddr, replica: Arc<Mutex<Replica<S>>>, upgrade: F)
+fn serve<S, F, Fut, T>(stream: TcpStream, peer: SocketAddr, replica: Arc<std::sync::Mutex<Replica<S>>>, upgrade: F)
 where
     S: SessionStorage + Send + 'static,
     F: FnOnce(TcpStream) -> Fut + Send + 'static,
@@ -106,7 +106,7 @@ where
 }
 
 /// One active's connection, until it ends: each frame applied, and its answer written back.
-async fn serve_connection<S, T>(stream: T, replica: &Mutex<Replica<S>>) -> io::Result<()>
+async fn serve_connection<S, T>(stream: T, replica: &std::sync::Mutex<Replica<S>>) -> io::Result<()>
 where
     S: SessionStorage,
     T: AsyncRead + AsyncWrite + Unpin,
@@ -502,6 +502,7 @@ impl Link for TcpLink {
 mod tests {
     use std::collections::HashSet;
     use std::net::TcpStream;
+    use std::sync::Mutex;
 
     use turbojet::MemoryStorage;
     use turbojet::store::{StoredSession, conformance};

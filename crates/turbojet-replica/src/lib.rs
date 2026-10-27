@@ -144,6 +144,7 @@ pub mod frame;
 mod lease;
 mod net;
 mod standby;
+mod sync;
 
 pub use active::{Link, LocalLink, ReplicatedStorage};
 pub use lease::{Lease, ManualLease};

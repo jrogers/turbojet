@@ -15,6 +15,10 @@ tokio.workspace = true
 tracing.workspace = true
 turbojet.workspace = true
 
+# Only with `--cfg shuttle`, for the concurrency tests: see src/sync.rs.
+[target.'cfg(shuttle)'.dependencies]
+shuttle = "0.9.8"
+
 [package.metadata.docs.rs]
 all-features = true
 

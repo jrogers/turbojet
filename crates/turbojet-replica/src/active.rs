@@ -2,8 +2,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, PoisonError};
 
 use tracing::{info, warn};
 use turbojet::SessionId;
@@ -13,6 +12,7 @@ use turbojet::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, Session
 use crate::frame::{Batch, Frame, NackReason, Op, Summary, VERSION};
 use crate::lease::{Held, Lease};
 use crate::standby::{Replica, summary};
+use crate::sync::{AtomicBool, AtomicU32, AtomicU64, Condvar, Mutex, MutexGuard, Ordering};
 
 /// The most a batch of a session sent whole carries in messages: a large session is sent in
 /// several, well within a frame each.
@@ -707,7 +707,7 @@ impl StoredSession for ReplicatedLog {
 /// A [`Link`] to a [`Replica`] in the same process, applying each batch on the committing
 /// thread: for tests, and for the simulator, whose store jobs must block.
 pub struct LocalLink<S> {
-    replica: Arc<Mutex<Replica<S>>>,
+    replica: Arc<std::sync::Mutex<Replica<S>>>,
 }
 
 impl<S> std::fmt::Debug for LocalLink<S> {
@@ -723,7 +723,7 @@ impl<S: SessionStorage + 'static> LocalLink<S> {
     ///
     /// [`io::ErrorKind::PermissionDenied`] if the replica has seen a higher epoch: another
     /// instance has taken over.
-    pub fn connect(replica: Arc<Mutex<Replica<S>>>, epoch: u64, node: &str) -> io::Result<Self> {
+    pub fn connect(replica: Arc<std::sync::Mutex<Replica<S>>>, epoch: u64, node: &str) -> io::Result<Self> {
         let hello = Frame::Hello { version: VERSION, epoch, node: node.into(), app_record_kinds: Vec::new() };
         match replica.lock().unwrap_or_else(PoisonError::into_inner).on_frame(hello)? {
             Some(Frame::Welcome { epoch: seen }) if seen == epoch => {}
@@ -779,7 +779,7 @@ pub(crate) fn deposed(epoch: u64, seen: u64) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::Mutex;
 
     use turbojet::MemoryStorage;
     use turbojet::store::conformance;
