@@ -846,18 +846,20 @@ mod tests {
 
 #[cfg(all(test, shuttle))]
 mod shuttle_tests {
-    use shuttle::scheduler::PctScheduler;
+    use shuttle::scheduler::RandomScheduler;
     use shuttle::{Config, MaxSteps, Runner};
 
     use super::*;
     use crate::registry::{Command, command_queues};
 
-    /// Runs `test` in many interleavings of its threads. One that spins past the step limit is a
-    /// lost wake-up: the thread waiting has nothing left to wake it.
+    /// Runs `test` in many random interleavings of its threads: random rather than PCT, which at
+    /// as many never found a lost wake-up planted in `Holds::tidy`, since it switches threads
+    /// only at a yield or a few change points spread over the run. One that spins past the step
+    /// limit is a lost wake-up: the thread waiting has nothing left to wake it.
     fn check(test: impl Fn() + Send + Sync + 'static) {
         let mut config = Config::new();
         config.max_steps = MaxSteps::FailAfter(20_000);
-        Runner::new(PctScheduler::new(3, 2_000), config).run(test);
+        Runner::new(RandomScheduler::new(5_000), config).run(test);
     }
 
     /// Releases on other threads, while the session tidies and looks at its holds, each either

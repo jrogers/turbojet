@@ -818,6 +818,16 @@ invariants, and tests that look for bugs rather than confirm what already works.
   the session once; a pause racing a Logon either refuses it or finds it connected, to log it
   out; a send queued before a logout goes out first; replication's link and catch-up racing
   commits and outages (see Replication above). A bug planted in each shows its test catches it.
+  They use shuttle's random scheduler at 5,000 interleavings a test, not PCT. Re-checked on an
+  Apple M3, ten runs each: a check and insert split across two locks at logon, a pause that
+  reads the sessions and marks the pause under separate locks, and a Logout that doesn't wait for
+  the sends queued before it were caught 10 times in 10 under PCT (depth 3, 2,000 iterations)
+  and under random. A `tidy` that clears the holds' woken flag only when it forgets a hold, so a
+  release after an earlier one's wake-up was taken wakes no one, was caught 0 in 10 under PCT,
+  at depths 2 to 6 and at 20,000 iterations, and 10 in 10 under random from 500 interleavings.
+  PCT switches threads only at a yield or a few change points spread over the run, and this
+  window is a few steps at its start. Replication's catch-up plant was caught 6 runs in 10 under
+  PCT and every run under random. The four tests here take 0.36 s together, from 0.20 s.
   What shuttle doesn't model, and these tests can't find: orderings weaker than
   `SeqCst`, since it runs every atomic as `SeqCst`; and races inside tokio's `mpsc`, `oneshot`
   and `Notify`, where it never switches threads. A lost wake-up planted in waiting for a resume,
