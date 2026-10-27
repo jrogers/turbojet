@@ -15,3 +15,4 @@
 1791666873460811557 an order held for no time at the instant a release ran, never released: the release time was kept as still scheduled (simulator bug)
 1793006563259204669 orders still held at the end, through an ended session's registry, kept it and its cancel countdown's application alive in a cycle (simulator bug)
 1793059102225391187 an async failover's old active, bound as the standby with the same numbers, kept messages the promoted copy had skipped, and resent them once promoted itself
+1793058764484453729 a message a promotion skipped, received before the failover behind a gap and delivered after it, not expected (simulator bug)

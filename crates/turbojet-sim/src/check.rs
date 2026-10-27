@@ -65,6 +65,9 @@ struct Sent {
     promoted: Option<Promoted>,
     /// Application messages a promotion may have skipped, which may be gap-filled.
     may_gap_fill: BTreeSet<u64>,
+    /// Application messages a promotion skipped: never resent, but the counterparty may have
+    /// one already, queued behind a gap, and deliver it later.
+    skipped: BTreeMap<u64, Message>,
     /// Ledger entries already checked.
     ledger_seen: usize,
     /// Changes that may or may not have taken effect (a commit a power loss tore, or changes never
@@ -228,7 +231,9 @@ impl Sent {
             return Err(refuse(self));
         }
         after.skip_to.clone_from(&self.skip_to);
-        after.recorded.retain(|seq, _| *seq < held);
+        for (seq, msg) in after.recorded.split_off(&held) {
+            after.skipped.extend(msg.map(|msg| (seq, msg)));
+        }
         after.evicted.retain(|seq, _| *seq < held);
         after.recorded.extend((after.next_recorded.min(held)..out).map(|seq| (seq, None)));
         after.may_gap_fill.extend(after.recorded.range(surely..held).filter(|(_, m)| m.is_some()).map(|(seq, _)| *seq));
@@ -261,6 +266,7 @@ impl Default for Sent {
             last_written: 0,
             promoted: None,
             may_gap_fill: BTreeSet::new(),
+            skipped: BTreeMap::new(),
             ledger_seen: 0,
             uncertain: Vec::new(),
             evicted: BTreeMap::new(),
@@ -629,8 +635,8 @@ impl Checker {
                 return Err(violation("3 resend", format!("{side:?} gap-filled {seq}..{new_seq_no} over {covered}")));
             }
             // Any messages it covers, a promotion skipped: they're lost.
-            for (_, msg) in sent.recorded.range_mut(seq..new_seq_no) {
-                *msg = None;
+            for (seq, msg) in sent.recorded.range_mut(seq..new_seq_no) {
+                sent.skipped.extend(msg.take().map(|msg| (*seq, msg)));
             }
             return Ok(());
         }
@@ -664,8 +670,9 @@ impl Checker {
             };
             let mut expected = in_epoch(&sender.recorded);
             if expected.is_none() {
-                // Delivered before the store evicted it.
-                expected = sender.evicted.get(&delivery.seq).and_then(id_of).map(str::to_string);
+                // Delivered before the store evicted it, or a promotion skipped it.
+                let gone = sender.evicted.get(&delivery.seq).or_else(|| sender.skipped.get(&delivery.seq));
+                expected = gone.and_then(id_of).map(str::to_string);
             }
             if expected.as_deref() != Some(delivery.id.as_str())
                 && in_epoch(&sender.previous).as_deref() == Some(&delivery.id)
