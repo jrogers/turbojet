@@ -368,13 +368,7 @@ where
         other => return Err(io::Error::other(format!("the standby answered hello with {other:?}"))),
     }
     let (outbox, mut frames_out) = async_mpsc::unbounded_channel::<Vec<u8>>();
-    let conn = Arc::new(Conn {
-        number,
-        outbox: Mutex::new(Some(outbox)),
-        tasks: Mutex::new(Vec::new()),
-        waiting: Mutex::new(HashMap::new()),
-        alive: AtomicBool::new(true),
-    });
+    let conn = Arc::new(Conn::new(number, outbox));
     let reading = conn.clone();
     let read = tokio::spawn(async move { reading.read(frames).await });
     let writing = conn.clone();
@@ -410,31 +404,51 @@ impl Answer {
 }
 
 impl Conn {
+    /// A connection whose frames go to `outbox`, its tasks yet to be started.
+    fn new(number: u64, outbox: async_mpsc::UnboundedSender<Vec<u8>>) -> Self {
+        Self {
+            number,
+            outbox: Mutex::new(Some(outbox)),
+            tasks: Mutex::new(Vec::new()),
+            waiting: Mutex::new(HashMap::new()),
+            alive: AtomicBool::new(true),
+        }
+    }
+
     /// Reads the standby's answers until the connection ends, handing each to who waits for it.
     async fn read<R: AsyncRead + Unpin>(&self, mut frames: FrameReader<R>) {
         while let Ok(Some(frame)) = frames.next().await {
-            let (Frame::Bound { handle, .. } | Frame::Ack { handle, .. } | Frame::Nack { handle, .. }) = &frame else {
-                warn!(?frame, "the standby sent a frame it shouldn't");
+            if !self.answered(frame) {
                 break;
-            };
-            let waiter = match self.waiting.lock().unwrap_or_else(PoisonError::into_inner).entry(*handle) {
-                Entry::Occupied(mut queue) => {
-                    let waiter = queue.get_mut().pop_front();
-                    if queue.get().is_empty() {
-                        queue.remove();
-                    }
-                    waiter
-                }
-                Entry::Vacant(_) => None,
-            };
-            match waiter {
-                Some(waiter) => {
-                    let _ = waiter.send(Ok(frame));
-                }
-                None => warn!(?frame, "the standby answered a request nobody waits for"),
             }
         }
         self.lost();
+    }
+
+    /// Hands the standby's answer to the oldest request waiting for it on its handle: false if
+    /// `frame` isn't an answer, which ends the connection.
+    fn answered(&self, frame: Frame) -> bool {
+        let (Frame::Bound { handle, .. } | Frame::Ack { handle, .. } | Frame::Nack { handle, .. }) = &frame else {
+            warn!(?frame, "the standby sent a frame it shouldn't");
+            return false;
+        };
+        let waiter = match self.waiting.lock().unwrap_or_else(PoisonError::into_inner).entry(*handle) {
+            Entry::Occupied(mut queue) => {
+                let waiter = queue.get_mut().pop_front();
+                if queue.get().is_empty() {
+                    queue.remove();
+                }
+                waiter
+            }
+            Entry::Vacant(_) => None,
+        };
+        match waiter {
+            Some(waiter) => {
+                let _ = waiter.send(Ok(frame));
+            }
+            None => warn!(?frame, "the standby answered a request nobody waits for"),
+        }
+        true
     }
 
     /// The connection is lost: its tasks are stopped, which closes it, and everyone waiting is
