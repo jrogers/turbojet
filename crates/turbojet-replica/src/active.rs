@@ -301,7 +301,7 @@ fn attach(
     };
     log.drained_through = log.inner.next_outgoing() - 1;
     let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, session).and_then(|theirs| {
-        if theirs != summary(log.inner.as_ref()) || shared.is_behind(session) {
+        if theirs != summary(log.inner.as_mut(), shared.max_lag)? || shared.is_behind(session) {
             let Whole { header, fetched } = Whole::of(log.inner.as_mut())?;
             send_whole(shared, handle, &log.commit_no, header, messages(fetched)?)?;
         }
@@ -869,7 +869,7 @@ mod tests {
         log.set_next_incoming_in_flight(70, 66).unwrap();
         log.set_created_at(UtcTimestamp::from_timestamp(1_800_000_000, 0).unwrap()).unwrap();
         log.set_marks("paused".parse().unwrap()).unwrap();
-        let mine = summary(log.as_ref());
+        let mine = summary(log.as_mut(), 0).unwrap();
         let messages = log.sent_messages(1, u64::MAX).unwrap();
         assert!(messages.iter().map(|(_, msg)| msg.len()).sum::<usize>() > 2 * SNAPSHOT_BATCH_BYTES);
         drop(log);
@@ -878,7 +878,7 @@ mod tests {
         let active = ReplicatedStorage::new(inner, Arc::new(LocalLink::connect(replica.clone(), 1, "a").unwrap()), 1);
         drop(active.open(&id).unwrap());
         let mut copy = replica.lock().unwrap().storage().open(&id).unwrap();
-        assert_eq!(summary(copy.as_ref()), mine);
+        assert_eq!(summary(copy.as_mut(), 0).unwrap(), mine);
         assert_eq!(copy.sent_messages(1, u64::MAX).unwrap(), messages);
         drop(copy);
 
@@ -1249,6 +1249,38 @@ mod tests {
             assert!(sent.contains(message), "{} isn't one the active stored", message.0);
             assert!(message.0 <= held_through, "{} is in the numbers skipped", message.0);
         }
+    }
+
+    /// After an async failover with the lag full, the old active's copy has the same numbers as
+    /// the promoted standby's, which skipped past the messages it lacked: the copies differ only
+    /// in those last numbers, messages in one and none in the other. Bound as the new standby, the
+    /// old copy is sent whole, so that it holds none of them either, as a later promotion of it
+    /// would resend them.
+    #[test]
+    fn a_copy_with_messages_the_active_skipped_is_sent_whole() {
+        let id = conformance::id("A");
+        let (old, promoted) = (Arc::new(MemoryStorage::new()), Arc::new(MemoryStorage::new()));
+        let standby = Arc::new(Mutex::new(Replica::new(promoted.clone()).accepting_lag(3)));
+        let link = Arc::new(LocalLink::connect(standby.clone(), 1, "old").unwrap());
+        let active = ReplicatedStorage::new(old.clone(), link, 1).asynchronous(3);
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=10 {
+            store_and_commit(log.as_mut(), seq).unwrap();
+        }
+        drop(log);
+        drop(active);
+        assert_eq!(standby.lock().unwrap().storage().open(&id).unwrap().next_outgoing(), 8, "3 behind");
+        standby.lock().unwrap().promote().unwrap();
+        let mine = promoted.open(&id).unwrap().sent_messages(1, u64::MAX).unwrap();
+        assert_eq!(promoted.open(&id).unwrap().next_outgoing(), 11, "the old active's next too");
+
+        let replica = Arc::new(Mutex::new(Replica::new(old.clone()).accepting_lag(3)));
+        let link = Arc::new(LocalLink::connect(replica, 2, "promoted").unwrap());
+        let active = ReplicatedStorage::new(promoted.clone(), link, 2).asynchronous(3);
+        drop(active.open(&id).unwrap());
+        let mut copy = old.open(&id).unwrap();
+        assert_eq!(copy.next_outgoing(), 11);
+        assert_eq!(copy.sent_messages(1, u64::MAX).unwrap(), mine, "none of 8 to 10");
     }
 
     /// A commit's job dropped unrun leaves the batches it would have waited for unacknowledged:

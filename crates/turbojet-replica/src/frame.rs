@@ -54,6 +54,11 @@ pub struct Summary {
     pub in_flight: Option<u64>,
     pub created_at: Option<UtcTimestamp>,
     pub marks: Marks,
+    /// A digest of the last outgoing numbers, as many as the active may leave unacknowledged:
+    /// which hold a message, and its bytes. Two copies can differ there with the same numbers,
+    /// an old active's holding messages a standby it failed over to never got and skipped. 0 for
+    /// none.
+    pub last_outgoing: u64,
 }
 
 /// One commit's changes to a session's stored state, in the order they were made, and the
@@ -195,11 +200,7 @@ impl Frame {
             Self::Bound { handle, summary } => {
                 w.u8(kind::BOUND);
                 w.u32(*handle);
-                w.u64(summary.next_outgoing);
-                w.u64(summary.next_incoming);
-                w.u64(summary.in_flight.unwrap_or(0));
-                w.bytes(summary.created_at.map(|at| at.to_fix()).unwrap_or_default().as_bytes());
-                w.bytes(summary.marks.to_string().as_bytes());
+                w.summary(summary);
             }
             Self::Batch(batch) => {
                 w.u8(kind::BATCH);
@@ -272,8 +273,10 @@ impl Frame {
                     .then(|| UtcTimestamp::from_fix(&created_at).map_err(|_| FrameError::Invalid("timestamp")))
                     .transpose()?;
                 let marks = r.text()?.parse().map_err(|_| FrameError::Invalid("marks"))?;
+                let last_outgoing = r.u64()?;
                 let in_flight = (in_flight > 0).then_some(in_flight);
-                Self::Bound { handle, summary: Summary { next_outgoing, next_incoming, in_flight, created_at, marks } }
+                let summary = Summary { next_outgoing, next_incoming, in_flight, created_at, marks, last_outgoing };
+                Self::Bound { handle, summary }
             }
             kind::BATCH => {
                 let (handle, epoch, commit_no) = (r.u32()?, r.u64()?, r.u64()?);
@@ -332,6 +335,15 @@ impl Writer<'_> {
     fn bytes(&mut self, bytes: &[u8]) {
         self.u32(len_u32(bytes.len()));
         self.0.extend_from_slice(bytes);
+    }
+
+    fn summary(&mut self, summary: &Summary) {
+        self.u64(summary.next_outgoing);
+        self.u64(summary.next_incoming);
+        self.u64(summary.in_flight.unwrap_or(0));
+        self.bytes(summary.created_at.map(|at| at.to_fix()).unwrap_or_default().as_bytes());
+        self.bytes(summary.marks.to_string().as_bytes());
+        self.u64(summary.last_outgoing);
     }
 
     fn op(&mut self, op: &Op) {
@@ -458,6 +470,7 @@ mod tests {
                     in_flight: Some(8),
                     created_at: Some(UtcTimestamp::from_fix("20261026-09:30:00.125").unwrap()),
                     marks: paused,
+                    last_outgoing: 0x0123_4567_89ab_cdef,
                 },
             },
             Frame::Bound {
@@ -468,6 +481,7 @@ mod tests {
                     in_flight: None,
                     created_at: None,
                     marks: Marks::default(),
+                    last_outgoing: 0,
                 },
             },
             Frame::Batch(Batch {

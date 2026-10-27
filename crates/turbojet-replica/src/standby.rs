@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::io;
 
-use turbojet::store::{Opened, SessionStorage, StoredSession};
+use turbojet::store::{Fetched, Opened, SessionStorage, StoredSession};
 
 use crate::frame::{Batch, Frame, NackReason, Op, Summary, VERSION};
 
@@ -108,12 +108,12 @@ impl<S: SessionStorage> Replica<S> {
             Frame::Bind { handle, max_lag, .. } if max_lag > self.max_lag => {
                 Ok(Some(Frame::Nack { handle, reason: NackReason::Lag }))
             }
-            Frame::Bind { handle, session, .. } => {
-                let log = match self.storage.begin_open(&session)? {
+            Frame::Bind { handle, max_lag, session, .. } => {
+                let mut log = match self.storage.begin_open(&session)? {
                     Opened::Ready(log) => log,
                     Opened::Pending(job) => job.run()?,
                 };
-                let summary = summary(log.as_ref());
+                let summary = summary(log.as_mut(), max_lag)?;
                 self.bound.insert(handle, Bound { log, commit_no: 0 });
                 Ok(Some(Frame::Bound { handle, summary }))
             }
@@ -196,15 +196,41 @@ impl<S: SessionStorage> Replica<S> {
     }
 }
 
-/// What the active compares its own copy of a session with.
-pub(crate) fn summary(log: &dyn StoredSession) -> Summary {
-    Summary {
+/// What the active compares its own copy of a session with, for an active that leaves up to
+/// `max_lag` outgoing numbers unacknowledged.
+pub(crate) fn summary(log: &mut dyn StoredSession, max_lag: u64) -> io::Result<Summary> {
+    Ok(Summary {
         next_outgoing: log.next_outgoing(),
         next_incoming: log.next_incoming(),
         in_flight: log.in_flight(),
         created_at: log.created_at(),
         marks: log.marks(),
+        last_outgoing: last_outgoing(log, max_lag)?,
+    })
+}
+
+/// A digest of the last `n` outgoing numbers before the next (FNV-1a, stable across builds, as
+/// the two sides may run different ones): each message stored there, with its number and length.
+/// By the bound on what an active leaves unacknowledged, only there can its copy and the
+/// standby's differ with the same numbers. 0, reading nothing, for none.
+fn last_outgoing(log: &mut dyn StoredSession, n: u64) -> io::Result<u64> {
+    let next = log.next_outgoing();
+    let begin = next.saturating_sub(n).max(1);
+    if n == 0 || begin >= next {
+        return Ok(0);
     }
+    let messages = match log.fetch(begin, next - 1)? {
+        Fetched::Ready(messages) => messages,
+        Fetched::Pending(job) => job.run()?,
+    };
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    let len = |msg: &[u8]| u64::try_from(msg.len()).expect("a message's length fits");
+    for (seq, msg) in &messages {
+        for byte in seq.to_le_bytes().iter().chain(&len(msg).to_le_bytes()).chain(msg) {
+            hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    Ok(hash)
 }
 
 /// Whether `ops` follow on from `log`: each outgoing number recorded is one not yet used, and a

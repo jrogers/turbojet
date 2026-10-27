@@ -576,11 +576,11 @@ mod tests {
         drop(log);
 
         let mut log = active.open(&id).unwrap();
-        let mine = summary(log.as_ref());
+        let mine = summary(log.as_mut(), 0).unwrap();
         let messages = log.sent_messages(1, u64::MAX).unwrap();
         drop(log);
         let mut copy = standby.open(&id).unwrap();
-        assert_eq!(summary(copy.as_ref()), mine);
+        assert_eq!(summary(copy.as_mut(), 0).unwrap(), mine);
         assert_eq!(copy.sent_messages(1, u64::MAX).unwrap(), messages);
     }
 
