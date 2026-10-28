@@ -43,19 +43,29 @@ async fn one_holder_at_a_time(url: &str) {
 }
 
 /// The holder records whether its standby is in sync, for whoever takes the lease over to see;
-/// an instance it was taken from can't.
+/// an instance it was taken from can't. Only the holder reads it, so an instance taking over
+/// reads it once it holds the lease, when no one else can change it.
 async fn in_sync_is_the_holders_to_say(url: &str) {
     let name = fresh_name();
     let a = store(url, "gw-a", Duration::from_secs(60)).await.lease(&name);
     let b = store(url, "gw-b", Duration::from_secs(60)).await.lease(&name);
-    assert!(b.in_sync().run_async().await.unwrap(), "a lease never taken is in sync");
     let first = a.acquire().run_async().await.unwrap();
-    a.set_in_sync(first, false).run_async().await.unwrap();
-    assert!(!b.in_sync().run_async().await.unwrap());
+    assert!(a.in_sync(first).run_async().await.unwrap(), "a new lease is in sync");
+    let unheld = b.in_sync(first).run_async().await.unwrap_err();
+    assert_eq!(unheld.kind(), io::ErrorKind::PermissionDenied, "only the holder reads");
     let refused = b.set_in_sync(first, true).run_async().await.unwrap_err();
     assert_eq!(refused.kind(), io::ErrorKind::PermissionDenied, "only the holder says");
-    a.set_in_sync(first, true).run_async().await.unwrap();
-    assert!(b.in_sync().run_async().await.unwrap());
+    a.set_in_sync(first, false).run_async().await.unwrap();
+    assert!(!a.in_sync(first).run_async().await.unwrap());
+    a.release(first).run_async().await.unwrap();
+
+    let second = b.acquire().run_async().await.unwrap();
+    assert!(!b.in_sync(second).run_async().await.unwrap(), "a new holder sees what the last said");
+    let stale = a.in_sync(first).run_async().await.unwrap_err();
+    assert_eq!(stale.kind(), io::ErrorKind::PermissionDenied, "a holder replaced can't read it");
+    assert_eq!(a.set_in_sync(first, true).run_async().await.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
+    b.set_in_sync(second, true).run_async().await.unwrap();
+    assert!(b.in_sync(second).run_async().await.unwrap());
 }
 
 /// A lease that has run out is taken over without being given up.

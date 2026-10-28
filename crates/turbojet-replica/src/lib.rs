@@ -43,8 +43,8 @@
 //! `turbojet-sql`'s `SqlLease` (feature `replica`) keeps the lease in a database;
 //! [`ManualLease`] leaves the epoch to an operator, and fencing to the standby.
 //!
-//! To fail over, the standby's instance takes the lease, under a higher epoch, calls
-//! [`Replica::promote`], which closes the sessions the standby holds and refuses the old active
+//! To fail over, the standby's instance takes the lease, under a higher epoch, checks
+//! [`Lease::in_sync`] under it, calls [`Replica::promote`], which closes the sessions the standby holds and refuses the old active
 //! from then on, and starts its own registry over its store, replicating in turn to the old
 //! active's instance once that's back.
 //!
@@ -66,8 +66,10 @@
 //! standby is out of sync ([`Lease::set_in_sync`]), then commits alone. When the standby is back,
 //! each open session sends itself whole at its next commit, and
 //! [`catch_up`](ReplicatedStorage::catch_up), run every few seconds, sends the rest and tells the
-//! lease once the standby is in sync. An instance about to take over checks
-//! [`Lease::in_sync`] first. Degrading needs a lease that fences a replaced active, which the
+//! lease once the standby is in sync. An instance about to take over acquires the lease, then
+//! reads [`Lease::in_sync`] as its holder, and takes over only if it's true: read before
+//! acquiring, it could be stale, the active still able to put the standby out of sync and commit
+//! alone. Degrading needs a lease that fences a replaced active, which the
 //! standby can't while it's unreachable: [`ManualLease`] can't, so with one a commit the standby
 //! can't take still fails.
 //!

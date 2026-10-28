@@ -156,8 +156,11 @@ A store made `degrading` keeps the sessions up instead: when the standby can't b
 tells the lease the standby is out of sync and commits alone. Nothing a commit covers goes out
 before the lease has been told, and if it can't be, the commit fails after all. When the standby
 is back, each open session sends itself whole at its next commit; run `catch_up` every few
-seconds to send the rest, which tells the lease once the standby is in sync again. Before taking
-over, check the lease's `in_sync`: a standby out of sync lacks commits. Degrading needs a lease
+seconds to send the rest, which tells the lease once the standby is in sync again. To take over,
+acquire the lease first, then read its `in_sync` under the epoch acquired, and promote only if it's
+true: a standby out of sync lacks commits. Read before acquiring, it could be stale, as the old
+active can still say otherwise until the lease is taken; a reader that doesn't hold the lease is
+refused. Degrading needs a lease
 that can fence, such as `SqlLease`: an operator's `ManualLease` can't stop a replaced active while
 the standby is unreachable, so with one a commit the standby can't take still fails. A refusal
 because another instance holds the lease always fails.

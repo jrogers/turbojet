@@ -27,8 +27,8 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
 - `turbojet-replica`: unless the store is `degrading`, a commit the standby can't take (unreachable
   within `DEFAULT_ANSWER_TIMEOUT`, or refusing a deposed active) fails the session, so the active
   is only as available as its standby. Degrading needs a lease that can fence (`SqlLease`, not
-  `ManualLease`), and while the standby is out of sync a failover would lose commits: check the
-  lease's `in_sync` first. A session the standby fell behind on, or hasn't seen, is sent whole, up
+  `ManualLease`), and while the standby is out of sync a failover would lose commits: acquire the
+  lease, then check its `in_sync` (only the holder may read it). A session the standby fell behind on, or hasn't seen, is sent whole, up
   to its byte budget; the standby holds it in memory until all of it has arrived (up to 4 GiB of
   messages a session), then replaces its copy. A `DiskStorage` under the standby writes the
   reset at once and the messages at the commit after it, so a standby crash between the two

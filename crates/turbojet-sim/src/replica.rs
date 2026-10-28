@@ -221,7 +221,10 @@ impl Lease for SimLease {
         Job::blocking(|| Ok(()))
     }
 
-    fn in_sync(&self) -> Job<bool> {
+    fn in_sync(&self, epoch: u64) -> Job<bool> {
+        if epoch != self.epoch.load(Ordering::Acquire) {
+            return Job::blocking(|| Err(io::Error::new(io::ErrorKind::PermissionDenied, "the lease was taken")));
+        }
         let in_sync = !self.out_of_sync.load(Ordering::Acquire);
         Job::blocking(move || Ok(in_sync))
     }

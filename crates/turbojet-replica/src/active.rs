@@ -976,7 +976,7 @@ mod tests {
                 Job::blocking(|| Ok(()))
             }
 
-            fn in_sync(&self) -> Job<bool> {
+            fn in_sync(&self, _epoch: u64) -> Job<bool> {
                 Job::blocking(|| Ok(true))
             }
         }
@@ -1079,7 +1079,7 @@ mod tests {
             Job::blocking(|| Ok(()))
         }
 
-        fn in_sync(&self) -> Job<bool> {
+        fn in_sync(&self, _epoch: u64) -> Job<bool> {
             let in_sync = !self.out_of_sync.load(Ordering::Acquire);
             Job::blocking(move || Ok(in_sync))
         }

@@ -40,9 +40,15 @@ pub trait Lease: Send + Sync {
     /// the standby lacks without saying so.
     fn set_in_sync(&self, epoch: u64, in_sync: bool) -> Job<()>;
 
-    /// Whether the standby was in sync when the lease's holder last said: an instance taking
-    /// the lease over checks it first, since a standby out of sync lacks commits.
-    fn in_sync(&self) -> Job<bool>;
+    /// Whether the standby was in sync when the lease's holder last said, read as the holder
+    /// under `epoch`: an instance taking the lease over reads it once it holds the lease, and
+    /// takes over only if it's true, since a standby out of sync lacks commits. Read before
+    /// acquiring, it could be stale: the holder replaced could still say otherwise.
+    ///
+    /// # Errors
+    ///
+    /// [`io::ErrorKind::PermissionDenied`] if this instance doesn't hold the lease under `epoch`.
+    fn in_sync(&self, epoch: u64) -> Job<bool>;
 }
 
 /// A lease an operator decides: [`acquire`](Lease::acquire) takes the epoch given, which the
@@ -94,7 +100,7 @@ impl Lease for ManualLease {
         })
     }
 
-    fn in_sync(&self) -> Job<bool> {
+    fn in_sync(&self, _epoch: u64) -> Job<bool> {
         Job::blocking(|| Ok(true))
     }
 }
@@ -122,7 +128,7 @@ impl Held {
     }
 
     pub(crate) fn in_sync(&self) -> Job<bool> {
-        self.lease.in_sync()
+        self.lease.in_sync(self.epoch)
     }
 
     /// A renewal, if the lease is half gone: it fails only if the lease was taken, or has run
@@ -197,7 +203,7 @@ mod tests {
             Job::blocking(|| Ok(()))
         }
 
-        fn in_sync(&self) -> Job<bool> {
+        fn in_sync(&self, _epoch: u64) -> Job<bool> {
             Job::blocking(|| Ok(true))
         }
     }

@@ -329,7 +329,12 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     next commit (the snapshot taken after the local commit, so it holds that commit), and
     `catch_up` sends the closed ones, counting a session's open logs so an opening waits while it
     sends one, and marks the lease in sync once none is behind. A new holder leaves the mark as
-    it is, so after a forced failover the first catch-up counts every session behind. The
+    it is, so after a forced failover the first catch-up counts every session behind. Reading
+    the mark is fenced too: only the holder under its epoch may, so an instance taking over reads
+    it once it holds the lease, when no one else can change it. Read before acquiring, it could
+    be stale: the active, still holding the lease, could put the standby out of sync and commit
+    alone between the read and the acquisition. A TLA+ model of the protocol found that; the
+    simulator, which checks and takes over in one step, couldn't. The
     simulator degrades on half its replicated seeds, with standby outages, and only fails over
     once the lease says in sync; a planted failover that doesn't wait is caught.
   - Over TCP, or TLS (`turbojet::tls`, as for FIX sessions), the link's calls block: they run in

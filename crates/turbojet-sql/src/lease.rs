@@ -131,16 +131,23 @@ impl Lease for SqlLease {
         })
     }
 
-    fn in_sync(&self) -> Job<bool> {
+    fn in_sync(&self, epoch: u64) -> Job<bool> {
         let lease = self.clone();
         Job::future(async move {
             let Self { shared, name, .. } = &lease;
-            let row = sqlx::query("SELECT in_sync FROM turbojet_leases WHERE name = $1")
+            let row = sqlx::query("SELECT in_sync FROM turbojet_leases WHERE name = $1 AND holder = $2 AND epoch = $3")
                 .bind(name)
+                .bind(&shared.config.holder)
+                .bind(i64::try_from(epoch).unwrap_or(i64::MAX))
                 .fetch_optional(&shared.pool)
                 .await
                 .map_err(database("reading a lease"))?;
-            let Some(row) = row else { return Ok(true) };
+            let Some(row) = row else {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!("lease {name} (epoch {epoch}) isn't this instance's to read"),
+                ));
+            };
             let in_sync: i64 = row.try_get("in_sync").map_err(database("reading a lease"))?;
             Ok(in_sync != 0)
         })
