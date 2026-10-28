@@ -9,7 +9,7 @@ use turbojet::SessionId;
 use turbojet::fields::UtcTimestamp;
 use turbojet::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, SessionStorage, StoredSession};
 
-use crate::frame::{Batch, Frame, NackReason, Op, Summary, VERSION};
+use crate::frame::{Batch, Frame, NackReason, Op, Part, Summary, VERSION};
 use crate::lease::{Held, Lease};
 use crate::standby::{Replica, summary};
 use crate::sync::{AtomicBool, AtomicU32, AtomicU64, Condvar, Mutex, MutexGuard, Ordering};
@@ -413,7 +413,8 @@ fn messages(fetched: Fetched) -> io::Result<SentMessages> {
 }
 
 /// Sends a session as `header` and `messages` have it, replacing the standby's copy, in batches
-/// of [`SNAPSHOT_BATCH_BYTES`] of messages at most, numbered on from `commit_no`.
+/// of [`SNAPSHOT_BATCH_BYTES`] of messages at most, numbered on from `commit_no`. The standby
+/// holds them until the last, so a send cut short leaves its copy as it was.
 fn send_whole(
     shared: &Replication,
     handle: u32,
@@ -449,16 +450,18 @@ fn send_whole(
         None => Op::SetNextIncoming(header.next_incoming),
     });
     ops.push(Op::SetMarks(header.marks));
-    for ops in batches {
-        shared.link.send(batch(handle, shared.epoch, commit_no, ops)).run()?;
+    let last = batches.len() - 1;
+    for (i, ops) in batches.into_iter().enumerate() {
+        let part = if i == last { Part::LastWhole } else { Part::Whole };
+        shared.link.send(batch(handle, shared.epoch, commit_no, part, ops)).run()?;
     }
     Ok(())
 }
 
 /// The next batch on `handle`, of `ops`.
-fn batch(handle: u32, epoch: u64, commit_no: &AtomicU64, ops: Vec<Op>) -> Batch {
+fn batch(handle: u32, epoch: u64, commit_no: &AtomicU64, part: Part, ops: Vec<Op>) -> Batch {
     let commit_no = commit_no.fetch_add(1, Ordering::AcqRel) + 1;
-    Batch { handle, epoch, commit_no, ops, app_records: Vec::new() }
+    Batch { handle, epoch, commit_no, part, ops, app_records: Vec::new() }
 }
 
 /// A session's log in `S`, recording each change it makes for the next commit's batch.
@@ -525,7 +528,7 @@ impl ReplicatedLog {
     fn remote(&mut self, ops: Vec<Op>) -> io::Result<Commit> {
         let (shared, session, bound) = (self.shared.clone(), self.session.clone(), self.bound.clone());
         if !self.behind() {
-            let sent = shared.link.send(batch(self.handle, shared.epoch, &self.commit_no, ops));
+            let sent = shared.link.send(batch(self.handle, shared.epoch, &self.commit_no, Part::Commit, ops));
             return Ok(sent.map_result(move |sent| match sent {
                 Ok(()) => Ok(()),
                 Err(e) => lost(&shared, &session, &bound, e),
@@ -659,7 +662,7 @@ impl StoredSession for ReplicatedLog {
         } else if self.behind() {
             Err(io::Error::other("the standby is behind on the session"))
         } else {
-            self.shared.link.send(batch(self.handle, self.shared.epoch, &self.commit_no, ops)).run()
+            self.shared.link.send(batch(self.handle, self.shared.epoch, &self.commit_no, Part::Commit, ops)).run()
         };
         if let Err(e) = sent {
             lost(&self.shared, &self.session, &self.bound, e)?;
@@ -891,6 +894,61 @@ mod tests {
         assert!(active.open(&id).unwrap().commit().unwrap().is_none());
     }
 
+    /// A link that fails every send once `sends_left` have gone.
+    struct Cut {
+        link: LocalLink<MemoryStorage>,
+        sends_left: Mutex<Option<u32>>,
+    }
+
+    impl Link for Cut {
+        fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+            self.link.bind(handle, epoch, max_lag, session)
+        }
+
+        fn send(&self, batch: Batch) -> Commit {
+            let mut left = self.sends_left.lock().unwrap();
+            if *left == Some(0) {
+                return Commit::blocking(|| Err(io::ErrorKind::ConnectionReset.into()));
+            }
+            *left = left.map(|n| n - 1);
+            self.link.send(batch)
+        }
+    }
+
+    /// A session over a batch's worth sent whole, the link lost after its first batch: the
+    /// standby keeps the copy it had, which holds everything the active sent.
+    #[test]
+    fn a_session_sent_whole_and_cut_short_leaves_the_standby_as_it_was() {
+        let (id, own) = (conformance::id("A"), Arc::new(MemoryStorage::new()));
+        let replica = Arc::new(Mutex::new(Replica::new(MemoryStorage::new())));
+        let link =
+            Arc::new(Cut { link: LocalLink::connect(replica.clone(), 1, "a").unwrap(), sends_left: Mutex::new(None) });
+        let active = ReplicatedStorage::new(own.clone(), link.clone(), 1);
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=3 {
+            store_and_commit(log.as_mut(), seq).unwrap();
+        }
+        drop(log);
+        // Committed here alone, as a commit whose copy failed is: the standby lacks it.
+        let mut mine = own.open(&id).unwrap();
+        let (mut seq, mut bytes) = (4, 0);
+        while bytes <= 2 * SNAPSHOT_BATCH_BYTES {
+            let msg = conformance::app_message(seq);
+            mine.record_outgoing(seq, Some(&msg)).unwrap();
+            bytes += msg.len();
+            seq += 1;
+        }
+        drop(mine);
+
+        *link.sends_left.lock().unwrap() = Some(1);
+        assert!(active.open(&id).is_err(), "the standby can't be caught up");
+        assert_eq!(standby_has(&replica, &id), 4, "its copy as it was");
+
+        *link.sends_left.lock().unwrap() = None;
+        drop(active.open(&id).unwrap());
+        assert_eq!(standby_has(&replica, &id), seq);
+    }
+
     /// A lease another instance has taken fails the commit, though the standby would take it:
     /// fencing that doesn't need the standby.
     #[test]
@@ -953,7 +1011,7 @@ mod tests {
             let bind = Frame::Bind { handle: 1, epoch: 1, max_lag, session: conformance::id("A") };
             replica.on_frame(bind).unwrap();
             let ops = (1..=5).map(|seq| Op::Record { seq, msg: Some(conformance::app_message(seq)) }).collect();
-            let reply = replica.on_frame(Frame::Batch(batch(1, 1, &AtomicU64::new(0), ops))).unwrap();
+            let reply = replica.on_frame(Frame::Batch(batch(1, 1, &AtomicU64::new(0), Part::Commit, ops))).unwrap();
             assert_eq!(reply, Some(Frame::Ack { handle: 1, commit_no: 1 }));
             replica.promote().unwrap();
             replica.storage().open(&conformance::id("A")).unwrap()

@@ -52,7 +52,8 @@
 //!
 //! When a session opens, the active compares the standby's copy of it with its own, and sends the
 //! session whole if they differ (in batches of a megabyte of messages at most): a standby that
-//! missed commits, or joins late, catches up. A reset is sent at once, as the built-in stores
+//! missed commits, or joins late, catches up. The standby replaces its copy only once the whole
+//! session has arrived, so a send cut short leaves the copy it had. A reset is sent at once, as the built-in stores
 //! write it at once, so a failover never finds one copy reset and the other not.
 //!
 //! By default a commit the standby can't take, because it can't be reached in time

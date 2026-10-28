@@ -17,7 +17,7 @@ use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
 use turbojet::store::Marks;
 
 /// The version of the wire form this crate speaks.
-pub const VERSION: u16 = 2;
+pub const VERSION: u16 = 3;
 
 /// The longest frame either side sends or accepts, length prefix excluded. A batch holds what one
 /// commit stored, which a session's driver bounds well below this; a standby catching up is sent
@@ -39,7 +39,8 @@ pub enum Frame {
     Bound { handle: u32, summary: Summary },
     /// From the active: one commit of a session's changes.
     Batch(Batch),
-    /// From the standby: its store has committed the session's batch `commit_no`.
+    /// From the standby: its store has committed the session's batch `commit_no`, or, for a
+    /// part of a session sent whole before the last, holds it.
     Ack { handle: u32, commit_no: u64 },
     /// From the standby: it refused a batch, and why.
     Nack { handle: u32, reason: NackReason },
@@ -71,10 +72,25 @@ pub struct Batch {
     /// The session's commits on this connection, counted from 1: one missing means the standby
     /// has diverged.
     pub commit_no: u64,
+    /// Whether it's one commit, or a part of the session sent whole.
+    pub part: Part,
     pub ops: Vec<Op>,
     /// Opaque to Turbojet, applied atomically with `ops`; of the kinds named in the
     /// [`Frame::Hello`].
     pub app_records: Vec<AppRecord>,
+}
+
+/// Whether a batch is one commit, or a part of a session sent whole, which the standby applies
+/// only once it has every part: a send cut short leaves the copy it had, not one reset and
+/// partly refilled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    /// One commit, applied as it arrives.
+    Commit,
+    /// A part of the session, before the last: held. The first begins with [`Op::Reset`].
+    Whole,
+    /// The last part: every part is applied, and committed, at once.
+    LastWhole,
 }
 
 /// A change to a session's stored state: one call of [`StoredSession`](turbojet::store::StoredSession)'s.
@@ -204,18 +220,7 @@ impl Frame {
             }
             Self::Batch(batch) => {
                 w.u8(kind::BATCH);
-                w.u32(batch.handle);
-                w.u64(batch.epoch);
-                w.u64(batch.commit_no);
-                w.u32(len_u32(batch.ops.len()));
-                for op in &batch.ops {
-                    w.op(op);
-                }
-                w.u32(len_u32(batch.app_records.len()));
-                for record in &batch.app_records {
-                    w.u16(record.kind);
-                    w.bytes(&record.bytes);
-                }
+                w.batch(batch);
             }
             Self::Ack { handle, commit_no } => {
                 w.u8(kind::ACK);
@@ -280,13 +285,19 @@ impl Frame {
             }
             kind::BATCH => {
                 let (handle, epoch, commit_no) = (r.u32()?, r.u64()?, r.u64()?);
+                let part = match r.u8()? {
+                    0 => Part::Commit,
+                    1 => Part::Whole,
+                    2 => Part::LastWhole,
+                    other => return Err(FrameError::Unknown("part", other)),
+                };
                 let count = r.count(1)?;
                 let ops = (0..count).map(|_| r.op()).collect::<Result<_, _>>()?;
                 let count = r.count(6)?;
                 let app_records = (0..count)
                     .map(|_| Ok(AppRecord { kind: r.u16()?, bytes: r.bytes()?.to_vec() }))
                     .collect::<Result<_, _>>()?;
-                Self::Batch(Batch { handle, epoch, commit_no, ops, app_records })
+                Self::Batch(Batch { handle, epoch, commit_no, part, ops, app_records })
             }
             kind::ACK => Self::Ack { handle: r.u32()?, commit_no: r.u64()? },
             kind::NACK => {
@@ -344,6 +355,26 @@ impl Writer<'_> {
         self.bytes(summary.created_at.map(|at| at.to_fix()).unwrap_or_default().as_bytes());
         self.bytes(summary.marks.to_string().as_bytes());
         self.u64(summary.last_outgoing);
+    }
+
+    fn batch(&mut self, batch: &Batch) {
+        self.u32(batch.handle);
+        self.u64(batch.epoch);
+        self.u64(batch.commit_no);
+        self.u8(match batch.part {
+            Part::Commit => 0,
+            Part::Whole => 1,
+            Part::LastWhole => 2,
+        });
+        self.u32(len_u32(batch.ops.len()));
+        for op in &batch.ops {
+            self.op(op);
+        }
+        self.u32(len_u32(batch.app_records.len()));
+        for record in &batch.app_records {
+            self.u16(record.kind);
+            self.bytes(&record.bytes);
+        }
     }
 
     fn op(&mut self, op: &Op) {
@@ -488,6 +519,7 @@ mod tests {
                 handle: 3,
                 epoch: 7,
                 commit_no: 42,
+                part: Part::Commit,
                 ops: vec![
                     Op::Reset,
                     Op::SetCreatedAt(UtcTimestamp::from_fix("20261026-09:30:00.125").unwrap()),
@@ -500,7 +532,22 @@ mod tests {
                 ],
                 app_records: vec![AppRecord { kind: 300, bytes: vec![0, 1, 2] }],
             }),
-            Frame::Batch(Batch { handle: 0, epoch: 0, commit_no: 1, ops: vec![], app_records: vec![] }),
+            Frame::Batch(Batch {
+                handle: 0,
+                epoch: 0,
+                commit_no: 1,
+                part: Part::Whole,
+                ops: vec![Op::Reset],
+                app_records: vec![],
+            }),
+            Frame::Batch(Batch {
+                handle: 0,
+                epoch: 0,
+                commit_no: 2,
+                part: Part::LastWhole,
+                ops: vec![],
+                app_records: vec![],
+            }),
             Frame::Ack { handle: 3, commit_no: 42 },
             Frame::Nack { handle: 3, reason: NackReason::StaleEpoch },
             Frame::Nack { handle: 3, reason: NackReason::Diverged },
@@ -560,7 +607,7 @@ mod tests {
         }
         let mut huge_count = vec![0; 4];
         huge_count.extend_from_slice(&[kind::BATCH, 0, 0, 0, 0]);
-        huge_count.extend_from_slice(&[0; 16]);
+        huge_count.extend_from_slice(&[0; 17]);
         huge_count.extend_from_slice(&u32::MAX.to_le_bytes());
         let len = u32::try_from(huge_count.len() - 4).unwrap();
         huge_count[..4].copy_from_slice(&len.to_le_bytes());

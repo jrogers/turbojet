@@ -5,7 +5,12 @@ use std::io;
 
 use turbojet::store::{Fetched, Opened, SessionStorage, StoredSession};
 
-use crate::frame::{Batch, Frame, NackReason, Op, Summary, VERSION};
+use crate::frame::{Batch, Frame, NackReason, Op, Part, Summary, VERSION};
+
+/// The most message bytes a standby holds of a session sent whole before its last part: four
+/// times `DiskStorage`'s default budget for a session. A session past it is refused, ending the
+/// connection, so the standby's memory is bounded by its connection's sessions, one at a time.
+const MAX_WHOLE_SESSION_BYTES: usize = 4 << 30;
 
 /// A standby's copy of an active instance's session state: each batch the active commits is
 /// applied to `S` and committed there before it's acknowledged, so `S` holds what the active
@@ -35,8 +40,12 @@ impl<S> std::fmt::Debug for Replica<S> {
 
 struct Bound {
     log: Box<dyn StoredSession>,
-    /// The last batch committed: the next must follow it.
+    /// The last batch committed, or held: the next must follow it.
     commit_no: u64,
+    /// The parts of a session sent whole that have arrived, held until the last.
+    held: Vec<Op>,
+    /// The message bytes in `held`.
+    held_bytes: usize,
 }
 
 impl<S: SessionStorage> Replica<S> {
@@ -114,7 +123,7 @@ impl<S: SessionStorage> Replica<S> {
                     Opened::Pending(job) => job.run()?,
                 };
                 let summary = summary(log.as_mut(), max_lag)?;
-                self.bound.insert(handle, Bound { log, commit_no: 0 });
+                self.bound.insert(handle, Bound { log, commit_no: 0, held: Vec::new(), held_bytes: 0 });
                 Ok(Some(Frame::Bound { handle, summary }))
             }
             Frame::Batch(batch) => self.on_batch(batch).map(Some),
@@ -174,7 +183,7 @@ impl<S: SessionStorage> Replica<S> {
     }
 
     fn on_batch(&mut self, batch: Batch) -> io::Result<Frame> {
-        let Batch { handle, epoch, commit_no, ops, app_records } = batch;
+        let Batch { handle, epoch, commit_no, part, ops, app_records } = batch;
         if !app_records.is_empty() {
             return Err(refused("a batch has application records, which this standby can't apply".into()));
         }
@@ -184,7 +193,27 @@ impl<S: SessionStorage> Replica<S> {
         self.epoch = epoch;
         let bound =
             self.bound.get_mut(&handle).ok_or_else(|| refused(format!("a batch for unbound handle {handle}")))?;
-        if commit_no != bound.commit_no + 1 || !fits(bound.log.as_ref(), &ops) {
+        if commit_no != bound.commit_no + 1 {
+            bound.held.clear();
+            bound.held_bytes = 0;
+            return Ok(Frame::Nack { handle, reason: NackReason::Diverged });
+        }
+        let ops = match part {
+            Part::Commit if !bound.held.is_empty() => {
+                return Err(refused(format!("a commit on handle {handle} while its session is sent whole")));
+            }
+            Part::Commit => ops,
+            Part::Whole | Part::LastWhole => {
+                hold(bound, handle, ops)?;
+                if part == Part::Whole {
+                    bound.commit_no = commit_no;
+                    return Ok(Frame::Ack { handle, commit_no });
+                }
+                bound.held_bytes = 0;
+                std::mem::take(&mut bound.held)
+            }
+        };
+        if !fits(bound.log.as_ref(), &ops) {
             return Ok(Frame::Nack { handle, reason: NackReason::Diverged });
         }
         for op in ops {
@@ -196,6 +225,24 @@ impl<S: SessionStorage> Replica<S> {
         bound.commit_no = commit_no;
         Ok(Frame::Ack { handle, commit_no })
     }
+}
+
+/// Holds a part of a session sent whole, until the last: the first must begin with a reset, and
+/// all of them hold no more than [`MAX_WHOLE_SESSION_BYTES`] of messages.
+fn hold(bound: &mut Bound, handle: u32, ops: Vec<Op>) -> io::Result<()> {
+    if bound.held.is_empty() && ops.first() != Some(&Op::Reset) {
+        return Err(refused(format!("a session sent whole on handle {handle} that doesn't begin with a reset")));
+    }
+    let bytes: usize =
+        ops.iter().map(|op| if let Op::Record { msg: Some(msg), .. } = op { msg.len() } else { 0 }).sum();
+    bound.held_bytes = bound.held_bytes.saturating_add(bytes);
+    if bound.held_bytes > MAX_WHOLE_SESSION_BYTES {
+        return Err(refused(format!(
+            "a session sent whole on handle {handle} is past {MAX_WHOLE_SESSION_BYTES} bytes of messages"
+        )));
+    }
+    bound.held.extend(ops);
+    Ok(())
 }
 
 /// What the active compares its own copy of a session with, for an active that leaves up to
@@ -269,4 +316,88 @@ pub(crate) fn apply(log: &mut dyn StoredSession, op: Op) -> io::Result<()> {
 
 fn refused(why: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, why)
+}
+
+#[cfg(test)]
+mod tests {
+    use turbojet::MemoryStorage;
+    use turbojet::store::conformance;
+
+    use super::*;
+
+    fn bound() -> Replica<MemoryStorage> {
+        let mut replica = Replica::new(MemoryStorage::new());
+        let hello = Frame::Hello { version: VERSION, epoch: 1, node: "a".into(), app_record_kinds: Vec::new() };
+        replica.on_frame(hello).unwrap();
+        replica.on_frame(Frame::Bind { handle: 1, epoch: 1, max_lag: 0, session: conformance::id("A") }).unwrap();
+        replica
+    }
+
+    fn send(
+        replica: &mut Replica<MemoryStorage>,
+        commit_no: u64,
+        part: Part,
+        ops: Vec<Op>,
+    ) -> io::Result<Option<Frame>> {
+        replica.on_frame(Frame::Batch(Batch { handle: 1, epoch: 1, commit_no, part, ops, app_records: Vec::new() }))
+    }
+
+    fn records(seqs: std::ops::RangeInclusive<u64>) -> Vec<Op> {
+        seqs.map(|seq| Op::Record { seq, msg: Some(conformance::app_message(seq)) }).collect()
+    }
+
+    fn next_outgoing(replica: &Replica<MemoryStorage>) -> u64 {
+        replica.storage().open(&conformance::id("A")).unwrap().next_outgoing()
+    }
+
+    /// The parts of a session sent whole change nothing until the last: one cut short, by a lost
+    /// connection, leaves the copy as it was rather than reset and partly refilled, which a
+    /// failover would resume from below numbers already sent.
+    #[test]
+    fn a_session_sent_whole_is_applied_only_at_its_last_part() {
+        let mut replica = bound();
+        send(&mut replica, 1, Part::Commit, records(1..=5)).unwrap();
+        let first = [vec![Op::Reset], records(1..=3)].concat();
+        assert_eq!(
+            send(&mut replica, 2, Part::Whole, first.clone()).unwrap(),
+            Some(Frame::Ack { handle: 1, commit_no: 2 })
+        );
+        assert_eq!(next_outgoing(&replica), 6, "held, not applied");
+        replica.disconnected();
+        assert_eq!(next_outgoing(&replica), 6, "a send cut short changes nothing");
+
+        let mut replica = bound();
+        send(&mut replica, 1, Part::Commit, records(1..=5)).unwrap();
+        send(&mut replica, 2, Part::Whole, first).unwrap();
+        assert_eq!(
+            send(&mut replica, 3, Part::LastWhole, records(4..=7)).unwrap(),
+            Some(Frame::Ack { handle: 1, commit_no: 3 })
+        );
+        assert_eq!(next_outgoing(&replica), 8);
+        assert_eq!(
+            send(&mut replica, 4, Part::Commit, records(8..=8)).unwrap(),
+            Some(Frame::Ack { handle: 1, commit_no: 4 })
+        );
+    }
+
+    #[test]
+    fn a_session_sent_whole_must_begin_with_a_reset_and_not_be_interleaved() {
+        assert!(send(&mut bound(), 1, Part::Whole, records(1..=2)).is_err(), "no reset");
+        assert!(send(&mut bound(), 1, Part::LastWhole, records(1..=2)).is_err(), "no reset");
+        let mut replica = bound();
+        send(&mut replica, 1, Part::Whole, vec![Op::Reset]).unwrap();
+        assert!(send(&mut replica, 2, Part::Commit, records(1..=1)).is_err(), "a commit inside a session sent whole");
+    }
+
+    /// A part out of order drops what was held: the active sends the session whole again.
+    #[test]
+    fn a_part_out_of_order_drops_what_was_held() {
+        let mut replica = bound();
+        send(&mut replica, 1, Part::Whole, vec![Op::Reset]).unwrap();
+        assert_eq!(
+            send(&mut replica, 3, Part::LastWhole, records(1..=1)).unwrap(),
+            Some(Frame::Nack { handle: 1, reason: NackReason::Diverged })
+        );
+        assert_eq!(next_outgoing(&replica), 1);
+    }
 }

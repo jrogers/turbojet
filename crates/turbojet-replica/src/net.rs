@@ -523,7 +523,7 @@ mod tests {
 
     use super::*;
     use crate::ReplicatedStorage;
-    use crate::frame::Op;
+    use crate::frame::{Op, Part};
     use crate::standby::summary;
 
     type Standby = (SocketAddr, Arc<Mutex<Replica<Arc<MemoryStorage>>>>, Arc<MemoryStorage>);
@@ -717,7 +717,7 @@ mod tests {
     /// Batch `commit_no` for `handle`, recording outgoing message `commit_no`.
     fn numbered(handle: u32, commit_no: u64) -> Batch {
         let ops = vec![Op::Record { seq: commit_no, msg: Some(conformance::app_message(commit_no)) }];
-        Batch { handle, epoch: 1, commit_no, ops, app_records: Vec::new() }
+        Batch { handle, epoch: 1, commit_no, part: Part::Commit, ops, app_records: Vec::new() }
     }
 
     /// A session's batches sent before any is answered are each answered, in order.
