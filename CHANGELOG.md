@@ -37,7 +37,9 @@ Notable changes to the published crates.
 - `Replica::promote` returns `io::Result<()>`: with a lag accepted, it skips each session's next
   outgoing number ahead by it, past any the old active sent that the standby lacks, which needs
   a store that lists its sessions (`SessionStorage::sessions`).
-- The wire form is version 2: a bind carries the active's lag bound. A version 1 peer is refused.
+- The wire form is version 3: a bind carries the active's lag bound, and a session sent whole
+  is marked as such, so the standby replaces its copy only once all of it has arrived: a send cut
+  short leaves the copy it had. An earlier peer is refused.
 
 ### `turbojet-sql`
 

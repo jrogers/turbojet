@@ -304,7 +304,14 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     the next), or the standby refuses it. When a session opens, the active compares the
     standby's summary of it (numbers, in-flight marker, created time, marks) with its own and,
     if they differ, sends it whole, in batches of a megabyte of messages: `MemoryStorage` keeps
-    changes never committed, so a log dropped without a commit leaves the standby behind.
+    changes never committed, so a log dropped without a commit leaves the standby behind. The
+    batches are marked as parts of a session sent whole (wire version 3), and the standby holds
+    them, up to 4 GiB of messages, until the last, then applies them in one commit: applied as
+    they came, the first one's reset destroyed a copy that held everything sent, and a send cut
+    short (a lost link, an active's crash) left it partly refilled, below numbers the
+    counterparty has had, with the lease still saying it's in sync. A TLA+ model of the protocol
+    found that. A `DiskStorage` under the standby still writes the reset at once and the messages
+    at the commit, so a standby crash between the two leaves the copy reset (ROADMAP.md).
   - Fencing is by epoch. A `Lease` is taken under an epoch raised at each change of hands;
     hello, bind and batch frames carry it, and a standby refuses anything under one it has seen
     (bind too: a deposed active's handles, numbered from 0 like its successor's, would replace

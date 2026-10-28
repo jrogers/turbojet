@@ -114,6 +114,13 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
 - **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
+  - replacing a standby's copy in one step (M). A session sent whole is applied only once all of
+    it has arrived, but `DiskStorage` writes the reset at once and the messages at the commit
+    after it, so a standby crash between the two leaves the copy reset, and a failover would
+    resume below numbers already sent (found by a TLA+ model). Wants a
+    `SessionStorage::replace` that writes the new copy aside and switches over: a transaction in
+    the SQL store, trivial in memory; on disk the segments, marks and creation-time files must
+    switch together.
   - batching across sessions (S, measured, parked). Many sessions committing at once over one
     link cost about 2 µs a commit in all with memory stores, sync or async, however many share
     it: some 450,000 a second, which writing every queued frame in one write, and the standby's
