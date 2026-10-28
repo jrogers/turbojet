@@ -115,6 +115,9 @@ async fn refused(pair: &mut Pair, refuser: Refuser) {
             pair.peer.expect("QuickFIX/J's failed handshake", handshake).await;
             // One for each attempt, and it tries each second.
             pair.peer.tolerate_errors(|e| e.contains("javax.net.ssl.SSLHandshakeException"));
+            // With TLS 1.3 it may have sent its Logon before the refusal reaches it, and then
+            // logs that send's failure too.
+            pair.peer.tolerate_errors(|e| e.contains("Error during logon request initiation"));
         }
         Engine::QuickFixN => {
             let handshake = |e: &PeerEvent| {
