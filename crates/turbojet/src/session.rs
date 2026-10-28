@@ -3717,8 +3717,8 @@ fn missing_header_field(msg: &Message) -> Option<u32> {
 fn misplaced_header_and_empty_field(msg: &Message, check_order: bool) -> (Option<u32>, Option<u32>) {
     let (mut misplaced, mut empty) = (None, None);
     let mut in_body = false;
-    for (tag, value) in msg.fields() {
-        if empty.is_none() && value.is_empty() {
+    for (tag, len) in msg.text_lens() {
+        if empty.is_none() && len == 0 {
             empty = Some(tag);
         }
         if check_order && misplaced.is_none() && tag != tags::CHECK_SUM {
@@ -3736,7 +3736,7 @@ fn misplaced_header_and_empty_field(msg: &Message, check_order: bool) -> (Option
 }
 
 fn empty_field(msg: &Message) -> Option<u32> {
-    msg.fields().find(|(_, value)| value.is_empty()).map(|(tag, _)| tag)
+    msg.text_lens().find(|&(_, len)| len == 0).map(|(tag, _)| tag)
 }
 
 #[cfg(test)]

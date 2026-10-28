@@ -558,6 +558,12 @@ impl Message {
         self.fields.iter().filter_map(|f| Some((f.tag, self.text(f)?)))
     }
 
+    /// The fields [`fields`](Self::fields) gives, as `(tag, value length)`: for checks that need
+    /// only that, without slicing each value out of the buffer.
+    pub(crate) fn text_lens(&self) -> impl Iterator<Item = (u32, usize)> + '_ {
+        self.fields.iter().filter(|f| !f.is_binary()).map(|f| (f.tag, (f.end - f.value) as usize))
+    }
+
     /// The number of fields, including binary ones.
     #[cfg(test)]
     pub(crate) fn field_count(&self) -> usize {
