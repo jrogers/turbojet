@@ -305,7 +305,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     standby's summary of it (numbers, in-flight marker, created time, marks) with its own and,
     if they differ, sends it whole, in batches of a megabyte of messages: `MemoryStorage` keeps
     changes never committed, so a log dropped without a commit leaves the standby behind. The
-    batches are marked as parts of a session sent whole (wire version 3), and the standby holds
+    batches are marked as parts of a session sent whole, and the standby holds
     them, up to 4 GiB of messages, until the last, then applies them in one commit: applied as
     they came, the first one's reset destroyed a copy that held everything sent, and a send cut
     short (a lost link, an active's crash) left it partly refilled, below numbers the
@@ -356,8 +356,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     promoted standby skips each session's next outgoing number ahead by `n`. Sent again, a number
     would be too low, which the counterparty takes as fatal; skipped too high, the counterparty
     asks for a resend and is gap-filled, since the numbers skipped hold no messages. So the skip
-    has to be known at promotion, on the standby: each Bind carries the active's bound (wire
-    version 2: a version 1 peer and this one refuse each other at hello) and a standby accepting less
+    has to be known at promotion, on the standby: each Bind carries the active's bound and a standby accepting less
     (`accepting_lag`) refuses it, failing the opening with `InvalidInput`. Promotion lists the
     standby store's sessions (`SessionStorage::sessions`) to skip each. Incoming state isn't
     bounded the same way: the new active may expect a lower incoming number than the old one

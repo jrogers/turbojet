@@ -17,7 +17,7 @@ use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
 use turbojet::store::Marks;
 
 /// The version of the wire form this crate speaks.
-pub const VERSION: u16 = 3;
+pub const VERSION: u16 = 1;
 
 /// The longest frame either side sends or accepts, length prefix excluded. A batch holds what one
 /// commit stored, which a session's driver bounds well below this; a standby catching up is sent
