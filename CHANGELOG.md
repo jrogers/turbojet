@@ -2,7 +2,7 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.7.0 (2026-10-29)
 
 ### `turbojet`
 
@@ -14,43 +14,38 @@ Notable changes to the published crates.
   `conformance::check_sessions`. `SessionStorage` is implemented for `Arc<T>`, so one store can
   be shared. `Job::join` runs two jobs as one, and `Job::map` and `Job::map_result` map a job's
   result, for stores wrapping others.
-- **Changed:** an application's own `impl SessionStorage for Arc<MyStore>` now conflicts with the
-  one Turbojet provides, which forwards to `MyStore`: remove it.
-
 - `Marks::maybe_handled` (`MaybeHandled::BelowLogon` or `Below(seq)`, and
   `Marks::with_maybe_handled`): a session taken over from an instance that may have handled
   incoming messages its copy doesn't count as received marks the resends of everything the
   counterparty sent before its next Logon `maybe_redelivered`. The stores keep it in their marks'
   text form (`maybe_handled=logon` or `=SEQ`), which an earlier build refuses to read.
+- **Changed:** an application's own `impl SessionStorage for Arc<MyStore>` now conflicts with the
+  one Turbojet provides, which forwards to `MyStore`: remove it.
 
 ### `turbojet-replica`
 
 - New: copies each session's committed state to a hot standby that can take the sessions over
   with no sequence gap and no resend storm. `ReplicatedStorage` wraps the active's store and
   sends each commit to a `Replica` over a `TcpLink` (`serve_standby` on the standby), over TLS
-  with the feature `tls` (`TcpLink::with_tls`, `serve_standby_tls`), waiting for both; a `Lease` under a rising epoch fences off a replaced active; `Replica::promote` takes
-  over. A commit the standby can't take fails the session, which catches the standby up when it
-  opens again; made `degrading`, the store commits alone instead once the lease says the standby
-  is out of sync (`Lease::set_in_sync`, `in_sync`), and `catch_up` brings the standby back in
-  sync.
-- Asynchronous replication: `ReplicatedStorage::asynchronous(n)` commits without waiting for
-  the standby until a session has more than `n` outgoing sequence numbers unacknowledged (or 64
-  batches). The standby must accept the lag, `Replica::accepting_lag(n)` or more, or opening a
-  session fails with `InvalidInput`. A failover can lose up to `n` of a session's outgoing
-  messages, and the counterparty may resend, as PossDup duplicates, messages already handed to
-  the application; a failed answer fails a later commit of the session, or, `degrading`, marks
-  the standby out of sync. Synchronous stays the default.
-- A standby takes over only once it has been checked since it started: `catch_up`, now to be run
-  on every replicated store, compares each session with the standby's copy, sends whole those
-  that differ, and tells the standby it's checked (`Replica::checked`); `Replica::promote` refuses
-  a standby that isn't, and `Replica::promote_unchecked` takes over anyway. A standby restarted
-  over a store that lost sessions would otherwise have taken over without them.
-- After an asynchronous failover, the counterparty's resends of messages the old active may have
-  handed over arrive `maybe_redelivered`: `Replica::promote` marks each session
-  (`Marks::maybe_handled`), synchronous ones too, for a forced failover.
-- `Replica::promote` returns `io::Result<()>`: with a lag accepted, it skips each session's next
-  outgoing number ahead by it, past any the old active sent that the standby lacks, which needs
-  a store that lists its sessions (`SessionStorage::sessions`).
+  with the feature `tls` (`TcpLink::with_tls`, `serve_standby_tls`), and a commit waits for both.
+  A `Lease` under a rising epoch fences off a replaced active. A commit the standby can't take
+  fails the session, which catches the standby up when it opens again; made `degrading`, the
+  store commits alone instead, once the lease records the standby out of sync
+  (`Lease::set_in_sync`).
+- Taking over: acquire the lease, read `Lease::in_sync` under its epoch (only the holder may),
+  then call `Replica::promote`. A standby promotes only once it has been checked since it
+  started: `ReplicatedStorage::catch_up`, run every few seconds on every replicated store,
+  compares each session with the standby's copy, sends whole those that differ (applied on the
+  standby only once all of it has arrived), and tells the standby (`Replica::checked`).
+  `Replica::promote_unchecked` takes over anyway, for a forced failover.
+- Asynchronous replication: `ReplicatedStorage::asynchronous(n)` commits without waiting for the
+  standby until a session has more than `n` outgoing sequence numbers unacknowledged (or 64
+  batches); the standby must accept the lag (`Replica::accepting_lag(n)` or more), or opening a
+  session fails with `InvalidInput`. Promotion skips each session's next outgoing number ahead
+  by the lag, so a failover can lose up to `n` of a session's outgoing messages, gap-filled, and
+  marks each session (`Marks::maybe_handled`), so the counterparty's resends of messages the old
+  active may have handed over arrive `maybe_redelivered`. Promoting with a lag needs a store that
+  lists its sessions (`SessionStorage::sessions`). Synchronous stays the default.
 
 ### `turbojet-sql`
 
