@@ -1551,6 +1551,7 @@ impl Message {
 }
 
 /// A message displayed with its passwords masked; see [`Message::redacted`].
+#[derive(Clone, Copy)]
 pub struct Redacted<'a>(&'a Message);
 
 impl fmt::Debug for Redacted<'_> {

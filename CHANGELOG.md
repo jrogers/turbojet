@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `FixpContext::new` and `fixp::FixpReplies` let a `FixpApplication`'s `on_message` be unit-tested,
+  as `Context::new` does for FIX: `FixpReplies::iter` gives what it sent, encoded.
+- `ScheduleTimeZone` is at the crate root, beside the `SessionSchedule` that takes one; `Redacted`
+  is `Clone` and `Copy`; and `Session::ready_for_input` takes `&self`, since it only reads.
 - **Fixed:** `Clock`'s `Debug` read the clock, so printing a configuration moved a test's stepping
   clock on. It now shows `Clock(system)` or `Clock(custom)`.
 - **Changed:** `MemoryStorage::with_max_session_bytes` and `DEFAULT_MAX_SESSION_BYTES` are `u64`, as

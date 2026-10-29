@@ -336,7 +336,7 @@ pub use registry::{
     Activity, CommandError, Dropped, Receipt, SendError, SequenceError, SequenceNumbers, SessionEvent,
     SessionEventKind, SessionHandle, SessionRegistry, SessionState, SessionStatus,
 };
-pub use schedule::{Clock, HolidayCalendar, SessionSchedule};
+pub use schedule::{Clock, HolidayCalendar, ScheduleTimeZone, SessionSchedule};
 pub use session::{ApplVersion, ConfigError, Session, SessionConfig};
 pub use store::{DiskStorage, MemoryStorage, SessionId, SessionStorage};
 #[cfg(feature = "metrics")]

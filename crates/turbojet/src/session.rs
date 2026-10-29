@@ -1070,7 +1070,7 @@ impl Session {
     /// a resend's read or the opening of the session's log (see
     /// [`is_waiting_on_store`](Self::is_waiting_on_store)), and while
     /// [`input_free_at`](Self::input_free_at) holds it, which needs the time.
-    pub fn ready_for_input(&mut self) -> bool {
+    pub fn ready_for_input(&self) -> bool {
         if self.is_waiting_on_store() {
             return false;
         }
