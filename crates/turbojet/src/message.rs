@@ -707,7 +707,9 @@ impl Message {
     }
 
     /// Replaces the first value for `tag`, or appends it. A replaced value's old bytes stay in
-    /// the buffer, unused, until the message is dropped.
+    /// the buffer, unused, until the message is dropped. A repeating group's entries repeat their
+    /// tags, so build them with [`push`](Self::push): setting a member's tag again replaces the
+    /// first entry's.
     pub fn set(&mut self, tag: u32, value: impl ToFix) {
         match self.fields.iter().position(|f| f.tag == tag) {
             Some(index) => self.fields[index] = self.write_segment(tag, value),
@@ -715,7 +717,8 @@ impl Message {
         }
     }
 
-    /// [`set`](Self::set), returning the message for chaining.
+    /// [`set`](Self::set), returning the message for chaining. It replaces rather than appends,
+    /// so repeating-group entries are built with [`push`](Self::push).
     #[must_use]
     pub fn with(mut self, tag: u32, value: impl ToFix) -> Self {
         self.set(tag, value);
