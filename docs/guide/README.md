@@ -16,7 +16,7 @@ compiled and run as tests, so they work as shown. The API reference has the deta
 6. [TLS][tls]: certificates from files or memory, replaced while running, PKCS#12 and
    revocation lists.
 7. [Storage and recovery][storage]: what is stored when, delivery at least once, holding a
-   message in flight, and the stores.
+   message in flight, the stores, and a hot standby that takes the sessions over.
 8. [Schedules and rate limits][schedules]: trading hours, holidays and throttling.
 9. [Operations][operations]: sequence numbers, managing sessions, cancel on disconnect, shutting
    down, logging, message logs and metrics.
