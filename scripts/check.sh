@@ -100,8 +100,28 @@ if $interop; then
 fi
 if $semver; then
     step semver
-    # Publishable crates only (publish = false ones are skipped), with every feature's API.
-    cargo semver-checks --workspace --all-features
+    # Publishable crates only (publish = false ones are skipped), with every feature's API. A crate
+    # crates.io doesn't have yet has no release to compare with, so its first is left out; any
+    # answer from crates.io but found or not found stops here, rather than skip every crate.
+    unpublished=$(cargo metadata --no-deps --format-version 1 | python3 -c '
+import json, sys, urllib.request, urllib.error
+for package in json.load(sys.stdin)["packages"]:
+    if package["publish"] == []:
+        continue
+    name = package["name"].lower()
+    path = {1: "1", 2: "2", 3: "3/" + name[0]}.get(len(name), name[:2] + "/" + name[2:4])
+    try:
+        urllib.request.urlopen(f"https://index.crates.io/{path}/{name}", timeout=30)
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        print("--exclude", package["name"])
+')
+    if [ -n "$unpublished" ]; then
+        echo "not yet on crates.io, so not compared: ${unpublished//--exclude /}"
+    fi
+    # shellcheck disable=SC2086 # one word per argument
+    cargo semver-checks --workspace --all-features $unpublished
 fi
 if $python; then
     step python
