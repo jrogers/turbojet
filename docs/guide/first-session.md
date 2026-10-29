@@ -13,8 +13,8 @@ Typed application messages come from `turbojet-fix`, with a feature per FIX vers
 
 ```toml
 [dependencies]
-turbojet = "0.6"
-turbojet-fix = { version = "0.6", features = ["fix44"] }
+turbojet = "0.7"
+turbojet-fix = { version = "0.7", features = ["fix44"] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = "0.3"
 ```
