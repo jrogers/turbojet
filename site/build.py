@@ -29,6 +29,7 @@ def main(book: Path, out: Path, ref: str) -> None:
     (book / "theme").mkdir()
     shutil.copy(ROOT / "docs" / "assets" / "logo.svg", book / "theme" / "favicon.svg")
     shutil.copy(ROOT / "docs" / "assets" / "logo-512.png", book / "theme" / "favicon.png")
+    shutil.copy(ROOT / "site" / "theme.css", book / "theme" / "turbojet.css")
 
     guide = ROOT / "docs" / "guide"
     chapters = []

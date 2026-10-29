@@ -8,6 +8,10 @@ src = "src"
 [output.html]
 git-repository-url = "https://github.com/jrogers/turbojet"
 site-url = "/turbojet/guide/"
+# The landing page's colours and type (site/theme.css, copied in by build.py).
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-css = ["theme/turbojet.css"]
 
 # The examples need Turbojet's crates, which the Rust playground doesn't have.
 [output.html.playground]
