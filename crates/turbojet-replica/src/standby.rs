@@ -1,6 +1,7 @@
 //! The standby's side: applying the active's batches to a store of its own.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasher, RandomState};
 use std::io;
 
 use turbojet::store::{Fetched, Opened, SessionStorage, StoredSession};
@@ -30,6 +31,11 @@ pub struct Replica<S> {
     promoted: bool,
     /// The most outgoing numbers an active may leave unacknowledged per session.
     max_lag: u64,
+    /// This run of the standby: a restart, which may have lost what the store held, is another.
+    incarnation: u64,
+    /// An active has compared every session it holds with this run's copy, and sent whole those
+    /// that differed: only then may it take over.
+    checked: bool,
 }
 
 impl<S> std::fmt::Debug for Replica<S> {
@@ -49,9 +55,21 @@ struct Bound {
 }
 
 impl<S: SessionStorage> Replica<S> {
-    /// A standby keeping its copy in `storage`, having seen no epoch.
+    /// A standby keeping its copy in `storage`, having seen no epoch, under a new incarnation,
+    /// and not yet checked: it can't be [promoted](Self::promote) until an active has compared
+    /// every session it holds with this copy, as [`catch_up`](crate::ReplicatedStorage::catch_up)
+    /// does, since `storage` may have lost sessions while this standby wasn't running.
     pub fn new(storage: S) -> Self {
-        Self { storage, epoch: 0, bound: HashMap::new(), connections: 0, promoted: false, max_lag: 0 }
+        Self {
+            storage,
+            epoch: 0,
+            bound: HashMap::new(),
+            connections: 0,
+            promoted: false,
+            max_lag: 0,
+            incarnation: new_incarnation(),
+            checked: false,
+        }
     }
 
     /// Accepts actives that leave up to `n` outgoing numbers per session unacknowledged, rather
@@ -66,6 +84,17 @@ impl<S: SessionStorage> Replica<S> {
     /// The highest epoch seen.
     pub fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    /// The number naming this run of the standby, which it tells each active at hello.
+    pub fn incarnation(&self) -> u64 {
+        self.incarnation
+    }
+
+    /// Whether an active has compared every session it holds with this run's copy, and sent
+    /// whole those that differed: [`promote`](Self::promote) needs it.
+    pub fn checked(&self) -> bool {
+        self.checked
     }
 
     /// The connection accepted last, by the [`Frame::Hello`] that opened it: its bindings are
@@ -102,12 +131,12 @@ impl<S: SessionStorage> Replica<S> {
                 }
                 // A deposed active is told the epoch that replaced it, and changes nothing.
                 if epoch < self.epoch {
-                    return Ok(Some(Frame::Welcome { epoch: self.epoch }));
+                    return Ok(Some(Frame::Welcome { epoch: self.epoch, incarnation: self.incarnation }));
                 }
                 self.bound.clear();
                 self.connections += 1;
                 self.epoch = epoch;
-                Ok(Some(Frame::Welcome { epoch }))
+                Ok(Some(Frame::Welcome { epoch, incarnation: self.incarnation }))
             }
             // A deposed active's handles would collide with the active's: it may bind none.
             Frame::Bind { handle, epoch, .. } if epoch < self.epoch => {
@@ -127,6 +156,18 @@ impl<S: SessionStorage> Replica<S> {
                 Ok(Some(Frame::Bound { handle, summary }))
             }
             Frame::Batch(batch) => self.on_batch(batch).map(Some),
+            Frame::Checked { handle, epoch, .. } if epoch < self.epoch => {
+                Ok(Some(Frame::Nack { handle, reason: NackReason::StaleEpoch }))
+            }
+            // Checked before this run started: what was checked may be gone.
+            Frame::Checked { handle, incarnation, .. } if incarnation != self.incarnation => {
+                Ok(Some(Frame::Nack { handle, reason: NackReason::Restarted }))
+            }
+            Frame::Checked { handle, epoch, .. } => {
+                self.epoch = epoch;
+                self.checked = true;
+                Ok(Some(Frame::Ack { handle, commit_no: 0 }))
+            }
             Frame::Welcome { .. } | Frame::Bound { .. } | Frame::Ack { .. } | Frame::Nack { .. } => {
                 Err(refused("the active sent a standby's frame".into()))
             }
@@ -144,7 +185,13 @@ impl<S: SessionStorage> Replica<S> {
     /// This instance takes over: the sessions' logs it holds are closed, releasing the store for
     /// the instance's own registry, and every frame from now on is refused, ending the old
     /// active's connections. Take the lease first, under a higher epoch, so the old active is
-    /// fenced off wherever it is.
+    /// fenced off wherever it is, and check its [`in_sync`](crate::Lease::in_sync) under it.
+    ///
+    /// Only a standby that has been [checked](Self::checked) since it started takes over: one
+    /// that hasn't may have lost sessions (a store in memory, a disk replaced, a crash part way
+    /// through replacing a session), and a session it lacks would resume at numbers the
+    /// counterparty has had. [`promote_unchecked`](Self::promote_unchecked) takes over anyway,
+    /// for an operator who knows the store is whole.
     ///
     /// With [`accepting_lag`](Self::accepting_lag), each session's next outgoing number is then
     /// skipped ahead by the lag accepted: the old active may have sent numbers this copy lacks,
@@ -155,9 +202,27 @@ impl<S: SessionStorage> Replica<S> {
     ///
     /// # Errors
     ///
-    /// The store's failure, listing the sessions or skipping one ahead: the instance mustn't take
-    /// over, since a session left behind would resume too low.
+    /// [`io::ErrorKind::InvalidData`] if this standby hasn't been checked since it started,
+    /// changing nothing. The store's failure, listing the sessions or skipping one ahead: the
+    /// instance mustn't take over, since a session left behind would resume too low.
     pub fn promote(&mut self) -> io::Result<()> {
+        if !self.checked {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "this standby hasn't been checked since it started: it may lack sessions",
+            ));
+        }
+        self.promote_unchecked()
+    }
+
+    /// Takes over as [`promote`](Self::promote) does, whether or not this standby has been
+    /// checked since it started: for an operator who knows its store holds every session, as
+    /// after a restart that kept its disk, before an active could check it.
+    ///
+    /// # Errors
+    ///
+    /// The store's failure, as for [`promote`](Self::promote).
+    pub fn promote_unchecked(&mut self) -> io::Result<()> {
         self.promoted = true;
         self.disconnected();
         if self.max_lag == 0 {
@@ -314,6 +379,12 @@ pub(crate) fn apply(log: &mut dyn StoredSession, op: Op) -> io::Result<()> {
     }
 }
 
+/// A number naming a run of the standby: random, so a restart doesn't repeat one, and never 0,
+/// which an active keeps for a session not yet compared.
+fn new_incarnation() -> u64 {
+    RandomState::new().hash_one(std::process::id()).max(1)
+}
+
 fn refused(why: String) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, why)
 }
@@ -399,5 +470,56 @@ mod tests {
             Some(Frame::Nack { handle: 1, reason: NackReason::Diverged })
         );
         assert_eq!(next_outgoing(&replica), 1);
+    }
+
+    /// A standby promotes only once an active has checked it, in this run and under an epoch
+    /// it hasn't seen pass: a check naming another run, as one from before a restart would, or
+    /// from a deposed active, is refused.
+    #[test]
+    fn only_a_standby_checked_since_it_started_promotes() {
+        let mut replica = bound();
+        assert!(!replica.checked());
+        assert_eq!(replica.promote().unwrap_err().kind(), io::ErrorKind::InvalidData);
+        assert!(!replica.promoted, "a refused promotion changes nothing");
+
+        let before_a_restart = replica.incarnation().wrapping_add(1);
+        let checked = |epoch, incarnation| Frame::Checked { handle: 9, epoch, incarnation };
+        assert_eq!(
+            replica.on_frame(checked(1, before_a_restart)).unwrap(),
+            Some(Frame::Nack { handle: 9, reason: NackReason::Restarted })
+        );
+        assert_eq!(
+            replica.on_frame(checked(0, replica.incarnation())).unwrap(),
+            Some(Frame::Nack { handle: 9, reason: NackReason::StaleEpoch })
+        );
+        assert!(!replica.checked());
+        assert_eq!(
+            replica.on_frame(checked(1, replica.incarnation())).unwrap(),
+            Some(Frame::Ack { handle: 9, commit_no: 0 })
+        );
+        assert!(replica.checked());
+        replica.promote().unwrap();
+    }
+
+    /// Each run of a standby is a new incarnation, told to the active at hello.
+    #[test]
+    fn each_run_is_a_new_incarnation() {
+        let (a, b) = (Replica::new(MemoryStorage::new()), Replica::new(MemoryStorage::new()));
+        assert_ne!(a.incarnation(), b.incarnation());
+        assert_ne!(a.incarnation(), 0);
+        let welcome = bound().on_frame(Frame::Hello {
+            version: VERSION,
+            epoch: 2,
+            node: "a".into(),
+            app_record_kinds: Vec::new(),
+        });
+        assert!(matches!(welcome, Ok(Some(Frame::Welcome { epoch: 2, incarnation })) if incarnation != 0));
+    }
+
+    #[test]
+    fn promote_unchecked_takes_over_anyway() {
+        let mut replica = bound();
+        replica.promote_unchecked().unwrap();
+        assert!(replica.on_frame(Frame::Checked { handle: 9, epoch: 1, incarnation: replica.incarnation() }).is_err());
     }
 }

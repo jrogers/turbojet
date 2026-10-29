@@ -79,6 +79,9 @@ pub enum Plant {
     /// On replicated seeds, all asynchronous, a failover promotes the standby without skipping
     /// its sessions' outgoing numbers past those it may lack.
     NoSkipOnPromote,
+    /// On replicated seeds, a failover promotes a standby not checked since it started, as after
+    /// it lost its store, finding a copy behind what was sent.
+    UncheckedFailover,
 }
 
 impl Options {
@@ -306,7 +309,10 @@ enum Event {
     /// On a degrading seed: the standby can't be reached, until it's up again.
     StandbyDown,
     StandbyUp,
-    /// On a degrading seed: the active's task catching the standby up, every second.
+    /// On a replicated seed: the standby restarts having lost its store.
+    StandbyLosesStore,
+    /// On a replicated seed: the active's task catching the standby up and checking it, every
+    /// second.
     CatchUp,
     /// A trap is set in the next store call of a kind on one node.
     Trap,
@@ -482,6 +488,8 @@ struct Replication {
     degrade: bool,
     /// On degrading seeds, the mean time between the standby going down for a while.
     outage_every: Option<Duration>,
+    /// The mean time between the standby losing its store.
+    loss_every: Option<Duration>,
 }
 
 /// A replicated seed's settings, the random stream its failovers are timed from, and the pair of
@@ -500,15 +508,29 @@ fn replication(
     let depose_every = rng.pick(&[None, Some(secs(30)), Some(secs(8))]);
     let degrade = rng.chance(500_000);
     let outage_every = if degrade { rng.pick(&[None, Some(secs(20)), Some(secs(5))]) } else { None };
-    let replication = Replication { failover_every, depose_every, degrade, outage_every };
+    let replication =
+        Replication { failover_every, depose_every, degrade, outage_every, loss_every: loss_every(seed, plant) };
     let setup = Setup {
         degrade,
         stale: plant == Some(Plant::StaleStandby),
         unsynced_failover: plant == Some(Plant::UnsyncedFailover),
         max_lag: max_lag(seed, plant),
         no_skip_on_promote: plant == Some(Plant::NoSkipOnPromote),
+        unchecked_failover: plant == Some(Plant::UncheckedFailover),
     };
     Some((replication, rng, Pair::new(setup)))
+}
+
+/// How often a replicated seed's standby loses its store: every few seconds on a third of them,
+/// and on all with the planted bug of an unchecked failover; never on the rest. Drawn apart from
+/// the replication's random stream so that replicated seeds keep the failovers they had before.
+fn loss_every(seed: u64, plant: Option<Plant>) -> Option<Duration> {
+    let mut rng = Rng::new(seed ^ 0x5701_e55e);
+    let secs = Duration::from_secs;
+    if plant == Some(Plant::UncheckedFailover) {
+        return Some(secs(5));
+    }
+    if rng.chance(333_333) { rng.pick(&[Some(secs(20)), Some(secs(5))]) } else { None }
 }
 
 /// How many outgoing numbers a replicated seed's sessions may leave the standby behind: up to 8
@@ -857,8 +879,9 @@ impl World {
             self.replication_again(true, SimTime(0), replication.depose_every, Event::Depose);
             if replication.degrade {
                 self.replication_again(true, SimTime(0), replication.outage_every, Event::StandbyDown);
-                self.queue.push(SimTime(0).after(CATCH_UP_EVERY), Event::CatchUp);
             }
+            self.replication_again(true, SimTime(0), replication.loss_every, Event::StandbyLosesStore);
+            self.queue.push(SimTime(0).after(CATCH_UP_EVERY), Event::CatchUp);
         }
         self.queue.push(SimTime(0), Event::Connect(0));
         self.queue.push(SimTime(0), Event::SendOrder);
@@ -1238,6 +1261,18 @@ impl World {
                 self.record("standby down");
                 self.queue.push(now.after(lasts), Event::StandbyUp);
                 self.replication_again(busy, now, every, Event::StandbyDown);
+            }
+            Event::StandbyLosesStore => {
+                let (replication, _, pair) = self.replication.as_ref().expect("a replicated seed");
+                let (every, pair) = (replication.loss_every, pair.clone());
+                let mut pair = pair.lock().unwrap();
+                // Not while deposed: the instance that took over has its own standby.
+                if !pair.deposed() {
+                    pair.standby_loses_store();
+                    self.record("standby lost its store");
+                }
+                drop(pair);
+                self.replication_again(busy, now, every, Event::StandbyLosesStore);
             }
             Event::StandbyUp => {
                 let (_, _, pair) = self.replication.as_ref().expect("a replicated seed");

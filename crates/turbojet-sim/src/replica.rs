@@ -10,6 +10,10 @@
 //! out of sync, and catches it up when it's back; a failover waits until the lease says it's in
 //! sync again, as a promotion checks it.
 //!
+//! The standby can lose its store, as one in memory does when it restarts: the active's
+//! catch-up, run on every pair, sends it each session again, and a failover waits until the
+//! standby says it has been checked since, as its promotion requires.
+//!
 //! An asynchronous pair's active commits without waiting for the standby, up to a bound of
 //! outgoing numbers behind it; a failover promotes the standby, skipping each session's next
 //! outgoing number ahead by that bound, past any it lacks.
@@ -54,6 +58,8 @@ pub struct Pair {
     max_lag: u64,
     /// The planted bug of a promotion that doesn't skip.
     no_skip_on_promote: bool,
+    /// The planted bug of failing over to a standby not checked since it started.
+    unchecked_failover: bool,
 }
 
 /// What a pair is, and the bugs planted in it.
@@ -68,6 +74,8 @@ pub struct Setup {
     pub max_lag: u64,
     /// A failover promotes the standby without skipping its sessions' outgoing numbers ahead.
     pub no_skip_on_promote: bool,
+    /// A failover promotes a standby not checked since it started.
+    pub unchecked_failover: bool,
 }
 
 impl Pair {
@@ -87,15 +95,21 @@ impl Pair {
             unsynced_failover: setup.unsynced_failover,
             max_lag: setup.max_lag,
             no_skip_on_promote: setup.no_skip_on_promote,
+            unchecked_failover: setup.unchecked_failover,
         };
         pair.replicate();
         Arc::new(Mutex::new(pair))
     }
 
     /// Whether the standby may take over: unless a bug is planted, only once the lease says it
-    /// holds everything committed.
+    /// holds everything committed, and the standby that it has been checked since it started.
     pub fn may_fail_over(&self) -> bool {
-        self.unsynced_failover || !self.lease.out_of_sync.load(Ordering::Acquire)
+        let in_sync = self.unsynced_failover || !self.lease.out_of_sync.load(Ordering::Acquire);
+        in_sync && (self.unchecked_failover || self.checked())
+    }
+
+    fn checked(&self) -> bool {
+        self.standby.lock().unwrap_or_else(PoisonError::into_inner).checked()
     }
 
     /// The standby takes over, promoted: its copy becomes the active's, at the next epoch (or the
@@ -104,7 +118,8 @@ impl Pair {
     pub fn fail_over(&mut self) {
         if !self.no_skip_on_promote {
             let mut standby = self.standby.lock().unwrap_or_else(PoisonError::into_inner);
-            standby.promote().expect("a memory store doesn't fail");
+            let promoted = if self.unchecked_failover { standby.promote_unchecked() } else { standby.promote() };
+            promoted.expect("checked, over a memory store, which doesn't fail");
         }
         if !self.deposed {
             self.epoch += 1;
@@ -148,6 +163,14 @@ impl Pair {
         self.down.store(false, Ordering::Release);
     }
 
+    /// The standby restarts having lost its store, as one in memory does: a new run, unchecked,
+    /// over an empty copy, which the active's sessions find unbound.
+    pub fn standby_loses_store(&mut self) {
+        let fresh = Arc::new(MemoryStorage::new());
+        self.stores[1 - self.active] = fresh.clone();
+        *self.standby.lock().unwrap_or_else(PoisonError::into_inner) = Replica::new(fresh).accepting_lag(self.max_lag);
+    }
+
     /// One pass of catching the standby up, as the active's task runs it every few seconds.
     pub fn catch_up(&self) -> io::Result<()> {
         self.current.catch_up().run()
@@ -177,11 +200,12 @@ impl Pair {
 
     pub fn describe(&self) -> String {
         format!(
-            "instance {} active at epoch {}{}{}",
+            "instance {} active at epoch {}{}{}{}",
             self.active,
             self.epoch,
             if self.deposed { ", deposed" } else { "" },
-            if self.lease.out_of_sync.load(Ordering::Acquire) { ", standby out of sync" } else { "" }
+            if self.lease.out_of_sync.load(Ordering::Acquire) { ", standby out of sync" } else { "" },
+            if self.checked() { "" } else { ", standby unchecked" }
         )
     }
 }
@@ -237,7 +261,7 @@ struct Outage {
 }
 
 impl Link for Outage {
-    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)> {
         if self.down.load(Ordering::Acquire) {
             return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "the standby is down"));
         }
@@ -250,18 +274,40 @@ impl Link for Outage {
         }
         self.link.send(batch)
     }
+
+    fn incarnation(&self) -> io::Result<u64> {
+        if self.down.load(Ordering::Acquire) {
+            return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "the standby is down"));
+        }
+        self.link.incarnation()
+    }
+
+    fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()> {
+        if self.down.load(Ordering::Acquire) {
+            return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "the standby is down"));
+        }
+        self.link.checked(handle, epoch, incarnation)
+    }
 }
 
 /// The link of a pair not yet replicating.
 struct Unbound;
 
 impl Link for Unbound {
-    fn bind(&self, _handle: u32, _epoch: u64, _max_lag: u64, _session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, _handle: u32, _epoch: u64, _max_lag: u64, _session: &SessionId) -> io::Result<(Summary, u64)> {
         Err(io::Error::other("unbound"))
     }
 
     fn send(&self, _batch: Batch) -> Commit {
         Commit::blocking(|| Err(io::Error::other("unbound")))
+    }
+
+    fn incarnation(&self) -> io::Result<u64> {
+        Err(io::Error::other("unbound"))
+    }
+
+    fn checked(&self, _handle: u32, _epoch: u64, _incarnation: u64) -> io::Result<()> {
+        Err(io::Error::other("unbound"))
     }
 }
 
@@ -273,8 +319,16 @@ struct Dropping {
 }
 
 impl Link for Dropping {
-    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)> {
         self.link.bind(handle, epoch, max_lag, session)
+    }
+
+    fn incarnation(&self) -> io::Result<u64> {
+        self.link.incarnation()
+    }
+
+    fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()> {
+        self.link.checked(handle, epoch, incarnation)
     }
 
     fn send(&self, batch: Batch) -> Commit {

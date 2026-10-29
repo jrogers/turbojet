@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
 use std::sync::{Arc, PoisonError};
 
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use turbojet::SessionId;
 use turbojet::fields::UtcTimestamp;
 use turbojet::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, SessionStorage, StoredSession};
@@ -29,17 +29,34 @@ const MAX_QUEUED: usize = 64;
 pub trait Link: Send + Sync {
     /// Binds `handle` to `session` on the standby, as the holder of `epoch` that leaves up to
     /// `max_lag` of the session's outgoing numbers unacknowledged, returning its copy of the
-    /// session.
+    /// session and the [incarnation](Replica::incarnation) of the standby that holds it.
     ///
     /// # Errors
     ///
     /// The standby can't be reached, or refused: [`io::ErrorKind::InvalidInput`] if it accepts
     /// less lag than `max_lag`.
-    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary>;
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)>;
 
     /// Sends a batch for a bound handle: a job that ends once the standby has committed it,
     /// failing if the standby refused it or can't be reached.
     fn send(&self, batch: Batch) -> Commit;
+
+    /// The standby's [incarnation](Replica::incarnation), connecting to it if need be.
+    ///
+    /// # Errors
+    ///
+    /// The standby can't be reached.
+    fn incarnation(&self) -> io::Result<u64>;
+
+    /// Tells the standby, as the holder of `epoch`, that every session this instance holds has
+    /// been compared with its copy in `incarnation`, and sent whole where they differed, so it
+    /// may take over; `handle` names the request.
+    ///
+    /// # Errors
+    ///
+    /// The standby can't be reached, or refused: [`io::ErrorKind::PermissionDenied`] if it has
+    /// seen a higher epoch, [`io::ErrorKind::ConnectionReset`] if it has restarted since.
+    fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()>;
 }
 
 /// A [`SessionStorage`] that keeps each session in `S` and copies every commit to a standby over
@@ -82,9 +99,14 @@ struct State {
     out_of_sync: bool,
     /// Whether the lease has been asked, at the first catch-up, if an earlier run left the
     /// standby out of sync.
-    checked: bool,
+    lease_asked: bool,
     /// Sessions whose copy on the standby lacks commits.
     behind: HashSet<SessionId>,
+    /// The standby incarnation each session was last compared with, and sent whole to if they
+    /// differed: one restarted since may have lost it.
+    compared: HashMap<SessionId, u64>,
+    /// The incarnation the standby last accepted [`Frame::Checked`] in.
+    checked: Option<u64>,
     /// The logs open on each session.
     open: HashMap<SessionId, usize>,
     /// The session the catch-up is sending, which an opening waits for.
@@ -117,8 +139,46 @@ impl Replication {
         Ok(())
     }
 
-    fn caught_up(&self, session: &SessionId) {
-        self.state().behind.remove(session);
+    /// The standby's copy of `session`, in `incarnation`, is as this instance has it.
+    fn caught_up(&self, session: &SessionId, incarnation: u64) {
+        let mut state = self.state();
+        state.behind.remove(session);
+        state.compared.insert(session.clone(), incarnation);
+    }
+
+    /// Each open session not compared with the standby's copy in `incarnation` is counted
+    /// behind, so its next commit sends it whole.
+    fn behind_unless_compared_open(&self, incarnation: u64) {
+        let mut state = self.state();
+        let stale: Vec<SessionId> =
+            state.open.keys().filter(|id| state.compared.get(*id) != Some(&incarnation)).cloned().collect();
+        state.behind.extend(stale);
+    }
+
+    /// The next closed session for the catch-up to send: behind, or not compared with the
+    /// standby's copy in `incarnation`. Marked as the one being sent, which an opening waits for.
+    fn next_to_catch_up(&self, sessions: &[SessionId], incarnation: u64) -> Option<SessionId> {
+        let mut state = self.state();
+        let next = state
+            .behind
+            .iter()
+            .chain(sessions)
+            .find(|id| {
+                !state.open.contains_key(*id)
+                    && (state.behind.contains(*id) || state.compared.get(*id) != Some(&incarnation))
+            })
+            .cloned();
+        state.catching_up.clone_from(&next);
+        next
+    }
+
+    /// Whether every session in `sessions` has been compared with the standby's copy in
+    /// `incarnation`, none is behind, and the standby hasn't been told so yet.
+    fn all_compared(&self, sessions: &[SessionId], incarnation: u64) -> bool {
+        let state = self.state();
+        state.checked != Some(incarnation)
+            && state.behind.is_empty()
+            && sessions.iter().all(|id| state.compared.get(id) == Some(&incarnation))
     }
 
     fn is_behind(&self, session: &SessionId) -> bool {
@@ -224,32 +284,29 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
 }
 
 impl<S: SessionStorage + 'static> ReplicatedStorage<S> {
-    /// One pass of catching the standby up, for a degrading store: each session behind on the
-    /// standby that isn't open is opened and sent whole (an opening of it waits meanwhile), and
-    /// once none is behind, the lease is told the standby is in sync again. The first pass also
-    /// asks the lease whether an earlier run left the standby out of sync, and if so counts every
-    /// session behind. Run it every few seconds; it stops at the first session it can't send.
+    /// One pass of catching the standby up and checking it. Each session this instance holds is
+    /// compared with the standby's copy in its current [incarnation](Replica::incarnation), and
+    /// sent whole if they differ or the standby is behind on it: a closed one here (an opening of
+    /// it waits meanwhile), an open one at its next commit. Once every session has been, the
+    /// standby is told it's [checked](Replica::checked), and so may take over, and a degrading
+    /// store tells the lease the standby is in sync again. The first pass also asks the lease
+    /// whether an earlier run left the standby out of sync, and if so counts every session
+    /// behind.
+    ///
+    /// Run it every few seconds, degrading or not: a standby that restarts, and may have lost
+    /// what it held, can't take over until it has run again. It needs a store that lists its
+    /// sessions ([`SessionStorage::sessions`]; the built-in ones do), and stops at the first
+    /// session it can't send, or when the standby can't be reached.
     pub fn catch_up(&self) -> Job<()> {
         let (inner, shared, next_handle) = (self.inner.clone(), self.shared.clone(), self.next_handle.clone());
         Job::blocking(move || {
-            if !shared.state().checked {
-                let in_sync = shared.held.as_ref().map_or(Ok(true), |held| held.in_sync().run())?;
-                if !in_sync {
-                    let sessions = inner.sessions().run()?;
-                    let mut state = shared.state();
-                    state.out_of_sync = true;
-                    state.behind.extend(sessions);
-                }
-                shared.state().checked = true;
+            if !shared.state().lease_asked {
+                ask_lease(inner.as_ref(), &shared)?;
             }
-            loop {
-                let next = {
-                    let mut state = shared.state();
-                    let next = state.behind.iter().find(|id| !state.open.contains_key(*id)).cloned();
-                    state.catching_up.clone_from(&next);
-                    next
-                };
-                let Some(id) = next else { break };
+            let Ok(incarnation) = shared.link.incarnation() else { return Ok(()) };
+            let sessions = inner.sessions().run()?;
+            shared.behind_unless_compared_open(incarnation);
+            while let Some(id) = shared.next_to_catch_up(&sessions, incarnation) {
                 let handle = next_handle.fetch_add(1, Ordering::Relaxed);
                 let sent = open_inner(inner.as_ref(), &id).and_then(|log| {
                     shared.state().open.insert(id.clone(), 1);
@@ -257,10 +314,27 @@ impl<S: SessionStorage + 'static> ReplicatedStorage<S> {
                 });
                 let caught = matches!(&sent, Ok(log) if log.bound.load(Ordering::Acquire));
                 drop(sent);
-                shared.state().catching_up = None;
+                let compared = {
+                    let mut state = shared.state();
+                    state.catching_up = None;
+                    state.compared.get(&id) == Some(&incarnation)
+                };
                 shared.caught.notify_all();
-                if !caught {
+                // Not sent, or sent to a standby that has restarted since this pass began.
+                if !caught || !compared {
                     return Ok(());
+                }
+            }
+            if shared.all_compared(&sessions, incarnation) {
+                let handle = next_handle.fetch_add(1, Ordering::Relaxed);
+                match shared.link.checked(handle, shared.epoch, incarnation) {
+                    Ok(()) => shared.state().checked = Some(incarnation),
+                    Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err(e),
+                    // Out of reach, or restarted since this pass began: the next pass checks it.
+                    Err(e) => {
+                        debug!(error = %e, "couldn't tell the standby it's checked");
+                        return Ok(());
+                    }
                 }
             }
             let mut state = shared.state();
@@ -274,6 +348,20 @@ impl<S: SessionStorage + 'static> ReplicatedStorage<S> {
             Ok(())
         })
     }
+}
+
+/// Asks the lease, at the first catch-up, whether an earlier run left the standby out of sync,
+/// and if so counts every session `inner` holds behind.
+fn ask_lease<S: SessionStorage + ?Sized>(inner: &S, shared: &Replication) -> io::Result<()> {
+    let in_sync = shared.held.as_ref().map_or(Ok(true), |held| held.in_sync().run())?;
+    if !in_sync {
+        let sessions = inner.sessions().run()?;
+        let mut state = shared.state();
+        state.out_of_sync = true;
+        state.behind.extend(sessions);
+    }
+    shared.state().lease_asked = true;
+    Ok(())
 }
 
 /// Opens `id` in `inner`, running its job on this thread if it hands one back.
@@ -305,17 +393,17 @@ fn attach(
         drained_through: 0,
     };
     log.drained_through = log.inner.next_outgoing() - 1;
-    let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, session).and_then(|theirs| {
+    let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, session).and_then(|(theirs, incarnation)| {
         if theirs != summary(log.inner.as_mut(), shared.max_lag)? || shared.is_behind(session) {
             let Whole { header, fetched } = Whole::of(log.inner.as_mut())?;
             send_whole(shared, handle, &log.commit_no, header, messages(fetched)?)?;
         }
-        Ok(())
+        Ok(incarnation)
     });
     match sent {
-        Ok(()) => {
+        Ok(incarnation) => {
             log.bound.store(true, Ordering::Release);
-            shared.caught_up(session);
+            shared.caught_up(session, incarnation);
         }
         Err(e) => shared.fall_behind(session, e)?,
     }
@@ -538,14 +626,15 @@ impl ReplicatedLog {
         let Whole { header, fetched } = Whole::of(self.inner.as_mut())?;
         let (handle, commit_no) = (self.handle, self.commit_no.clone());
         Ok(Commit::blocking(move || {
-            let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, &session).and_then(|_| {
+            let sent = shared.link.bind(handle, shared.epoch, shared.max_lag, &session).and_then(|(_, incarnation)| {
                 commit_no.store(0, Ordering::Release);
-                send_whole(&shared, handle, &commit_no, header, messages(fetched)?)
+                send_whole(&shared, handle, &commit_no, header, messages(fetched)?)?;
+                Ok(incarnation)
             });
             match sent {
-                Ok(()) => {
+                Ok(incarnation) => {
                     bound.store(true, Ordering::Release);
-                    shared.caught_up(&session);
+                    shared.caught_up(&session, incarnation);
                     Ok(())
                 }
                 Err(e) => lost(&shared, &session, &bound, e),
@@ -729,8 +818,8 @@ impl<S: SessionStorage + 'static> LocalLink<S> {
     pub fn connect(replica: Arc<std::sync::Mutex<Replica<S>>>, epoch: u64, node: &str) -> io::Result<Self> {
         let hello = Frame::Hello { version: VERSION, epoch, node: node.into(), app_record_kinds: Vec::new() };
         match replica.lock().unwrap_or_else(PoisonError::into_inner).on_frame(hello)? {
-            Some(Frame::Welcome { epoch: seen }) if seen == epoch => {}
-            Some(Frame::Welcome { epoch: seen }) => return Err(deposed(epoch, seen)),
+            Some(Frame::Welcome { epoch: seen, .. }) if seen == epoch => {}
+            Some(Frame::Welcome { epoch: seen, .. }) => return Err(deposed(epoch, seen)),
             other => return Err(io::Error::other(format!("the standby answered hello with {other:?}"))),
         }
         Ok(Self { replica })
@@ -738,11 +827,11 @@ impl<S: SessionStorage + 'static> LocalLink<S> {
 }
 
 impl<S: SessionStorage + Send + 'static> Link for LocalLink<S> {
-    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)> {
         let bind = Frame::Bind { handle, epoch, max_lag, session: session.clone() };
         let mut replica = self.replica.lock().unwrap_or_else(PoisonError::into_inner);
         match replica.on_frame(bind)? {
-            Some(Frame::Bound { summary, .. }) => Ok(summary),
+            Some(Frame::Bound { summary, .. }) => Ok((summary, replica.incarnation())),
             Some(Frame::Nack { reason: NackReason::StaleEpoch, .. }) => Err(deposed(epoch, replica.epoch())),
             Some(Frame::Nack { reason: NackReason::Lag, .. }) => Err(lag_refused()),
             other => Err(io::Error::other(format!("the standby answered a bind with {other:?}"))),
@@ -763,6 +852,27 @@ impl<S: SessionStorage + Send + 'static> Link for LocalLink<S> {
                 other => Err(io::Error::other(format!("the standby answered a batch with {other:?}"))),
             }
         })
+    }
+
+    fn incarnation(&self) -> io::Result<u64> {
+        Ok(self.replica.lock().unwrap_or_else(PoisonError::into_inner).incarnation())
+    }
+
+    fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()> {
+        let mut replica = self.replica.lock().unwrap_or_else(PoisonError::into_inner);
+        checked_answer(replica.on_frame(Frame::Checked { handle, epoch, incarnation })?, epoch)
+    }
+}
+
+/// What the standby's answer to [`Frame::Checked`] means.
+pub(crate) fn checked_answer(answer: Option<Frame>, epoch: u64) -> io::Result<()> {
+    match answer {
+        Some(Frame::Ack { .. }) => Ok(()),
+        Some(Frame::Nack { reason: NackReason::StaleEpoch, .. }) => Err(deposed(epoch, epoch + 1)),
+        Some(Frame::Nack { reason: NackReason::Restarted, .. }) => {
+            Err(io::Error::new(io::ErrorKind::ConnectionReset, "the standby has restarted since it was checked"))
+        }
+        other => Err(io::Error::other(format!("the standby answered a check with {other:?}"))),
     }
 }
 
@@ -901,8 +1011,16 @@ mod tests {
     }
 
     impl Link for Cut {
-        fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+        fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)> {
             self.link.bind(handle, epoch, max_lag, session)
+        }
+
+        fn incarnation(&self) -> io::Result<u64> {
+            self.link.incarnation()
+        }
+
+        fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()> {
+            self.link.checked(handle, epoch, incarnation)
         }
 
         fn send(&self, batch: Batch) -> Commit {
@@ -947,6 +1065,66 @@ mod tests {
         *link.sends_left.lock().unwrap() = None;
         drop(active.open(&id).unwrap());
         assert_eq!(standby_has(&replica, &id), seq);
+    }
+
+    /// The standby restarts over a store that has lost what it held: a new run, unchecked.
+    fn restart_empty(standby: &Mutex<Replica<MemoryStorage>>) {
+        *standby.lock().unwrap() = Replica::new(MemoryStorage::new());
+    }
+
+    /// A standby that restarted without the sessions it held can't take over until the
+    /// catch-up has sent it the closed ones, which nothing else would: a failover before then
+    /// would resume them at 1, below numbers the counterparty has had.
+    #[test]
+    fn a_standby_that_lost_its_store_is_checked_before_it_takes_over() {
+        let (active, standby) = pair();
+        let (a, b) = (conformance::id("A"), conformance::id("B"));
+        for id in [&a, &b] {
+            store_and_commit(active.open(id).unwrap().as_mut(), 1).unwrap();
+        }
+        assert!(!standby.lock().unwrap().checked());
+        active.catch_up().run().unwrap();
+        assert!(standby.lock().unwrap().checked());
+
+        restart_empty(&standby);
+        assert_eq!(standby.lock().unwrap().promote().unwrap_err().kind(), io::ErrorKind::InvalidData);
+        active.catch_up().run().unwrap();
+        assert!(standby.lock().unwrap().checked());
+        for id in [&a, &b] {
+            assert_eq!(standby_has(&standby, id), 2, "sent whole");
+        }
+        standby.lock().unwrap().promote().unwrap();
+    }
+
+    /// An open session the restarted standby lacks is sent whole at its next commit, and the
+    /// standby is checked only after it.
+    #[test]
+    fn an_open_session_is_checked_at_its_next_commit() {
+        let (active, standby) = pair();
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        store_and_commit(log.as_mut(), 1).unwrap();
+        restart_empty(&standby);
+
+        active.catch_up().run().unwrap();
+        assert!(!standby.lock().unwrap().checked(), "the open session hasn't been compared");
+        assert_eq!(standby_has(&standby, &id), 1, "and isn't sent while it's open");
+        store_and_commit(log.as_mut(), 2).unwrap();
+        assert_eq!(standby_has(&standby, &id), 3, "sent whole at its commit");
+        active.catch_up().run().unwrap();
+        assert!(standby.lock().unwrap().checked());
+    }
+
+    /// A standby that can't be reached isn't checked, and the catch-up waits for it.
+    #[test]
+    fn a_standby_out_of_reach_isnt_checked() {
+        let d = degrading(Arc::default(), Arc::default(), 0);
+        d.link.down.store(true, Ordering::Release);
+        d.active.catch_up().run().unwrap();
+        assert!(!d.standby.lock().unwrap().checked());
+        d.link.down.store(false, Ordering::Release);
+        d.active.catch_up().run().unwrap();
+        assert!(d.standby.lock().unwrap().checked(), "nothing to compare: checked at once");
     }
 
     /// A lease another instance has taken fails the commit, though the standby would take it:
@@ -1013,6 +1191,8 @@ mod tests {
             let ops = (1..=5).map(|seq| Op::Record { seq, msg: Some(conformance::app_message(seq)) }).collect();
             let reply = replica.on_frame(Frame::Batch(batch(1, 1, &AtomicU64::new(0), Part::Commit, ops))).unwrap();
             assert_eq!(reply, Some(Frame::Ack { handle: 1, commit_no: 1 }));
+            let checked = Frame::Checked { handle: 2, epoch: 1, incarnation: replica.incarnation() };
+            replica.on_frame(checked).unwrap();
             replica.promote().unwrap();
             replica.storage().open(&conformance::id("A")).unwrap()
         };
@@ -1031,11 +1211,25 @@ mod tests {
     }
 
     impl Link for Outage {
-        fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+        fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)> {
             if self.down.load(Ordering::Acquire) {
                 return Err(io::ErrorKind::ConnectionRefused.into());
             }
             self.link.bind(handle, epoch, max_lag, session)
+        }
+
+        fn incarnation(&self) -> io::Result<u64> {
+            if self.down.load(Ordering::Acquire) {
+                return Err(io::ErrorKind::ConnectionRefused.into());
+            }
+            self.link.incarnation()
+        }
+
+        fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()> {
+            if self.down.load(Ordering::Acquire) {
+                return Err(io::ErrorKind::ConnectionRefused.into());
+            }
+            self.link.checked(handle, epoch, incarnation)
         }
 
         fn send(&self, batch: Batch) -> Commit {
@@ -1298,6 +1492,8 @@ mod tests {
         let (active, standby) = async_pair(3);
         let id = conformance::id("A");
         let mut log = active.open(&id).unwrap();
+        // Checked while the session is open, compared when it opened: it lags after.
+        active.catch_up().run().unwrap();
         for seq in 1..=10 {
             store_and_commit(log.as_mut(), seq).unwrap();
         }
@@ -1331,6 +1527,7 @@ mod tests {
         let link = Arc::new(LocalLink::connect(standby.clone(), 1, "old").unwrap());
         let active = ReplicatedStorage::new(old.clone(), link, 1).asynchronous(3);
         let mut log = active.open(&id).unwrap();
+        active.catch_up().run().unwrap();
         for seq in 1..=10 {
             store_and_commit(log.as_mut(), seq).unwrap();
         }
@@ -1480,6 +1677,7 @@ mod tests {
                 d.active.catch_up().run().unwrap();
                 assert!(d.active.in_sync());
                 assert!(!d.lease.out_of_sync.load(Ordering::Acquire));
+                assert!(d.standby.lock().unwrap().checked());
                 // The batches still queued are dropped; opening again sends what they carried.
                 drop(log);
                 for id in [a, b] {
@@ -1489,6 +1687,43 @@ mod tests {
                     assert_eq!(summary(copy.as_mut(), MAX_LAG).unwrap(), summary(mine.as_mut(), MAX_LAG).unwrap());
                     assert_eq!(copy.sent_messages(1, u64::MAX).unwrap(), mine.sent_messages(1, u64::MAX).unwrap());
                 }
+            });
+        }
+
+        /// The standby restarts, having lost its store, while the catch-up checks it: it can
+        /// say it's checked only while it holds every session, so it never takes over without
+        /// one. A check of the run before the restart is refused rather than taken.
+        #[test]
+        fn a_restart_racing_the_check_never_leaves_a_standby_checked_without_its_sessions() {
+            check(|| {
+                let (active, standby) = pair();
+                let active = Arc::new(active);
+                let ids = [conformance::id("A"), conformance::id("B")];
+                for id in &ids {
+                    store_and_commit(active.open(id).unwrap().as_mut(), 1).unwrap();
+                }
+                // One pass races the restart (a second would put right what the first got
+                // wrong): told before it, the standby restarts unchecked; after, it refuses a
+                // check of the run before.
+                let checking = {
+                    let active = active.clone();
+                    shuttle::thread::spawn(move || {
+                        let _ = active.catch_up().run();
+                    })
+                };
+                let restarting = {
+                    let standby = standby.clone();
+                    shuttle::thread::spawn(move || restart_empty(&standby))
+                };
+                checking.join().unwrap();
+                restarting.join().unwrap();
+                let held = |standby: &Mutex<Replica<MemoryStorage>>| ids.iter().all(|id| standby_has(standby, id) == 2);
+                if standby.lock().unwrap().checked() {
+                    assert!(held(&standby), "checked without every session");
+                }
+                active.catch_up().run().unwrap();
+                assert!(standby.lock().unwrap().checked());
+                assert!(held(&standby));
             });
         }
     }

@@ -21,7 +21,7 @@ use tracing::{debug, info, warn};
 use turbojet::SessionId;
 use turbojet::store::{Commit, SessionStorage};
 
-use crate::active::{Link, deposed, lag_refused};
+use crate::active::{Link, checked_answer, deposed, lag_refused};
 use crate::frame::{Batch, Frame, NackReason, Summary, VERSION};
 use crate::standby::Replica;
 use crate::sync::{AtomicBool, AtomicU64, Mutex, Ordering, mpsc};
@@ -212,6 +212,9 @@ struct Shared {
 /// One connection to the standby.
 struct Conn {
     number: u64,
+    /// The standby's incarnation, as its welcome said: a restart ends the connection, so it holds
+    /// for as long as the connection does.
+    incarnation: u64,
     /// Frames for the task writing them, so a request goes out at once without its caller
     /// writing to the socket.
     outbox: Mutex<Option<async_mpsc::UnboundedSender<Vec<u8>>>>,
@@ -362,13 +365,13 @@ where
     Frame::Hello { version: VERSION, epoch: settings.epoch, node: settings.node.clone(), app_record_kinds: Vec::new() }
         .encode(&mut hello);
     writer.write_all(&hello).await?;
-    match frames.next().await? {
-        Some(Frame::Welcome { epoch }) if epoch == settings.epoch => {}
-        Some(Frame::Welcome { epoch }) => return Err(deposed(settings.epoch, epoch)),
+    let incarnation = match frames.next().await? {
+        Some(Frame::Welcome { epoch, incarnation }) if epoch == settings.epoch => incarnation,
+        Some(Frame::Welcome { epoch, .. }) => return Err(deposed(settings.epoch, epoch)),
         other => return Err(io::Error::other(format!("the standby answered hello with {other:?}"))),
-    }
+    };
     let (outbox, mut frames_out) = async_mpsc::unbounded_channel::<Vec<u8>>();
-    let conn = Arc::new(Conn::new(number, outbox));
+    let conn = Arc::new(Conn::new(number, incarnation, outbox));
     let reading = conn.clone();
     let read = tokio::spawn(async move { reading.read(frames).await });
     let writing = conn.clone();
@@ -405,9 +408,10 @@ impl Answer {
 
 impl Conn {
     /// A connection whose frames go to `outbox`, its tasks yet to be started.
-    fn new(number: u64, outbox: async_mpsc::UnboundedSender<Vec<u8>>) -> Self {
+    fn new(number: u64, incarnation: u64, outbox: async_mpsc::UnboundedSender<Vec<u8>>) -> Self {
         Self {
             number,
+            incarnation,
             outbox: Mutex::new(Some(outbox)),
             tasks: Mutex::new(Vec::new()),
             waiting: Mutex::new(HashMap::new()),
@@ -466,13 +470,13 @@ impl Conn {
 }
 
 impl Link for TcpLink {
-    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<Summary> {
+    fn bind(&self, handle: u32, epoch: u64, max_lag: u64, session: &SessionId) -> io::Result<(Summary, u64)> {
         let shared = &self.shared;
         let conn = shared.conn()?;
         match shared.request(&conn, handle, &Frame::Bind { handle, epoch, max_lag, session: session.clone() })? {
             Frame::Bound { summary, .. } => {
                 shared.bound.lock().unwrap_or_else(PoisonError::into_inner).insert(handle, conn.number);
-                Ok(summary)
+                Ok((summary, conn.incarnation))
             }
             Frame::Nack { reason: NackReason::StaleEpoch, .. } => Err(deposed(epoch, epoch + 1)),
             Frame::Nack { reason: NackReason::Lag, .. } => Err(lag_refused()),
@@ -509,6 +513,17 @@ impl Link for TcpLink {
             }
             other => Err(io::Error::other(format!("the standby answered a batch with {other:?}"))),
         })
+    }
+
+    fn incarnation(&self) -> io::Result<u64> {
+        Ok(self.shared.conn()?.incarnation)
+    }
+
+    fn checked(&self, handle: u32, epoch: u64, incarnation: u64) -> io::Result<()> {
+        let shared = &self.shared;
+        let conn = shared.conn()?;
+        let answer = shared.request(&conn, handle, &Frame::Checked { handle, epoch, incarnation })?;
+        checked_answer(Some(answer), epoch)
     }
 }
 
@@ -706,7 +721,8 @@ mod tests {
         log.record_outgoing(1, Some(&conformance::app_message(1))).unwrap();
         log.commit().unwrap().unwrap().run().unwrap();
         assert!(store.open(&id).is_err(), "the standby holds the session open");
-
+        assert!(replica.lock().unwrap().promote().is_err(), "not checked yet");
+        old.catch_up().run().unwrap();
         replica.lock().unwrap().promote().unwrap();
         let taken = store.open(&id).expect("released");
         assert_eq!(taken.next_outgoing(), 2, "with what the old active committed");
@@ -807,7 +823,7 @@ mod tests {
         fn every_request_gets_its_own_answer_or_the_loss() {
             check(|| {
                 let (outbox, mut frames) = async_mpsc::unbounded_channel();
-                let conn = Arc::new(Conn::new(1, outbox));
+                let conn = Arc::new(Conn::new(1, 7, outbox));
                 let sessions = [commits(conn.clone(), 1), commits(conn.clone(), 2)];
                 let standby = {
                     let conn = conn.clone();

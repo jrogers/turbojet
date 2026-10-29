@@ -8,7 +8,8 @@
 //! The active sends [`Frame::Hello`], is answered with [`Frame::Welcome`], then [`Frame::Bind`]s
 //! a handle to each session it replicates, answered with the standby's [`Summary`] of it, and
 //! sends a [`Frame::Batch`] for each of its commits, which the standby answers with
-//! [`Frame::Ack`] once its own store has committed it, or [`Frame::Nack`].
+//! [`Frame::Ack`] once its own store has committed it, or [`Frame::Nack`]. Once it has compared
+//! every session it holds with the standby's, it sends [`Frame::Checked`], answered the same way.
 
 use std::fmt;
 
@@ -30,8 +31,9 @@ pub enum Frame {
     /// From the active, first: who it is and the epoch it holds the lease for, and the kinds of
     /// application record its batches may carry.
     Hello { version: u16, epoch: u64, node: String, app_record_kinds: Vec<u16> },
-    /// From the standby: it accepts the active, at the highest epoch it has seen.
-    Welcome { epoch: u64 },
+    /// From the standby: it accepts the active, at the highest epoch it has seen, as
+    /// `incarnation`, a number naming this run of the standby: a restart is a new one.
+    Welcome { epoch: u64, incarnation: u64 },
     /// From the active, holding `epoch`: `handle` names `session` in the batches that follow, of
     /// which the active may leave up to `max_lag` outgoing numbers unacknowledged.
     Bind { handle: u32, epoch: u64, max_lag: u64, session: SessionId },
@@ -42,8 +44,12 @@ pub enum Frame {
     /// From the standby: its store has committed the session's batch `commit_no`, or, for a
     /// part of a session sent whole before the last, holds it.
     Ack { handle: u32, commit_no: u64 },
-    /// From the standby: it refused a batch, and why.
+    /// From the standby: it refused a batch, or [`Frame::Checked`], and why.
     Nack { handle: u32, reason: NackReason },
+    /// From the active, holding `epoch`: every session it holds has been compared with the
+    /// standby's copy in `incarnation`, and sent whole where they differed, so the standby may
+    /// take over. Answered with [`Frame::Ack`] (`commit_no` 0) on `handle`, or [`Frame::Nack`].
+    Checked { handle: u32, epoch: u64, incarnation: u64 },
 }
 
 /// A session's stored state, as far as an active and its standby compare it: when they differ,
@@ -128,6 +134,9 @@ pub enum NackReason {
     Diverged,
     /// Its bind's `max_lag` is more than the standby accepts.
     Lag,
+    /// A [`Frame::Checked`] names an incarnation this standby isn't: it has restarted since it
+    /// was checked, and may have lost what it held.
+    Restarted,
 }
 
 /// A frame that can't be decoded.
@@ -165,6 +174,7 @@ mod kind {
     pub const ACK: u8 = 5;
     pub const NACK: u8 = 6;
     pub const BOUND: u8 = 7;
+    pub const CHECKED: u8 = 8;
 }
 
 mod op {
@@ -199,9 +209,10 @@ impl Frame {
                     w.u16(*kind);
                 }
             }
-            Self::Welcome { epoch } => {
+            Self::Welcome { epoch, incarnation } => {
                 w.u8(kind::WELCOME);
                 w.u64(*epoch);
+                w.u64(*incarnation);
             }
             Self::Bind { handle, epoch, max_lag, session } => {
                 w.u8(kind::BIND);
@@ -234,7 +245,14 @@ impl Frame {
                     NackReason::StaleEpoch => 1,
                     NackReason::Diverged => 2,
                     NackReason::Lag => 3,
+                    NackReason::Restarted => 4,
                 });
+            }
+            Self::Checked { handle, epoch, incarnation } => {
+                w.u8(kind::CHECKED);
+                w.u32(*handle);
+                w.u64(*epoch);
+                w.u64(*incarnation);
             }
         }
         let len = out.len() - start - 4;
@@ -263,7 +281,7 @@ impl Frame {
                 let app_record_kinds = (0..count).map(|_| r.u16()).collect::<Result<_, _>>()?;
                 Self::Hello { version, epoch, node, app_record_kinds }
             }
-            kind::WELCOME => Self::Welcome { epoch: r.u64()? },
+            kind::WELCOME => Self::Welcome { epoch: r.u64()?, incarnation: r.u64()? },
             kind::BIND => {
                 let (handle, epoch, max_lag) = (r.u32()?, r.u64()?, r.u64()?);
                 let (begin_string, sender, target, suffix) = (r.text()?, r.text()?, r.text()?, r.text()?);
@@ -306,10 +324,12 @@ impl Frame {
                     1 => NackReason::StaleEpoch,
                     2 => NackReason::Diverged,
                     3 => NackReason::Lag,
+                    4 => NackReason::Restarted,
                     other => return Err(FrameError::Unknown("refusal", other)),
                 };
                 Self::Nack { handle, reason }
             }
+            kind::CHECKED => Self::Checked { handle: r.u32()?, epoch: r.u64()?, incarnation: r.u64()? },
             other => return Err(FrameError::Unknown("frame kind", other)),
         };
         if !r.0.is_empty() {
@@ -491,7 +511,7 @@ mod tests {
         let paused = "paused".parse::<Marks>().unwrap();
         vec![
             Frame::Hello { version: VERSION, epoch: 7, node: "gw-a".into(), app_record_kinds: vec![1, 300] },
-            Frame::Welcome { epoch: 7 },
+            Frame::Welcome { epoch: 7, incarnation: 0x0123_4567_89ab_cdef },
             Frame::Bind { handle: 3, epoch: 7, max_lag: 4, session },
             Frame::Bound {
                 handle: 3,
@@ -552,6 +572,8 @@ mod tests {
             Frame::Nack { handle: 3, reason: NackReason::StaleEpoch },
             Frame::Nack { handle: 3, reason: NackReason::Diverged },
             Frame::Nack { handle: 3, reason: NackReason::Lag },
+            Frame::Nack { handle: 3, reason: NackReason::Restarted },
+            Frame::Checked { handle: 9, epoch: 7, incarnation: 0x0123_4567_89ab_cdef },
         ]
     }
 
@@ -614,7 +636,7 @@ mod tests {
         assert_eq!(Frame::decode(&huge_count), Err(FrameError::Truncated));
 
         let mut trailing = Vec::new();
-        Frame::Welcome { epoch: 1 }.encode(&mut trailing);
+        Frame::Welcome { epoch: 1, incarnation: 2 }.encode(&mut trailing);
         trailing.push(0);
         trailing[0] += 1;
         assert_eq!(Frame::decode(&trailing), Err(FrameError::Truncated));
