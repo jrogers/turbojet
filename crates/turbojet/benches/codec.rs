@@ -13,7 +13,7 @@ use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::Message;
 use turbojet::codec::{Decoded, DecodedInto, decode, decode_into, encode, encode_into};
 use turbojet::fields::{FromFix, ToFix, UtcTimestamp};
-use turbojet::message::{DataFields, FixMessage, utc_timestamp};
+use turbojet::message::{DataFields, FixMessage};
 use turbojet_fix::fix42::{ExecutionReport, NewOrderSingle, NewOrderSingleRef};
 
 fn codec(c: &mut Criterion) {
@@ -134,7 +134,7 @@ fn fix44_nested_order() -> Message {
     msg.push(tags::SENDER_COMP_ID, "CLIENT");
     msg.push(tags::TARGET_COMP_ID, "GATEWAY");
     msg.push(tags::MSG_SEQ_NUM, 42u64);
-    msg.push(tags::SENDING_TIME, utc_timestamp());
+    msg.push(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
     for (tag, value) in body.fields() {
         if tag != tags::MSG_TYPE {
             msg.push(tag, value);
@@ -296,7 +296,8 @@ fn timestamps(c: &mut Criterion) {
             (instant + chrono::Duration::seconds(seconds)).write_fix(&mut out);
         })
     });
-    group.bench_function("utc_timestamp() (now, as a String)", |b| b.iter(utc_timestamp));
+    group
+        .bench_function("UtcTimestamp::now().to_fix() (now, as a String)", |b| b.iter(|| UtcTimestamp::now().to_fix()));
     group.bench_function("Utc::now() alone", |b| b.iter(Utc::now));
     group.finish();
 }

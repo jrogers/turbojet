@@ -15,7 +15,8 @@ use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use tokio::sync::oneshot;
 use turbojet::codec::{Decoded, decode};
-use turbojet::message::{tags, utc_timestamp};
+use turbojet::fields::{ToFix, UtcTimestamp};
+use turbojet::message::tags;
 use turbojet::registry::{Command, SequenceCommand};
 use turbojet::{
     ApplVerID, Application, CancelOnDisconnect, CancelTrigger, Context, InitiatorConfig, MemoryStorage, Message,
@@ -145,7 +146,7 @@ fn push_fields(body: &mut Vec<u8>, fields: &[Field], next_in: u64, next_out: u64
             Value::Sent(n) => body.extend_from_slice(next_out.saturating_sub((*n).into()).to_string().as_bytes()),
             Value::Yes => body.push(b'Y'),
             Value::No => body.push(b'N'),
-            Value::Now => body.extend_from_slice(utc_timestamp().as_bytes()),
+            Value::Now => body.extend_from_slice(UtcTimestamp::now().to_fix().as_bytes()),
             Value::Text(text) => body.extend_from_slice(text.as_bytes()),
             Value::Raw(raw) => body.extend_from_slice(raw),
         }
@@ -221,7 +222,7 @@ fn check(session: &mut Session, now: Instant, out: &mut Outgoing, may_skip: bool
 
 /// A message from the counterparty, with a valid header except for the fields `omit` leaves out.
 fn inbound(begin_string: &str, msg_type: &str, seq: u64, poss_dup: bool, omit: u8, fields: &[u8]) -> Option<Message> {
-    let now = utc_timestamp();
+    let now = UtcTimestamp::now().to_fix();
     let mut body = format!("35={msg_type}\x01").into_bytes();
     let (seq, time) = (format!("34={seq}"), format!("52={now}"));
     for (bit, field) in ["49=CLIENT", "56=TJ", &seq, &time].into_iter().enumerate() {

@@ -7,9 +7,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use turbojet::fields::EncryptMethod;
+use turbojet::fields::ToFix;
 use turbojet::fields::UtcTimestamp;
 use turbojet::fields::{Decimal, format_compact};
-use turbojet::message::{Message, tags, utc_timestamp};
+use turbojet::message::{Message, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::store::{SessionStorage, StoredSession};
 use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
@@ -78,7 +79,7 @@ pub fn with_header(sender: &str, target: &str, seq: u64, body: Message) -> Messa
     msg.push(tags::SENDER_COMP_ID, sender);
     msg.push(tags::TARGET_COMP_ID, target);
     msg.push(tags::MSG_SEQ_NUM, seq);
-    msg.push(tags::SENDING_TIME, utc_timestamp());
+    msg.push(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
     for (tag, value) in body.fields() {
         if tag != tags::MSG_TYPE {
             msg.push(tag, value);

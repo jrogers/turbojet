@@ -155,7 +155,7 @@ impl SessionId {
 
     /// `value` with anything other than ASCII alphanumerics, `.` and `_` percent-encoded, so it
     /// is safe in a file name and can't be confused with a separator.
-    pub fn escape(value: &str) -> String {
+    pub(crate) fn escape(value: &str) -> String {
         value
             .bytes()
             .map(|b| match b {

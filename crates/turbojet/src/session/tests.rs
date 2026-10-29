@@ -5,7 +5,7 @@ use crate::application::Hold;
 use crate::cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 use crate::codec::{decode, decode_stored, encode};
 use crate::fields::{ApplVerID, FromFix};
-use crate::message::utc_timestamp;
+use crate::fields::{ToFix, UtcTimestamp};
 use crate::peer::{ConnectionInfo, PeerCertificate};
 use crate::registry::{SendError, SessionHandle};
 use crate::store::deferring::DeferringStorage;
@@ -193,7 +193,7 @@ fn client(seq: u64, mtype: MsgType) -> Message {
         .with(tags::SENDER_COMP_ID, "CLIENT")
         .with(tags::TARGET_COMP_ID, "GATEWAY")
         .with(tags::MSG_SEQ_NUM, seq)
-        .with(tags::SENDING_TIME, utc_timestamp())
+        .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix())
 }
 
 fn logon(seq: u64) -> Message {
@@ -211,7 +211,7 @@ fn logon_naming(comp_id: &str, ids: &[(u32, &str)]) -> Message {
         msg.push(tag, value);
     }
     msg.with(tags::MSG_SEQ_NUM, 1u64)
-        .with(tags::SENDING_TIME, utc_timestamp())
+        .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix())
         .with(tags::ENCRYPT_METHOD, "0")
         .with(tags::HEART_BT_INT, "30")
 }
@@ -986,7 +986,7 @@ fn header_fields_after_the_body_are_rejected() {
         msg.push(tag, value);
     }
     msg.push(tags::MSG_SEQ_NUM, 2u64);
-    msg.push(tags::SENDING_TIME, utc_timestamp());
+    msg.push(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
     let out = s.recv(msg.clone(), h.t0);
     assert_eq!(types(&out), ["Reject"]);
     assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("14"));
@@ -1012,7 +1012,7 @@ fn fix42_rejects_leave_out_reasons_added_later() {
         msg.push(tag, value);
     }
     msg.push(tags::MSG_SEQ_NUM, 2u64);
-    msg.push(tags::SENDING_TIME, utc_timestamp());
+    msg.push(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
     let out = s.recv(msg, h.t0);
     assert_eq!(types(&out), ["Reject"]);
     let reject = sent(&out)[0];

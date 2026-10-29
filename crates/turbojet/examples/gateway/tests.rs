@@ -11,8 +11,9 @@ use tokio::time::timeout;
 use turbojet::admin::{Logon, ResendRequest};
 use turbojet::codec::{Decoded, decode, encode};
 use turbojet::fields::EncryptMethod;
+use turbojet::fields::ToFix;
 use turbojet::fields::UtcTimestamp;
-use turbojet::message::{Message, tags, utc_timestamp};
+use turbojet::message::{Message, tags};
 use turbojet::{
     Acceptor, AcceptorConfig, DiskStorage, MemoryStorage, MsgType, SessionConfig, SessionId, SessionStorage,
 };
@@ -78,7 +79,7 @@ impl Client {
             .with(tags::SENDER_COMP_ID, self.comp_id.as_str())
             .with(tags::TARGET_COMP_ID, "GATEWAY")
             .with(tags::MSG_SEQ_NUM, seq)
-            .with(tags::SENDING_TIME, utc_timestamp());
+            .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
         for (tag, value) in body.fields().filter(|(t, _)| *t != tags::MSG_TYPE) {
             msg.push(tag, value);
         }

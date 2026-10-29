@@ -676,7 +676,8 @@ mod tests {
     use super::*;
     use crate::codec::{Decoded, decode, encode};
     use crate::fields::MsgType;
-    use crate::message::{Message, tags, utc_timestamp};
+    use crate::fields::{ToFix, UtcTimestamp};
+    use crate::message::{Message, tags};
     use crate::store::MemoryStorage;
 
     /// Fails with each of `errors` in turn, then accepts from `inner`.
@@ -721,7 +722,7 @@ mod tests {
             .with(tags::SENDER_COMP_ID, "PEER")
             .with(tags::TARGET_COMP_ID, "US")
             .with(tags::MSG_SEQ_NUM, 1u64)
-            .with(tags::SENDING_TIME, utc_timestamp())
+            .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix())
             .with(tags::ENCRYPT_METHOD, "0")
             .with(tags::HEART_BT_INT, 30u64);
         client.write_all(&encode(&logon).unwrap()).await.unwrap();
@@ -815,7 +816,7 @@ mod tests {
             .with(tags::SENDER_COMP_ID, "PEER")
             .with(tags::TARGET_COMP_ID, "US")
             .with(tags::MSG_SEQ_NUM, 1u64)
-            .with(tags::SENDING_TIME, utc_timestamp())
+            .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix())
             .with(tags::ENCRYPT_METHOD, "0")
             .with(tags::HEART_BT_INT, 30u64);
         client.write_all(&encode(&logon).unwrap()).await.unwrap();

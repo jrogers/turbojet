@@ -1335,7 +1335,8 @@ mod tests {
     use crate::application::{Application, Context, MessageReject};
     use crate::codec::{Decoded, encode, frame_with_raw_field};
     use crate::fields::MsgType;
-    use crate::message::{tags, utc_timestamp};
+    use crate::fields::{ToFix, UtcTimestamp};
+    use crate::message::tags;
     use crate::registry::SendError;
     use crate::registry::SessionRegistry;
     use crate::session::SessionConfig;
@@ -1397,7 +1398,7 @@ mod tests {
         msg.push(tags::SENDER_COMP_ID, "PEER");
         msg.push(tags::TARGET_COMP_ID, "US");
         msg.push(tags::MSG_SEQ_NUM, seq);
-        msg.push(tags::SENDING_TIME, utc_timestamp());
+        msg.push(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
         for (tag, value) in body.fields().filter(|(t, _)| *t != tags::MSG_TYPE) {
             msg.push(tag, value);
         }

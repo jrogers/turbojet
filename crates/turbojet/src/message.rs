@@ -259,11 +259,6 @@ pub fn is_header_or_trailer(tag: u32) -> bool {
     )
 }
 
-/// Current time in FIX UTCTimestamp format with milliseconds.
-pub fn utc_timestamp() -> String {
-    crate::fields::UtcTimestamp::now().to_fix()
-}
-
 /// A FIX message: an ordered list of tag/value fields.
 ///
 /// Fields are stored in wire form (`tag=value<SOH>`) back to back in a single buffer, with a

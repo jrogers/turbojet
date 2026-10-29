@@ -11,7 +11,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, advance, sleep, timeout};
 use turbojet::codec::{Decoded, decode, encode};
-use turbojet::message::{tags, utc_timestamp};
+use turbojet::fields::{ToFix, UtcTimestamp};
+use turbojet::message::tags;
 use turbojet::{
     Acceptor, Application, CancelOnDisconnect, CancelTrigger, ConnectionInfo, Disconnect, Initiator, InitiatorConfig,
     MemoryStorage, Message, MsgType, SessionConfig, SessionHandle, SessionRegistry,
@@ -95,7 +96,7 @@ impl Raw {
             .with(tags::SENDER_COMP_ID, self.ours)
             .with(tags::TARGET_COMP_ID, self.theirs)
             .with(tags::MSG_SEQ_NUM, self.seq)
-            .with(tags::SENDING_TIME, utc_timestamp());
+            .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
         self.seq += 1;
         self.stream.write_all(&encode(&msg).unwrap()).await.unwrap();
     }

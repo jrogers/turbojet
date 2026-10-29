@@ -9,7 +9,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use turbojet::codec::{Decoded, decode, encode};
-use turbojet::message::{tags, utc_timestamp};
+use turbojet::fields::{ToFix, UtcTimestamp};
+use turbojet::message::tags;
 use turbojet::{
     Acceptor, Application, ConnectionInfo, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MsgType,
     SessionConfig, SessionHandle,
@@ -86,7 +87,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Raw<S> {
             .with(tags::SENDER_COMP_ID, "CLIENT")
             .with(tags::TARGET_COMP_ID, "SERVER")
             .with(tags::MSG_SEQ_NUM, self.seq)
-            .with(tags::SENDING_TIME, utc_timestamp());
+            .with(tags::SENDING_TIME, UtcTimestamp::now().to_fix());
         self.seq += 1;
         self.stream.write_all(&encode(&msg).unwrap()).await.unwrap();
     }

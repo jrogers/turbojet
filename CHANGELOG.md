@@ -6,6 +6,8 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `message::utc_timestamp()` is gone: `UtcTimestamp::now().to_fix()` gives the same
+  string. `SessionId::escape`, which only `DiskStorage` uses, is no longer public.
 - **Changed:** the `application`, `cancel` and `session` modules are private: everything in them
   is at the crate root, and was already, but for `application::Reply`, which is now
   `turbojet::Reply`.
