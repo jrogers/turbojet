@@ -22,7 +22,7 @@ impl Application for Venue {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         if msg.msg_type() == MsgType::NewOrderSingle {
             let id = msg.get(tags::CL_ORD_ID).unwrap_or_default().to_string();
-            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::CL_ORD_ID, id));
+            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::CL_ORD_ID, id))?;
         }
         Ok(())
     }

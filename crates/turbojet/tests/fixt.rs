@@ -48,7 +48,7 @@ impl Application for Recorder {
                 cum_qty: 100.into(),
             });
             report.cl_ord_id = Some(order.cl_ord_id);
-            ctx.send(report);
+            ctx.send(report)?;
         }
         let _ = self.events.send(Event::Message(msg.clone()));
         Ok(())

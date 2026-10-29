@@ -1380,7 +1380,7 @@ mod tests {
 
     impl Application for Acker {
         fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
-            ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)));
+            ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)))?;
             Ok(())
         }
     }
@@ -2820,7 +2820,7 @@ mod tests {
 
     impl Application for Verbose {
         fn on_message(&self, ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
-            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "x".repeat(1 << 20)));
+            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "x".repeat(1 << 20)))?;
             Ok(())
         }
     }
@@ -3038,7 +3038,7 @@ mod tests {
     impl Application for Holder {
         fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
             self.holds.lock().unwrap().push(ctx.hold());
-            ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)));
+            ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)))?;
             Ok(())
         }
     }

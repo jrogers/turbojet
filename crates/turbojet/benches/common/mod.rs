@@ -137,7 +137,7 @@ pub struct Acker {
 impl Application for Acker {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         let order: NewOrderSingleRef = msg.parse()?;
-        ctx.send(ack(order, self.next_id.fetch_add(1, Ordering::Relaxed)));
+        ctx.send(ack(order, self.next_id.fetch_add(1, Ordering::Relaxed)))?;
         Ok(())
     }
 }

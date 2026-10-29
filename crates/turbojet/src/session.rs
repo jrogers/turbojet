@@ -24,7 +24,7 @@ use tracing::{debug, error, info, warn};
 use crate::admin::{
     BusinessMessageReject, Heartbeat, Logon, Logout, Reject, ResendRequest, SequenceReset, TestRequest,
 };
-use crate::application::{Application, Context, Disconnect, Holds, MessageReject, Outbox, guarded};
+use crate::application::{Application, Context, Disconnect, Holds, MessageReject, Outbox, SendChecks, guarded};
 use crate::cancel::{CancelOnDisconnect, MAX_CANCEL_GRACE};
 use crate::codec::{Decoded, decode_stored, frame_stored, push_digits, push_trailer};
 use crate::counterparty::{Counterparties, Counterparty};
@@ -2586,7 +2586,11 @@ impl Session {
         // Borrows the peer field alone (not `self.peer()`), so the application can be called
         // without cloning the handle for every message.
         let handle = &self.peer.as_ref().expect("session is not bound before logon").handle;
-        let mut ctx = Context::with_outbox(handle, std::mem::take(&mut self.outbox));
+        let checks = SendChecks {
+            data_fields: &self.config.data_fields,
+            appl_versions: self.appl_version.is_some().then_some(&self.config.appl_versions[..]),
+        };
+        let mut ctx = Context::with_outbox(handle, checks, std::mem::take(&mut self.outbox));
         if self.hands_out_holds {
             ctx = ctx.holding(&mut self.holds, &self.commands, seq_num);
         }
@@ -2598,9 +2602,10 @@ impl Session {
         let mut sent = std::mem::take(&mut outbox.sent);
         for mut reply in sent.drain(..) {
             // Replies queued before a panic may be half-done, so they're dropped, not sent.
-            // Replies have no receipt: anything wrong with one is logged.
+            // Replies have no receipt, and `Context::send` checked them: anything else wrong
+            // with one is logged.
             if result.is_some() {
-                let _ = self.send_app(&mut reply, now);
+                let _ = self.send_checked(&mut reply, now);
             }
             outbox.recycle(reply);
         }
@@ -3138,18 +3143,20 @@ impl Session {
     /// Sends from the queue and replies alike count against the outbound limit: only messages
     /// stored count, as only they go out. Resends don't come this way, and don't count.
     fn send_app(&mut self, msg: &mut Message, now: Instant) -> Result<u64, Dropped> {
-        if msg.msg_type().is_admin() {
-            warn!(msg_type = %msg.msg_type(), "applications cannot send session-level messages; dropping");
-            return Err(Dropped::Rejected(format!("{} is a session-level message type", msg.msg_type())));
+        let checks = SendChecks {
+            data_fields: &self.config.data_fields,
+            appl_versions: self.appl_version.is_some().then_some(&self.config.appl_versions[..]),
+        };
+        if let Err(rejected) = checks.check(msg) {
+            warn!(msg_type = %msg.msg_type(), %rejected, "dropping message");
+            return Err(Dropped::Rejected(rejected.to_string()));
         }
-        if self.appl_version.is_some()
-            && let Some(stated) = msg.get(tags::APPL_VER_ID)
-            && self.supported_version(stated).is_none()
-        {
-            error!(msg_type = %msg.msg_type(), stated, "dropping message: its ApplVerID(1128) isn't one this session supports");
-            return Err(Dropped::Rejected(format!("ApplVerID(1128) {stated} isn't one this session supports")));
-        }
-        let outcome = self.send_outcome(msg, now);
+        self.send_checked(msg, now)
+    }
+
+    /// [`send_app`](Self::send_app) for a message already checked against [`SendChecks`].
+    fn send_checked(&mut self, msg: &mut Message, now: Instant) -> Result<u64, Dropped> {
+        let outcome = self.send_outcome(msg, now, true);
         if outcome.is_ok()
             && let Some(window) = &mut self.outbound
         {
@@ -3162,11 +3169,12 @@ impl Session {
     /// message. Does nothing once the session is closed.
     fn send(&mut self, mut body: Message, now: Instant) {
         // Session messages and replies have no one waiting to hear; anything wrong is logged.
-        let _ = self.send_outcome(&mut body, now);
+        let _ = self.send_outcome(&mut body, now, false);
     }
 
     /// [`send`](Self::send), returning the MsgSeqNum once stored, or why the message was dropped.
-    fn send_outcome(&mut self, body: &mut Message, now: Instant) -> Result<u64, Dropped> {
+    /// `checked` says its fields were checked already, as an application message's are.
+    fn send_outcome(&mut self, body: &mut Message, now: Instant, checked: bool) -> Result<u64, Dropped> {
         if self.status == Status::Closed {
             return Err(Dropped::Disconnected);
         }
@@ -3178,7 +3186,7 @@ impl Session {
         }
         // SOH ends a field on the wire, so a value containing one would add fields of its own,
         // unless it's a data field whose length is given just before it.
-        if let Some(tag) = body.invalid_data_field(&self.config.data_fields) {
+        if !checked && let Some(tag) = body.invalid_data_field(&self.config.data_fields) {
             warn!(
                 msg_type = %body.msg_type(),
                 tag,

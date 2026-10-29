@@ -274,7 +274,7 @@ impl Application for RecordingApp {
         if self.acks && msg.msg_type() == MsgType::NewOrderSingle {
             let mut acked = self.acked.lock().unwrap();
             *acked += 1;
-            ctx.send(report(&format!("ack-{id}-{acked}"), Some(&id)));
+            ctx.send(report(&format!("ack-{id}-{acked}"), Some(&id))).expect("an ExecutionReport is sent");
         }
         let delivery = Delivery { id, seq, redelivered: ctx.maybe_redelivered() };
         let mut delivered = self.delivered.lock().unwrap();

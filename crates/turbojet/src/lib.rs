@@ -60,7 +60,7 @@
 //!                     avg_px: Decimal::ZERO,
 //!                 });
 //!                 ack.cl_ord_id = Some(order.cl_ord_id.into());
-//!                 ctx.send(ack);
+//!                 ctx.send(ack)?;
 //!                 Ok(())
 //!             }
 //!             _ => Err(MessageReject::unsupported_message_type()),
@@ -104,7 +104,7 @@
 //! #             cum_qty: Decimal::ZERO, avg_px: Decimal::ZERO,
 //! #         });
 //! #         ack.cl_ord_id = Some(order.cl_ord_id.into());
-//! #         ctx.send(ack);
+//! #         ctx.send(ack)?;
 //! #         Ok(())
 //! #     }
 //! # }
@@ -317,7 +317,7 @@ pub mod validation;
 
 pub use acceptor::{Acceptor, AcceptorConfig, PROXY_HEADER_TIMEOUT};
 pub use allowed::AllowedIps;
-pub use application::{Application, Context, Disconnect, Hold, MessageReject};
+pub use application::{Application, Context, Disconnect, Hold, MessageReject, SendRejected};
 pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerID, MsgType};

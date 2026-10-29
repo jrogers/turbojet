@@ -49,7 +49,7 @@ impl Application for Acker {
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         if msg.msg_type() == MsgType::NewOrderSingle {
-            ctx.send(ack(msg.parse()?, self.next_id.fetch_add(1, Ordering::Relaxed)));
+            ctx.send(ack(msg.parse()?, self.next_id.fetch_add(1, Ordering::Relaxed)))?;
         }
         Ok(())
     }

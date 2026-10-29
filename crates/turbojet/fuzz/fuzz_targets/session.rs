@@ -160,7 +160,7 @@ impl Application for App {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
-                ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)));
+                ctx.send(Message::new(MsgType::ExecutionReport).with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID)))?;
                 Ok(())
             }
             MsgType::ExecutionReport => Err(MessageReject::unsupported_message_type()),

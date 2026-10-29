@@ -6,10 +6,11 @@ use std::sync::{Arc, Weak};
 
 use tracing::error;
 
-use crate::fields::{BusinessRejectReason, CompactString, SessionRejectReason};
-use crate::message::{FieldError, FixMessage, Message};
+use crate::fields::{BusinessRejectReason, CompactString, MsgType, SessionRejectReason};
+use crate::message::{DataFields, FieldError, FixMessage, Message, tags};
 use crate::peer::ConnectionInfo;
 use crate::registry::{CommandSender, SessionHandle, SessionRegistry};
+use crate::session::ApplVersion;
 use crate::store::SessionId;
 use crate::sync::{AtomicBool, Mutex, Ordering};
 
@@ -210,7 +211,7 @@ pub enum Disconnect {
 ///         if ctx.maybe_redelivered() {
 ///             // Handled before a crash, perhaps: look it up before acting on it again.
 ///         }
-///         ctx.send(msg.clone()); // replies go out with this message's batch
+///         ctx.send(msg.clone())?; // replies go out with this message's batch
 ///         Ok(())
 ///     }
 /// }
@@ -224,6 +225,7 @@ pub enum Disconnect {
 /// ```
 pub struct Context<'a> {
     session: &'a SessionHandle,
+    checks: SendChecks<'a>,
     outbox: Outbox,
     redelivered: bool,
     /// Where [`hold`](Self::hold) records a hold: `None` but in `on_message`, and in tests.
@@ -250,15 +252,18 @@ impl<'a> Context<'a> {
     /// A context for `session`. The engine creates these; construct one yourself to unit-test an
     /// [`Application`], with a [`SessionHandle::disconnected`], then inspect what it sent with
     /// [`Context::replies`].
+    ///
+    /// Its replies are checked as a FIX 4.x session's are, with the standard data fields.
     pub fn new(session: &'a SessionHandle) -> Self {
-        Self::with_outbox(session, Outbox::default())
+        static STANDARD: std::sync::LazyLock<DataFields> = std::sync::LazyLock::new(DataFields::standard);
+        Self::with_outbox(session, SendChecks { data_fields: &STANDARD, appl_versions: None }, Outbox::default())
     }
 
-    /// A context whose replies go into `outbox`, which the session keeps between calls to reuse
-    /// its allocations.
-    pub(crate) fn with_outbox(session: &'a SessionHandle, outbox: Outbox) -> Self {
+    /// A context whose replies are checked against `checks` and go into `outbox`, which the
+    /// session keeps between calls to reuse its allocations.
+    pub(crate) fn with_outbox(session: &'a SessionHandle, checks: SendChecks<'a>, outbox: Outbox) -> Self {
         debug_assert!(outbox.sent.is_empty(), "the session sends every reply before the next call");
-        Self { session, outbox, redelivered: false, holding: None }
+        Self { session, checks, outbox, redelivered: false, holding: None }
     }
 
     /// The same context, for message `seq_num`, which [`hold`](Self::hold) records in `holds`;
@@ -335,21 +340,22 @@ impl<'a> Context<'a> {
         self.session
     }
 
-    /// The session the message arrived on: its ID.
-    pub fn session_id(&self) -> &SessionId {
-        self.session.id()
-    }
-
-    /// Queues an application message; the engine adds the standard header. A message with SOH
-    /// inside a value is dropped (and logged), since it would add fields on the wire. On FIXT.1.1
-    /// sessions, ApplVerID(1128) may name any version the session supports (the default goes
-    /// unstated), and a message naming another is dropped (and logged); CstmApplVerID(1129) and
-    /// ApplExtID(1156) pass through. On FIX 4.x sessions, ApplVerID(1128) is dropped.
+    /// Queues an application message, sent once `on_message` returns, in this message's batch;
+    /// the engine adds the standard header. On FIXT.1.1 sessions, ApplVerID(1128) may name any
+    /// version the session supports (the default goes unstated); CstmApplVerID(1129) and
+    /// ApplExtID(1156) pass through. On FIX 4.x sessions, ApplVerID(1128) is left out.
     ///
     /// A typed message is written into a message the session reuses, so in steady state sending
     /// one allocates nothing beyond what the typed message itself holds.
-    pub fn send(&mut self, msg: impl Reply) {
-        msg.send_to(self);
+    ///
+    /// # Errors
+    ///
+    /// If the session would never send the message, it isn't queued: see [`SendRejected`]. The
+    /// other replies are sent as usual. A reply can still go unsent after `on_message` returns,
+    /// if the session's store fails or the connection ends, and the session's end says so
+    /// ([`Application::on_logout`]).
+    pub fn send(&mut self, msg: impl Reply) -> Result<(), SendRejected> {
+        msg.send_to(self)
     }
 }
 
@@ -588,24 +594,100 @@ impl Reply for Message {}
 impl<T: FixMessage> Reply for T {}
 
 mod sealed {
-    use super::{Context, FixMessage, Message};
+    use super::{Context, FixMessage, Message, SendRejected};
 
     pub trait Sealed {
-        /// Adds the message to what the application sent through `ctx`.
-        fn send_to(self, ctx: &mut Context<'_>);
+        /// Adds the message to what the application sent through `ctx`, if the session would
+        /// send it.
+        fn send_to(self, ctx: &mut Context<'_>) -> Result<(), SendRejected>;
     }
 
     impl Sealed for Message {
-        fn send_to(self, ctx: &mut Context<'_>) {
+        fn send_to(self, ctx: &mut Context<'_>) -> Result<(), SendRejected> {
+            ctx.checks.check(&self)?;
             ctx.outbox.sent.push(self);
+            Ok(())
         }
     }
 
     impl<T: FixMessage> Sealed for T {
-        fn send_to(self, ctx: &mut Context<'_>) {
+        fn send_to(self, ctx: &mut Context<'_>) -> Result<(), SendRejected> {
             let mut msg = ctx.outbox.spare.pop().unwrap_or_default();
             self.write_into(&mut msg);
+            if let Err(rejected) = ctx.checks.check(&msg) {
+                ctx.outbox.recycle(msg);
+                return Err(rejected);
+            }
             ctx.outbox.sent.push(msg);
+            Ok(())
+        }
+    }
+}
+
+/// Why the session would never send an application message, so [`Context::send`] refuses it at
+/// once. A message sent through a [`SessionHandle`] is checked the same way, and dropped with
+/// [`Dropped::Rejected`](crate::Dropped::Rejected).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SendRejected {
+    /// A session-level message type, which only the session sends.
+    SessionLevel(MsgType),
+    /// ApplVerID(1128) names a version this FIXT.1.1 session doesn't support.
+    UnsupportedApplVerID(CompactString),
+    /// The field with this tag would be misread on the wire, adding fields of its own: its
+    /// value contains SOH, or it's a data field that doesn't directly follow its length.
+    MisreadField(u32),
+}
+
+impl fmt::Display for SendRejected {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SessionLevel(msg_type) => write!(f, "{msg_type} is a session-level message type"),
+            Self::UnsupportedApplVerID(stated) => write!(f, "ApplVerID(1128) {stated} isn't one this session supports"),
+            Self::MisreadField(tag) => {
+                write!(f, "tag {tag} contains SOH, or is a data field that doesn't follow its length")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SendRejected {}
+
+/// So that `on_message` can send with `ctx.send(reply)?`: a reply the session would never send
+/// rejects the message it answers as a BusinessMessageReject(j) with reason
+/// ApplicationNotAvailable, as a panic in `on_message` does, saying why in its Text. Anything the
+/// application did with the message before the reply was refused stays done.
+impl From<SendRejected> for MessageReject {
+    fn from(rejected: SendRejected) -> Self {
+        error!(%rejected, "rejecting a message whose reply the session wouldn't send");
+        Self::business(BusinessRejectReason::ApplicationNotAvailable, format!("Application error: {rejected}"))
+    }
+}
+
+/// What a session checks each application message it sends against.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SendChecks<'a> {
+    /// The data fields, which alone may hold SOH.
+    pub(crate) data_fields: &'a DataFields,
+    /// On a FIXT.1.1 session, the versions it supports; `None` on FIX 4.x.
+    pub(crate) appl_versions: Option<&'a [ApplVersion]>,
+}
+
+impl SendChecks<'_> {
+    pub(crate) fn check(&self, msg: &Message) -> Result<(), SendRejected> {
+        let msg_type = msg.msg_type();
+        if msg_type.is_admin() {
+            return Err(SendRejected::SessionLevel(msg_type));
+        }
+        if let Some(versions) = self.appl_versions
+            && let Some(stated) = msg.get(tags::APPL_VER_ID)
+            && !versions.iter().any(|v| v.id.code() == stated)
+        {
+            return Err(SendRejected::UnsupportedApplVerID(stated.into()));
+        }
+        match msg.invalid_data_field(self.data_fields) {
+            Some(tag) => Err(SendRejected::MisreadField(tag)),
+            None => Ok(()),
         }
     }
 }
@@ -813,23 +895,55 @@ mod tests {
         );
     }
 
+    fix_message! {
+        /// News(B), with a Text(58) for the tests, not its Headline.
+        News / NewsRef = "B" {
+            text: opt CompactString = tags::TEXT,
+        }
+    }
+
+    fn context(session: &SessionHandle, outbox: Outbox) -> Context<'_> {
+        static STANDARD: std::sync::LazyLock<DataFields> = std::sync::LazyLock::new(DataFields::standard);
+        Context::with_outbox(session, SendChecks { data_fields: &STANDARD, appl_versions: None }, outbox)
+    }
+
     #[test]
     fn typed_replies_are_built_in_spare_messages() {
         let id = SessionHandle::disconnected(session_id());
         let mut outbox = Outbox::default();
         outbox.recycle(Message::new(MsgType::ExecutionReport).with(tags::TEXT, "old"));
-        let mut ctx = Context::with_outbox(&id, outbox);
-        ctx.send(Message::new(MsgType::OrderCancelReject));
+        let mut ctx = context(&id, outbox);
+        ctx.send(Message::new(MsgType::OrderCancelReject)).unwrap();
         assert_eq!(ctx.outbox.spare.len(), 1);
-        ctx.send(Heartbeat { test_req_id: Some("T".into()) });
+        ctx.send(News { text: Some("H".into()) }).unwrap();
         assert!(ctx.outbox.spare.is_empty(), "the typed reply took the spare");
-        assert_eq!(
-            ctx.replies(),
-            [Message::new(MsgType::OrderCancelReject), Heartbeat { test_req_id: Some("T".into()) }.into()]
-        );
+        assert_eq!(ctx.replies(), [Message::new(MsgType::OrderCancelReject), News { text: Some("H".into()) }.into()]);
         // With no spare left, a typed reply is built in a new message.
-        ctx.send(Heartbeat { test_req_id: None });
+        ctx.send(News { text: None }).unwrap();
         assert_eq!(ctx.replies().len(), 3);
+    }
+
+    /// What the session would never send is refused at once, and isn't queued; a refused typed
+    /// reply gives its spare back.
+    #[test]
+    fn replies_the_session_would_never_send_are_refused() {
+        let id = SessionHandle::disconnected(session_id());
+        let versions = [ApplVersion::new(crate::ApplVerID::Fix50Sp2)];
+        let data_fields = DataFields::standard();
+        let mut outbox = Outbox::default();
+        outbox.recycle(Message::new(MsgType::ExecutionReport));
+        let checks = SendChecks { data_fields: &data_fields, appl_versions: Some(&versions) };
+        let mut ctx = Context::with_outbox(&id, checks, outbox);
+        assert_eq!(ctx.send(Heartbeat { test_req_id: None }), Err(SendRejected::SessionLevel(MsgType::Heartbeat)));
+        assert_eq!(ctx.outbox.spare.len(), 1, "the refused typed reply gave its spare back");
+        assert_eq!(
+            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "7")),
+            Err(SendRejected::UnsupportedApplVerID("7".into()))
+        );
+        assert_eq!(ctx.send(News { text: Some("a\x01b".into()) }), Err(SendRejected::MisreadField(tags::TEXT)));
+        assert!(ctx.replies().is_empty());
+        ctx.send(Message::new(MsgType::ExecutionReport).with(tags::APPL_VER_ID, "9")).unwrap();
+        assert_eq!(ctx.replies().len(), 1, "a supported ApplVerID is sent");
     }
 
     #[test]

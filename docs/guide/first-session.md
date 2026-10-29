@@ -66,7 +66,7 @@ impl Application for OrderDesk {
                     avg_px: Decimal::ZERO,
                 });
                 ack.cl_ord_id = Some(order.cl_ord_id.into());
-                ctx.send(ack);
+                ctx.send(ack)?;
                 Ok(())
             }
             _ => Err(MessageReject::unsupported_message_type()),
@@ -180,7 +180,7 @@ handle, and look at what it sent:
 #             cum_qty: Decimal::ZERO, avg_px: Decimal::ZERO,
 #         });
 #         ack.cl_ord_id = Some(order.cl_ord_id.into());
-#         ctx.send(ack);
+#         ctx.send(ack)?;
 #         Ok(())
 #     }
 # }
@@ -204,7 +204,9 @@ forget. The queue holds `SessionConfig::max_queued_sends` messages (10,000 by de
 that, `send` hands the message back (`SendError::Full`) and `send_when_ready` waits for room.
 Logout and operator commands have a queue of their own, so a full send queue doesn't hold them
 up. `Context::send`, in `on_message`, sends a reply without a queue, which is the fastest way to
-answer (see [Performance][performance]).
+answer (see [Performance][performance]). It refuses at once a reply the session would never send (a
+session-level message type, an ApplVerID the session doesn't support, or SOH in a value) with
+`SendRejected`, which `?` turns into a BusinessMessageReject of the message it answers.
 
 ## FIX versions
 

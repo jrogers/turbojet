@@ -54,7 +54,7 @@ impl Application for Client {
         let chain = self.chain.load(Ordering::Relaxed);
         if chain > 0 {
             self.chain.store(chain - 1, Ordering::Relaxed);
-            ctx.send(common::new_order_single(self.next_id.fetch_add(1, Ordering::Relaxed)));
+            ctx.send(common::new_order_single(self.next_id.fetch_add(1, Ordering::Relaxed)))?;
         } else {
             let _ = self.received.send(msg.clone());
         }

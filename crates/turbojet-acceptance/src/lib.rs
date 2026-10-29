@@ -292,7 +292,9 @@ impl Reflector {
         for (tag, value) in msg.fields().filter(|(tag, _)| !is_header_or_trailer(*tag)) {
             echo.push(tag, value);
         }
-        ctx.send(echo);
+        // A script's message the session wouldn't send (one stating an ApplVerID it doesn't
+        // support, say) isn't echoed, as before `send` said so.
+        let _ = ctx.send(echo);
     }
 }
 

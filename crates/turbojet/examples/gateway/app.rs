@@ -103,7 +103,7 @@ impl Application for GatewayApp {
     }
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
-        let owner = ctx.session_id().target_comp_id.clone();
+        let owner = ctx.session().id().target_comp_id.clone();
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
                 let report = self.orders.new_order(&owner, msg.parse()?)?;
@@ -112,31 +112,31 @@ impl Application for GatewayApp {
                 } else {
                     self.metrics.accepted.increment(1);
                 }
-                ctx.send(report);
+                ctx.send(report)?;
             }
             MsgType::OrderCancelRequest => match self.orders.cancel(&owner, msg.parse()?) {
                 Ok(report) => {
                     self.metrics.canceled.increment(1);
-                    ctx.send(report);
+                    ctx.send(report)?;
                 }
                 Err(reject) => {
                     self.metrics.cancel_rejected.increment(1);
-                    ctx.send(reject);
+                    ctx.send(reject)?;
                 }
             },
             MsgType::OrderCancelReplaceRequest => match self.orders.replace(&owner, msg.parse()?)? {
                 Ok(report) => {
                     self.metrics.replaced.increment(1);
-                    ctx.send(report);
+                    ctx.send(report)?;
                 }
                 Err(reject) => {
                     self.metrics.replace_rejected.increment(1);
-                    ctx.send(reject);
+                    ctx.send(reject)?;
                 }
             },
             MsgType::OrderStatusRequest => {
                 self.metrics.status_requests.increment(1);
-                ctx.send(self.orders.status(&owner, msg.parse()?));
+                ctx.send(self.orders.status(&owner, msg.parse()?))?;
             }
             _ => return Err(MessageReject::unsupported_message_type()),
         }

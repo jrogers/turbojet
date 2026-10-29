@@ -118,7 +118,7 @@ impl Application for TestApp {
         }
         msg.get(tags::SYMBOL).ok_or_else(|| MessageReject::required_tag_missing(tags::SYMBOL))?;
         if self.panic_in == Some("on_message") && msg.get(tags::CL_ORD_ID) == Some("PANIC") {
-            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "half-done"));
+            ctx.send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "half-done"))?;
             panic!("on_message panicked");
         }
         if msg.get(tags::CL_ORD_ID).is_some_and(|id| self.hold.contains(&id)) {
@@ -130,7 +130,7 @@ impl Application for TestApp {
             Message::new(MsgType::ExecutionReport)
                 .with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID))
                 .with(tags::EXEC_ID, format!("E{}", received.len())),
-        );
+        )?;
         Ok(())
     }
 }

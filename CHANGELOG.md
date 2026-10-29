@@ -6,6 +6,12 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `Context::send` returns `Result<(), SendRejected>`: a reply the session would never
+  send (a session-level message type, an ApplVerID it doesn't support, a value containing SOH)
+  is refused at once, where before it was dropped after `on_message` returned, and only logged.
+  `ctx.send(reply)?` turns the refusal into a BusinessMessageReject (ApplicationNotAvailable) of
+  the message it answers, as a panic in `on_message` does.
+- **Changed:** `Context::session_id` is gone: use `ctx.session().id()`.
 - **Changed:** `MsgType`, `Code` and `CodeRef` compare and hash by their FIX code, so a code
   that has a variant is equal to it however it's held: `MsgType::Other("D".into())` is
   `MsgType::NewOrderSingle`, and `Code::Unknown("0".into())` is `Code::Known(EncryptMethod::None)`.

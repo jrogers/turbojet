@@ -202,7 +202,7 @@ impl Application for Recorder {
                 Message::new(MsgType::ExecutionReport)
                     .with_opt(tags::CL_ORD_ID, msg.get(tags::CL_ORD_ID))
                     .with_opt(tags::TEXT, msg.get(tags::TEXT)),
-            );
+            )?;
         }
         let _ = self.events.send(Event::Message(msg.clone()));
         Ok(())

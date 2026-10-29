@@ -119,7 +119,7 @@ impl Application for OrderDesk {
                     avg_px: Decimal::ZERO,
                 });
                 ack.cl_ord_id = Some(order.cl_ord_id.into());
-                ctx.send(ack);
+                ctx.send(ack)?;
                 Ok(())
             }
             _ => Err(MessageReject::unsupported_message_type()),
