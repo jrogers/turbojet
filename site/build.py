@@ -8,7 +8,15 @@ Called by scripts/site.sh, which runs mdBook after it:
 - the landing page, OUT/index.html: site/index.html with the version, the quick start's
   application (from examples/quickstart.rs) and the README's benchmark table filled in.
 
+Then, with --finish, after mdBook has built the book into OUT/guide:
+
+- each page's description, which mdBook leaves empty, for search results.
+- for language models: each page's markdown beside its HTML (guide/first-session.md), with the
+  examples' hidden lines shown so they're whole programs; OUT/llms.txt, an index of them; and
+  OUT/llms-full.txt, the whole book in one file.
+
 Usage: python3 site/build.py BOOK OUT REF
+       python3 site/build.py --finish BOOK OUT REF
 """
 
 import html
@@ -19,6 +27,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 REPO = "https://github.com/jrogers/turbojet"
+SITE = "https://jrogers.github.io/turbojet"
 
 
 def main(book: Path, out: Path, ref: str) -> None:
@@ -61,13 +70,96 @@ def main(book: Path, out: Path, ref: str) -> None:
 def summary(index: str, chapters: list[str]) -> str:
     """The book's contents, in the order the guide's index lists its chapters."""
     lines = ["# Summary", "", "[The Turbojet guide](index.md)", ""]
-    targets = dict(re.findall(r"^\[([\w-]+)\]: (\S+\.md)$", index, re.M))
-    for title, ref in re.findall(r"^\d+\. \[([^\]]+)\]\[([\w-]+)\]", index, re.M):
-        target = targets[ref]
+    for title, target, _ in listed(index):
         assert target in chapters, f"the guide's index lists {target}, which isn't a chapter"
         lines.append(f"- [{title}]({target})")
     lines += ["", "---", "", "[Architecture](architecture.md)", ""]
     return "\n".join(lines)
+
+
+def listed(index: str) -> list[tuple[str, str, str]]:
+    """The chapters the guide's index lists, in order: each one's title, file and what it covers."""
+    targets = dict(re.findall(r"^\[([\w-]+)\]: (\S+\.md)$", index, re.M))
+    items = re.findall(r"^\d+\. \[([^\]]+)\]\[([\w-]+)\]: (.+?)(?=\n\d+\. |\n\n)", index, re.M | re.S)
+    return [(title, targets[ref], " ".join(about.split())) for title, ref, about in items]
+
+
+def finish(book: Path, out: Path, ref: str) -> None:
+    """Fills in what mdBook leaves out of the built book: page descriptions and the markdown."""
+    src, guide = book / "src", out / "guide"
+    chapters = listed((src / "index.md").read_text())
+    pages = [("The Turbojet guide", "index.md", first_paragraph((src / "index.md").read_text()))]
+    pages += [(title, target, f"{title} in Turbojet, a FIX engine in Rust: {about}") for title, target, about in chapters]
+    pages.append(("Architecture", "architecture.md", "The architecture of Turbojet, a FIX engine in Rust: how its crates and layers fit together."))
+    names = {target for _, target, _ in pages}
+
+    full = []
+    for _, target, description in pages:
+        page = guide / target.replace(".md", ".html")
+        text = page.read_text()
+        empty = '<meta name="description" content="">'
+        assert empty in text, f"mdBook's page head changed: update site/build.py's finish for {page}"
+        page.write_text(text.replace(empty, f'<meta name="description" content="{html.escape(description)}">'))
+        markdown = unhide((src / target).read_text())
+        (guide / target).write_text(markdown)
+        # One file has no directory to resolve the chapters' links to each other against.
+        absolute = lambda m: f"{m.group(1)}{SITE}/guide/{m.group(2)}" if m.group(2) in names else m.group(0)
+        full.append(re.sub(r"(\]\(|^\[[^\]]+\]: )([\w-]+\.md)", absolute, markdown, flags=re.M))
+
+    (out / "llms.txt").write_text(llms(chapters, ref))
+    (out / "llms-full.txt").write_text(llms(chapters, ref) + "\n---\n\n" + "\n\n---\n\n".join(full))
+
+
+def llms(chapters: list[tuple[str, str, str]], ref: str) -> str:
+    """The site's index for language models, as llmstxt.org lays it out: what Turbojet is, its
+    status, and links to each chapter's markdown."""
+    landing = (ROOT / "site" / "index.html").read_text()
+    about = html.unescape(re.search(r'<meta name="description" content="([^"]+)">', landing).group(1))
+    readme = (ROOT / "README.md").read_text()
+    warning = re.search(r"^> \[!WARNING\]\n((?:> .*\n)+)", readme, re.M)
+    assert warning, "README.md's warning moved: update site/build.py's llms"
+    status = " ".join(line[2:] for line in warning.group(1).splitlines()).replace("/blob/main/", f"/blob/{ref}/")
+    lines = [
+        "# Turbojet", "", f"> {about}", "", status, "",
+        "The guide's examples are compiled and run as tests. The markdown below shows their hidden",
+        "lines, so each is a whole program.", "",
+        "## Guide", "",
+        f"- [The Turbojet guide]({SITE}/guide/index.md): what the guide covers, chapter by chapter",
+    ]
+    lines += [f"- [{title}]({SITE}/guide/{target}): {about}" for title, target, about in chapters]
+    lines += [
+        "", "## Reference", "",
+        f"- [Architecture]({SITE}/guide/architecture.md): how its crates and layers fit together",
+        "- [API reference](https://docs.rs/turbojet): every public type, on docs.rs",
+        f"- [Caveats]({REPO}/blob/{ref}/docs/CAVEATS.md): behaviour worth knowing about before relying on it",
+        f"- [Changelog]({REPO}/blob/{ref}/CHANGELOG.md)",
+        "", "## Optional", "",
+        f"- [The whole guide in one file]({SITE}/llms-full.txt)",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def first_paragraph(markdown: str) -> str:
+    """A page's first paragraph after its heading, as plain text."""
+    paragraph = next(block for block in markdown.split("\n\n") if block and not block.startswith("#"))
+    text = re.sub(r"\[([^\]]+)\](?:\([^)]*\)|\[[^\]]*\])", r"\1", " ".join(paragraph.split()))
+    return text.replace("`", "")
+
+
+def unhide(markdown: str) -> str:
+    """Shows the lines rustdoc and mdBook hide in Rust examples (`# use ...`), so each is whole."""
+    out, fenced, rust = [], False, False
+    for line in markdown.split("\n"):
+        if line.startswith("```"):
+            fenced = not fenced
+            rust = fenced and line[3:].split(",")[0] == "rust"
+        elif rust and (line == "#" or line.startswith("# ")):
+            line = line[2:]
+        elif rust and line.startswith("##"):
+            line = line[1:]
+        out.append(line)
+    return "\n".join(out)
 
 
 def relink(text: str, directory: str, in_book: set[str], ref: str) -> str:
@@ -193,4 +285,7 @@ def inline(text: str) -> str:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])
+    if sys.argv[1] == "--finish":
+        finish(Path(sys.argv[2]), Path(sys.argv[3]), sys.argv[4])
+    else:
+        main(Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3])

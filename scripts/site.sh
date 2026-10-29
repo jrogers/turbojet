@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the website into target/site: the landing page (site/index.html) and, under guide/, a
-# book of docs/guide and docs/ARCHITECTURE.md made with mdBook. Needs mdbook and mdbook-mermaid,
+# book of docs/guide and docs/ARCHITECTURE.md made with mdBook, with each page's markdown and
+# llms.txt for language models. Needs mdbook and mdbook-mermaid,
 # at the versions .github/workflows/site.yml installs.
 #   scripts/site.sh            # build; links to files outside the book go to main on GitHub
 #   scripts/site.sh v0.6.0     # the same, linking to that tag (as the release workflow does)
@@ -27,5 +28,6 @@ if $serve; then
     mdbook serve "$book" --dest-dir "$PWD/$out/guide" --open
 else
     mdbook build "$book" --dest-dir "$PWD/$out/guide"
+    python3 site/build.py --finish "$book" "$out" "$ref"
     echo "built $out (open $out/index.html)"
 fi
