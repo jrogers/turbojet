@@ -130,3 +130,7 @@ name = "quickstart"
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "lazy_view"
+harness = false

@@ -979,6 +979,30 @@ behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 1
 `Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,
 rather than building a `MsgType` to compare, saved nothing: finding the field is the cost.
 
+A lazy borrowed view was prototyped on 2026-10-29 (`benches/lazy_view.rs`): the message's
+`FieldView` and a table giving each declared field's first occurrence as a `u16`, with each value
+converted when it's read, so an accessor returns a `Result` (and `?` in `on_message` still answers
+a malformed value with a Reject). For the FIX 4.2 NewOrderSingle it's 184 bytes against the
+generated borrowed struct's 1,184; the table is 2 bytes a field, so a FIX 4.4 one (152 fields)
+would be about 352 bytes against 2,768, and a FIX 5.0 SP2 one (238) about 524. On the benchmark
+order (Apple M3, criterion medians):
+
+| | parse | parse, read 2 fields | parse, read all 10 |
+|---|---|---|---|
+| generated `NewOrderSingleRef` | 101.3 ns | 90.5 ns | 89.7 ns |
+| view, converting on read | 43.8 ns | 44.1 ns | 83.3 ns |
+| view, converting while indexing | 65.6 ns | | 102.8 ns |
+
+The parse alone includes copying the generated struct into `black_box`, so the generated form
+costs about 90 ns in use, and its empty slots only about 7 ns of that once the fields are read:
+converting the values present is most of a typed parse either way. The view halves the cost for
+code that reads a few fields of each message (routing on ClOrdID and Symbol, say), gains 7% for
+code that reads them all, and takes a sixth to an eighth of the memory, which matters to code that
+keeps parsed messages. Converting while indexing, to keep errors at the parse, converts each value
+again when it's read, and is slower than the generated form. The prototype records a group by its
+NumInGroup field without skipping its entries, and finds a data field again when it's read; 1-byte
+indices would halve the table for messages of under 255 fields.
+
 Text such as `8=FIX.4.4|35=0|…` (`codec::decode_text`, `Message`'s `FromStr`) is turned into a
 wire frame and parsed by the same code as one received: fields are split at SOH or `|`, a data
 field read by its Length field so its value may hold either, BodyLength(9) and CheckSum(10)

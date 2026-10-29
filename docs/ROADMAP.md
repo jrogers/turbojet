@@ -66,7 +66,10 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     access in the borrowed one, which can't allocate. Changes the default API, needs a rule, or
     per-venue configuration, for which fields are common, and wins only part of the gain.
   - A borrowed view that keeps the message and a table from tag to field, and parses each field
-    as it's read: about one pass over the tags to parse, but the largest change.
+    as it's read. Prototyped (DESIGN.md, `benches/lazy_view.rs`): it halves the cost for code
+    that reads a few fields, gains 7% for code that reads them all, and is a sixth to an eighth of
+    the size, but every accessor returns a `Result`. It could be generated beside the borrowed
+    form rather than in place of it; groups are still to do.
 - **Sending on the caller's thread** (M, research). `SessionHandle::send` queues each message
   for the connection's task, and the hop to it is most of what separates a round trip sent one
   at a time through a handle (31.2 µs over localhost TCP, M4 Pro) from one replying from
