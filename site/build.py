@@ -118,9 +118,11 @@ def llms(chapters: list[tuple[str, str, str]], ref: str) -> str:
     readme = (ROOT / "README.md").read_text()
     warning = re.search(r"^> \[!WARNING\]\n((?:> .*\n)+)", readme, re.M)
     assert warning, "README.md's warning moved: update site/build.py's llms"
+    fix = re.search(r"^FIX \(Financial Information eXchange\).*?(?=\n\n)", readme, re.M | re.S)
+    assert fix, "README.md no longer says what FIX is: update site/build.py's llms"
     status = " ".join(line[2:] for line in warning.group(1).splitlines()).replace("/blob/main/", f"/blob/{ref}/")
     lines = [
-        "# Turbojet", "", f"> {about}", "", status, "",
+        "# Turbojet", "", f"> {about}", "", " ".join(fix.group(0).split()), "", status, "",
         "The guide's examples are compiled and run as tests. The markdown below shows their hidden",
         "lines, so each is a whole program.", "",
         "## Guide", "",

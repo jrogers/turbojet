@@ -22,6 +22,10 @@
 > real counterparty, and its APIs will change before 1.0. Test it thoroughly yourself before trading real money with it. It is provided as is,
 > without warranty of any kind; known gaps are in [CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md).
 
+FIX (Financial Information eXchange) is the messaging standard of electronic trading: brokers,
+exchanges and investment firms send each other orders, quotes and executions over it in real
+time.
+
 **Turbojet** is a FIX engine in Rust, on tokio: codec, session layer, storage, `Acceptor` and
 `Initiator`, with typed messages for FIX 4.0 to 5.0 SP2, FIXT.1.1 sessions, and SBE, FIXP and
 FAST for binary venues. It puts **safety first, then performance, then developer experience**: a
