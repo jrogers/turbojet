@@ -42,8 +42,9 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   Made `asynchronous(n)`, a failover can lose up to `n` of each session's outgoing messages: the
   promoted standby skips their numbers, and the counterparty is gap-filled, so the application
   must reconcile what it sent (orders' status, say). The standby can lack incoming state too, so
-  after a failover the counterparty resends messages the application was already handed, as
-  PossDup duplicates. A batch the standby fails to take is noticed only at a later commit of the
+  after a failover the counterparty resends messages the application was already handed, marked
+  `maybe_redelivered`: everything it sent before its Logon to the new active is, which may mark
+  some the old active never handed over. A batch the standby fails to take is noticed only at a later commit of the
   session, the one that waits for it, and `in_sync` means within the bound. With a bound,
   `Replica::promote` needs a store that lists its sessions (`SessionStorage::sessions`), and
   fails without one.

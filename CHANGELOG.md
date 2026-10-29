@@ -17,6 +17,12 @@ Notable changes to the published crates.
 - **Changed:** an application's own `impl SessionStorage for Arc<MyStore>` now conflicts with the
   one Turbojet provides, which forwards to `MyStore`: remove it.
 
+- `Marks::maybe_handled` (`MaybeHandled::BelowLogon` or `Below(seq)`, and
+  `Marks::with_maybe_handled`): a session taken over from an instance that may have handled
+  incoming messages its copy doesn't count as received marks the resends of everything the
+  counterparty sent before its next Logon `maybe_redelivered`. The stores keep it in their marks'
+  text form (`maybe_handled=logon` or `=SEQ`), which an earlier build refuses to read.
+
 ### `turbojet-replica`
 
 - New: copies each session's committed state to a hot standby that can take the sessions over
@@ -39,6 +45,9 @@ Notable changes to the published crates.
   that differ, and tells the standby it's checked (`Replica::checked`); `Replica::promote` refuses
   a standby that isn't, and `Replica::promote_unchecked` takes over anyway. A standby restarted
   over a store that lost sessions would otherwise have taken over without them.
+- After an asynchronous failover, the counterparty's resends of messages the old active may have
+  handed over arrive `maybe_redelivered`: `Replica::promote` marks each session
+  (`Marks::maybe_handled`), synchronous ones too, for a forced failover.
 - `Replica::promote` returns `io::Result<()>`: with a lag accepted, it skips each session's next
   outgoing number ahead by it, past any the old active sent that the standby lacks, which needs
   a store that lists its sessions (`SessionStorage::sessions`).

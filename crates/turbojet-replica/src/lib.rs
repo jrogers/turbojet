@@ -132,8 +132,10 @@
 //! sent a gap fill. The messages in those numbers are lost to the new active, which the
 //! application must reconcile (an order's status, say). An unacknowledged batch carries incoming
 //! state too, so the new active may expect a lower incoming number than the old one had reached:
-//! the counterparty resends, and the application is handed again, marked as possible duplicates,
-//! messages the old active had already handed it. Promoting needs a store that lists its sessions
+//! the counterparty resends, and the application is handed again messages the old active had
+//! already handed it, marked [`maybe_redelivered`](turbojet::Context::maybe_redelivered):
+//! promotion marks each session, and the resends of everything the counterparty sent before its
+//! next Logon are flagged. Promoting needs a store that lists its sessions
 //! ([`SessionStorage::sessions`](turbojet::SessionStorage::sessions); the built-in ones do).
 //!
 //! A batch the standby fails to take fails the later commit of the session that waits for it,

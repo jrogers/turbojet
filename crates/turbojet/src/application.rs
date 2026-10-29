@@ -286,7 +286,11 @@ impl<'a> Context<'a> {
     /// they were recorded as received, and the counterparty has sent it again: flagged as a
     /// resend (PossDupFlag), or answering our ResendRequest. Up to 256 messages from the first
     /// that may have been handled are marked, so resends of some never handled may be too; new
-    /// messages aren't. Stores that don't record messages in flight never mark one.
+    /// messages aren't. Stores that don't record messages in flight never mark one. A session
+    /// taken over from another instance that may have handled messages this one doesn't count as
+    /// received ([`Marks::maybe_handled`](crate::store::Marks::maybe_handled), as a replicated
+    /// standby's promotion sets) marks the resends of everything the counterparty sent before its
+    /// Logon, however many.
     pub fn maybe_redelivered(&self) -> bool {
         self.redelivered
     }

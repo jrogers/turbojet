@@ -385,8 +385,20 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     (`accepting_lag`) refuses it, failing the opening with `InvalidInput`. Promotion lists the
     standby store's sessions (`SessionStorage::sessions`) to skip each. Incoming state isn't
     bounded the same way: the new active may expect a lower incoming number than the old one
-    reached, and the counterparty's resend hands the application PossDup duplicates of messages
-    already handed over.
+    reached, and the counterparty resends messages already handed over. The in-flight marker
+    can't flag them: it's committed before a hand-over, but asynchronously that commit carries no
+    outgoing numbers, so nothing waits for the standby to have it, and its window is 256 where
+    the lag can be 64 batches of that. A TLA+ model of the incoming side found the guide's
+    promise of `maybe_redelivered` broken, and that the fix must be exact and durable: promotion
+    marks each session (`Marks::maybe_handled`, `BelowLogon`), the session stores the
+    MsgSeqNum of the counterparty's next Logon as the bound before handing anything over (all
+    below it was sent to the old active, which is fenced), flags each resend below it, and clears
+    the mark once its next incoming number passes it, or at a reset. Kept in memory instead, a
+    crash before catching up lost it; a marker at promotion covered one window. Synchronous
+    promotion marks too, as insurance for a forced failover. The simulator's checker, which
+    used to excuse a repeat after a promotion, now requires it marked; a planted promotion that
+    doesn't mark is caught. It found that the simulator's ledger store never passed marks
+    through, so no session in it had seen a mark of any kind across a restart.
     A failed answer surfaces at the commit that waits for it: it fails, or degrading, marks the
     standby out of sync and commits alone. A commit that finds the session behind clears the
     queue, since it sends the session whole anyway. The batches a commit's job waits for count as
