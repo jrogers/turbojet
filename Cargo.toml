@@ -12,6 +12,7 @@ edition = "2024"
 rust-version = "1.89"
 license = "Apache-2.0"
 repository = "https://github.com/jrogers/turbojet"
+homepage = "https://jrogers.github.io/turbojet/"
 
 # Benchmarks build as one optimisation unit with fat LTO. With the default 16 codegen units,
 # inlining depends on how code happens to be partitioned, so unrelated edits can shift results by

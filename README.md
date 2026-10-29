@@ -9,6 +9,12 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="License: Apache-2.0"></a>
 </p>
 
+<p align="center">
+  <a href="https://jrogers.github.io/turbojet/">Website</a> ·
+  <a href="https://jrogers.github.io/turbojet/guide/">Guide</a> ·
+  <a href="https://docs.rs/turbojet">API</a>
+</p>
+
 > [!WARNING]
 > [!WARNING]
 > **Pre-1.0, and not yet proven in production.** Turbojet
@@ -177,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## The guide
 
-[The guide](https://github.com/jrogers/turbojet/blob/main/docs/guide/README.md) goes from this first program to running sessions in production. Its
+[The guide](https://jrogers.github.io/turbojet/guide/) goes from this first program to running sessions in production. Its
 examples are compiled and run as tests, and it's also in the API documentation, as
 `turbojet::guide`.
 

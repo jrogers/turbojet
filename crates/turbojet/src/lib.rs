@@ -10,8 +10,8 @@
 //! Turbojet is pre-1.0: its APIs will change, and it hasn't been run against a real counterparty.
 //!
 //! These docs get a first program running; the guide, `turbojet::guide` (built with every feature,
-//! as on docs.rs) or [`docs/guide`](https://github.com/jrogers/turbojet/blob/main/docs/guide/README.md)
-//! in the repository, goes on from there to storage, recovery, schedules and operations.
+//! as on docs.rs) or [on the website](https://jrogers.github.io/turbojet/guide/), goes on from
+//! there to storage, recovery, schedules and operations.
 //!
 //! # Getting started
 //!
