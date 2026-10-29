@@ -12,8 +12,8 @@ use tracing::{debug, info, warn};
 use super::framing::{self, Framed};
 use super::messages::{self as m, Decoded, FlowType};
 use super::{
-    ClientConfig, ClientLogin, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, Received,
-    Role, SbeMessage, ServerConfig,
+    ClientConfig, ClientLogin, Ended, FixpApplication, FixpConfig, FixpContext, FixpHandle, FixpRegistry, FixpReplies,
+    Received, Role, SbeMessage, ServerConfig,
 };
 use crate::application::guarded;
 use crate::connection::Driven;
@@ -140,8 +140,7 @@ pub struct FixpSession {
     receipts: Vec<(ReceiptSender, u64)>,
     sequence_replies: Vec<(oneshot::Sender<Result<SequenceNumbers, SequenceError>>, SequenceNumbers)>,
     /// What the application replies from a callback (see [`FixpContext`]), kept to reuse.
-    replies: Vec<u8>,
-    ends: Vec<usize>,
+    replies: FixpReplies,
     /// Scratch for encoding our own application messages (`NotApplied`).
     scratch: Vec<u8>,
     inbound: Inbound,
@@ -255,8 +254,7 @@ impl FixpSession {
             dirty: false,
             receipts: Vec::new(),
             sequence_replies: Vec::new(),
-            replies: Vec::new(),
-            ends: Vec::new(),
+            replies: FixpReplies::default(),
             scratch: Vec::new(),
             inbound: Inbound::default(),
             finalized: false,
@@ -826,22 +824,19 @@ impl FixpSession {
         if maybe_redelivered {
             info!(?seq, "delivering a message that may have been handled before");
         }
-        let (mut replies, mut ends) = (std::mem::take(&mut self.replies), std::mem::take(&mut self.ends));
+        let mut replies = std::mem::take(&mut self.replies);
         // Lent, not cloned: a clone copies the session ID's strings, for every message.
         let handle = &self.bound.as_ref().expect("bound once established").handle;
-        let mut ctx = FixpContext { replies: &mut replies, ends: &mut ends, handle };
+        let mut ctx = FixpContext::new(handle, &mut replies);
         let received = Received { bytes, seq, retransmitted, maybe_redelivered };
         // Replies queued before a panic may be half-done, so they're dropped, not sent.
         if guarded("on_message", || self.app.on_message(&mut ctx, received)).is_some() {
-            let mut start = 0;
-            for &end in &ends {
-                self.send_application(&replies[start..end], None);
-                start = end;
+            for reply in replies.iter() {
+                self.send_application(reply, None);
             }
         }
         replies.clear();
-        ends.clear();
-        (self.replies, self.ends) = (replies, ends);
+        self.replies = replies;
     }
 
     /// The counterparty's `Applied` or `NotApplied` of our idempotent flow.

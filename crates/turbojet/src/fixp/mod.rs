@@ -466,11 +466,42 @@ pub trait FixpApplication: Send + Sync {
 /// What a callback can do on the session it was called from: reply at once, ahead of anything
 /// queued through a handle.
 pub struct FixpContext<'a> {
-    /// The replies, encoded one after another, each ending at the next of `ends`: buffers the
-    /// session keeps, so replying allocates nothing once they've grown.
-    pub(crate) replies: &'a mut Vec<u8>,
-    pub(crate) ends: &'a mut Vec<usize>,
+    pub(crate) replies: &'a mut FixpReplies,
     pub(crate) handle: &'a FixpHandle,
+}
+
+/// The replies sent through a [`FixpContext`], encoded. The session keeps one to reuse, so replying
+/// allocates nothing once it has grown; make one yourself to unit-test a [`FixpApplication`].
+///
+/// ```
+/// use turbojet::fixp::{FixpContext, FixpReplies};
+/// use turbojet::{SessionHandle, SessionId};
+///
+/// let session = SessionHandle::disconnected(SessionId::new("FIXP", "VENUE", "CLIENT"));
+/// let mut replies = FixpReplies::default();
+/// let ctx = FixpContext::new(&session, &mut replies);
+/// // ... call the application's on_message with &mut ctx, then:
+/// assert_eq!(replies.iter().count(), 0);
+/// ```
+#[derive(Debug, Default)]
+pub struct FixpReplies {
+    /// The replies, encoded one after another, each ending at the next of `ends`.
+    bytes: Vec<u8>,
+    ends: Vec<usize>,
+}
+
+impl FixpReplies {
+    /// Each reply, encoded, in the order sent.
+    pub fn iter(&self) -> impl Iterator<Item = &[u8]> + '_ {
+        let starts = std::iter::once(0).chain(self.ends.iter().copied());
+        starts.zip(&self.ends).map(|(start, &end)| &self.bytes[start..end])
+    }
+
+    /// Forgets the replies, keeping the buffers.
+    pub(crate) fn clear(&mut self) {
+        self.bytes.clear();
+        self.ends.clear();
+    }
 }
 
 impl fmt::Debug for FixpContext<'_> {
@@ -479,15 +510,21 @@ impl fmt::Debug for FixpContext<'_> {
     }
 }
 
-impl FixpContext<'_> {
+impl<'a> FixpContext<'a> {
+    /// A context for `session` whose replies go into `replies`. The engine creates these; make
+    /// one yourself, with a [`SessionHandle::disconnected`], to unit-test a [`FixpApplication`].
+    pub fn new(session: &'a FixpHandle, replies: &'a mut FixpReplies) -> Self {
+        Self { replies, handle: session }
+    }
+
     /// Sends `msg` after this callback, numbered next on a sequenced flow.
     ///
     /// # Errors
     ///
     /// As [`Encode::encode_into`]: nothing is sent.
     pub fn send(&mut self, msg: &impl Encode) -> Result<(), SbeError> {
-        msg.encode_into(self.replies)?;
-        self.ends.push(self.replies.len());
+        msg.encode_into(&mut self.replies.bytes)?;
+        self.replies.ends.push(self.replies.bytes.len());
         Ok(())
     }
 
