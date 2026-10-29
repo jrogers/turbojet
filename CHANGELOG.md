@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `tls::acceptor`, `tls::connector` and `tls::ClientAuth` are gone, leaving one way to
+  set up TLS: `ServerTls::new(Identity::from_pem_files(cert, key)?, ClientTrust::Required(trust))?
+  .acceptor()` and `ClientTls::new(Trust::from_pem_files(ca)?, identity)?.connector()`, which can
+  also replace their certificates while running.
 - **Changed:** reading and replaying message logs is in the public `message_log` module, no longer
   at the crate root: `message_log::{Direction, LogFile, LogRecord, LogRecords, Replayed, replay,
   mask_secrets, DEFAULT_MAX_BUFFER_BYTES, DEFAULT_MAX_FILE_BYTES}`. What a session is configured

@@ -21,8 +21,8 @@ let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "
     .with_endpoint("dr.example.com:9876")
     .with_endpoint(Endpoint::new("10.1.2.3:9876").with_tls_server_name("dr2.example.com"));
 // The default TLS name; endpoints may override it.
-let connector = turbojet::tls::connector("ca.pem".as_ref(), None)?;
-config.tls = Some(InitiatorTls::new(connector, "primary.example.com"));
+let client = turbojet::tls::ClientTls::new(turbojet::tls::Trust::from_pem_files("ca.pem".as_ref())?, None)?;
+config.tls = Some(InitiatorTls::new(client.connector(), "primary.example.com"));
 let initiator = Initiator::new(config, storage, app)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

@@ -20,19 +20,21 @@ of its own:
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 # let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
-use turbojet::tls::ClientAuth;
+use turbojet::tls::{ClientTls, ClientTrust, Identity, ServerTls, Trust};
 
 // Acceptor: server certificate, and client authentication (mutual TLS):
-//   ClientAuth::None           - no client certificates
-//   ClientAuth::Optional(ca)   - request one; admit clients without, refuse invalid ones
-//   ClientAuth::Required(ca)   - refuse clients without a valid certificate
-let tls = turbojet::tls::acceptor("server.pem".as_ref(), "server.key".as_ref(), ClientAuth::Required("ca.pem".as_ref()))?;
+//   ClientTrust::None           - no client certificates
+//   ClientTrust::Optional(ca)   - request one; admit clients without, refuse invalid ones
+//   ClientTrust::Required(ca)   - refuse clients without a valid certificate
+let identity = Identity::from_pem_files("server.pem".as_ref(), "server.key".as_ref())?;
+let server = ServerTls::new(identity, ClientTrust::Required(Trust::from_pem_files("ca.pem".as_ref())?))?;
 let listener = tokio::net::TcpListener::bind("0.0.0.0:9876").await?;
-tokio::spawn(acceptor.serve_tls(listener, tls));
+tokio::spawn(acceptor.serve_tls(listener, server.acceptor()));
 
 // Initiator: trust a CA, verify the server name, optionally present a client certificate.
-let tls = turbojet::tls::connector("ca.pem".as_ref(), Some(("client.pem".as_ref(), "client.key".as_ref())))?;
-config.tls = Some(InitiatorTls::new(tls, "gateway.example.com"));
+let identity = Identity::from_pem_files("client.pem".as_ref(), "client.key".as_ref())?;
+let client = ClientTls::new(Trust::from_pem_files("ca.pem".as_ref())?, Some(identity))?;
+config.tls = Some(InitiatorTls::new(client.connector(), "gateway.example.com"));
 # Ok(())
 # }
 ```
@@ -44,9 +46,9 @@ acceptor can't be served without TLS by mistake, set `AcceptorConfig::require_tl
 
 ## From memory, replaced while running
 
-Certificates can also come from memory (a secrets manager, say) and be replaced while running.
-`ServerTls` and `ClientTls` hold them: a change applies from the next handshake, and sessions
-already connected carry on. Every handshake is a full one, checked against the certificates
+`ServerTls` and `ClientTls` also take certificates from memory (a secrets manager, say), and
+replace them while running: a change applies from the next handshake, and sessions already
+connected carry on. Every handshake is a full one, checked against the certificates
 current then (sessions aren't resumed).
 
 ```rust,no_run

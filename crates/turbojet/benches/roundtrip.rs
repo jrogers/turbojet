@@ -404,11 +404,13 @@ mod tls_pki {
 
         pub fn acceptor(&self) -> tls::TlsAcceptor {
             let path = |name: &str| self.dir.path().join(name);
-            tls::acceptor(&path("server.pem"), &path("server.key"), tls::ClientAuth::None).unwrap()
+            let identity = tls::Identity::from_pem_files(&path("server.pem"), &path("server.key")).unwrap();
+            tls::ServerTls::new(identity, tls::ClientTrust::None).unwrap().acceptor()
         }
 
         pub fn connector(&self) -> tls::TlsConnector {
-            tls::connector(&self.dir.path().join("ca.pem"), None).unwrap()
+            let trust = tls::Trust::from_pem_files(&self.dir.path().join("ca.pem")).unwrap();
+            tls::ClientTls::new(trust, None).unwrap().connector()
         }
     }
 }

@@ -129,20 +129,23 @@ impl Pki {
     }
 
     fn acceptor(&self, client_auth: Auth) -> tls::TlsAcceptor {
-        let ca = self.path("ca.pem");
-        let client_auth = match client_auth {
-            Auth::None => tls::ClientAuth::None,
-            Auth::Optional => tls::ClientAuth::Optional(&ca),
-            Auth::Required => tls::ClientAuth::Required(&ca),
+        let ca = || tls::Trust::from_pem_files(&self.path("ca.pem")).unwrap();
+        let client_trust = match client_auth {
+            Auth::None => tls::ClientTrust::None,
+            Auth::Optional => tls::ClientTrust::Optional(ca()),
+            Auth::Required => tls::ClientTrust::Required(ca()),
         };
-        tls::acceptor(&self.path("server.pem"), &self.path("server.key"), client_auth).unwrap()
+        let identity = tls::Identity::from_pem_files(&self.path("server.pem"), &self.path("server.key")).unwrap();
+        tls::ServerTls::new(identity, client_trust).unwrap().acceptor()
     }
 
     /// A connector trusting the CA in `trust`, presenting the named client certificate if any.
     fn connector(&self, trust: &str, client_cert: Option<&str>) -> tls::TlsConnector {
-        let paths = client_cert.map(|name| (self.path(&format!("{name}.pem")), self.path(&format!("{name}.key"))));
-        let identity = paths.as_ref().map(|(cert, key)| (cert.as_path(), key.as_path()));
-        tls::connector(&self.path(trust), identity).unwrap()
+        let identity = client_cert.map(|name| {
+            tls::Identity::from_pem_files(&self.path(&format!("{name}.pem")), &self.path(&format!("{name}.key")))
+                .unwrap()
+        });
+        tls::ClientTls::new(tls::Trust::from_pem_files(&self.path(trust)).unwrap(), identity).unwrap().connector()
     }
 }
 
@@ -382,21 +385,20 @@ async fn plain_client_cannot_log_on_to_tls_acceptor() {
 fn loading_reports_the_offending_file() {
     let pki = Pki::new();
     let missing = pki.path("missing.pem");
-    let err = tls::connector(&missing, None).err().unwrap();
+    let err = tls::Trust::from_pem_files(&missing).err().unwrap();
     assert_eq!(err.kind(), io::ErrorKind::NotFound);
     assert!(err.to_string().contains("missing.pem"), "{err}");
 
     // A key file holds no certificates.
-    let err = tls::connector(&pki.path("client.key"), None).err().unwrap();
+    let err = tls::Trust::from_pem_files(&pki.path("client.key")).err().unwrap();
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
 
     // A certificate is not a private key.
-    let err = tls::acceptor(&pki.path("server.pem"), &pki.path("server.pem"), tls::ClientAuth::None).err().unwrap();
+    let err = tls::Identity::from_pem_files(&pki.path("server.pem"), &pki.path("server.pem")).err().unwrap();
     assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     let no_key = Path::new("/nonexistent/key.pem");
-    assert!(tls::acceptor(&pki.path("server.pem"), no_key, tls::ClientAuth::None).is_err());
-    let no_ca = tls::ClientAuth::Optional(Path::new("/nonexistent/ca.pem"));
-    assert!(tls::acceptor(&pki.path("server.pem"), &pki.path("server.key"), no_ca).is_err());
+    assert!(tls::Identity::from_pem_files(&pki.path("server.pem"), no_key).is_err());
+    assert!(tls::Trust::from_pem_files(Path::new("/nonexistent/ca.pem")).is_err());
 }
 
 #[tokio::test]

@@ -381,14 +381,6 @@ fn describe_inbound_limit(limit: Option<&InboundLimit>) -> String {
 }
 
 impl TlsArgs {
-    fn client_auth(&self) -> tls::ClientAuth<'_> {
-        match (&self.client_ca, self.client_cert_required) {
-            (None, _) => tls::ClientAuth::None,
-            (Some(ca), true) => tls::ClientAuth::Required(ca),
-            (Some(ca), false) => tls::ClientAuth::Optional(ca),
-        }
-    }
-
     /// The certificate, key and client CAs, read from their files now.
     fn load(&self) -> std::io::Result<(tls::Identity, tls::ClientTrust)> {
         let identity = tls::Identity::from_pem_files(&self.cert, &self.key)?;
@@ -419,10 +411,10 @@ impl TlsArgs {
     }
 
     fn describe(&self) -> &'static str {
-        match self.client_auth() {
-            tls::ClientAuth::None => "server-only",
-            tls::ClientAuth::Optional(_) => "client certificates optional",
-            tls::ClientAuth::Required(_) => "client certificates required",
+        match (&self.client_ca, self.client_cert_required) {
+            (None, _) => "server-only",
+            (Some(_), false) => "client certificates optional",
+            (Some(_), true) => "client certificates required",
         }
     }
 }

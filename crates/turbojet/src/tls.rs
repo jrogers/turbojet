@@ -7,7 +7,6 @@
 //!   ([`Identity`], [`Trust`]), as PEM or (feature `pkcs12`) a PKCS#12 bundle, which can be
 //!   replaced while running: a renewed certificate, or a
 //!   new CA, is used from the next handshake, and sessions already connected carry on;
-//! - with [`acceptor`] and [`connector`], from PEM files, once;
 //! - or from your own [`rustls`] configuration via `TlsAcceptor::from(Arc<rustls::ServerConfig>)`
 //!   / `TlsConnector::from(Arc<rustls::ClientConfig>)`.
 
@@ -38,51 +37,6 @@ use crate::peer::PeerCertificate;
 pub use tokio_rustls::rustls;
 pub use tokio_rustls::rustls::pki_types::ServerName;
 pub use tokio_rustls::{TlsAcceptor, TlsConnector};
-
-/// Whether an acceptor asks clients for a certificate (mutual TLS).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClientAuth<'a> {
-    /// Don't request client certificates.
-    None,
-    /// Request a client certificate but admit clients that don't send one. A certificate that is
-    /// sent must be issued by one of the CAs in this PEM file.
-    Optional(&'a Path),
-    /// Require a client certificate issued by one of the CAs in this PEM file.
-    Required(&'a Path),
-}
-
-/// Server side: present `cert_chain` (leaf first) with its private `key`, authenticating
-/// clients according to `client_auth`. For certificates that can be replaced while running, use
-/// [`ServerTls`].
-///
-/// # Errors
-///
-/// The file's error if one can't be read; [`InvalidData`](io::ErrorKind::InvalidData), naming the
-/// file, if it holds no certificate or key, or one that doesn't parse, or if the key isn't the
-/// certificate's. [`InvalidInput`](io::ErrorKind::InvalidInput) if the client CAs can't verify
-/// clients.
-pub fn acceptor(cert_chain: &Path, key: &Path, client_auth: ClientAuth<'_>) -> io::Result<TlsAcceptor> {
-    let client_trust = match client_auth {
-        ClientAuth::None => ClientTrust::None,
-        ClientAuth::Optional(ca) => ClientTrust::Optional(Trust::from_pem_files(ca)?),
-        ClientAuth::Required(ca) => ClientTrust::Required(Trust::from_pem_files(ca)?),
-    };
-    Ok(ServerTls::new(Identity::from_pem_files(cert_chain, key)?, client_trust)?.acceptor())
-}
-
-/// Client side: trust servers whose certificates chain to a CA in `ca`. With `identity`
-/// (certificate chain, private key), present a client certificate for mutual TLS. For
-/// certificates that can be replaced while running, use [`ClientTls`].
-///
-/// # Errors
-///
-/// The file's error if one can't be read; [`InvalidData`](io::ErrorKind::InvalidData), naming the
-/// file, if it holds no certificate or key, or one that doesn't parse, or if the key isn't the
-/// certificate's.
-pub fn connector(ca: &Path, identity: Option<(&Path, &Path)>) -> io::Result<TlsConnector> {
-    let identity = identity.map(|(cert_chain, key)| Identity::from_pem_files(cert_chain, key)).transpose()?;
-    Ok(ClientTls::new(Trust::from_pem_files(ca)?, identity)?.connector())
-}
 
 /// A certificate chain (leaf first) and its private key: what one side presents. Built from
 /// certificates in memory or read from files, and checked: the key must be the leaf

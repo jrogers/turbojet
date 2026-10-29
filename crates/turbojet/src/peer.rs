@@ -12,7 +12,7 @@ pub struct ConnectionInfo {
     pub addr: Option<SocketAddr>,
     /// The certificate chain the peer presented over TLS, leaf first. Empty without TLS, when
     /// the acceptor doesn't request client certificates, or when a client didn't send one under
-    /// `tls::ClientAuth::Optional` (feature `tls`). Any certificates here have already been
+    /// `tls::ClientTrust::Optional` (feature `tls`). Any certificates here have already been
     /// verified against the configured CAs.
     pub peer_certificates: Vec<PeerCertificate>,
 }

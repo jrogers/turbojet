@@ -128,12 +128,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     config.endpoints.extend(args.failover.into_iter().map(Endpoint::from));
     if let Some(ca) = &args.tls_ca {
         let identity = match (&args.tls_cert, &args.tls_key) {
-            (Some(cert), Some(key)) => Some((cert.as_path(), key.as_path())),
+            (Some(cert), Some(key)) => Some(tls::Identity::from_pem_files(cert, key)?),
             (None, None) => None,
             _ => return Err("--tls-cert and --tls-key must be given together".into()),
         };
         let server_name = args.tls_server_name.as_deref().unwrap_or("localhost");
-        config.tls = Some(InitiatorTls::new(tls::connector(ca, identity)?, server_name));
+        let client = tls::ClientTls::new(tls::Trust::from_pem_files(ca)?, identity)?;
+        config.tls = Some(InitiatorTls::new(client.connector(), server_name));
     }
     let initiator = Initiator::new(config, Arc::new(MemoryStorage::new()), Arc::new(ClientApp { events: tx }))?;
     let session = initiator.handle();
