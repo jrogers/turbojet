@@ -423,6 +423,9 @@ struct World {
     schedule: Option<SessionSchedule>,
     /// When the workload and faults stop.
     busy_end: SimTime,
+    /// When a fault last struck. One scheduled before `busy_end` can strike well after it, and a
+    /// trap strikes at the next store call of its kind, so the sessions settle from the later.
+    last_fault: SimTime,
     /// The hostile middlebox, on a hostile seed.
     proxy: Option<Proxy>,
     /// Arrivals, closes and failures on their way.
@@ -821,6 +824,7 @@ impl World {
             reset_left: [false; 2],
             schedule,
             busy_end,
+            last_fault: SimTime(0),
             proxy,
             in_flight: 0,
             next_id: 0,
@@ -939,7 +943,6 @@ impl World {
         let end = busy_end.after(self.options.quiet);
         // With time for a countdown started as the sessions settle to end.
         let settle = self.faults.settle_limit(self.reconnect_policy().max, self.heartbeat());
-        let limit = end.after(settle + MAX_GRACE);
         let mut same_time = (SimTime(0), 0u64);
         while let Some(at) = self.queue.peek_time() {
             same_time = if at == same_time.0 { (at, same_time.1 + 1) } else { (at, 1) };
@@ -958,6 +961,7 @@ impl World {
             // A seed that lost data needn't settle, and its sessions may keep ending and logging
             // back on within the grace period, a countdown always under way. Each was checked
             // after every event: none came due unfired.
+            let limit = end.max(self.last_fault).after(settle + MAX_GRACE);
             if at > limit && self.checker.is_lossy() {
                 return Ok(());
             }
@@ -1024,6 +1028,22 @@ impl World {
     #[expect(clippy::too_many_lines, reason = "one arm per event, each short")]
     fn dispatch(&mut self, event: Event, now: SimTime, busy_end: SimTime) -> Result<(), Violation> {
         let busy = now < busy_end;
+        if matches!(
+            event,
+            Event::Reset
+                | Event::BlackHole
+                | Event::Stall
+                | Event::Crash
+                | Event::Failover { .. }
+                | Event::Depose
+                | Event::StandbyDown
+                | Event::StandbyLosesStore
+                | Event::Logout
+                | Event::Skip
+                | Event::ResetBoth
+        ) {
+            self.last_fault = now;
+        }
         match event {
             // A crashed initiator's attempt went with it; its restart starts again.
             Event::Connect(g) | Event::ConnectFailed(g) | Event::Established(g) if g != self.generation => {}
@@ -1412,6 +1432,7 @@ impl World {
     /// `side`'s process dies: its sessions go without another write, the OS resets its
     /// connections (so the other end's fail), and it restarts after a while.
     fn crash(&mut self, side: Side, now: SimTime) {
+        self.last_fault = now;
         self.down[side.index()] = true;
         // The countdowns under way go with the process's registry.
         self.cancels_at[side.index()] = None;
@@ -1604,8 +1625,12 @@ impl World {
     /// closes the connection if the driver returned or the session closed and its output has
     /// gone, and schedules what the driver waits for next.
     fn apply(&mut self, side: Side, conn: ConnId, effects: Effects, now: SimTime) -> Result<(), Violation> {
+        let sprung = self.storage[side.index()].sprung();
+        if sprung.is_some() {
+            self.last_fault = now;
+        }
         // A trap that crashed the process: nothing this step produced is written.
-        if self.storage[side.index()].sprung() == Some(true) {
+        if sprung == Some(true) {
             self.record(&format!("crash {side:?} in a store call"));
             self.sync_ledger(side)?;
             self.crash(side, now);

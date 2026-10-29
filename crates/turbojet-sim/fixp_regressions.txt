@@ -2,3 +2,4 @@
 1791369325741355912 a finished session's unsequenced orders delivered over its lingering connection after the next session began, checked against an emptied list (simulator bug)
 1791626917077897518 an order's receipt checked after a finalization in the same step had ended the session that recorded it (simulator bug)
 1792659356744619810 a NotApplied in a finalized session's flow, delivered past over its lingering connection after the next session began, counted as a lost message (simulator bug)
+1793269549424292992 a late crash and a trap armed while busy struck after the busy period, each costing a restart and a maximum backoff, past a settle limit counted from its end (simulator bug)

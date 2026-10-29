@@ -217,6 +217,9 @@ struct World {
     /// The client's process generation: one more after each crash.
     generation: u64,
     busy_end: SimTime,
+    /// When a fault last struck. One scheduled before `busy_end` can strike well after it, and a
+    /// trap strikes at the next store call of its kind, so the sessions settle from the later.
+    last_fault: SimTime,
     in_flight: usize,
     next_id: u64,
     digest: u64,
@@ -318,6 +321,7 @@ impl World {
         let mut world = Self {
             checker: Checker::new([faults.client_flow, faults.server_flow]),
             busy_end: SimTime::from_duration(options.busy),
+            last_fault: SimTime(0),
             options,
             faults,
             clocks,
@@ -408,7 +412,7 @@ impl World {
 
     fn run(&mut self) -> Result<(), Violation> {
         let end = self.busy_end.after(self.options.quiet);
-        let limit = end.after(self.faults.settle_limit(self.reconnect.max));
+        let settle = self.faults.settle_limit(self.reconnect.max);
         let mut same_time = (SimTime(0), 0u64);
         while let Some(at) = self.queue.peek_time() {
             same_time = if at == same_time.0 { (at, same_time.1 + 1) } else { (at, 1) };
@@ -422,6 +426,7 @@ impl World {
             if at > end && (self.checker.is_lossy() || self.idle() && self.check_settled().is_ok()) {
                 return Ok(());
             }
+            let limit = end.max(self.last_fault).after(settle);
             if at > limit {
                 let reason = self.check_settled().err().map_or_else(|| "still busy".into(), |v| v.detail);
                 return Err(Violation { rule: "liveness", detail: format!("not settled by {limit}: {reason}") });
@@ -448,6 +453,12 @@ impl World {
     #[expect(clippy::too_many_lines, reason = "one arm per event, as the FIX world's dispatch")]
     fn dispatch(&mut self, event: Event, now: SimTime) -> Result<(), Violation> {
         let busy = now < self.busy_end;
+        if matches!(
+            event,
+            Event::Terminate | Event::Finish | Event::Reset | Event::BlackHole | Event::Stall | Event::Crash
+        ) {
+            self.last_fault = now;
+        }
         match event {
             // A crashed client's attempt went with it; its restart starts again.
             Event::Connect(g) | Event::ConnectFailed(g) | Event::Established(g) if g != self.generation => {}
@@ -697,6 +708,7 @@ impl World {
     /// `side`'s process dies: its sessions go without another write, the OS resets its
     /// connections (so the other end's fail), and it restarts after a while.
     fn crash(&mut self, side: Side, now: SimTime) {
+        self.last_fault = now;
         self.down[side.index()] = true;
         if side == Side::Initiator {
             self.connecting = false;
@@ -749,7 +761,10 @@ impl World {
                 self.crash(side, now);
                 return Ok(());
             }
-            Some(false) => self.checker.store_failed(side),
+            Some(false) => {
+                self.last_fault = now;
+                self.checker.store_failed(side);
+            }
             None => {}
         }
         if effects.read > 0 {
