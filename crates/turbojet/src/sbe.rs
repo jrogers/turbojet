@@ -102,6 +102,7 @@ impl<'a, E: Block<'a>> Group<'a, E> {
     /// # Errors
     ///
     /// If an entry doesn't fit in `bytes`, or one of its blocks is too short for `version`.
+    #[doc(hidden)]
     pub fn scan(bytes: &'a [u8], block_length: usize, count: usize, version: u16) -> Result<(Self, usize), SbeError> {
         let mut used = 0;
         for _ in 0..count {
@@ -168,11 +169,16 @@ impl<E> Clone for Group<'_, E> {
 
 impl<E> Copy for Group<'_, E> {}
 
+// What generated codecs call: public so they can, but hidden from the docs, since it isn't an
+// application's API and may change with the generator. `pad` is the exception: applications
+// fill fixed-length character fields with it.
+
 /// `len` bytes of `bytes` from `at`.
 ///
 /// # Errors
 ///
 /// [`SbeError::Truncated`] if `bytes` ends first.
+#[doc(hidden)]
 pub fn take(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], SbeError> {
     at.checked_add(len).and_then(|end| bytes.get(at..end)).ok_or(SbeError::Truncated)
 }
@@ -182,6 +188,7 @@ pub fn take(bytes: &[u8], at: usize, len: usize) -> Result<&[u8], SbeError> {
 /// # Errors
 ///
 /// [`SbeError::Truncated`] if it's more than the platform can address, so no buffer is that long.
+#[doc(hidden)]
 pub fn length(n: impl TryInto<usize>) -> Result<usize, SbeError> {
     n.try_into().map_err(|_| SbeError::Truncated)
 }
@@ -191,6 +198,7 @@ pub fn length(n: impl TryInto<usize>) -> Result<usize, SbeError> {
 /// # Errors
 ///
 /// [`SbeError::TooLong`] if `len` is more than `T`, or `max` when the schema sets one, allows.
+#[doc(hidden)]
 pub fn count<T: TryFrom<usize> + Into<u64> + Copy>(name: &'static str, len: usize, max: T) -> Result<T, SbeError> {
     let too_long = || SbeError::TooLong { name, len, max: usize::try_from(max.into()).unwrap_or(usize::MAX) };
     let n = T::try_from(len).map_err(|_| too_long())?;
@@ -202,6 +210,7 @@ pub fn count<T: TryFrom<usize> + Into<u64> + Copy>(name: &'static str, len: usiz
 
 /// A char array's text: up to the first NUL, which pads it.
 #[must_use]
+#[doc(hidden)]
 pub fn chars(bytes: &[u8]) -> &[u8] {
     let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
     &bytes[..end]
@@ -225,6 +234,7 @@ pub const fn pad<const N: usize>(text: &[u8]) -> [u8; N] {
 }
 
 /// Appends `len` zero bytes to `out` and returns them, for a block or composite to be written in.
+#[doc(hidden)]
 pub fn reserve(out: &mut Vec<u8>, len: usize) -> &mut [u8] {
     let at = out.len();
     out.resize(at + len, 0);
@@ -232,6 +242,7 @@ pub fn reserve(out: &mut Vec<u8>, len: usize) -> &mut [u8] {
 }
 
 /// A primitive type SBE encodes, read and written at an offset in either byte order.
+#[doc(hidden)]
 pub trait Primitive: Copy {
     /// Its size in bytes.
     const SIZE: usize;
@@ -270,22 +281,26 @@ primitive!(u8, u16, u32, u64, i8, i16, i32, i64, f32, f64);
 /// Reads a little-endian `T` from `bytes` at `at`. Panics if it doesn't fit: decoders check
 /// lengths when they're wrapped.
 #[must_use]
+#[doc(hidden)]
 pub fn get_le<T: Primitive>(bytes: &[u8], at: usize) -> T {
     T::get_le(bytes, at)
 }
 
 /// Reads a big-endian `T` from `bytes` at `at`, as [`get_le`].
 #[must_use]
+#[doc(hidden)]
 pub fn get_be<T: Primitive>(bytes: &[u8], at: usize) -> T {
     T::get_be(bytes, at)
 }
 
 /// Writes `value` little-endian into `bytes` at `at`.
+#[doc(hidden)]
 pub fn put_le<T: Primitive>(bytes: &mut [u8], at: usize, value: T) {
     value.put_le(bytes, at);
 }
 
 /// Writes `value` big-endian into `bytes` at `at`.
+#[doc(hidden)]
 pub fn put_be<T: Primitive>(bytes: &mut [u8], at: usize, value: T) {
     value.put_be(bytes, at);
 }

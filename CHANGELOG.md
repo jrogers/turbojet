@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** the `sbe` functions that generated codecs call (`take`, `length`, `count`, `chars`,
+  `reserve`, `get_le`/`get_be`/`put_le`/`put_be`, `Primitive`, `Group::scan`) are hidden from the
+  docs: they aren't an application's API, and may change with the generator.
 - **Changed:** `message::utc_timestamp()` is gone: `UtcTimestamp::now().to_fix()` gives the same
   string. `SessionId::escape`, which only `DiskStorage` uses, is no longer public.
 - **Changed:** the `application`, `cancel` and `session` modules are private: everything in them
