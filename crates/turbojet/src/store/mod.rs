@@ -112,8 +112,8 @@ impl SessionId {
 
     /// What a store keys the session on beyond its BeginString and CompIDs: its SubIDs,
     /// LocationIDs and qualifier, as `ss=..;sl=..;ts=..;tl=..;q=..` with only those it has, in
-    /// that order, each value [`escaped`](Self::escape). Empty if it has none, so such a session
-    /// keeps the key it had before these fields existed.
+    /// that order, each value percent-encoded but for ASCII alphanumerics, `.` and `_`. Empty if
+    /// it has none, so such a session keeps the key it had before these fields existed.
     pub fn key_suffix(&self) -> String {
         let parts = [
             ("ss", &self.sender_sub_id),
