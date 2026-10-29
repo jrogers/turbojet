@@ -163,6 +163,35 @@ handle (`on_message` through `Context::session`), to read its ID, send on it or 
 clone it to keep it. `Acceptor::handle_for` and `Initiator::handle` give one at any time, valid
 across reconnects.
 
+One application serves every session of an acceptor or initiator, through `&self`, so what it
+keeps goes behind a lock or in atomics, keyed by session where it's a counterparty's own. A
+session's callbacks run one at a time, on its task, while other sessions' run at once on theirs,
+so a lock held only within a callback (never across an `.await`) is cheap:
+
+```rust
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use turbojet::{Application, Context, Message, MessageReject, SessionId};
+
+/// Counts each counterparty's messages.
+#[derive(Default)]
+struct Counts {
+    per_session: Mutex<HashMap<SessionId, u64>>,
+}
+
+impl Application for Counts {
+    fn on_message(&self, ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
+        *self.per_session.lock().unwrap().entry(ctx.session().id().clone()).or_default() += 1;
+        Ok(())
+    }
+}
+```
+
+State that outlives the process, such as orders, belongs in the application's own store, and
+state for work that waits (a venue's reply, say) goes to a task of its own, as the first example
+does with its channels.
+
 To unit-test an application, call its callbacks yourself, with a context for a disconnected
 handle, and look at what it sent:
 
