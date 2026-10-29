@@ -226,6 +226,7 @@ sessions, paused, a store that won't open) are also published as `SessionEventKi
 | Deterministic simulation | `turbojet-sim` (`scripts/sim.sh`) | Bugs in the session, driver and stores under faults, crashes and power loss, replayable from a seed. |
 | Fuzzing | `crates/turbojet/fuzz` (`scripts/fuzz.sh`) | Panics and broken invariants in the parsers and session state machines. |
 | Concurrency | `--cfg shuttle` tests | Races in the registry's and holds' locks and atomics, and in replication's link and catch-up. |
+| Model checking | `specs/` (`specs/check.sh`) | Flaws in the replication protocol's design: fencing, failover, catching a standby up, redelivery after a takeover. |
 | Allocations | `tests/allocations.rs` | Any change, up or down, in allocations per order by stage. |
 | The guide's examples | `src/guide.rs` | Documentation that no longer compiles or runs. |
 

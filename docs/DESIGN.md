@@ -299,6 +299,12 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   (`Replica`, sans-IO) applies a batch through the same trait to a store of its own and commits
   it before acknowledging. A commit one side made and the other didn't leaves that side ahead
   of the wire, as a crash between a commit and its write does, which recovery already handles.
+  - The protocol is model-checked with TLA+ (`specs/`, run with `specs/check.sh`):
+    `Replication.tla` covers fencing, failover, catching up and checking a standby, and
+    `InFlight.tla` the incoming side's in-flight marker across a takeover. The model found four
+    of the flaws below (a whole send cut short, reading `in_sync` before acquiring, a standby
+    that lost its store, unmarked redelivery after an asynchronous failover); `specs/README.md`
+    says which settings reproduce each, and the bounds it's checked at.
   - Divergence is checked, not trusted away. A batch carries the session's commit number and its
     records must follow the standby's copy (an outgoing number not yet used, a stored message
     the next), or the standby refuses it. When a session opens, the active compares the
