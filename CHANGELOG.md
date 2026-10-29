@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** the `application`, `cancel` and `session` modules are private: everything in them
+  is at the crate root, and was already, but for `application::Reply`, which is now
+  `turbojet::Reply`.
 - **Changed:** `UtcTimestamp` and `UtcTimeOnly` no longer deref to chrono's `DateTime<Utc>` and
   `NaiveTime`, so chrono's methods aren't part of their API: take the chrono value with
   `UtcTimestamp::datetime` (before, `time`) or `UtcTimeOnly::time`, and call them on that.
