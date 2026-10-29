@@ -4,7 +4,7 @@
 
 use std::cell::Cell;
 use std::fmt::{self, Write as _};
-use std::ops::{Add, Deref, Sub};
+use std::ops::{Add, Sub};
 
 use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeDelta, Timelike, Utc};
 pub use chrono::{NaiveDate, NaiveTime};
@@ -97,16 +97,8 @@ impl UtcTimestamp {
     }
 
     /// The instant.
-    pub const fn time(self) -> DateTime<Utc> {
+    pub const fn datetime(self) -> DateTime<Utc> {
         self.time
-    }
-}
-
-impl Deref for UtcTimestamp {
-    type Target = DateTime<Utc>;
-
-    fn deref(&self) -> &DateTime<Utc> {
-        &self.time
     }
 }
 
@@ -420,14 +412,6 @@ impl UtcTimeOnly {
     /// The time of day.
     pub const fn time(self) -> NaiveTime {
         self.time
-    }
-}
-
-impl Deref for UtcTimeOnly {
-    type Target = NaiveTime;
-
-    fn deref(&self) -> &NaiveTime {
-        &self.time
     }
 }
 
@@ -792,7 +776,7 @@ mod tests {
     #[test]
     fn leap_seconds_are_kept() {
         let t = ts("20161231-23:59:60.500");
-        assert_eq!(t.nanosecond(), 1_500_000_000);
+        assert_eq!(t.datetime().nanosecond(), 1_500_000_000);
         assert_eq!(t.to_fix(), "20161231-23:59:60.500");
         assert_eq!(t.with_precision(Precision::Micros).to_fix(), "20161231-23:59:60.500000");
     }

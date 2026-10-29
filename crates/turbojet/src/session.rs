@@ -2104,7 +2104,7 @@ impl Session {
         let period = self.period;
         let log = &mut self.peer_mut().log;
         match (log.created_at(), period) {
-            (Some(created), Some(period)) if created.time() < period.start => {
+            (Some(created), Some(period)) if created.datetime() < period.start => {
                 info!(%created, period_start = %period.start, "new session period: resetting sequence numbers");
                 log.reset()?;
                 log.set_created_at(now.into())?;
@@ -2418,7 +2418,7 @@ impl Session {
         let max = self.config.max_latency?;
         let sent: UtcTimestamp = msg.opt_field(tags::SENDING_TIME).ok()??;
         let now = self.wall_clock();
-        let off = (now - sent.time()).abs().to_std().unwrap_or(Duration::MAX);
+        let off = (now - sent.datetime()).abs().to_std().unwrap_or(Duration::MAX);
         (off > max).then(|| format!("SendingTime accuracy problem: {}s from our clock", off.as_secs()))
     }
 

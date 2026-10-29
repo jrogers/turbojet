@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `UtcTimestamp` and `UtcTimeOnly` no longer deref to chrono's `DateTime<Utc>` and
+  `NaiveTime`, so chrono's methods aren't part of their API: take the chrono value with
+  `UtcTimestamp::datetime` (before, `time`) or `UtcTimeOnly::time`, and call them on that.
+  `datetime` is named as `TzTimestamp::datetime` is.
 - **Changed:** `Context::send` returns `Result<(), SendRejected>`: a reply the session would never
   send (a session-level message type, an ApplVerID it doesn't support, a value containing SOH)
   is refused at once, where before it was dropped after `on_message` returned, and only logged.

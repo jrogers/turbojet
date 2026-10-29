@@ -238,7 +238,7 @@ impl LogRecords {
             std::str::from_utf8(&self.header[..read - 1]).map_err(|_| invalid("a record header isn't text"))?;
         let mut parts = header.splitn(4, ' ');
         let (time, kind) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
-        let time = UtcTimestamp::from_fix(time).map_err(|_| invalid(&format!("bad time in {header:?}")))?.time();
+        let time = UtcTimestamp::from_fix(time).map_err(|_| invalid(&format!("bad time in {header:?}")))?.datetime();
         let direction = match kind {
             "dropped" => {
                 let count = parts
