@@ -44,9 +44,17 @@
 //! [`ManualLease`] leaves the epoch to an operator, and fencing to the standby.
 //!
 //! To fail over, the standby's instance takes the lease, under a higher epoch, checks
-//! [`Lease::in_sync`] under it, calls [`Replica::promote`], which closes the sessions the standby holds and refuses the old active
-//! from then on, and starts its own registry over its store, replicating in turn to the old
-//! active's instance once that's back.
+//! [`Lease::in_sync`] under it, calls [`Replica::promote`], which closes the sessions the standby
+//! holds and refuses the old active from then on, and starts its own registry over its store,
+//! replicating in turn to the old active's instance once that's back.
+//!
+//! A standby promotes only once it has been [checked](Replica::checked) since it started: a
+//! restart may have lost what its store held (one in memory, a disk replaced, a crash part way
+//! through replacing a session), and a session it lacked would resume at numbers the
+//! counterparty has had. The active's [`catch_up`](ReplicatedStorage::catch_up), run every few
+//! seconds on every replicated store, compares each session it holds with the standby's copy,
+//! sends whole those that differ, and then tells the standby it's checked.
+//! [`Replica::promote_unchecked`] takes over anyway, for an operator who knows the store is whole.
 //!
 //! # Catching up
 //!
@@ -65,8 +73,8 @@
 //! standby outage: before the first commit the standby won't have, it tells the lease the
 //! standby is out of sync ([`Lease::set_in_sync`]), then commits alone. When the standby is back,
 //! each open session sends itself whole at its next commit, and
-//! [`catch_up`](ReplicatedStorage::catch_up), run every few seconds, sends the rest and tells the
-//! lease once the standby is in sync. An instance about to take over acquires the lease, then
+//! [`catch_up`](ReplicatedStorage::catch_up) sends the rest and tells the lease once the standby
+//! is in sync. An instance about to take over acquires the lease, then
 //! reads [`Lease::in_sync`] as its holder, and takes over only if it's true: read before
 //! acquiring, it could be stale, the active still able to put the standby out of sync and commit
 //! alone. Degrading needs a lease that fences a replaced active, which the
@@ -77,7 +85,7 @@
 //! # use std::sync::Arc;
 //! # use turbojet_replica::ReplicatedStorage;
 //! # fn example(storage: Arc<ReplicatedStorage<turbojet::DiskStorage>>) {
-//! // Catch the standby up after an outage, every few seconds.
+//! // Check the standby, and catch it up after an outage, every few seconds.
 //! tokio::spawn(async move {
 //!     loop {
 //!         tokio::time::sleep(std::time::Duration::from_secs(2)).await;

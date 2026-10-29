@@ -34,6 +34,11 @@ Notable changes to the published crates.
   messages, and the counterparty may resend, as PossDup duplicates, messages already handed to
   the application; a failed answer fails a later commit of the session, or, `degrading`, marks
   the standby out of sync. Synchronous stays the default.
+- A standby takes over only once it has been checked since it started: `catch_up`, now to be run
+  on every replicated store, compares each session with the standby's copy, sends whole those
+  that differ, and tells the standby it's checked (`Replica::checked`); `Replica::promote` refuses
+  a standby that isn't, and `Replica::promote_unchecked` takes over anyway. A standby restarted
+  over a store that lost sessions would otherwise have taken over without them.
 - `Replica::promote` returns `io::Result<()>`: with a lag accepted, it skips each session's next
   outgoing number ahead by it, past any the old active sent that the standby lacks, which needs
   a store that lists its sessions (`SessionStorage::sessions`).

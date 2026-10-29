@@ -311,7 +311,27 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     short (a lost link, an active's crash) left it partly refilled, below numbers the
     counterparty has had, with the lease still saying it's in sync. A TLA+ model of the protocol
     found that. A `DiskStorage` under the standby still writes the reset at once and the messages
-    at the commit, so a standby crash between the two leaves the copy reset (ROADMAP.md).
+    at the commit, so a standby crash between the two leaves the copy reset; the check below
+    keeps such a standby from taking over until the session has been sent again.
+  - A standby promotes only once it has been checked since it started. The lease records only
+    what the active sees fail, so a standby that loses its store on its own (one in memory
+    restarting, a disk replaced, a crash between a reset and its commit) would leave it saying in
+    sync; a closed session is compared again only when it opens, so a failover would resume it
+    at 1. A TLA+ model found it, and that an active checking on reconnecting isn't enough: an
+    active that crashes idle never reconnects, and only the standby knows it restarted. So each
+    run of a `Replica` is an incarnation, a random number its welcome carries, and binds report
+    the one they compared against. `catch_up`, now for every store, lists the sessions, binds and
+    compares each closed one not compared against the current incarnation (sending it whole if
+    it differs), counts each such open one behind so its next commit sends it whole, and once
+    all are compared and none is behind sends `Checked` naming the incarnation; the standby
+    takes it only if it names its own, so a check of the run before a restart is refused, and
+    `promote` refuses a standby not checked. In the model, with the check, a standby that loses
+    its store or crashes mid-send never takes over without every session (exhaustive at two
+    sequence numbers a session, two epochs, four incarnations: 308 million states for crashes),
+    and without it both lead to numbers sent again. The simulator loses the standby's store on a
+    third of its replicated seeds and runs the catch-up on all of them; a planted failover that
+    promotes unchecked is caught. A shuttle test races the check against a restart, and catches
+    a standby that takes a check of another incarnation.
   - Fencing is by epoch. A `Lease` is taken under an epoch raised at each change of hands;
     hello, bind and batch frames carry it, and a standby refuses anything under one it has seen
     (bind too: a deposed active's handles, numbered from 0 like its successor's, would replace
@@ -328,7 +348,7 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     during an outage. Sessions the standby fell behind on are counted; each is sent whole at its
     next commit (the snapshot taken after the local commit, so it holds that commit), and
     `catch_up` sends the closed ones, counting a session's open logs so an opening waits while it
-    sends one, and marks the lease in sync once none is behind. A new holder leaves the mark as
+    sends one, and marks the lease in sync once none is behind (and checks the standby, below). A new holder leaves the mark as
     it is, so after a forced failover the first catch-up counts every session behind. Reading
     the mark is fenced too: only the holder under its epoch may, so an instance taking over reads
     it once it holds the lease, when no one else can change it. Read before acquiring, it could

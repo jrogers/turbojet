@@ -30,9 +30,12 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   `ManualLease`), and while the standby is out of sync a failover would lose commits: acquire the
   lease, then check its `in_sync` (only the holder may read it). A session the standby fell behind on, or hasn't seen, is sent whole, up
   to its byte budget; the standby holds it in memory until all of it has arrived (up to 4 GiB of
-  messages a session), then replaces its copy. A `DiskStorage` under the standby writes the
-  reset at once and the messages at the commit after it, so a standby crash between the two
-  leaves its copy reset. The link is plain TCP unless TLS is set up on both sides. A reset waits
+  messages a session), then replaces its copy. A standby promotes only once the active's
+  `catch_up` has checked it since it started, so a failover right after a standby restart waits
+  for one, or needs `promote_unchecked`; `catch_up` needs a store that lists its sessions, and an
+  open session that never commits holds the check up, as it's compared only at its next commit.
+  Loss the standby doesn't restart over (a file corrupted under a running process) isn't
+  noticed. The link is plain TCP unless TLS is set up on both sides. A reset waits
   for the standby where the built-in stores write it at once. The standby holds open every
   session the active has open, so a `DiskStorage` under it is locked while the active is connected,
   until `Replica::promote`. `SqlLease`, like the session leases, compares the instances' clocks.

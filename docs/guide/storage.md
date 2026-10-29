@@ -140,6 +140,14 @@ epoch to an operator. To fail over, the standby's instance takes the lease, unde
 calls `Replica::promote` (which closes the sessions it holds, releasing its store) and starts its
 registry over its store, replicating in turn to the old active's instance once that's back.
 
+Run the active store's `catch_up` every few seconds, whatever the setup. It compares each session
+the active holds with the standby's copy, sends whole any that differ, and then tells the standby
+it has been checked. A standby promotes only once it has been checked since it started, since a
+restart may have lost what its store held, and a session it lacked would resume at numbers the
+counterparty has already had. So right after the standby restarts, until a catch-up has run,
+`promote` refuses; `promote_unchecked` takes over anyway, for an operator who knows the store is
+whole.
+
 Only the sessions' state is replicated, not the application's. A promoted standby starts as the
 application would after a restart: the sessions redeliver what it hadn't finished handling, and it
 recovers the rest from where it keeps its own state. So keep that state where the standby can reach
@@ -155,8 +163,8 @@ session disconnects, as for any store failure, and catches the standby up when i
 A store made `degrading` keeps the sessions up instead: when the standby can't be reached, it
 tells the lease the standby is out of sync and commits alone. Nothing a commit covers goes out
 before the lease has been told, and if it can't be, the commit fails after all. When the standby
-is back, each open session sends itself whole at its next commit; run `catch_up` every few
-seconds to send the rest, which tells the lease once the standby is in sync again. To take over,
+is back, each open session sends itself whole at its next commit, and `catch_up` sends the rest
+and tells the lease once the standby is in sync again. To take over,
 acquire the lease first, then read its `in_sync` under the epoch acquired, and promote only if it's
 true: a standby out of sync lacks commits. Read before acquiring, it could be stale, as the old
 active can still say otherwise until the lease is taken; a reader that doesn't hold the lease is
