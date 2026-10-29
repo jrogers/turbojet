@@ -16,7 +16,6 @@
 </p>
 
 > [!WARNING]
-> [!WARNING]
 > **Pre-1.0, and not yet proven in production.** Turbojet
 > passes 440 of QuickFIX's 467 scripted session acceptance scenarios, runs against QuickFIX/J and
 > QuickFIX/n in CI, and is fuzzed, but it hasn't been certified with any venue or run against a
