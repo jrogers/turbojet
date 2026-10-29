@@ -97,9 +97,10 @@ impl Default for Clock {
     }
 }
 
+/// Says which clock it is, without reading it: a test's clock may move on each reading.
 impl fmt::Debug for Clock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Clock({})", self.now())
+        f.write_str(if self.same_as(&Self::system()) { "Clock(system)" } else { "Clock(custom)" })
     }
 }
 
@@ -779,6 +780,24 @@ fn parse_days(s: &str) -> Result<Vec<Weekday>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Printing a clock, or a configuration holding one, doesn't read it.
+    #[test]
+    fn a_clock_is_shown_without_reading_it() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let readings = Arc::new(AtomicUsize::new(0));
+        let clock = Clock::from_fn({
+            let readings = readings.clone();
+            move || {
+                readings.fetch_add(1, Ordering::Relaxed);
+                Utc::now()
+            }
+        });
+        assert_eq!(format!("{clock:?}"), "Clock(custom)");
+        assert_eq!(format!("{:?}", Clock::system()), "Clock(system)");
+        assert_eq!(readings.load(Ordering::Relaxed), 0);
+    }
 
     fn at(s: &str) -> DateTime<Utc> {
         NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap().and_utc()

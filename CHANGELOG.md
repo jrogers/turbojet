@@ -6,6 +6,8 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Fixed:** `Clock`'s `Debug` read the clock, so printing a configuration moved a test's stepping
+  clock on. It now shows `Clock(system)` or `Clock(custom)`.
 - **Changed:** `MemoryStorage::with_max_session_bytes` and `DEFAULT_MAX_SESSION_BYTES` are `u64`, as
   `DiskStorage`'s are, and a budget of zero panics there too, where it kept nothing.
 - **Changed:** `FixpApplication::verify` returns `Result<(), String>`, as FIX's `verify_logon`
