@@ -6,6 +6,11 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** reading and replaying message logs is in the public `message_log` module, no longer
+  at the crate root: `message_log::{Direction, LogFile, LogRecord, LogRecords, Replayed, replay,
+  mask_secrets, DEFAULT_MAX_BUFFER_BYTES, DEFAULT_MAX_FILE_BYTES}`. What a session is configured
+  with stays at the root as well: `MessageLog`, `FileMessageLog`, `FileLogOptions`, `FinishedHook`
+  and `LogFilter`.
 - **Changed:** the `sbe` functions that generated codecs call (`take`, `length`, `count`, `chars`,
   `reserve`, `get_le`/`get_be`/`put_le`/`put_be`, `Primitive`, `Group::scan`) are hidden from the
   docs: they aren't an application's API, and may change with the generator.

@@ -9,7 +9,8 @@ use std::process::ExitCode;
 use chrono::{DateTime, NaiveTime, Utc};
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::tags;
-use turbojet::{Direction, FileMessageLog, LogFilter, LogRecord, Message};
+use turbojet::message_log::{Direction, LogRecord};
+use turbojet::{FileMessageLog, LogFilter, Message};
 use turbojet_dictionary::Dictionary;
 
 const USAGE: &str = "\

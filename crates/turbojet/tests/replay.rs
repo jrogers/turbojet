@@ -4,10 +4,11 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use turbojet::message_log::{LogRecord, Replayed, replay};
 use turbojet::registry::SessionHandle;
 use turbojet::{
-    Application, Clock, Context, Disconnect, FileLogOptions, FileMessageLog, LogRecord, Message, MessageLog,
-    MessageReject, Replayed, SessionConfig, SessionId, replay,
+    Application, Clock, Context, Disconnect, FileLogOptions, FileMessageLog, Message, MessageLog, MessageReject,
+    SessionConfig, SessionId,
 };
 
 /// What the application saw, in order.

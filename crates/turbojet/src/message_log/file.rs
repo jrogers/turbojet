@@ -709,7 +709,7 @@ mod tests {
         assert!(files[0].compressed);
         let records: Vec<_> = FileMessageLog::read(dir.path().join(name)).unwrap().map(Result::unwrap).collect();
         assert!(
-            matches!(&records[..], [crate::LogRecord::Message { frame, .. }] if frame == b"8=FIX.4.2\x0135=0\x01"),
+            matches!(&records[..], [crate::message_log::LogRecord::Message { frame, .. }] if frame == b"8=FIX.4.2\x0135=0\x01"),
             "{records:?}"
         );
     }

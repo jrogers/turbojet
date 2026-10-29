@@ -45,7 +45,8 @@ pub enum Direction {
 /// One record of a [`FileMessageLog`] file.
 ///
 /// ```no_run
-/// use turbojet::{Direction, FileMessageLog, LogRecord};
+/// use turbojet::FileMessageLog;
+/// use turbojet::message_log::{Direction, LogRecord};
 ///
 /// for file in FileMessageLog::files("/var/log/fix")? {
 ///     for record in FileMessageLog::read(&file.path)? {

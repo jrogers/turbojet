@@ -296,7 +296,7 @@ pub mod fields;
 pub mod fixp;
 mod initiator;
 pub mod message;
-mod message_log;
+pub mod message_log;
 mod peer;
 mod proxy;
 mod proxy_header;
@@ -325,10 +325,7 @@ pub use fields::{ApplVerID, MsgType};
 pub use initiator::InitiatorTls;
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
 pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
-pub use message_log::{
-    DEFAULT_MAX_BUFFER_BYTES, DEFAULT_MAX_FILE_BYTES, Direction, FileLogOptions, FileMessageLog, FinishedHook, LogFile,
-    LogFilter, LogRecord, LogRecords, MessageLog, Replayed, mask_secrets, replay,
-};
+pub use message_log::{FileLogOptions, FileMessageLog, FinishedHook, LogFilter, MessageLog};
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use proxy::{Proxy, ProxyKind};
 pub use reconnect::ReconnectPolicy;

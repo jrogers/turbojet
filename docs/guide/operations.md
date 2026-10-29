@@ -48,6 +48,7 @@ websocket, with authentication, is left to the application.
 ```rust,no_run
 # use std::sync::Arc;
 # use turbojet::*;
+# use turbojet::message_log::LogRecord;
 # struct App;
 # impl Application for App {
 #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
@@ -231,7 +232,7 @@ config.message_log = Some(Arc::new(Audit(sender)));
 ```
 
 The bytes are raw: Password(554), NewPassword(925) and FIXP credentials are in them, and
-`turbojet::mask_secrets(&mut bytes)` overwrites them with `*`s in a copy before it's kept. An
+`turbojet::message_log::mask_secrets(&mut bytes)` overwrites them with `*`s in a copy before it's kept. An
 acceptor's Logon (a FIXP server's first `Negotiate` or `Establish`) is shown once the session has
 handled it, so it has the session's `SessionId` and goes to the log a `Counterparty` config sets,
 if it sets one; a refused Logon goes to the acceptor's own log, with the session it named. A
@@ -321,7 +322,7 @@ search the logs from code.
 
 ## Replaying the log
 
-`turbojet::replay` feeds the messages a session received, as the log recorded them, to an
+`turbojet::message_log::replay` feeds the messages a session received, as the log recorded them, to an
 `Application` again, to reproduce a problem away from production. They go through a session
 configured as in production, at their recorded times, so the application sees what the engine
 delivered: duplicates ignored, messages behind a gap held, invalid ones rejected.
@@ -343,7 +344,7 @@ let records = FileMessageLog::files("/var/log/fix")?
     .collect::<io::Result<Vec<_>>>()?
     .into_iter()
     .flatten();
-let replayed = turbojet::replay(records, &id, config, app)?;
+let replayed = turbojet::message_log::replay(records, &id, config, app)?;
 println!("{} connections, {} messages", replayed.connections, replayed.messages);
 # Ok::<(), io::Error>(())
 ```

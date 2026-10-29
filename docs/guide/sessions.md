@@ -65,7 +65,7 @@ impl Application for Desk {
 
 Passwords are `fields::Secret` (`SecretRef` when borrowed), which `Debug` and `Display` show as
 `***` (`.expose()` gives the text); the `tracing` message log and `FileMessageLog` mask them too
-(a `MessageLog` sees them raw; `turbojet::mask_secrets` masks a copy), and generated messages
+(a `MessageLog` sees them raw; `turbojet::message_log::mask_secrets` masks a copy), and generated messages
 type Password(554) and NewPassword(925) fields as `Secret` as well.
 
 ## NextExpectedMsgSeqNum and resend requests

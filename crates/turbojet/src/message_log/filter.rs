@@ -13,7 +13,8 @@ use crate::message::tags;
 ///
 /// ```
 /// use chrono::{TimeZone, Utc};
-/// use turbojet::{Direction, LogFilter};
+/// use turbojet::LogFilter;
+/// use turbojet::message_log::Direction;
 ///
 /// // What we received of three orders, from 08:00 UTC on 8 October.
 /// let mut filter = LogFilter::default();
@@ -94,7 +95,7 @@ impl LogFilter {
         self.since.is_none_or(|since| time >= since) && self.until.is_none_or(|until| time < until)
     }
 
-    /// Whether a log file of the UTC `day` ([`LogFile::day`](crate::LogFile::day)) may hold
+    /// Whether a log file of the UTC `day` ([`LogFile::day`](super::LogFile::day)) may hold
     /// records in the time range, so it can be skipped unread if not. A file may hold the end of
     /// the day before as well as its own: a record is stamped as it's logged, but its file is
     /// chosen as it's written, a moment later. So the file of day D covers D-1 00:00 up to D+1

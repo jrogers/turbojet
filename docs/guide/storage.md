@@ -119,7 +119,7 @@ doesn't ask for the message again; one released only once the session has connec
 asked for again, as after a crash. Each release costs one message to the session's task. A
 session waiting for a release logs a warning, once per connection, and sets the
 `turbojet_held_back` gauge (feature `metrics`). `Context::new`, for unit tests, and replays
-(`turbojet::replay`) give holds that do nothing. Holds aren't available on FIXP sessions.
+(`turbojet::message_log::replay`) give holds that do nothing. Holds aren't available on FIXP sessions.
 
 ## A hot standby
 
