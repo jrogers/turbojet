@@ -145,6 +145,10 @@ impl AsRef<[u8]> for SbeMessage {
 
 /// Sends on a FIXP session from anywhere; see [`SessionHandle`]. Its receipts resolve to the
 /// message's sequence number, or 0 on an unsequenced flow.
+///
+/// Two of its methods mean less than on FIX: [`logout`](SessionHandle::logout) terminates with
+/// code `Finished` and doesn't send its text (FIXP's `Terminate` has none), and
+/// [`appl_ver_id`](SessionHandle::appl_ver_id) is always `None`.
 pub type FixpHandle = SessionHandle<SbeMessage>;
 
 impl SessionHandle<SbeMessage> {

@@ -58,8 +58,9 @@ pub trait Application: Send + Sync + 'static {
     /// Inspects an inbound Logon before it is accepted: the counterparty's request on an
     /// acceptor, or the reply on an initiator. `connection` describes the transport it arrived
     /// on, including the peer's TLS certificate if it presented one (on an acceptor, the client's;
-    /// on an initiator, the server's). Return `Err` with a reason to refuse the logon; the
-    /// connection is then dropped.
+    /// on an initiator, the server's). Return `Err` with a reason to refuse the logon: the reason
+    /// is logged, at warn with the session's ID, and the connection is dropped with nothing sent,
+    /// so the counterparty isn't told which check it failed.
     ///
     /// Credentials are in the typed Logon, read here in its borrowed form:
     ///
@@ -799,7 +800,9 @@ impl MessageReject {
         Self::Session { ref_tag: Some(tag), reason: SessionRejectReason::ValueIsIncorrect, text: text.into() }
     }
 
-    /// A field required in this context (e.g. Price on a limit order) is missing.
+    /// A field required in this context (e.g. Price on a limit order) is missing: a
+    /// BusinessMessageReject(j) with reason ConditionallyRequiredFieldMissing. It has no field
+    /// for the tag, so the tag is named in its Text(58) only.
     pub fn conditionally_required_field_missing(tag: u32) -> Self {
         Self::Business {
             ref_id: None,

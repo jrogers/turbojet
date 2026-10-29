@@ -16,16 +16,19 @@
 //! # Getting started
 //!
 //! Typed application messages come from `turbojet-fix`, with a feature per FIX version (`fix40`,
-//! `fix41`, `fix42`, `fix43`, `fix44`, `fix50`, `fix50sp1`, `fix50sp2`). Add it alongside `turbojet`, with [tokio](https://docs.rs/tokio) and, for timestamps,
-//! [chrono](https://docs.rs/chrono):
+//! `fix41`, `fix42`, `fix43`, `fix44`, `fix50`, `fix50sp1`, `fix50sp2`). Add it alongside `turbojet`,
+//! with [tokio](https://docs.rs/tokio):
 //!
 //! ```toml
 //! [dependencies]
 //! turbojet = "0.7"
 //! turbojet-fix = { version = "0.7", features = ["fix44"] }
 //! tokio = { version = "1", features = ["full"] }
-//! chrono = "0.4"
 //! ```
+//!
+//! Timestamps are [chrono](https://docs.rs/chrono) times underneath
+//! ([`UtcTimestamp::now`](fields::UtcTimestamp::now) needs no chrono of your own); add it to build
+//! one from a chrono date or time.
 //!
 //! ## Handling messages
 //!

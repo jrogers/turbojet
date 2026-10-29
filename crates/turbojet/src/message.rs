@@ -628,7 +628,9 @@ impl Message {
         self.view().group(count_tag, spec)
     }
 
-    /// True if a boolean field is present and set to `Y`.
+    /// True if a boolean field is present and set to `Y`. Anything else, including a value that
+    /// isn't a boolean, is false: for a check that tells those apart, use
+    /// [`opt_field::<bool>`](Self::opt_field).
     pub fn flag(&self, tag: u32) -> bool {
         self.get(tag) == Some("Y")
     }
