@@ -609,13 +609,14 @@ impl Message {
         convert(tag, self.get(tag))
     }
 
-    /// All the message's fields, as a view that repeating groups can be parsed from.
-    pub fn body(&self) -> Fields<'_> {
-        Fields { msg: self, start: 0, end: self.fields.len(), excluded: Vec::new() }
+    /// All the message's fields, header and trailer included, as a view that repeating groups can
+    /// be parsed from.
+    pub fn view(&self) -> FieldView<'_> {
+        FieldView { msg: self, start: 0, end: self.fields.len(), excluded: Vec::new() }
     }
 
     /// The entries of the repeating group introduced by NumInGroup field `count_tag`, as defined
-    /// by `spec`. Empty if `count_tag` is absent. See [`Fields::group`].
+    /// by `spec`. Empty if `count_tag` is absent. See [`FieldView::group`].
     ///
     /// # Errors
     ///
@@ -623,8 +624,8 @@ impl Message {
     /// entries found, [`RepeatingGroupOutOfOrder`](FieldErrorKind::RepeatingGroupOutOfOrder) if an
     /// entry doesn't start with the delimiter or repeats a member, or
     /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) if the count isn't a number.
-    pub fn group(&self, count_tag: u32, spec: &GroupSpec) -> Result<Vec<Fields<'_>>, FieldError> {
-        self.body().group(count_tag, spec)
+    pub fn group(&self, count_tag: u32, spec: &GroupSpec) -> Result<Vec<FieldView<'_>>, FieldError> {
+        self.view().group(count_tag, spec)
     }
 
     /// True if a boolean field is present and set to `Y`.
@@ -1000,11 +1001,11 @@ pub mod __private {
     #[inline(never)]
     pub fn take_group<G: FixGroup>(
         slot: &mut Option<Vec<G>>,
-        fields: &Fields<'_>,
+        fields: &FieldView<'_>,
         index: usize,
         tag: u32,
     ) -> Result<usize, FieldError> {
-        // Within the view, as `Fields::group` scans.
+        // Within the view, as `FieldView::group` scans.
         let (count, end) = check_group(fields.msg, index, fields.end, tag, &G::SPEC)?;
         if slot.is_some() {
             return Ok(end);
@@ -1028,12 +1029,12 @@ pub mod __private {
     #[inline(never)]
     pub fn take_group_ref<'a, G: FixGroupRef<'a>>(
         slot: &mut Option<Group<'a, G>>,
-        fields: &Fields<'a>,
+        fields: &FieldView<'a>,
         index: usize,
         tag: u32,
     ) -> Result<usize, FieldError> {
         let spec = &<G::Owned as FixGroup>::SPEC;
-        // Within the view, as `Fields::group` scans.
+        // Within the view, as `FieldView::group` scans.
         let (count, end) = check_group(fields.msg, index, fields.end, tag, spec)?;
         if slot.is_some() {
             return Ok(end);
@@ -1064,7 +1065,7 @@ pub mod __private {
     #[inline(never)]
     pub fn take_data_ref<'a>(
         slot: &mut Option<&'a [u8]>,
-        fields: &Fields<'a>,
+        fields: &FieldView<'a>,
         index: usize,
         tag: u32,
         data_tag: u32,
@@ -1153,10 +1154,10 @@ impl GroupSpec {
 
 /// A view of a message's fields, or of one repeating-group entry's, borrowing the message.
 ///
-/// Parsing a group out of a view with [`Fields::group`] hides the group's entries from the view's
+/// Parsing a group out of a view with [`FieldView::group`] hides the group's entries from the view's
 /// own lookups, so a tag used both inside a group and outside it is found in the right place.
 #[derive(Debug, Clone)]
-pub struct Fields<'a> {
+pub struct FieldView<'a> {
     msg: &'a Message,
     start: usize,
     end: usize,
@@ -1165,7 +1166,7 @@ pub struct Fields<'a> {
     excluded: Vec<(usize, usize)>,
 }
 
-impl<'a> Fields<'a> {
+impl<'a> FieldView<'a> {
     /// The raw value of the first occurrence of `tag` in this view.
     pub fn get(&self, tag: u32) -> Option<&'a str> {
         self.position(tag).and_then(|i| self.msg.text(&self.msg.fields[i]))
@@ -1221,7 +1222,7 @@ impl<'a> Fields<'a> {
     /// entries found, [`RepeatingGroupOutOfOrder`](FieldErrorKind::RepeatingGroupOutOfOrder) if an
     /// entry doesn't start with the delimiter or repeats a member, or
     /// [`IncorrectFormat`](FieldErrorKind::IncorrectFormat) if the count isn't a number.
-    pub fn group(&mut self, count_tag: u32, spec: &GroupSpec) -> Result<Vec<Fields<'a>>, FieldError> {
+    pub fn group(&mut self, count_tag: u32, spec: &GroupSpec) -> Result<Vec<FieldView<'a>>, FieldError> {
         let Some(position) = self.position(count_tag) else {
             return Ok(Vec::new());
         };
@@ -1230,7 +1231,7 @@ impl<'a> Fields<'a> {
             self.excluded.push((position + 1, end));
         }
         let msg = self.msg;
-        Ok(entries.into_iter().map(|(start, end)| Fields { msg, start, end, excluded: Vec::new() }).collect())
+        Ok(entries.into_iter().map(|(start, end)| FieldView { msg, start, end, excluded: Vec::new() }).collect())
     }
 
     // ---- Single-pass typed parsing: public for the exported macros, not part of the API ----
@@ -1611,7 +1612,7 @@ pub trait FixGroup: Sized {
     ///
     /// The first problem found in the entry: a required field missing, or a value that doesn't
     /// convert.
-    fn from_fields(entry: Fields<'_>) -> Result<Self, FieldError>;
+    fn from_fields(entry: FieldView<'_>) -> Result<Self, FieldError>;
 
     /// Appends this entry's fields, delimiter first.
     fn write(&self, msg: &mut Message);
@@ -1620,8 +1621,8 @@ pub trait FixGroup: Sized {
     ///
     /// # Errors
     ///
-    /// As [`Fields::group`], and the first problem found in an entry.
-    fn read(fields: &mut Fields<'_>, count_tag: u32) -> Result<Vec<Self>, FieldError> {
+    /// As [`FieldView::group`], and the first problem found in an entry.
+    fn read(fields: &mut FieldView<'_>, count_tag: u32) -> Result<Vec<Self>, FieldError> {
         fields.group(count_tag, &Self::SPEC)?.into_iter().map(Self::from_fields).collect()
     }
 }
@@ -1641,7 +1642,7 @@ pub trait FixGroupRef<'a>: Copy + Sized {
     ///
     /// The first problem found in the entry: a required field missing, or a value that doesn't
     /// convert.
-    fn from_fields(entry: Fields<'a>) -> Result<Self, FieldError>;
+    fn from_fields(entry: FieldView<'a>) -> Result<Self, FieldError>;
 
     /// The owned entry.
     fn into_owned(self) -> Self::Owned;
@@ -1799,10 +1800,10 @@ struct Entries<'a> {
 }
 
 impl<'a> Iterator for Entries<'a> {
-    type Item = Fields<'a>;
+    type Item = FieldView<'a>;
 
     #[inline(never)]
-    fn next(&mut self) -> Option<Fields<'a>> {
+    fn next(&mut self) -> Option<FieldView<'a>> {
         if self.remaining == 0 {
             debug_assert_eq!(self.next, self.end, "the count covers the group");
             return None;
@@ -1812,7 +1813,7 @@ impl<'a> Iterator for Entries<'a> {
         let end = entry_end(msg, start, self.end, self.spec).expect("checked when parsed");
         self.next = end;
         self.remaining -= 1;
-        Some(Fields { msg, start, end, excluded: Vec::new() })
+        Some(FieldView { msg, start, end, excluded: Vec::new() })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -2385,7 +2386,7 @@ mod tests {
     #[test]
     fn parsed_groups_are_hidden_from_top_level_lookups() {
         let msg = raw(WITH_PARTIES);
-        let mut body = msg.body();
+        let mut body = msg.view();
         assert_eq!(body.get(448), Some("A"), "before parsing, a raw lookup sees the first entry");
         body.group(453, &PARTIES).unwrap();
         assert_eq!(body.get(448), None);
@@ -2543,7 +2544,7 @@ mod tests {
     /// Takes the group `count_tag` introduces in `msg` both ways, checking they agree on the end
     /// index or the error, and returns the borrowed group and the owned entries.
     fn take_both<'a, G: FixGroupRef<'a>>(msg: &'a Message, count_tag: u32) -> Result<TakenBothWays<'a, G>, FieldError> {
-        let body = msg.body();
+        let body = msg.view();
         let index = msg.fields.iter().position(|f| f.tag == count_tag).unwrap();
         let mut owned = None;
         let owned_end = take_group::<G::Owned>(&mut owned, &body, index, count_tag);
@@ -2618,7 +2619,7 @@ mod tests {
     #[test]
     fn a_borrowed_group_is_taken_once() {
         let msg = raw("35=D|453=1|448=A|55=X|453=2|448=B|452=1|448=C|58=end|");
-        let body = msg.body();
+        let body = msg.view();
         let mut slot = None;
         assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 1, NO_PARTY_IDS), Ok(3));
         assert_eq!(take_group_ref::<PartyRef<'_>>(&mut slot, &body, 4, NO_PARTY_IDS), Ok(8), "skipped whole");
@@ -2633,7 +2634,7 @@ mod tests {
     fn a_malformed_repeated_group_fails_the_parse() {
         // Its end can't be found, so it can't be skipped.
         let msg = raw("35=D|453=1|448=A|453=2|448=B|");
-        let body = msg.body();
+        let body = msg.view();
         let error =
             FieldError { tag: NO_PARTY_IDS, kind: FieldErrorKind::IncorrectNumInGroup { declared: 2, found: 1 } };
         let mut slot = None;
@@ -2702,9 +2703,9 @@ mod tests {
         assert_eq!(msg.get(tags::RAW_DATA), None);
         assert_eq!(msg.get(tags::RAW_DATA_LENGTH), Some("4"));
         assert!(msg.fields().all(|(tag, _)| tag != tags::RAW_DATA), "text fields skip it");
-        assert!(msg.body().iter().all(|(tag, _)| tag != tags::RAW_DATA));
-        assert_eq!(msg.body().get(tags::RAW_DATA), None);
-        assert_eq!(msg.body().get_bytes(tags::RAW_DATA), Some(BINARY));
+        assert!(msg.view().iter().all(|(tag, _)| tag != tags::RAW_DATA));
+        assert_eq!(msg.view().get(tags::RAW_DATA), None);
+        assert_eq!(msg.view().get_bytes(tags::RAW_DATA), Some(BINARY));
         assert_eq!(msg.get_bytes(tags::HEART_BT_INT), Some(&b"30"[..]), "text is bytes too");
     }
 

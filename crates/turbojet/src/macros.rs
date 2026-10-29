@@ -327,11 +327,11 @@ macro_rules! fix_message {
             type Ref<'a> = $ref_name<'a>;
 
             fn from_message(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse owned '_, msg.body(), false, $( $field : $presence $ty = $tags ),+)
+                $crate::fix_message!(@parse owned '_, msg.view(), false, $( $field : $presence $ty = $tags ),+)
             }
 
             fn from_message_strict(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse owned '_, msg.body(), true, $( $field : $presence $ty = $tags ),+)
+                $crate::fix_message!(@parse owned '_, msg.view(), true, $( $field : $presence $ty = $tags ),+)
             }
 
             fn to_message(&self) -> $crate::message::Message {
@@ -370,11 +370,11 @@ macro_rules! fix_message {
             type Owned = $name;
 
             fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse borrowed 'a, msg.body(), false, $( $field : $presence $ty = $tags ),+)
+                $crate::fix_message!(@parse borrowed 'a, msg.view(), false, $( $field : $presence $ty = $tags ),+)
             }
 
             fn from_message_strict(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse borrowed 'a, msg.body(), true, $( $field : $presence $ty = $tags ),+)
+                $crate::fix_message!(@parse borrowed 'a, msg.view(), true, $( $field : $presence $ty = $tags ),+)
             }
 
             fn into_owned(self) -> $name {
@@ -420,7 +420,7 @@ macro_rules! fix_message {
     // and then made owned, so the two fail alike, and each group's entries parsed straight into
     // their owned form.
     (@parse $mode:ident $lt:lifetime, $fields:expr, $strict:expr, $( $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {{
-        let fields: $crate::message::Fields<$lt> = $fields;
+        let fields: $crate::message::FieldView<$lt> = $fields;
         $crate::fix_message!(@slots $mode $lt, __slots, $( $field : $presence $ty ),+);
         #[allow(unused_mut)]
         let mut failed: ::std::option::Option<$crate::message::FieldError> = None;
@@ -642,7 +642,7 @@ macro_rules! fix_group {
             };
             type Ref<'a> = $ref_name<'a>;
 
-            fn from_fields(entry: $crate::message::Fields<'_>) -> ::core::result::Result<Self, $crate::message::FieldError> {
+            fn from_fields(entry: $crate::message::FieldView<'_>) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 // An undeclared tag ends a group entry, so strictness is the message's to apply.
                 $crate::fix_message!(@parse owned '_, entry, false, $( $field : $presence $ty = $tags ),+)
             }
@@ -665,7 +665,7 @@ macro_rules! fix_group {
         impl<'a> $crate::message::FixGroupRef<'a> for $ref_name<'a> {
             type Owned = $name;
 
-            fn from_fields(entry: $crate::message::Fields<'a>) -> ::core::result::Result<Self, $crate::message::FieldError> {
+            fn from_fields(entry: $crate::message::FieldView<'a>) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 // An undeclared tag ends a group entry, so strictness is the message's to apply.
                 $crate::fix_message!(@parse borrowed 'a, entry, false, $( $field : $presence $ty = $tags ),+)
             }
@@ -1406,19 +1406,19 @@ mod tests {
         use crate::message::{FixGroup, FixGroupRef};
         let msg = raw("35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=X|58=outside|");
         let legs = vec![leg("A", Some("inside"), &["S1", "S2"]), leg("B", None, &[])];
-        let mut fields = msg.body();
+        let mut fields = msg.view();
         assert_eq!(Leg::read(&mut fields, NO_ALLOCS), Ok(legs.clone()));
         assert_eq!(fields.get(TEXT), Some("outside"), "the entries are hidden from the view");
         assert_eq!(TestOrder::from_message(&msg), Ok(order(legs.clone(), Some("outside"))));
         // Entry by entry, owned and borrowed alike.
-        let entries = msg.body().group(NO_ALLOCS, &Leg::SPEC).unwrap();
+        let entries = msg.view().group(NO_ALLOCS, &Leg::SPEC).unwrap();
         assert_eq!(entries.len(), 2);
         for (entry, leg) in entries.into_iter().zip(&legs) {
             assert_eq!(Leg::from_fields(entry.clone()).as_ref(), Ok(leg));
             assert_eq!(LegRef::from_fields(entry).map(FixGroupRef::into_owned).as_ref(), Ok(leg));
         }
 
-        let read = |text: &str| Leg::read(&mut raw(text).body(), NO_ALLOCS);
+        let read = |text: &str| Leg::read(&mut raw(text).view(), NO_ALLOCS);
         assert_eq!(read("35=D|55=X|"), Ok(vec![]), "absent");
         let mismatch = |declared, found| FieldErrorKind::IncorrectNumInGroup { declared, found };
         assert_eq!(read("35=D|78=2|79=A|55=X|"), Err(error(NO_ALLOCS, mismatch(2, 1))));
@@ -1429,8 +1429,8 @@ mod tests {
         // An entry that scans but doesn't parse: its required nested group is absent.
         let msg = raw("35=J|78=1|79=X|");
         let missing = error(NO_TRADING_SESSIONS, FieldErrorKind::Missing);
-        assert_eq!(Allocation::read(&mut msg.body(), NO_ALLOCS), Err(missing.clone()));
-        let entry = msg.body().group(NO_ALLOCS, &Allocation::SPEC).unwrap().remove(0);
+        assert_eq!(Allocation::read(&mut msg.view(), NO_ALLOCS), Err(missing.clone()));
+        let entry = msg.view().group(NO_ALLOCS, &Allocation::SPEC).unwrap().remove(0);
         assert_eq!(Allocation::from_fields(entry.clone()), Err(missing.clone()));
         assert_eq!(AllocationRef::from_fields(entry).map(FixGroupRef::into_owned), Err(missing));
     }

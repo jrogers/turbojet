@@ -22,7 +22,7 @@ fuzz_target!(|body: &[u8]| {
         Decoded::Incomplete => panic!("a complete frame decoded as incomplete"),
     };
     let _ = msg.msg_type();
-    let body = msg.body();
+    let body = msg.view();
     for (tag, _) in msg.fields_bytes() {
         assert_eq!(body.get(tag), msg.get(tag), "tag {tag}");
         assert_eq!(body.get_bytes(tag), msg.get_bytes(tag), "tag {tag}");

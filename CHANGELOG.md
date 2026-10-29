@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `Message::body` is `Message::view`, and the view it gives, `message::Fields`, is
+  `message::FieldView`: it holds every field, header included, not just the body, and "fields"
+  already meant `(tag, value)` pairs in `Message::fields` and `Message::from_fields`.
 - **Changed:** `tls::acceptor`, `tls::connector` and `tls::ClientAuth` are gone, leaving one way to
   set up TLS: `ServerTls::new(Identity::from_pem_files(cert, key)?, ClientTrust::Required(trust))?
   .acceptor()` and `ClientTls::new(Trust::from_pem_files(ca)?, identity)?.connector()`, which can
