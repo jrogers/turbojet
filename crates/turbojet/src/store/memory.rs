@@ -83,7 +83,7 @@ pub struct MemoryStorage {
     /// each CompID that [`Application::verify_logon`](crate::Application::verify_logon) accepts.
     sessions: Mutex<HashMap<SessionId, Arc<Mutex<State>>>>,
     max_sessions: usize,
-    max_session_bytes: usize,
+    max_session_bytes: u64,
 }
 
 /// Takes no lock, so it's safe to format anywhere.
@@ -110,7 +110,7 @@ impl MemoryStorage {
     /// The default byte budget for each session's stored messages: room for hundreds of thousands of
     /// typical orders and reports, so a day's resends are rarely cut short, while a session that
     /// sends for weeks without a sequence reset stops growing.
-    pub const DEFAULT_MAX_SESSION_BYTES: usize = 64 * 1024 * 1024;
+    pub const DEFAULT_MAX_SESSION_BYTES: u64 = 64 * 1024 * 1024;
 
     /// The default number of sessions a store keeps: well above the counterparties one acceptor
     /// usually serves, and with [`DEFAULT_MAX_SESSION_BYTES`](Self::DEFAULT_MAX_SESSION_BYTES) a bound (64 GiB) on the whole store.
@@ -122,8 +122,13 @@ impl MemoryStorage {
     }
 
     /// Keeps at most `bytes` of each session's sent messages, evicting the oldest first.
+    ///
+    /// # Panics
+    ///
+    /// If `bytes` is zero, as [`DiskStorage::with_max_session_bytes`](super::DiskStorage::with_max_session_bytes) does.
     #[must_use]
-    pub fn with_max_session_bytes(mut self, bytes: usize) -> Self {
+    pub fn with_max_session_bytes(mut self, bytes: u64) -> Self {
+        assert!(bytes > 0, "max_session_bytes must be above zero");
         self.max_session_bytes = bytes;
         self
     }
@@ -147,7 +152,9 @@ impl SessionStorage for MemoryStorage {
         }
         let state = sessions.entry(id.clone()).or_default().clone();
         debug_assert!(sessions.len() <= self.max_sessions);
-        Ok(Box::new(MemoryLog { state, max_bytes: self.max_session_bytes }))
+        // More than the address space holds is no limit at all.
+        let max_bytes = usize::try_from(self.max_session_bytes).unwrap_or(usize::MAX);
+        Ok(Box::new(MemoryLog { state, max_bytes }))
     }
 
     fn is_durable(&self) -> bool {
@@ -296,7 +303,7 @@ mod tests {
     #[test]
     fn evicts_the_oldest_messages_past_the_byte_budget() {
         let len = app_message(1).len();
-        let storage = MemoryStorage::new().with_max_session_bytes(2 * len + len / 2);
+        let storage = MemoryStorage::new().with_max_session_bytes(u64::try_from(2 * len + len / 2).unwrap());
         let mut log = storage.open(&id("A")).unwrap();
         log.record_outgoing(1, Some(&app_message(1))).unwrap();
         log.record_outgoing(2, Some(&app_message(2))).unwrap();
@@ -314,7 +321,7 @@ mod tests {
     #[test]
     fn a_message_bigger_than_the_budget_evicts_everything() {
         let len = app_message(1).len();
-        let storage = MemoryStorage::new().with_max_session_bytes(len + 1);
+        let storage = MemoryStorage::new().with_max_session_bytes(u64::try_from(len + 1).unwrap());
         let mut log = storage.open(&id("A")).unwrap();
         log.record_outgoing(1, Some(&app_message(1))).unwrap();
         log.record_outgoing(2, Some(&app_message(2))).unwrap();
@@ -333,7 +340,7 @@ mod tests {
     #[test]
     fn reset_forgets_evictions() {
         let len = app_message(1).len();
-        let storage = MemoryStorage::new().with_max_session_bytes(2 * len);
+        let storage = MemoryStorage::new().with_max_session_bytes(u64::try_from(2 * len).unwrap());
         let mut log = storage.open(&id("A")).unwrap();
         for seq in 1..=3 {
             log.record_outgoing(seq, Some(&app_message(seq))).unwrap();

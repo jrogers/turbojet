@@ -2221,7 +2221,9 @@ fn covered(actions: &[Action]) -> Vec<u64> {
 /// A harness whose store keeps two of [`with_reports`]' ExecutionReports, which are all the same
 /// length.
 fn keeping_two_reports() -> Harness {
-    Harness::with_storage(Arc::new(MemoryStorage::new().with_max_session_bytes(2 * report_len())))
+    Harness::with_storage(Arc::new(
+        MemoryStorage::new().with_max_session_bytes(2 * u64::try_from(report_len()).unwrap()),
+    ))
 }
 
 /// The length of each of [`with_reports`]' ExecutionReports, which are all the same.
