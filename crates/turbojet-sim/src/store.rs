@@ -11,7 +11,7 @@ use turbojet::SessionId;
 
 use crate::files::{DiskFiles, Snapshot, Tear};
 use turbojet::fields::UtcTimestamp;
-use turbojet::store::{Commit, Fetched, Job, Opened, SessionStorage, StoredSession};
+use turbojet::store::{Commit, Fetched, Job, Marks, Opened, SessionStorage, StoredSession};
 
 /// One change to a side's outgoing sequence, in the order the session made them.
 #[derive(Debug, Clone)]
@@ -210,6 +210,14 @@ impl SessionStorage for LedgerStorage {
             early: self.early,
             evicted,
         }))
+    }
+
+    fn marked(&self) -> Job<Vec<(SessionId, Marks)>> {
+        self.inner.marked()
+    }
+
+    fn sessions(&self) -> Job<Vec<SessionId>> {
+        self.inner.sessions()
     }
 }
 
@@ -455,5 +463,13 @@ impl StoredSession for LedgerLog {
 
     fn set_created_at(&mut self, at: UtcTimestamp) -> io::Result<()> {
         self.inner.set_created_at(at)
+    }
+
+    fn marks(&self) -> Marks {
+        self.inner.marks()
+    }
+
+    fn set_marks(&mut self, marks: Marks) -> io::Result<()> {
+        self.inner.set_marks(marks)
     }
 }
