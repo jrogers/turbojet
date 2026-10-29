@@ -3323,7 +3323,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "turbojet"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -3352,7 +3352,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-acceptance"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "turbojet",
@@ -3361,7 +3361,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-codegen"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "pulldown-cmark",
  "roxmltree",
@@ -3372,7 +3372,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-config"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "p12-keystore",
  "rcgen",
@@ -3387,21 +3387,21 @@ dependencies = [
 
 [[package]]
 name = "turbojet-dictionary"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "roxmltree",
 ]
 
 [[package]]
 name = "turbojet-fix"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "turbojet",
 ]
 
 [[package]]
 name = "turbojet-interop"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "p12-keystore",
  "rcgen",
@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-log"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "tempfile",
@@ -3423,7 +3423,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-replica"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "criterion",
  "rcgen",
@@ -3436,7 +3436,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-sim"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "chrono",
  "tempfile",
@@ -3446,7 +3446,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-sql"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "criterion",
  "sqlx",
