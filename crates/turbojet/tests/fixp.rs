@@ -193,8 +193,8 @@ fn fixp_server(
 ) -> (turbojet::fixp::FixpAcceptor, mpsc::UnboundedReceiver<Event>) {
     struct Refusing(Events);
     impl FixpApplication for Refusing {
-        fn verify(&self, _client: &turbojet::fixp::ClientLogin<'_>) -> bool {
-            false
+        fn verify(&self, _client: &turbojet::fixp::ClientLogin<'_>) -> Result<(), String> {
+            Err("not today".into())
         }
         fn on_message(&self, ctx: &mut FixpContext<'_>, msg: Received<'_>) {
             self.0.on_message(ctx, msg);

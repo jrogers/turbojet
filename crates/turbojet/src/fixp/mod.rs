@@ -163,8 +163,7 @@ impl SessionHandle<SbeMessage> {
     }
 }
 
-/// Tracks live FIXP sessions; see [`SessionRegistry`]. Build one with
-/// [`SessionRegistry::with_storage`].
+/// Tracks live FIXP sessions; see [`SessionRegistry`]. Build one with `FixpRegistry::with_storage`.
 pub type FixpRegistry = SessionRegistry<SbeMessage>;
 
 /// Which end of the session this is.
@@ -403,8 +402,11 @@ pub enum Ended {
 /// struct Venue;
 ///
 /// impl FixpApplication for Venue {
-///     fn verify(&self, client: &ClientLogin<'_>) -> bool {
-///         client.credentials == b"secret" // in whatever form the two sides agree
+///     fn verify(&self, client: &ClientLogin<'_>) -> Result<(), String> {
+///         match client.credentials {
+///             b"secret" => Ok(()), // in whatever form the two sides agree
+///             _ => Err("unknown credentials".into()),
+///         }
 ///     }
 ///
 ///     fn on_message(&self, _ctx: &mut FixpContext<'_>, msg: Received<'_>) {
@@ -418,11 +420,16 @@ pub enum Ended {
 /// }
 /// ```
 pub trait FixpApplication: Send + Sync {
-    /// Server: whether a client may negotiate or establish. `false` refuses it as bad
-    /// credentials. The default lets every client in.
-    fn verify(&self, client: &ClientLogin<'_>) -> bool {
+    /// Server: whether a client may negotiate or establish. `Err` refuses it with reject code
+    /// `Credentials`: the reason is logged, and the client is told only "credentials refused", so
+    /// a refusal doesn't say which part was wrong. The default lets every client in.
+    ///
+    /// # Errors
+    ///
+    /// Why the client is refused.
+    fn verify(&self, client: &ClientLogin<'_>) -> Result<(), String> {
         let _ = client;
-        true
+        Ok(())
     }
 
     /// The session is established on this connection: application messages can flow.

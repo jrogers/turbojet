@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `FixpApplication::verify` returns `Result<(), String>`, as FIX's `verify_logon`
+  does, rather than `bool`: `Err` refuses the client with reject code `Credentials`, and its reason
+  is logged. The client is told only "credentials refused", as before.
 - **Changed:** `GroupSpec`'s fields are private: build one with `GroupSpec::new(fields, lengths)`,
   which refuses (at compile time, in a `const`) a spec without fields or whose two arrays differ in
   length.

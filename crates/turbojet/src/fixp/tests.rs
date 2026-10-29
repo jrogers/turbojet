@@ -51,9 +51,9 @@ struct Recorder {
 }
 
 impl FixpApplication for Recorder {
-    fn verify(&self, _client: &ClientLogin<'_>) -> bool {
+    fn verify(&self, _client: &ClientLogin<'_>) -> Result<(), String> {
         assert!(self.panic_on != Some(0), "verify panicked");
-        !self.refuse
+        if self.refuse { Err("refused".into()) } else { Ok(()) }
     }
     fn on_established(&self, _session: &FixpHandle) {
         self.established.fetch_add(1, Ordering::Relaxed);

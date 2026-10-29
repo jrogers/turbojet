@@ -712,10 +712,13 @@ struct FixpRecorder {
 }
 
 impl FixpApplication for FixpRecorder {
-    fn verify(&self, client: &ClientLogin<'_>) -> bool {
+    fn verify(&self, client: &ClientLogin<'_>) -> Result<(), String> {
         self.verified.lock().unwrap().push(client.connection.clone());
         let cn = client.connection.peer_certificate().and_then(|cert| cert.subject_common_name());
-        self.required_cn.is_none_or(|required| cn.as_deref() == Some(required))
+        match self.required_cn.is_none_or(|required| cn.as_deref() == Some(required)) {
+            true => Ok(()),
+            false => Err(format!("certificate CN {cn:?} isn't the one required")),
+        }
     }
 
     fn on_established(&self, _session: &FixpHandle) {

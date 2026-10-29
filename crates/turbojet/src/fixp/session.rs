@@ -497,6 +497,18 @@ impl FixpSession {
 
     // ---- The server's handshake ----
 
+    /// Whether the application lets `login` in; why not is logged, and the client is told only
+    /// that its credentials were refused, as a FIX Logon refused by `verify_logon` is.
+    fn admitted(&self, login: &ClientLogin<'_>) -> bool {
+        match guarded("verify", || self.app.verify(login)).unwrap_or_else(|| Err("verify panicked".into())) {
+            Ok(()) => true,
+            Err(reason) => {
+                warn!(uuid = ?login.uuid, "application refused the client: {reason}");
+                false
+            }
+        }
+    }
+
     fn on_negotiate(&mut self, negotiate: &m::NegotiateRef<'_>) {
         let (session_id, timestamp) = (negotiate.session_id(), negotiate.timestamp());
         let login =
@@ -507,7 +519,7 @@ impl FixpSession {
             Some((m::NegotiationRejectCode::Unspecified, "timestamp too far from the server's clock"))
         } else if negotiate.client_flow() != self.config.client_flow {
             Some((m::NegotiationRejectCode::FlowTypeNotSupported, "that client flow isn't supported"))
-        } else if !guarded("verify", || self.app.verify(&login)).unwrap_or(false) {
+        } else if !self.admitted(&login) {
             Some((m::NegotiationRejectCode::Credentials, "credentials refused"))
         } else {
             None
@@ -576,7 +588,7 @@ impl FixpSession {
                 Some((m::EstablishmentRejectCode::Unspecified, "timestamp too far from the server's clock"))
             } else if keepalive.is_zero() || keepalive > self.config.max_keepalive {
                 Some((m::EstablishmentRejectCode::KeepaliveInterval, "keepalive interval out of range"))
-            } else if !guarded("verify", || self.app.verify(&login)).unwrap_or(false) {
+            } else if !self.admitted(&login) {
                 Some((m::EstablishmentRejectCode::Credentials, "credentials refused"))
             } else {
                 None
