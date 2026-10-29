@@ -72,6 +72,11 @@ pub struct AcceptorConfig {
     /// [`StorageByCounterparty`](crate::store::StorageByCounterparty): a store is opened for
     /// operator changes to disconnected sessions too, when there's no Logon to resolve.
     pub counterparties: Option<Arc<dyn Counterparties>>,
+    /// Refuses to serve plain TCP: [`Acceptor::serve`] returns an error at once rather than
+    /// accepting connections, so an acceptor whose counterparties expect TLS can't be served
+    /// without it by mistake. False by default. Connections given to
+    /// [`accept_stream`](Acceptor::accept_stream) aren't checked: their transport is the caller's.
+    pub require_tls: bool,
 }
 
 impl AcceptorConfig {
@@ -93,6 +98,7 @@ impl AcceptorConfig {
             allowed_ips: None,
             proxy_protocol: None,
             counterparties: None,
+            require_tls: false,
         }
     }
 }
@@ -112,6 +118,7 @@ impl std::fmt::Debug for AcceptorConfig {
             .field("allowed_ips", &self.allowed_ips)
             .field("proxy_protocol", &self.proxy_protocol)
             .field("counterparties", &self.counterparties.is_some())
+            .field("require_tls", &self.require_tls)
             .finish()
     }
 }
@@ -160,6 +167,7 @@ pub struct Acceptor {
     shutdown: Arc<Shutdown>,
     limits: Arc<Limits>,
     counterparties: Option<Arc<dyn Counterparties>>,
+    require_tls: bool,
 }
 
 impl std::fmt::Debug for Acceptor {
@@ -190,12 +198,13 @@ impl Acceptor {
             allowed_ips,
             proxy_protocol,
             counterparties,
+            require_tls,
         } = config.into();
         config.check()?;
         let registry = Arc::new(SessionRegistry::new(storage).with_clock(config.clock.clone()));
         let limits = Arc::new(Limits::new(max_connections, max_connections_per_ip).with_proxies(proxy_protocol));
         limits.set_allowed(allowed_ips);
-        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties })
+        Ok(Self { config, registry, app, shutdown: Arc::new(Shutdown::new()), limits, counterparties, require_tls })
     }
 
     /// Replaces the addresses connections are accepted from, while serving: `None` accepts any.
@@ -250,9 +259,16 @@ impl Acceptor {
     /// # Errors
     ///
     /// The store's, reading what it kept from before a restart (see
-    /// [`SessionRegistry::restore`]). Otherwise none: accept errors are logged and retried, and a
-    /// connection's own errors end only that connection.
+    /// [`SessionRegistry::restore`]), and [`InvalidInput`](io::ErrorKind::InvalidInput) at once
+    /// if the configuration [requires TLS](AcceptorConfig::require_tls). Otherwise none: accept
+    /// errors are logged and retried, and a connection's own errors end only that connection.
     pub async fn serve(self, listener: TcpListener) -> io::Result<()> {
+        if self.require_tls {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the acceptor requires TLS: serve it with serve_tls",
+            ));
+        }
         self.serve_listener(listener).await
     }
 
@@ -268,7 +284,8 @@ impl Acceptor {
     ///
     /// # Errors
     ///
-    /// As [`serve`](Acceptor::serve); a failed or slow handshake ends only its connection.
+    /// The store's, as for [`serve`](Acceptor::serve); a failed or slow handshake ends only its
+    /// connection.
     #[cfg(feature = "tls")]
     pub async fn serve_tls(self, listener: TcpListener, tls: crate::tls::TlsAcceptor) -> io::Result<()> {
         self.serve_with(listener, move |acceptor, stream, addr| {
