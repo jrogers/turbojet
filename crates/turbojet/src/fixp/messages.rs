@@ -6,7 +6,7 @@ pub const SCHEMA_ID: u16 = 2748;
 pub const SCHEMA_VERSION: u16 = 0;
 
 /// `FlowType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum FlowType {
     /// `Recoverable` (0).
     Recoverable,
@@ -46,8 +46,22 @@ impl FlowType {
     }
 }
 
+impl PartialEq for FlowType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for FlowType {}
+
+impl std::hash::Hash for FlowType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `NegotiationRejectCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum NegotiationRejectCode {
     /// `Credentials` (0).
     Credentials,
@@ -87,8 +101,22 @@ impl NegotiationRejectCode {
     }
 }
 
+impl PartialEq for NegotiationRejectCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for NegotiationRejectCode {}
+
+impl std::hash::Hash for NegotiationRejectCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `EstablishmentRejectCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum EstablishmentRejectCode {
     /// `Unnegotiated` (0).
     Unnegotiated,
@@ -136,8 +164,22 @@ impl EstablishmentRejectCode {
     }
 }
 
+impl PartialEq for EstablishmentRejectCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for EstablishmentRejectCode {}
+
+impl std::hash::Hash for EstablishmentRejectCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `RetransmitRejectCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum RetransmitRejectCode {
     /// `OutOfRange` (0).
     OutOfRange,
@@ -173,8 +215,22 @@ impl RetransmitRejectCode {
     }
 }
 
+impl PartialEq for RetransmitRejectCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for RetransmitRejectCode {}
+
+impl std::hash::Hash for RetransmitRejectCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `TerminationCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum TerminationCode {
     /// `Finished` (0).
     Finished,
@@ -211,6 +267,20 @@ impl TerminationCode {
             Self::ReRequestInProgress => 3,
             Self::Unknown(raw) => raw,
         }
+    }
+}
+
+impl PartialEq for TerminationCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for TerminationCode {}
+
+impl std::hash::Hash for TerminationCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
     }
 }
 

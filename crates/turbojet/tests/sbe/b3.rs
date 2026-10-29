@@ -6,7 +6,7 @@ pub const SCHEMA_ID: u16 = 1;
 pub const SCHEMA_VERSION: u16 = 5;
 
 /// `Boolean`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum Boolean {
     /// `FALSE_VALUE` (0).
     FalseValue,
@@ -38,8 +38,22 @@ impl Boolean {
     }
 }
 
+impl PartialEq for Boolean {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for Boolean {}
+
+impl std::hash::Hash for Boolean {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `AllocTransType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum AllocTransType {
     /// `NEW` (b'0').
     New,
@@ -71,8 +85,22 @@ impl AllocTransType {
     }
 }
 
+impl PartialEq for AllocTransType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for AllocTransType {}
+
+impl std::hash::Hash for AllocTransType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `AllocReportType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum AllocReportType {
     /// `REQUEST_TO_INTERMEDIARY` (b'8').
     RequestToIntermediary,
@@ -100,8 +128,22 @@ impl AllocReportType {
     }
 }
 
+impl PartialEq for AllocReportType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for AllocReportType {}
+
+impl std::hash::Hash for AllocReportType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `AllocType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum AllocType {
     /// `REQUEST_TO_INTERMEDIARY` (b'8').
     RequestToIntermediary,
@@ -129,8 +171,22 @@ impl AllocType {
     }
 }
 
+impl PartialEq for AllocType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for AllocType {}
+
+impl std::hash::Hash for AllocType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `AllocNoOrdersType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum AllocNoOrdersType {
     /// `NOT_SPECIFIED` (b'0').
     NotSpecified,
@@ -158,8 +214,22 @@ impl AllocNoOrdersType {
     }
 }
 
+impl PartialEq for AllocNoOrdersType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for AllocNoOrdersType {}
+
+impl std::hash::Hash for AllocNoOrdersType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `AllocStatus`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum AllocStatus {
     /// `ACCEPTED` (b'0').
     Accepted,
@@ -191,8 +261,22 @@ impl AllocStatus {
     }
 }
 
+impl PartialEq for AllocStatus {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for AllocStatus {}
+
+impl std::hash::Hash for AllocStatus {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `QuoteStatus`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum QuoteStatus {
     /// `EXPIRED` (7).
     Expired,
@@ -244,8 +328,22 @@ impl QuoteStatus {
     }
 }
 
+impl PartialEq for QuoteStatus {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for QuoteStatus {}
+
+impl std::hash::Hash for QuoteStatus {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `PosType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum PosType {
     /// `TRANSACTION_QUANTITY` (b'T').
     TransactionQuantity,
@@ -293,8 +391,22 @@ impl PosType {
     }
 }
 
+impl PartialEq for PosType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for PosType {}
+
+impl std::hash::Hash for PosType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `MassActionScope`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum MassActionScope {
     /// `ALL_ORDERS_FOR_A_TRADING_SESSION` (6).
     AllOrdersForATradingSession,
@@ -326,8 +438,22 @@ impl MassActionScope {
     }
 }
 
+impl PartialEq for MassActionScope {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for MassActionScope {}
+
+impl std::hash::Hash for MassActionScope {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `MassActionType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum MassActionType {
     /// `SUSPEND_ORDERS` (1).
     SuspendOrders,
@@ -363,8 +489,22 @@ impl MassActionType {
     }
 }
 
+impl PartialEq for MassActionType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for MassActionType {}
+
+impl std::hash::Hash for MassActionType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `MassActionResponse`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum MassActionResponse {
     /// `REJECTED` (0).
     Rejected,
@@ -396,8 +536,22 @@ impl MassActionResponse {
     }
 }
 
+impl PartialEq for MassActionResponse {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for MassActionResponse {}
+
+impl std::hash::Hash for MassActionResponse {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `MassActionRejectReason`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum MassActionRejectReason {
     /// `MASS_ACTION_NOT_SUPPORTED` (0).
     MassActionNotSupported,
@@ -433,8 +587,22 @@ impl MassActionRejectReason {
     }
 }
 
+impl PartialEq for MassActionRejectReason {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for MassActionRejectReason {}
+
+impl std::hash::Hash for MassActionRejectReason {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `SecurityResponseType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum SecurityResponseType {
     /// `ACCEPT_SECURITY_PROPOSAL_AS_IS` (1).
     AcceptSecurityProposalAsIs,
@@ -470,8 +638,22 @@ impl SecurityResponseType {
     }
 }
 
+impl PartialEq for SecurityResponseType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for SecurityResponseType {}
+
+impl std::hash::Hash for SecurityResponseType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `PosMaintStatus`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum PosMaintStatus {
     /// `ACCEPTED` (b'0').
     Accepted,
@@ -511,8 +693,22 @@ impl PosMaintStatus {
     }
 }
 
+impl PartialEq for PosMaintStatus {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for PosMaintStatus {}
+
+impl std::hash::Hash for PosMaintStatus {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `ExecuteUnderlyingTrade`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum ExecuteUnderlyingTrade {
     /// `NO_UNDERLYING_TRADE` (b'0').
     NoUnderlyingTrade,
@@ -544,8 +740,22 @@ impl ExecuteUnderlyingTrade {
     }
 }
 
+impl PartialEq for ExecuteUnderlyingTrade {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for ExecuteUnderlyingTrade {}
+
+impl std::hash::Hash for ExecuteUnderlyingTrade {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `PosTransType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum PosTransType {
     /// `EXERCISE` (1).
     Exercise,
@@ -581,8 +791,22 @@ impl PosTransType {
     }
 }
 
+impl PartialEq for PosTransType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for PosTransType {}
+
+impl std::hash::Hash for PosTransType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `PosMaintAction`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum PosMaintAction {
     /// `NEW` (b'1').
     New,
@@ -614,8 +838,22 @@ impl PosMaintAction {
     }
 }
 
+impl PartialEq for PosMaintAction {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for PosMaintAction {}
+
+impl std::hash::Hash for PosMaintAction {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `SettlType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum SettlType {
     /// `BUYERS_DISCRETION` (b'0').
     BuyersDiscretion,
@@ -651,8 +889,22 @@ impl SettlType {
     }
 }
 
+impl PartialEq for SettlType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for SettlType {}
+
+impl std::hash::Hash for SettlType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `SelfTradePreventionInstruction`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum SelfTradePreventionInstruction {
     /// `CANCEL_AGGRESSOR_ORDER` (b'1').
     CancelAggressorOrder,
@@ -688,8 +940,22 @@ impl SelfTradePreventionInstruction {
     }
 }
 
+impl PartialEq for SelfTradePreventionInstruction {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for SelfTradePreventionInstruction {}
+
+impl std::hash::Hash for SelfTradePreventionInstruction {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `TimeUnit`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum TimeUnit {
     /// `SECOND` (0).
     Second,
@@ -729,8 +995,22 @@ impl TimeUnit {
     }
 }
 
+impl PartialEq for TimeUnit {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for TimeUnit {}
+
+impl std::hash::Hash for TimeUnit {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `MessageType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum MessageType {
     /// `Negotiate` (0).
     Negotiate,
@@ -918,8 +1198,22 @@ impl MessageType {
     }
 }
 
+impl PartialEq for MessageType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for MessageType {}
+
+impl std::hash::Hash for MessageType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `FlowType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum FlowType {
     /// `NONE` (0).
     None,
@@ -959,8 +1253,22 @@ impl FlowType {
     }
 }
 
+impl PartialEq for FlowType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for FlowType {}
+
+impl std::hash::Hash for FlowType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `NegotiationRejectCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum NegotiationRejectCode {
     /// `UNSPECIFIED` (0).
     Unspecified,
@@ -1024,8 +1332,22 @@ impl NegotiationRejectCode {
     }
 }
 
+impl PartialEq for NegotiationRejectCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for NegotiationRejectCode {}
+
+impl std::hash::Hash for NegotiationRejectCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `EstablishRejectCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum EstablishRejectCode {
     /// `UNSPECIFIED` (0).
     Unspecified,
@@ -1097,8 +1419,22 @@ impl EstablishRejectCode {
     }
 }
 
+impl PartialEq for EstablishRejectCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for EstablishRejectCode {}
+
+impl std::hash::Hash for EstablishRejectCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `TerminationCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum TerminationCode {
     /// `UNSPECIFIED` (0).
     Unspecified,
@@ -1166,8 +1502,22 @@ impl TerminationCode {
     }
 }
 
+impl PartialEq for TerminationCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for TerminationCode {}
+
+impl std::hash::Hash for TerminationCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `RetransmitRejectCode`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum RetransmitRejectCode {
     /// `OUT_OF_RANGE` (0).
     OutOfRange,
@@ -1219,8 +1569,22 @@ impl RetransmitRejectCode {
     }
 }
 
+impl PartialEq for RetransmitRejectCode {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for RetransmitRejectCode {}
+
+impl std::hash::Hash for RetransmitRejectCode {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `CancelOnDisconnectType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum CancelOnDisconnectType {
     /// `DO_NOT_CANCEL_ON_DISCONNECT_OR_TERMINATE` (0).
     DoNotCancelOnDisconnectOrTerminate,
@@ -1260,8 +1624,22 @@ impl CancelOnDisconnectType {
     }
 }
 
+impl PartialEq for CancelOnDisconnectType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for CancelOnDisconnectType {}
+
+impl std::hash::Hash for CancelOnDisconnectType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `Side`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum Side {
     /// `BUY` (b'1').
     Buy,
@@ -1293,8 +1671,22 @@ impl Side {
     }
 }
 
+impl PartialEq for Side {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for Side {}
+
+impl std::hash::Hash for Side {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `TimeInForce`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum TimeInForce {
     /// `DAY` (b'0').
     Day,
@@ -1346,8 +1738,22 @@ impl TimeInForce {
     }
 }
 
+impl PartialEq for TimeInForce {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for TimeInForce {}
+
+impl std::hash::Hash for TimeInForce {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `OrdType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum OrdType {
     /// `MARKET` (b'1').
     Market,
@@ -1399,8 +1805,22 @@ impl OrdType {
     }
 }
 
+impl PartialEq for OrdType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for OrdType {}
+
+impl std::hash::Hash for OrdType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `RoutingInstruction`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum RoutingInstruction {
     /// `RETAIL_LIQUIDITY_TAKER` (1).
     RetailLiquidityTaker,
@@ -1440,8 +1860,22 @@ impl RoutingInstruction {
     }
 }
 
+impl PartialEq for RoutingInstruction {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for RoutingInstruction {}
+
+impl std::hash::Hash for RoutingInstruction {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `ExecType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum ExecType {
     /// `TRADE` (b'F').
     Trade,
@@ -1473,8 +1907,22 @@ impl ExecType {
     }
 }
 
+impl PartialEq for ExecType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for ExecType {}
+
+impl std::hash::Hash for ExecType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `OrdStatus`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum OrdStatus {
     /// `NEW` (b'0').
     New,
@@ -1534,8 +1982,22 @@ impl OrdStatus {
     }
 }
 
+impl PartialEq for OrdStatus {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for OrdStatus {}
+
+impl std::hash::Hash for OrdStatus {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `ExecRestatementReason`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum ExecRestatementReason {
     /// `MARKET_OPTION` (8).
     MarketOption,
@@ -1627,8 +2089,22 @@ impl ExecRestatementReason {
     }
 }
 
+impl PartialEq for ExecRestatementReason {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for ExecRestatementReason {}
+
+impl std::hash::Hash for ExecRestatementReason {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `MultiLegReportingType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum MultiLegReportingType {
     /// `SINGLE_SECURITY` (b'1').
     SingleSecurity,
@@ -1664,8 +2140,22 @@ impl MultiLegReportingType {
     }
 }
 
+impl PartialEq for MultiLegReportingType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for MultiLegReportingType {}
+
+impl std::hash::Hash for MultiLegReportingType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `OrderCategory`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum OrderCategory {
     /// `RESULT_OF_OPTIONS_EXERCISE` (b'B').
     ResultOfOptionsExercise,
@@ -1709,8 +2199,22 @@ impl OrderCategory {
     }
 }
 
+impl PartialEq for OrderCategory {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for OrderCategory {}
+
+impl std::hash::Hash for OrderCategory {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `AccountType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum AccountType {
     /// `REMOVE_ACCOUNT_INFORMATION` (38).
     RemoveAccountInformation,
@@ -1742,8 +2246,22 @@ impl AccountType {
     }
 }
 
+impl PartialEq for AccountType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for AccountType {}
+
+impl std::hash::Hash for AccountType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `CxlRejResponseTo`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum CxlRejResponseTo {
     /// `ORDER_CANCEL_REQUEST` (1).
     OrderCancelRequest,
@@ -1772,6 +2290,20 @@ impl CxlRejResponseTo {
             Self::OrderCancelReplaceRequest => 2,
             Self::Unknown(raw) => raw,
         }
+    }
+}
+
+impl PartialEq for CxlRejResponseTo {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for CxlRejResponseTo {}
+
+impl std::hash::Hash for CxlRejResponseTo {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
     }
 }
 

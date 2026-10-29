@@ -6,7 +6,7 @@ pub const SCHEMA_ID: u16 = 1;
 pub const SCHEMA_VERSION: u16 = 0;
 
 /// `BoostType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum BoostType {
     /// `TURBO` (b'T').
     Turbo,
@@ -46,8 +46,22 @@ impl BoostType {
     }
 }
 
+impl PartialEq for BoostType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for BoostType {}
+
+impl std::hash::Hash for BoostType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `BooleanType`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum BooleanType {
     /// `F` (0).
     F,
@@ -79,8 +93,22 @@ impl BooleanType {
     }
 }
 
+impl PartialEq for BooleanType {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for BooleanType {}
+
+impl std::hash::Hash for BooleanType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
+    }
+}
+
 /// `Model`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy)]
 pub enum Model {
     /// `A` (b'A').
     A,
@@ -113,6 +141,20 @@ impl Model {
             Self::C => b'C',
             Self::Unknown(raw) => raw,
         }
+    }
+}
+
+impl PartialEq for Model {
+    fn eq(&self, other: &Self) -> bool {
+        self.raw() == other.raw()
+    }
+}
+
+impl Eq for Model {}
+
+impl std::hash::Hash for Model {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw().hash(state)
     }
 }
 

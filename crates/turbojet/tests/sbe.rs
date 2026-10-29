@@ -269,3 +269,13 @@ fn unknown_enum_values_are_kept() {
     assert_eq!(read.side(), b3::Side::Unknown(b'9'));
     assert_eq!(b3::Side::Unknown(b'9').raw(), b'9');
 }
+
+/// Generated enums compare by their value on the wire, so `Unknown` holding a listed value is
+/// that value's variant.
+#[test]
+fn enums_compare_by_their_value_on_the_wire() {
+    assert_eq!(car::BoostType::Unknown(b'T'), car::BoostType::Turbo);
+    assert_ne!(car::BoostType::Unknown(b'X'), car::BoostType::Turbo);
+    let set = std::collections::HashSet::from([car::BoostType::Turbo]);
+    assert!(set.contains(&car::BoostType::from_raw(b'T')) && set.contains(&car::BoostType::Unknown(b'T')));
+}

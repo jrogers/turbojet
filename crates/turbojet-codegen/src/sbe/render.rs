@@ -106,8 +106,7 @@ impl<'s> Renderer<'s> {
             variants.push((variant, literal));
         }
         let out = &mut self.out;
-        writeln!(out, "\n/// `{}`.\n#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum {name} {{", e.name)
-            .expect(INFALLIBLE);
+        writeln!(out, "\n/// `{}`.\n#[derive(Debug, Clone, Copy)]\npub enum {name} {{", e.name).expect(INFALLIBLE);
         for ((variant, literal), (value, _)) in variants.iter().zip(&e.values) {
             writeln!(out, "    /// `{value}` ({literal}).\n    {variant},").expect(INFALLIBLE);
         }
@@ -128,6 +127,14 @@ impl<'s> Renderer<'s> {
             writeln!(out, "            Self::{variant} => {literal},").expect(INFALLIBLE);
         }
         writeln!(out, "            Self::Unknown(raw) => raw,\n        }}\n    }}\n}}").expect(INFALLIBLE);
+        // By value on the wire, so `Unknown` holding a listed value equals that value's variant.
+        writeln!(
+            out,
+            "\nimpl PartialEq for {name} {{\n    fn eq(&self, other: &Self) -> bool {{\n        self.raw() == other.raw()\n    }}\n}}\n\n\
+             impl Eq for {name} {{}}\n\n\
+             impl std::hash::Hash for {name} {{\n    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {{\n        self.raw().hash(state)\n    }}\n}}"
+        )
+        .expect(INFALLIBLE);
         Ok(())
     }
 

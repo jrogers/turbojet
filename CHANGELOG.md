@@ -18,6 +18,12 @@ Notable changes to the published crates.
   `InvalidInput`, so an acceptor whose counterparties expect TLS can't be served without it by
   mistake. False by default.
 
+### `turbojet-codegen`
+
+- **Changed:** generated SBE enums compare and hash by their value on the wire, so `Unknown`
+  holding a value the schema lists is that value's variant. The FIXP messages in `turbojet` are
+  regenerated with it.
+
 ### `turbojet-config`
 
 - **Fixed:** an acceptor from a sessions file with `[acceptor.tls]` served with `serve` rather
