@@ -42,7 +42,7 @@ use crate::registry::{
     apply_sequence_command, command_queues,
 };
 use crate::schedule::{Clock, Period, SessionSchedule};
-use crate::store::{Commit, Fetched, Job, Marks, Opened, SentMessages, SessionId, StoredSession};
+use crate::store::{Commit, Fetched, Job, Marks, MaybeHandled, Opened, SentMessages, SessionId, StoredSession};
 use crate::telemetry::{LatencyMetrics, SessionMetrics};
 use crate::throttle::{Inbound, InboundLimit, Over, RateLimit, Window};
 
@@ -679,6 +679,9 @@ pub struct Session {
     /// The window the store had in flight when the session was bound: the messages in it may have
     /// been handled before a restart.
     recovered: Option<u64>,
+    /// The stored mark of messages another instance may have handled before this one took over
+    /// (see [`Marks::maybe_handled`]): their resends are marked as possibly handled.
+    maybe_handled: Option<MaybeHandled>,
     /// Messages that waited for a gap are in sequence, but wait for a window to be handled in.
     drain_waiting: bool,
     /// Operator replies, sent once the changes they report are committed. At most one per
@@ -840,6 +843,7 @@ impl Session {
             window_end: None,
             opening: None,
             recovered: None,
+            maybe_handled: None,
             drain_waiting: false,
             replies: Vec::new(),
             receipts: Vec::new(),
@@ -1859,6 +1863,10 @@ impl Session {
         if self.status == Status::Active {
             // Before the application hears of the logon: a store failing here ends the session
             // first.
+            if let Err(e) = self.resolve_maybe_handled(seq_num) {
+                self.storage_failed(e, now);
+                return;
+            }
             if let Err(e) = self.mark_cancel_on_disconnect(self.config.cancel_on_disconnect) {
                 self.storage_failed(e, now);
                 return;
@@ -2062,6 +2070,15 @@ impl Session {
     /// received while the application still held it.
     fn recover_in_flight(&mut self) -> io::Result<()> {
         let log = &mut self.peer_mut().log;
+        let maybe_handled = log.marks().maybe_handled;
+        self.maybe_handled = maybe_handled;
+        if let Some(maybe_handled) = maybe_handled {
+            info!(
+                ?maybe_handled,
+                "taken over from an instance that may have handled messages this one hasn't recorded"
+            );
+        }
+        let log = &mut self.peer_mut().log;
         let Some(start) = log.in_flight() else { return Ok(()) };
         let next = log.next_incoming();
         if start < next {
@@ -2112,6 +2129,33 @@ impl Session {
         }
     }
 
+    /// Taken over and logged on: the messages that may have been handled are those the
+    /// counterparty sent before its Logon, `seq_num`, which is stored as their bound before any is
+    /// handed over. Cleared at once if the next incoming number is already past it.
+    fn resolve_maybe_handled(&mut self, seq_num: u64) -> io::Result<()> {
+        if self.maybe_handled != Some(MaybeHandled::BelowLogon) {
+            return Ok(());
+        }
+        info!(below = seq_num, "resent messages below the counterparty's Logon may have been handled");
+        self.set_maybe_handled(Some(MaybeHandled::Below(seq_num)))?;
+        self.pass_maybe_handled(self.peer().log.next_incoming())
+    }
+
+    /// The next incoming number is `next`: once it's past the messages that may have been
+    /// handled, the mark goes.
+    fn pass_maybe_handled(&mut self, next: u64) -> io::Result<()> {
+        match self.maybe_handled {
+            Some(MaybeHandled::Below(below)) if next >= below => self.set_maybe_handled(None),
+            _ => Ok(()),
+        }
+    }
+
+    fn set_maybe_handled(&mut self, maybe_handled: Option<MaybeHandled>) -> io::Result<()> {
+        self.maybe_handled = maybe_handled;
+        let log = &mut self.peer_mut().log;
+        log.set_marks(Marks { maybe_handled, ..log.marks() })
+    }
+
     /// Resets sequence numbers and the resend store, recording now as the store's creation time.
     fn reset_store(&mut self) -> io::Result<()> {
         let now = self.config.clock.now();
@@ -2121,7 +2165,11 @@ impl Session {
         assert_eq!(log.next_outgoing(), 1, "a reset store sends from 1");
         assert_eq!(log.next_incoming(), 1, "a reset store expects 1");
         log.set_created_at(now.into())?;
-        // Windows and holds count in the old numbers.
+        // Windows, holds and the messages another instance may have handled count in the old
+        // numbers.
+        if self.maybe_handled.is_some() {
+            self.set_maybe_handled(None)?;
+        }
         self.recovered = None;
         self.window_end = None;
         self.holds.clear();
@@ -2529,8 +2577,9 @@ impl Session {
             let text = "throttle limit exceeded".into();
             return self.send_business_reject(msg, seq_num, None, BusinessRejectReason::Other, text, now);
         }
-        let redelivered =
-            resent && self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num));
+        let redelivered = resent
+            && (self.recovered.is_some_and(|start| (start..start + DELIVERIES_PER_COMMIT).contains(&seq_num))
+                || self.maybe_handled.is_some_and(|maybe_handled| maybe_handled.covers(seq_num)));
         if redelivered {
             info!(seq_num, "delivering a message that may have been handled before a restart");
         }
@@ -3207,7 +3256,7 @@ impl Session {
             Some(start) => log.set_next_incoming_in_flight(seq, start),
             None => log.set_next_incoming(seq),
         };
-        match recorded {
+        match recorded.and_then(|()| self.pass_maybe_handled(seq)) {
             Ok(()) => {
                 self.peer().metrics.next_incoming(seq);
                 if let Some(live) = &self.live {

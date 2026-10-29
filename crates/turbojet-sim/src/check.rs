@@ -285,9 +285,6 @@ struct Received {
     seen: usize,
     last_seq: u64,
     ids: BTreeMap<String, u64>,
-    /// MsgSeqNums received before a promoted standby took over, missing some of them: the
-    /// counterparty resends them, and the application may get them again, unmarked.
-    may_repeat: BTreeSet<u64>,
 }
 
 /// One side's cancel on disconnect, as its application saw it.
@@ -531,9 +528,9 @@ impl Checker {
                         (sent.next_recorded, sent.incoming) = opened;
                     } else if let Some(promoted) = promoted {
                         sent.promote(side, promoted, &uncertain, &uncertain_skips, opened)?;
-                        // What was received from the next incoming number on is asked for again.
+                        // What was received from the next incoming number on is asked for again,
+                        // and must be marked as possibly handled when it comes.
                         let received = &mut self.received[side.index()];
-                        received.may_repeat.extend(received.ids.values().filter(|seq| **seq >= opened.1));
                         received.last_seq = received.last_seq.min(opened.1 - 1);
                     } else if opened != (sent.next_recorded, sent.incoming) {
                         // Rule 6: a store reopens with what it recorded, crash or not; changes it
@@ -555,7 +552,6 @@ impl Checker {
                     if matches!(change, Stored::Reset) {
                         // Both numbers start again at 1: so do the deliveries this side receives.
                         self.received[side.index()].last_seq = 0;
-                        self.received[side.index()].may_repeat.clear();
                     }
                     sent.apply(side, change).or_else(|e| if lossy { Ok(()) } else { Err(e) })?;
                 }
@@ -690,7 +686,7 @@ impl Checker {
                 ));
             }
             match received.ids.get(&delivery.id) {
-                Some(_) if delivery.redelivered || received.may_repeat.contains(&delivery.seq) => {}
+                Some(_) if delivery.redelivered => {}
                 Some(seq) => {
                     return Err(violation(
                         "4 delivery",

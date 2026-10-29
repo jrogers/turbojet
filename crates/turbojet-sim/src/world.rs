@@ -82,6 +82,9 @@ pub enum Plant {
     /// On replicated seeds, a failover promotes a standby not checked since it started, as after
     /// it lost its store, finding a copy behind what was sent.
     UncheckedFailover,
+    /// On replicated seeds, all asynchronous, a promotion doesn't mark its sessions as taken
+    /// over, so messages the old active may have handed over come again unmarked.
+    UnmarkedPromotion,
 }
 
 impl Options {
@@ -517,6 +520,7 @@ fn replication(
         max_lag: max_lag(seed, plant),
         no_skip_on_promote: plant == Some(Plant::NoSkipOnPromote),
         unchecked_failover: plant == Some(Plant::UncheckedFailover),
+        unmarked_promotion: plant == Some(Plant::UnmarkedPromotion),
     };
     Some((replication, rng, Pair::new(setup)))
 }
@@ -539,7 +543,8 @@ fn loss_every(seed: u64, plant: Option<Plant>) -> Option<Duration> {
 /// replicated seeds keep the failovers they had before.
 fn max_lag(seed: u64, plant: Option<Plant>) -> u64 {
     let mut rng = Rng::new(seed ^ 0x1a6_5a7e);
-    if rng.chance(333_333) || plant == Some(Plant::NoSkipOnPromote) { rng.between(1, 8) } else { 0 }
+    let planted = matches!(plant, Some(Plant::NoSkipOnPromote | Plant::UnmarkedPromotion));
+    if rng.chance(333_333) || planted { rng.between(1, 8) } else { 0 }
 }
 
 /// On half the seeds, disk stores in segments of a few messages, keeping a few segments, so that

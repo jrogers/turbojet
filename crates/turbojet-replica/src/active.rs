@@ -252,8 +252,9 @@ impl<S: SessionStorage> ReplicatedStorage<S> {
     /// [`Replica::promote`] skips, so the standby must accept the lag
     /// ([`Replica::accepting_lag`]) or opening a session fails. The batches unacknowledged carry
     /// incoming state too: after a failover the counterparty may resend messages the old active
-    /// already handed the application, as possible duplicates (PossDupFlag=Y), where a synchronous
-    /// store's in-flight marker hands them over exactly once. A batch the standby fails to take
+    /// already handed the application, which [`Replica::promote`] marks the sessions for, so they
+    /// arrive [`maybe_redelivered`](turbojet::Context::maybe_redelivered), as a synchronous
+    /// store's in-flight marker has them after a crash. A batch the standby fails to take
     /// fails a later commit of the session, the one that waits for it, or, made
     /// [`degrading`](Self::degrading), puts the standby out of sync.
     #[must_use]
@@ -1201,7 +1202,12 @@ mod tests {
         assert_eq!(log.next_outgoing(), 9, "past what the active may have sent unacknowledged");
         assert!(log.sent_messages(6, 9).unwrap().is_empty(), "the skipped numbers are gap-filled");
         assert_eq!(log.sent_messages(1, 5).unwrap().len(), 5);
-        assert_eq!(promoted(0).next_outgoing(), 6);
+        // The old active may have handed over messages this copy lacks: their resends are marked.
+        let below_logon = Some(turbojet::store::MaybeHandled::BelowLogon);
+        assert_eq!(log.marks().maybe_handled, below_logon);
+        let log = promoted(0);
+        assert_eq!(log.next_outgoing(), 6);
+        assert_eq!(log.marks().maybe_handled, below_logon, "synchronously too, for a forced failover");
     }
 
     /// A link the test can take down and bring back.

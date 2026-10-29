@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
 use std::io;
 
-use turbojet::store::{Fetched, Opened, SessionStorage, StoredSession};
+use turbojet::store::{Fetched, MaybeHandled, Opened, SessionStorage, StoredSession};
 
 use crate::frame::{Batch, Frame, NackReason, Op, Part, Summary, VERSION};
 
@@ -200,6 +200,15 @@ impl<S: SessionStorage> Replica<S> {
     /// store that lists its sessions ([`SessionStorage::sessions`]; the built-in ones do): with
     /// one that doesn't, this fails.
     ///
+    /// Each session is also marked as taken over
+    /// ([`Marks::maybe_handled`](turbojet::store::Marks::maybe_handled)): the old active may
+    /// have handed the application incoming messages this copy doesn't count as received (with
+    /// a lag, its in-flight marker may not have reached the standby before the hand-over), so the
+    /// counterparty's resends of everything it sent before logging on again are handed over
+    /// [`maybe_redelivered`](turbojet::Context::maybe_redelivered). Synchronously that's
+    /// insurance, for a failover forced while the standby lacked commits, and a store that can't
+    /// list its sessions takes over without it.
+    ///
     /// # Errors
     ///
     /// [`io::ErrorKind::InvalidData`] if this standby hasn't been checked since it started,
@@ -225,16 +234,23 @@ impl<S: SessionStorage> Replica<S> {
     pub fn promote_unchecked(&mut self) -> io::Result<()> {
         self.promoted = true;
         self.disconnected();
-        if self.max_lag == 0 {
-            return Ok(());
-        }
-        for id in self.storage.sessions().run()? {
+        let sessions = match self.storage.sessions().run() {
+            Ok(sessions) => sessions,
+            // Synchronously the marks are insurance (see above): a store that can't list its
+            // sessions takes over without them.
+            Err(e) if self.max_lag == 0 && e.kind() == io::ErrorKind::Unsupported => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        for id in sessions {
             let mut log = match self.storage.begin_open(&id)? {
                 Opened::Ready(log) => log,
                 Opened::Pending(job) => job.run()?,
             };
-            let next = log.next_outgoing();
-            log.record_outgoing(next + self.max_lag - 1, None)?;
+            if self.max_lag > 0 {
+                let next = log.next_outgoing();
+                log.record_outgoing(next + self.max_lag - 1, None)?;
+            }
+            log.set_marks(log.marks().with_maybe_handled(Some(MaybeHandled::BelowLogon)))?;
             if let Some(commit) = log.commit()? {
                 commit.run()?;
             }

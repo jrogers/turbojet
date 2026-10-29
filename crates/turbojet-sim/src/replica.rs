@@ -60,6 +60,8 @@ pub struct Pair {
     no_skip_on_promote: bool,
     /// The planted bug of failing over to a standby not checked since it started.
     unchecked_failover: bool,
+    /// The planted bug of a promotion that doesn't mark its sessions as taken over.
+    unmarked_promotion: bool,
 }
 
 /// What a pair is, and the bugs planted in it.
@@ -76,6 +78,9 @@ pub struct Setup {
     pub no_skip_on_promote: bool,
     /// A failover promotes a standby not checked since it started.
     pub unchecked_failover: bool,
+    /// A failover's promotion doesn't mark its sessions as taken over, so the resends of
+    /// messages the old active may have handed over aren't marked.
+    pub unmarked_promotion: bool,
 }
 
 impl Pair {
@@ -96,6 +101,7 @@ impl Pair {
             max_lag: setup.max_lag,
             no_skip_on_promote: setup.no_skip_on_promote,
             unchecked_failover: setup.unchecked_failover,
+            unmarked_promotion: setup.unmarked_promotion,
         };
         pair.replicate();
         Arc::new(Mutex::new(pair))
@@ -120,6 +126,10 @@ impl Pair {
             let mut standby = self.standby.lock().unwrap_or_else(PoisonError::into_inner);
             let promoted = if self.unchecked_failover { standby.promote_unchecked() } else { standby.promote() };
             promoted.expect("checked, over a memory store, which doesn't fail");
+            drop(standby);
+            if self.unmarked_promotion {
+                unmark(self.stores[1 - self.active].as_ref());
+            }
         }
         if !self.deposed {
             self.epoch += 1;
@@ -207,6 +217,15 @@ impl Pair {
             if self.lease.out_of_sync.load(Ordering::Acquire) { ", standby out of sync" } else { "" },
             if self.checked() { "" } else { ", standby unchecked" }
         )
+    }
+}
+
+/// The planted bug: each session's mark of messages that may have been handled, cleared.
+fn unmark(store: &MemoryStorage) {
+    for id in store.sessions().run().expect("a memory store lists its sessions") {
+        let mut log = store.open(&id).expect("a memory store opens");
+        let marks = log.marks().with_maybe_handled(None);
+        log.set_marks(marks).expect("a memory store doesn't fail");
     }
 }
 

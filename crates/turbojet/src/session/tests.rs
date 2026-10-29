@@ -1278,6 +1278,82 @@ fn a_marker_below_the_next_number_is_expected_again() {
     assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, false]);
 }
 
+/// A promoted standby's copy of a session that lagged: its next incoming number is 2, and every
+/// message the counterparty sent before taking over may have been handled by the old instance.
+fn taken_over(storage: &MemoryStorage) {
+    let id = SessionId::new("FIX.4.4", "GATEWAY", "CLIENT");
+    let mut log = storage.open(&id).unwrap();
+    log.record_outgoing(1, None).unwrap();
+    log.set_next_incoming(2).unwrap();
+    log.set_marks(Marks { maybe_handled: Some(MaybeHandled::BelowLogon), ..Marks::default() }).unwrap();
+}
+
+fn stored_maybe_handled(storage: &MemoryStorage) -> Option<MaybeHandled> {
+    storage.open(&SessionId::new("FIX.4.4", "GATEWAY", "CLIENT")).unwrap().marks().maybe_handled
+}
+
+/// Taken over from an instance that may have handled messages this copy lacks, the session marks
+/// every resend below the counterparty's Logon, however many (the in-flight window covers 256),
+/// and nothing from the Logon on; the mark goes once the next incoming number is past them.
+#[test]
+fn a_session_taken_over_marks_every_resend_below_the_logon() {
+    let storage = Arc::new(MemoryStorage::new());
+    taken_over(&storage);
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    let past = 2 + DELIVERIES_PER_COMMIT;
+    let logon_at = past + 2;
+    assert_eq!(types(&s.recv(logon(logon_at), h.t0)), ["Logon", "ResendRequest"]);
+    assert_eq!(s.peer().log.marks().maybe_handled, Some(MaybeHandled::Below(logon_at)), "stored at logon");
+    s.recv(resend_of(order(2, "A")), h.t0);
+    s.recv(gap_fill(3, past), h.t0);
+    s.recv(resend_of(order(past, "B")), h.t0);
+    assert_eq!(s.peer().log.marks().maybe_handled, Some(MaybeHandled::Below(logon_at)), "not passed yet");
+    s.recv(order(past + 1, "C"), h.t0); // answering our ResendRequest, without PossDupFlag
+    assert_eq!(s.peer().log.marks().maybe_handled, None, "passed: the next is its Logon's number");
+    s.recv(gap_fill(logon_at, logon_at + 1), h.t0); // its Logon
+    s.recv(order(logon_at + 1, "D"), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, true, false]);
+}
+
+/// The bound is stored before anything is handed over, so a crash after the logon keeps it: the
+/// next logon's number is higher, but the messages that may have been handled are the same (and
+/// the crash's own in-flight window marks those after them). One before the logon keeps the mark
+/// unresolved.
+#[test]
+fn a_crash_keeps_what_may_have_been_handled() {
+    let storage = Arc::new(MemoryStorage::new());
+    taken_over(&storage);
+    let h = Harness::with_storage(storage.clone());
+    drop(h.session());
+    assert_eq!(stored_maybe_handled(&storage), Some(MaybeHandled::BelowLogon), "not logged on: unresolved");
+
+    let mut s = h.session();
+    s.recv(logon(5), h.t0);
+    s.recv(resend_of(order(2, "A")), h.t0);
+    drop(s); // the process stops
+    assert_eq!(stored_maybe_handled(&storage), Some(MaybeHandled::Below(5)));
+
+    let mut s = h.session();
+    s.recv(logon(7), h.t0);
+    s.recv(resend_of(order(3, "B")), h.t0);
+    s.recv(resend_of(order(4, "C")), h.t0);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [true, true, true]);
+}
+
+/// A sequence reset clears it: numbers from 1 again are new messages.
+#[test]
+fn a_reset_clears_what_may_have_been_handled() {
+    let storage = Arc::new(MemoryStorage::new());
+    taken_over(&storage);
+    let h = Harness::with_storage(storage.clone());
+    let mut s = h.session();
+    s.recv(reset_logon(), h.t0);
+    s.recv(resend_of(order(2, "A")), h.t0);
+    assert_eq!(s.peer().log.marks().maybe_handled, None);
+    assert_eq!(*h.app.redelivered.lock().unwrap(), [false]);
+}
+
 // ---- Holds ----
 
 /// A harness whose application holds the orders with these ClOrdIDs.

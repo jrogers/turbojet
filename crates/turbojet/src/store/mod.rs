@@ -322,6 +322,33 @@ pub struct Marks {
     /// Logged on with cancel on disconnect, and not ended since in a way that doesn't count, nor
     /// cancelled: after a restart its countdown starts again, with this grace.
     pub cancel_on_disconnect: Option<CancelOnDisconnect>,
+    /// Taken over from an instance that may have handled incoming messages this copy doesn't
+    /// count as received, as after an asynchronous failover: the counterparty's resends of them
+    /// are handed over [`maybe_redelivered`](crate::Context::maybe_redelivered). Set by a
+    /// promotion; the session clears it once its next incoming number has passed them, or at a
+    /// sequence reset.
+    pub maybe_handled: Option<MaybeHandled>,
+}
+
+/// Which incoming messages may have been handled already: see [`Marks::maybe_handled`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaybeHandled {
+    /// Every message below the MsgSeqNum of the counterparty's next Logon, which it sent before
+    /// the takeover: what the session records it as, once it has logged on.
+    BelowLogon,
+    /// Every message below this MsgSeqNum.
+    Below(u64),
+}
+
+impl MaybeHandled {
+    /// Whether incoming message `seq` may have been handled: always for [`BelowLogon`](Self::BelowLogon),
+    /// as only messages sent before the takeover come before the Logon that resolves it.
+    pub fn covers(self, seq: u64) -> bool {
+        match self {
+            Self::BelowLogon => true,
+            Self::Below(below) => seq < below,
+        }
+    }
 }
 
 impl Marks {
@@ -329,11 +356,18 @@ impl Marks {
     pub fn is_empty(&self) -> bool {
         *self == Self::default()
     }
+
+    /// These marks with [`maybe_handled`](Self::maybe_handled) as given, for code outside this
+    /// crate, which can't name the fields of a struct that may gain more.
+    #[must_use]
+    pub fn with_maybe_handled(self, maybe_handled: Option<MaybeHandled>) -> Self {
+        Self { maybe_handled, ..self }
+    }
 }
 
-/// A short text form for stores to keep: words separated by spaces, `paused` and
-/// `cancel_on_disconnect=TRIGGER:GRACE_MS` (TRIGGER `disconnect` or `disconnect_or_logout`),
-/// empty for none. [`FromStr`](std::str::FromStr) reads it back.
+/// A short text form for stores to keep: words separated by spaces, `paused`,
+/// `cancel_on_disconnect=TRIGGER:GRACE_MS` (TRIGGER `disconnect` or `disconnect_or_logout`) and
+/// `maybe_handled=logon` or `maybe_handled=SEQ`, empty for none. [`FromStr`](std::str::FromStr) reads it back.
 impl fmt::Display for Marks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut words = Vec::new();
@@ -342,6 +376,11 @@ impl fmt::Display for Marks {
         }
         if let Some(cancel) = self.cancel_on_disconnect {
             words.push(format!("cancel_on_disconnect={}:{}", cancel.trigger.label(), cancel.grace.as_millis()));
+        }
+        match self.maybe_handled {
+            Some(MaybeHandled::BelowLogon) => words.push("maybe_handled=logon".to_owned()),
+            Some(MaybeHandled::Below(seq)) => words.push(format!("maybe_handled={seq}")),
+            None => {}
         }
         f.write_str(&words.join(" "))
     }
@@ -367,6 +406,11 @@ impl std::str::FromStr for Marks {
                     }
                     marks.cancel_on_disconnect =
                         Some(CancelOnDisconnect::new(trigger.parse().map_err(invalid)?, grace));
+                }
+                Some(("maybe_handled", "logon")) => marks.maybe_handled = Some(MaybeHandled::BelowLogon),
+                Some(("maybe_handled", seq)) => {
+                    let seq = seq.parse().map_err(|_| invalid(format!("maybe_handled '{seq}' isn't a MsgSeqNum")))?;
+                    marks.maybe_handled = Some(MaybeHandled::Below(seq));
                 }
                 _ => return Err(invalid(format!("unknown mark '{word}'"))),
             }
@@ -977,13 +1021,22 @@ mod tests {
     fn marks_read_back_from_their_text() {
         assert_eq!(Marks::default().to_string(), "");
         let cancel = CancelOnDisconnect::new(crate::CancelTrigger::Disconnect, std::time::Duration::from_millis(1500));
-        let marks = Marks { paused: true, cancel_on_disconnect: Some(cancel) };
+        let marks = Marks { paused: true, cancel_on_disconnect: Some(cancel), maybe_handled: None };
         assert_eq!(marks.to_string(), "paused cancel_on_disconnect=disconnect:1500");
-        for marks in [marks, Marks::default()] {
+        let pending = Marks { maybe_handled: Some(MaybeHandled::BelowLogon), ..Marks::default() };
+        assert_eq!(pending.to_string(), "maybe_handled=logon");
+        let below = Marks { maybe_handled: Some(MaybeHandled::Below(42)), ..marks };
+        assert_eq!(below.to_string(), "paused cancel_on_disconnect=disconnect:1500 maybe_handled=42");
+        for marks in [marks, pending, below, Marks::default()] {
             assert_eq!(marks.to_string().parse::<Marks>().unwrap(), marks);
         }
+        assert!(MaybeHandled::Below(42).covers(41));
+        assert!(!MaybeHandled::Below(42).covers(42));
+        assert!(MaybeHandled::BelowLogon.covers(u64::MAX));
         for bad in [
             "stopped",
+            "maybe_handled=",
+            "maybe_handled=soon",
             "cancel_on_disconnect=disconnect",
             "cancel_on_disconnect=never:5",
             "cancel_on_disconnect=disconnect:3600001",

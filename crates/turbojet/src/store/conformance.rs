@@ -118,7 +118,8 @@ pub async fn check_marks(storage: &dyn SessionStorage) {
         crate::CancelTrigger::DisconnectOrLogout,
         std::time::Duration::from_millis(2500),
     );
-    let marks = Marks { paused: true, cancel_on_disconnect: Some(cancel) };
+    let marks =
+        Marks { paused: true, cancel_on_disconnect: Some(cancel), maybe_handled: Some(super::MaybeHandled::Below(7)) };
     let mut log = open(storage, &full).await.unwrap();
     assert_eq!(log.marks(), Marks::default());
     log.set_marks(marks).unwrap();

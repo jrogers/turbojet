@@ -134,6 +134,11 @@ fn a_promotion_that_doesnt_skip_is_caught() {
 }
 
 #[test]
+fn an_unmarked_promotion_is_caught() {
+    caught(Plant::UnmarkedPromotion, &["4 delivery"]);
+}
+
+#[test]
 fn an_unchecked_failover_is_caught() {
     caught(Plant::UncheckedFailover, &["6 store"]);
 }
