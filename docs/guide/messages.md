@@ -126,10 +126,8 @@ for alloc in &order.allocs {
 }
 
 // Raw access, without a typed definition: one zero-copy view per entry.
-const PARTIES: GroupSpec = GroupSpec {
-    fields: &[(448, None), (447, None), (452, None)],
-    lengths: &[0; 3], // a data field's Length tag, else 0
-};
+// Each field (the delimiter first), and for each a data field's Length tag, else 0.
+const PARTIES: GroupSpec = GroupSpec::new(&[(448, None), (447, None), (452, None)], &[0; 3]);
 let msg: Message = "8=FIX.4.4|35=D|49=A|56=B|34=2|453=2|448=BROKER|447=D|452=1|448=DESK|447=D|452=24".parse()?;
 for party in msg.group(453, &PARTIES)? {
     println!("{:?} role {:?}", party.get(448), party.get(452));

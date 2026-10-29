@@ -636,10 +636,10 @@ macro_rules! fix_group {
         $($cfg)*
         #[allow(deprecated)]
         impl $crate::message::FixGroup for $name {
-            const SPEC: $crate::message::GroupSpec = $crate::message::GroupSpec {
-                fields: &[ $( ($crate::fix_message!(@key $tags), $crate::fix_message!(@spec $presence $ty)) ),+ ],
-                lengths: &[ $( $crate::fix_message!(@length $tags) ),+ ],
-            };
+            const SPEC: $crate::message::GroupSpec = $crate::message::GroupSpec::new(
+                &[ $( ($crate::fix_message!(@key $tags), $crate::fix_message!(@spec $presence $ty)) ),+ ],
+                &[ $( $crate::fix_message!(@length $tags) ),+ ],
+            );
             type Ref<'a> = $ref_name<'a>;
 
             fn from_fields(entry: $crate::message::FieldView<'_>) -> ::core::result::Result<Self, $crate::message::FieldError> {

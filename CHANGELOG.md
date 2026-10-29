@@ -6,6 +6,9 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `GroupSpec`'s fields are private: build one with `GroupSpec::new(fields, lengths)`,
+  which refuses (at compile time, in a `const`) a spec without fields or whose two arrays differ in
+  length.
 - **Changed:** `Message::body` is `Message::view`, and the view it gives, `message::Fields`, is
   `message::FieldView`: it holds every field, header included, not just the body, and "fields"
   already meant `(tag, value)` pairs in `Message::fields` and `Message::from_fields`.

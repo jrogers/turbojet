@@ -1119,7 +1119,7 @@ pub mod __private {
 /// use turbojet::message::GroupSpec;
 ///
 /// // The Parties group: PartyID(448) starts each entry, then PartyIDSource(447) and PartyRole(452).
-/// const PARTIES: GroupSpec = GroupSpec { fields: &[(448, None), (447, None), (452, None)], lengths: &[0; 3] };
+/// const PARTIES: GroupSpec = GroupSpec::new(&[(448, None), (447, None), (452, None)], &[0; 3]);
 ///
 /// let msg: Message = "8=FIX.4.4|35=D|453=2|448=BROKER|447=D|452=1|448=DESK|447=D|452=24".parse()?;
 /// let parties = msg.group(453, &PARTIES)?;
@@ -1129,12 +1129,25 @@ pub mod __private {
 #[derive(Debug)]
 pub struct GroupSpec {
     /// Each field's tag, with the spec of the group it introduces if it's a NumInGroup field.
-    pub fields: &'static [(u32, Option<&'static GroupSpec>)],
+    fields: &'static [(u32, Option<&'static GroupSpec>)],
     /// For each of `fields`, the tag of the Length field before it if it's a data field, else 0.
-    pub lengths: &'static [u32],
+    lengths: &'static [u32],
 }
 
 impl GroupSpec {
+    /// A group of `fields` in order, the delimiter first, each with the spec of the group it
+    /// introduces if it's a NumInGroup field; `lengths` gives, for each, the tag of the Length
+    /// field before it if it's a data field, else 0.
+    ///
+    /// # Panics
+    ///
+    /// If `fields` is empty, or `lengths` isn't as long: at compile time, in a `const`.
+    pub const fn new(fields: &'static [(u32, Option<&'static GroupSpec>)], lengths: &'static [u32]) -> Self {
+        assert!(!fields.is_empty(), "a group has at least its delimiter");
+        assert!(lengths.len() == fields.len(), "a Length tag, or 0, for each field");
+        Self { fields, lengths }
+    }
+
     /// The tag that starts each entry.
     pub const fn delimiter(&self) -> u32 {
         self.fields[0].0
@@ -2354,9 +2367,16 @@ mod tests {
     // A Parties-style group with a nested sub-ID group (tags as in FIX 4.4):
     // NoPartyIDs(453) { PartyID(448), PartyIDSource(447), PartyRole(452),
     //                   NoPartySubIDs(802) { PartySubID(523), PartySubIDType(803) } }
-    const SUB_IDS: GroupSpec = GroupSpec { fields: &[(523, None), (803, None)], lengths: &[0, 0] };
+    const SUB_IDS: GroupSpec = GroupSpec::new(&[(523, None), (803, None)], &[0, 0]);
     const PARTIES: GroupSpec =
-        GroupSpec { fields: &[(448, None), (447, None), (452, None), (802, Some(&SUB_IDS))], lengths: &[0, 0, 0, 0] };
+        GroupSpec::new(&[(448, None), (447, None), (452, None), (802, Some(&SUB_IDS))], &[0, 0, 0, 0]);
+
+    /// A spec whose arrays don't match is refused when it's made, not misread later.
+    #[test]
+    #[should_panic(expected = "a Length tag, or 0, for each field")]
+    fn group_specs_need_a_length_entry_per_field() {
+        let _ = GroupSpec::new(&[(448, None), (447, None)], &[0]);
+    }
 
     fn raw(text: &str) -> Message {
         Message::from_fields(text.split('|').filter(|f| !f.is_empty()).map(|f| {
@@ -2428,7 +2448,7 @@ mod tests {
 
     // A group whose delimiter is itself a nested NumInGroup, as some FIX Latest groups are:
     // NoOuter(900) { NoPartySubIDs(802) { PartySubID(523), PartySubIDType(803) }, Symbol(55) }
-    const LED_BY_GROUP: GroupSpec = GroupSpec { fields: &[(802, Some(&SUB_IDS)), (55, None)], lengths: &[0, 0] };
+    const LED_BY_GROUP: GroupSpec = GroupSpec::new(&[(802, Some(&SUB_IDS)), (55, None)], &[0, 0]);
 
     /// `check_group` on the group `count_tag` introduces in `text`, after checking that it agrees
     /// with `scan_group`: the same count and end, or the same error.
