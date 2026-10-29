@@ -61,13 +61,16 @@ pub trait FixEnum: Sized + Copy {
 /// let method: Code<EncryptMethod> = Code::from_fix("Z").unwrap();
 /// assert_eq!(method, Code::Unknown("Z".into()));
 /// assert_eq!(Code::from_fix("0"), Ok(Code::Known(EncryptMethod::None)));
+/// // Values are compared by code, so a known code held as `Unknown` is still equal.
+/// assert_eq!(Code::Unknown("0".into()), Code::Known(EncryptMethod::None));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub enum Code<E> {
     /// One of the enum's values.
     Known(E),
-    /// A code the enum doesn't list.
-    Unknown(String),
+    /// A code the enum doesn't list. Codes are short, so it's held inline, and parsing one
+    /// doesn't allocate.
+    Unknown(CompactString),
 }
 
 impl<E: FixEnum> Code<E> {
@@ -88,6 +91,20 @@ impl<E: FixEnum> Code<E> {
     }
 }
 
+impl<E: FixEnum> PartialEq for Code<E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.code() == other.code()
+    }
+}
+
+impl<E: FixEnum> Eq for Code<E> {}
+
+impl<E: FixEnum> std::hash::Hash for Code<E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.code().hash(state)
+    }
+}
+
 impl<E> From<E> for Code<E> {
     fn from(value: E) -> Self {
         Self::Known(value)
@@ -96,7 +113,7 @@ impl<E> From<E> for Code<E> {
 
 impl<E: FixEnum> FromFix for Code<E> {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
-        Ok(E::from_code(s).map_or_else(|| Self::Unknown(s.to_string()), Self::Known))
+        Ok(E::from_code(s).map_or_else(|| Self::Unknown(CompactString::new(s)), Self::Known))
     }
 }
 
@@ -480,7 +497,7 @@ impl ToFix for Decimal {
 macro_rules! msg_types {
     ($(#[$meta:meta])* $( $variant:ident = $code:literal, )+) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+        #[derive(Debug, Clone)]
         #[non_exhaustive]
         pub enum MsgType {
             $( #[doc = concat!(stringify!($variant), "(", $code, ").")] $variant, )+
@@ -550,6 +567,25 @@ msg_types! {
     OrderCancelReplaceRequest = "G",
     OrderStatusRequest = "H",
     BusinessMessageReject = "j",
+}
+
+/// By code, so `Other("D")` is [`NewOrderSingle`](MsgType::NewOrderSingle): a type built as
+/// `Other` with a code that has a variant still compares as that variant.
+impl PartialEq for MsgType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Other(code), other) | (other, Self::Other(code)) => code == other.code(),
+            _ => std::mem::discriminant(self) == std::mem::discriminant(other),
+        }
+    }
+}
+
+impl Eq for MsgType {}
+
+impl std::hash::Hash for MsgType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.code().hash(state)
+    }
 }
 
 impl MsgType {
@@ -770,6 +806,26 @@ mod tests {
         assert_eq!(SessionRejectReason::CompIDProblem.to_fix(), "9");
         assert_eq!(SessionRejectReason::from_fix("99"), Ok(SessionRejectReason::Other));
         assert_eq!(EncryptMethod::from_fix("Z"), Err(ValueError::Incorrect));
+    }
+
+    /// A code that has a variant, held as `Other` or `Unknown`, is equal to that variant and
+    /// hashes as it does, so it finds the same entry in a map.
+    #[test]
+    fn known_codes_compare_equal_however_they_are_held() {
+        use std::collections::HashSet;
+
+        let other = MsgType::Other("D".into());
+        assert_eq!(other, MsgType::NewOrderSingle);
+        assert_eq!(MsgType::NewOrderSingle, other);
+        assert_ne!(MsgType::Other("U1".into()), MsgType::NewOrderSingle);
+        assert_ne!(MsgType::Logon, MsgType::Logout);
+        assert!(HashSet::from([MsgType::NewOrderSingle]).contains(&other));
+
+        let unknown: Code<EncryptMethod> = Code::Unknown("0".into());
+        assert_eq!(unknown, Code::Known(EncryptMethod::None));
+        assert_ne!(Code::<EncryptMethod>::Unknown("Z".into()), Code::Known(EncryptMethod::None));
+        assert!(HashSet::from([Code::Known(EncryptMethod::None)]).contains(&unknown));
+        assert_eq!(CodeRef::<EncryptMethod>::Unknown("0"), CodeRef::Known(EncryptMethod::None));
     }
 
     #[test]

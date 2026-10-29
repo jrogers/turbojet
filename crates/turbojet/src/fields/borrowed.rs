@@ -141,7 +141,9 @@ impl<'a> FieldRef<'a> for Secret {
 /// assert_eq!(method, CodeRef::Unknown("Z"));
 /// assert_eq!(Code::<EncryptMethod>::parse_ref("0"), Ok(CodeRef::Known(EncryptMethod::None)));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Like [`Code`], it's compared by code.
+#[derive(Debug, Clone, Copy)]
 pub enum CodeRef<'a, E> {
     /// One of the enum's values.
     Known(E),
@@ -167,6 +169,20 @@ impl<'a, E: FixEnum> CodeRef<'a, E> {
     }
 }
 
+impl<E: FixEnum> PartialEq for CodeRef<'_, E> {
+    fn eq(&self, other: &Self) -> bool {
+        self.code() == other.code()
+    }
+}
+
+impl<E: FixEnum> Eq for CodeRef<'_, E> {}
+
+impl<E: FixEnum> std::hash::Hash for CodeRef<'_, E> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.code().hash(state)
+    }
+}
+
 impl<E> From<E> for CodeRef<'_, E> {
     fn from(value: E) -> Self {
         Self::Known(value)
@@ -177,7 +193,7 @@ impl<E> From<CodeRef<'_, E>> for Code<E> {
     fn from(value: CodeRef<'_, E>) -> Self {
         match value {
             CodeRef::Known(value) => Self::Known(value),
-            CodeRef::Unknown(code) => Self::Unknown(code.to_owned()),
+            CodeRef::Unknown(code) => Self::Unknown(code.into()),
         }
     }
 }

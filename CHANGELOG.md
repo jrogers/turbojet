@@ -6,6 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Changed:** `MsgType`, `Code` and `CodeRef` compare and hash by their FIX code, so a code
+  that has a variant is equal to it however it's held: `MsgType::Other("D".into())` is
+  `MsgType::NewOrderSingle`, and `Code::Unknown("0".into())` is `Code::Known(EncryptMethod::None)`.
+  Before, they were unequal, so a map keyed by one missed the other. A `MsgType` constant can no
+  longer be a `match` pattern (`NewOrderSingle::MSG_TYPE =>`); match its variant, or compare with
+  `==`.
+- **Changed:** `Code::Unknown` holds a `CompactString`, not a `String`, so parsing an unknown code
+  doesn't allocate. `Code::Unknown("Z".into())` builds one as before.
 - `AcceptorConfig::require_tls` makes `Acceptor::serve`, the plain TCP one, fail at once with
   `InvalidInput`, so an acceptor whose counterparties expect TLS can't be served without it by
   mistake. False by default.
