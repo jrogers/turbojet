@@ -37,7 +37,10 @@ config.tls = Some(InitiatorTls::new(tls, "gateway.example.com"));
 # }
 ```
 
-Handshakes run on each connection's own task and are bounded by the logon timeout.
+Handshakes run on each connection's own task and are bounded by the logon timeout. So that an
+acceptor can't be served without TLS by mistake, set `AcceptorConfig::require_tls`: its plain
+`serve` then fails at once rather than accepting connections. An acceptor from a sessions file with
+`[acceptor.tls]` has it set.
 
 ## From memory, replaced while running
 

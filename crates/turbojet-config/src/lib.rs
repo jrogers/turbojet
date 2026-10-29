@@ -372,7 +372,9 @@ impl SessionsFile {
 
     /// An acceptor serving `app` as the file says, if it has `[acceptor]`: its counterparties'
     /// settings and stores, and its connection limits. Serve it on [`listen`](Self::listen), with
-    /// [`server_tls`](Self::server_tls) if the file has `[acceptor.tls]`.
+    /// [`server_tls`](Self::server_tls) if the file has `[acceptor.tls]`: it then
+    /// [requires TLS](turbojet::AcceptorConfig::require_tls), so a plain
+    /// [`serve`](Acceptor::serve) fails rather than serving the counterparties without it.
     pub fn acceptor(&self, app: Arc<dyn Application>) -> Option<Acceptor> {
         let loaded = self.current.get();
         let (raw, part) = (loaded.raw.acceptor.as_ref()?, loaded.acceptor.as_ref()?);
@@ -383,6 +385,10 @@ impl SessionsFile {
         config.max_connections_per_ip = raw.max_connections_per_ip.unwrap_or(config.max_connections_per_ip);
         config.allowed_ips = raw.allowed().expect("checked when the file loaded");
         config.proxy_protocol = raw.proxies().expect("checked when the file loaded");
+        #[cfg(feature = "tls")]
+        {
+            config.require_tls = part.tls.is_some();
+        }
         Some(Acceptor::new(config, storage, app).expect("checked when the file loaded"))
     }
 

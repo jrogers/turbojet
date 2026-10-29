@@ -2,6 +2,20 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- `AcceptorConfig::require_tls` makes `Acceptor::serve`, the plain TCP one, fail at once with
+  `InvalidInput`, so an acceptor whose counterparties expect TLS can't be served without it by
+  mistake. False by default.
+
+### `turbojet-config`
+
+- **Fixed:** an acceptor from a sessions file with `[acceptor.tls]` served with `serve` rather
+  than `serve_tls` accepted counterparties in plain TCP, without a word. It now requires TLS, so
+  `serve` fails instead.
+
 ## 0.7.0 (2026-10-29)
 
 ### `turbojet`

@@ -309,3 +309,16 @@ fn bundles_need_the_pkcs12_feature() {
     let loaded = SessionsFile::load(write(dir.path(), r#"{ pkcs12 = "server.p12" }"#)).unwrap_err().to_string();
     assert!(loaded.contains("needs turbojet-config's pkcs12 feature"), "{loaded}");
 }
+
+#[tokio::test]
+async fn an_acceptor_with_tls_is_not_served_without_it() {
+    let dir = tempfile::tempdir().unwrap();
+    certificate(dir.path(), "server");
+    let sessions = SessionsFile::load(write(dir.path(), r#"{ cert = "server.pem", key = "server.key" }"#)).unwrap();
+    let acceptor = sessions.acceptor(Arc::new(App)).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    // Served without TLS, it would accept connections until the timeout.
+    let served = tokio::time::timeout(std::time::Duration::from_secs(10), acceptor.serve(listener));
+    let served = served.await.expect("serve refuses at once").unwrap_err();
+    assert_eq!(served.kind(), std::io::ErrorKind::InvalidInput, "{served}");
+}
