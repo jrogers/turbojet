@@ -735,7 +735,7 @@ fn reload_file_on_hangup(sessions: Arc<SessionsFile>, acceptor: Acceptor) {
             return;
         };
         while hangup.recv().await.is_some() {
-            match sessions.reload(&acceptor) {
+            match sessions.reload(Some(&acceptor), None) {
                 Ok(changes) => info!(
                     added = ?changes.added,
                     changed = ?changes.changed,

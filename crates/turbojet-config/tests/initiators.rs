@@ -80,7 +80,7 @@ impl Firm {
 
     fn reload(&self, text: &str) -> Changes {
         std::fs::write(&self.path, text).unwrap();
-        self.sessions.reload_all(None, &self.initiators).unwrap()
+        self.sessions.reload(None, Some(&self.initiators)).unwrap()
     }
 }
 
@@ -132,7 +132,7 @@ async fn a_new_address_applies_from_the_next_connection() {
 }
 
 #[tokio::test]
-async fn reloading_initiators_needs_reload_all() {
+async fn reloading_initiators_needs_them_given() {
     let venue = Venue::start().await;
     let firm = Firm::start(&format!(
         "[acceptor]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\nlisten = \"127.0.0.1:0\"\n\n{}",
@@ -140,9 +140,9 @@ async fn reloading_initiators_needs_reload_all() {
     ));
     let (tx, _) = mpsc::unbounded_channel();
     let acceptor = firm.sessions.acceptor(Arc::new(Recorder(tx))).unwrap();
-    let error = firm.sessions.reload(&acceptor).unwrap_err().to_string();
-    assert!(error.ends_with("initiator: section: reload a file with initiators with reload_all"), "{error}");
-    assert!(firm.sessions.reload_all(Some(&acceptor), &firm.initiators).unwrap().is_empty());
+    let error = firm.sessions.reload(Some(&acceptor), None).unwrap_err().to_string();
+    assert!(error.ends_with("initiator: section: the file has initiators: pass them to reload"), "{error}");
+    assert!(firm.sessions.reload(Some(&acceptor), Some(&firm.initiators)).unwrap().is_empty());
 }
 
 /// What an initiator's session stored can be read before the initiator starts, from the store the

@@ -72,7 +72,7 @@ impl Venue {
     }
 
     fn reload(&self) -> Result<Changes, String> {
-        self.sessions.reload(&self.acceptor).map_err(|e| e.to_string())
+        self.sessions.reload(Some(&self.acceptor), None).map_err(|e| e.to_string())
     }
 
     async fn next(&mut self) -> String {

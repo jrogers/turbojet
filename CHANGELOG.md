@@ -70,6 +70,9 @@ Notable changes to the published crates.
 
 ### `turbojet-config`
 
+- **Changed:** `SessionsFile::reload(acceptor, initiators)` takes both as `Option`s and replaces
+  `reload(&Acceptor)` and `reload_all(Option<&Acceptor>, &Initiators)`: `reload(Some(&acceptor),
+  None)` for a file without initiators, `reload(acceptor, Some(&initiators))` for one with them.
 - **Fixed:** an acceptor from a sessions file with `[acceptor.tls]` served with `serve` rather
   than `serve_tls` accepted counterparties in plain TCP, without a word. It now requires TLS, so
   `serve` fails instead.

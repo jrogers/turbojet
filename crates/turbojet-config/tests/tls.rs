@@ -79,11 +79,11 @@ fn a_reload_replaces_the_certificates_but_not_whether_tls_is_served() {
     let acceptor = sessions.acceptor(Arc::new(App)).unwrap();
     let server = sessions.server_tls().unwrap().unwrap();
     write(dir.path(), r#"{ cert = "renewed.pem", key = "renewed.key" }"#);
-    assert!(sessions.reload(&acceptor).unwrap().is_empty());
+    assert!(sessions.reload(Some(&acceptor), None).unwrap().is_empty());
     assert!(sessions.server_tls().unwrap().is_some(), "the same server, its certificate replaced");
     drop(server);
     std::fs::write(&path, ACCEPTOR).unwrap();
-    let error = sessions.reload(&acceptor).unwrap_err().to_string();
+    let error = sessions.reload(Some(&acceptor), None).unwrap_err().to_string();
     assert!(error.contains("acceptor: tls: can't change until a restart"), "{error}");
 }
 
@@ -271,10 +271,10 @@ fn a_reload_reads_the_bundle_again() {
     let sessions = SessionsFile::load(&path).unwrap();
     let acceptor = sessions.acceptor(Arc::new(App)).unwrap();
     bundle(dir.path(), "server", "renewed under a new password");
-    let error = sessions.reload(&acceptor).unwrap_err().to_string();
+    let error = sessions.reload(Some(&acceptor), None).unwrap_err().to_string();
     assert!(error.contains("wrong password"), "the bundle is read again: {error}");
     bundle(dir.path(), "server", &password());
-    assert!(sessions.reload(&acceptor).unwrap().is_empty());
+    assert!(sessions.reload(Some(&acceptor), None).unwrap().is_empty());
     assert!(sessions.server_tls().unwrap().is_some());
 }
 

@@ -265,7 +265,7 @@ impl Engine {
         let initiators = lock(&self.initiators);
         let initiators = initiators.as_ref().ok_or_else(|| Error::new_err("the engine isn't running"))?;
         let _runtime = get_runtime().enter();
-        self.file.reload_all(None, initiators).map(drop).map_err(|e| ConfigError::new_err(e.to_string()))
+        self.file.reload(None, Some(initiators)).map(drop).map_err(|e| ConfigError::new_err(e.to_string()))
     }
 
     /// The initiators the file lists, by section name.

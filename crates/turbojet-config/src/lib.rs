@@ -42,7 +42,7 @@
 //! tokio::spawn(acceptor.clone().serve(listener));
 //! let initiators = sessions.initiators(Arc::new(App))?;
 //! // Later, on SIGHUP say:
-//! let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
+//! let changes = sessions.reload(Some(&acceptor), Some(&initiators))?;
 //! # Ok(())
 //! # }
 //! ```
@@ -122,8 +122,8 @@
 //!
 //! # Reloading
 //!
-//! [`reload_all`](SessionsFile::reload_all) (or [`reload`](SessionsFile::reload), for a file
-//! without initiators) reads the file again and checks it whole; a file that doesn't load leaves
+//! [`reload`](SessionsFile::reload), given the acceptor and initiators made from the file, reads
+//! it again and checks it whole; a file that doesn't load leaves
 //! the one in use in place. Changed settings apply from each counterparty's next Logon, and from
 //! each initiator's next connection: sessions connected keep theirs. Under `unknown = "refuse"`,
 //! connected counterparties the file no longer lists are logged out. Added initiators start, and
@@ -431,36 +431,21 @@ impl SessionsFile {
     }
 
     /// Reads the file again and puts it in use for `acceptor` (made by
-    /// [`acceptor`](Self::acceptor)): see [Reloading](crate#reloading). For a file with
-    /// initiators, use [`reload_all`](Self::reload_all).
+    /// [`acceptor`](Self::acceptor)) and `initiators` (made by [`initiators`](Self::initiators)),
+    /// each if there is one: see [Reloading](crate#reloading).
     ///
     /// # Errors
     ///
-    /// If the file can't be read, doesn't load, changes what's fixed until a restart, or has
-    /// (or had) initiators; the file in use stays in use.
-    pub fn reload(&self, acceptor: &Acceptor) -> Result<Changes, Error> {
-        self.reload_with(Some(acceptor), None)
-    }
-
-    /// Reads the file again and puts it in use for `acceptor` (if one was made) and `initiators`
-    /// (made by [`initiators`](Self::initiators)): see [Reloading](crate#reloading).
-    ///
-    /// # Errors
-    ///
-    /// If the file can't be read, doesn't load, or changes what's fixed until a restart; the file
-    /// in use stays in use.
-    pub fn reload_all(&self, acceptor: Option<&Acceptor>, initiators: &Initiators) -> Result<Changes, Error> {
-        self.reload_with(acceptor, Some(initiators))
-    }
-
-    fn reload_with(&self, acceptor: Option<&Acceptor>, initiators: Option<&Initiators>) -> Result<Changes, Error> {
+    /// If the file can't be read, doesn't load, or changes what's fixed until a restart, or if it
+    /// has (or had) initiators and `initiators` is `None`; the file in use stays in use.
+    pub fn reload(&self, acceptor: Option<&Acceptor>, initiators: Option<&Initiators>) -> Result<Changes, Error> {
         let _reloading = self.reloading.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let in_file = |e: Error| Error::file(format!("{}: {e}", self.path.display()));
         let old = self.current.get();
         let new = read(&self.path, &self.clock, self.message_log.as_ref(), &self.registered, Some(&old))?;
         reload::check(&old, &new).map_err(in_file)?;
         if initiators.is_none() && !(old.initiators.is_empty() && new.initiators.is_empty()) {
-            return Err(in_file(Error::at("initiator", "section", "reload a file with initiators with reload_all")));
+            return Err(in_file(Error::at("initiator", "section", "the file has initiators: pass them to reload")));
         }
         #[cfg(feature = "tls")]
         self.replace_certificates(&new)?;

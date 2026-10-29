@@ -43,7 +43,7 @@ let acceptor = sessions.acceptor(app.clone()).expect("the file has [acceptor]");
 tokio::spawn(acceptor.clone().serve(TcpListener::bind(sessions.listen().unwrap()).await?));
 let initiators = sessions.initiators(app)?;      // each [initiator] on its own task
 // On SIGHUP, say:
-let changes = sessions.reload_all(Some(&acceptor), &initiators)?;
+let changes = sessions.reload(Some(&acceptor), Some(&initiators))?;
 ```
 
 - Each counterparty's settings are its own keys over `[defaults]`, for all its sessions, or with
