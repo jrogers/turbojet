@@ -57,11 +57,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (Some(dictionary), Some(out)) = (dictionary, out) else { return Err(USAGE.into()) };
 
-    let mut dict = Dictionary::load(&dictionary)?;
+    let mut dict = Dictionary::from_file(&dictionary)?;
     // The transport comes first, whatever the argument order, so venues can refer to its fields
     // and a venue's header or trailer replaces the transport's rather than being replaced by it.
     if let Some(transport) = transport {
-        dict = dict.with_transport(&Dictionary::load(transport)?)?;
+        dict = dict.with_transport(&Dictionary::from_file(transport)?)?;
     }
     for venue in &merges {
         dict.merge_file(venue)?;

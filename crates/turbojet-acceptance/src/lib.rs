@@ -240,7 +240,7 @@ impl Version {
         CONFIGS[self as usize]
             .get_or_init(|| {
                 let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
-                let load = |name: &str| Dictionary::load(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+                let load = |name: &str| Dictionary::from_file(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
                 let fixt = |name: &str, id| (load(name).with_transport(&load("FIXTSession.xml")).unwrap(), Some(id));
                 let (dictionary, appl_ver_id) = match self {
                     Self::Fix40 => (load("OrchestraFIX40.xml"), None),

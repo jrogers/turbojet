@@ -17,7 +17,7 @@ From a `build.rs`:
 use turbojet_dictionary::Dictionary;
 use turbojet_codegen::Generator;
 
-let mut dict = Dictionary::load("dictionaries/OrchestraFIX44.xml").unwrap();
+let mut dict = Dictionary::from_file("dictionaries/OrchestraFIX44.xml").unwrap();
 dict.merge_file("dictionaries/venue.xml").unwrap();
 let code = Generator::new(&dict).render().unwrap();
 let out = std::path::Path::new(&std::env::var("OUT_DIR").unwrap()).join("venue.rs");

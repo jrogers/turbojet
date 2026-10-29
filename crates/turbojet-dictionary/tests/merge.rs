@@ -12,7 +12,7 @@ fn merged() -> Dictionary {
 #[test]
 fn adds_fields_messages_and_components() {
     let dict = merged();
-    assert_eq!(dict.version.to_string(), "FIX 4.4", "an overlay keeps the base version");
+    assert_eq!(dict.version().to_string(), "FIX 4.4", "an overlay keeps the base version");
     assert_eq!(dict.field_by_tag(5001).unwrap().name, "VenueFlag");
     assert_eq!(dict.message("VenueAck").unwrap().msg_type, "U1");
     assert!(dict.component("VenueParties").is_some());
@@ -159,7 +159,7 @@ fn fix50_takes_its_header_and_trailer_from_fixt() {
     assert!(fix50.header().is_empty() && fix50.trailer().is_empty(), "FIX 5.0 files have no header or trailer");
     let transport = Dictionary::from_xml(FIXT11).unwrap();
     let dict = fix50.with_transport(&transport).unwrap();
-    assert_eq!(dict.version.to_string(), "FIX 5.0 SP2");
+    assert_eq!(dict.version().to_string(), "FIX 5.0 SP2");
     assert_eq!(dict.header(), transport.header());
     assert_eq!(dict.trailer(), transport.trailer());
     // Every header and trailer field is now defined.

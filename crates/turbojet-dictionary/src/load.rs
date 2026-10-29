@@ -90,7 +90,7 @@ impl Dictionary {
     /// # Errors
     ///
     /// If the file can't be read, or as [`from_xml`](Self::from_xml), naming the file.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
+    pub fn from_file(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let xml = read(path)?;
         Self::from_xml(&xml).map_err(|e| e.in_file(path))

@@ -779,7 +779,7 @@ impl Dictionaries {
         if let Some(dictionary) = self.loaded.get(&path) {
             return Ok(dictionary.clone());
         }
-        let dictionary = Arc::new(turbojet_dictionary::Dictionary::load(&path).map_err(|e| e.to_string())?);
+        let dictionary = Arc::new(turbojet_dictionary::Dictionary::from_file(&path).map_err(|e| e.to_string())?);
         self.loaded.insert(path, dictionary.clone());
         Ok(dictionary)
     }

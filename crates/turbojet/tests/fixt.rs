@@ -80,7 +80,7 @@ async fn message(rx: &mut mpsc::UnboundedReceiver<Event>) -> Message {
 
 fn dictionary() -> Dictionary {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra");
-    let load = |name| Dictionary::load(dir.join(name)).unwrap_or_else(|e| panic!("{e}"));
+    let load = |name| Dictionary::from_file(dir.join(name)).unwrap_or_else(|e| panic!("{e}"));
     load("OrchestraFIX50SP2.xml").with_transport(&load("FIXTSession.xml")).unwrap()
 }
 

@@ -28,6 +28,7 @@ pub struct Version {
 
 /// Which release of a protocol a dictionary describes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Release {
     /// A numbered version, e.g. 4.2, or 5.0 SP2 (`service_pack` 2; 0 if none).
     Numbered {
@@ -333,8 +334,7 @@ pub struct Message {
 /// is defined, and no component includes itself.
 #[derive(Debug, Clone)]
 pub struct Dictionary {
-    /// The protocol version.
-    pub version: Version,
+    pub(crate) version: Version,
     pub(crate) header: Vec<Member>,
     pub(crate) trailer: Vec<Member>,
     pub(crate) fields: Vec<Field>,
@@ -347,6 +347,12 @@ pub struct Dictionary {
 }
 
 impl Dictionary {
+    /// The protocol version.
+    #[must_use]
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
     pub(crate) fn new(
         version: Version,
         header: Vec<Member>,

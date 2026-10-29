@@ -264,7 +264,7 @@ struct Names {
 
 impl Names {
     fn new(given: Option<&PathBuf>) -> Result<Self, String> {
-        let given = given.map(|path| Dictionary::load(path).map_err(|e| e.to_string())).transpose()?;
+        let given = given.map(|path| Dictionary::from_file(path).map_err(|e| e.to_string())).transpose()?;
         Ok(Names { given, built_in: HashMap::new() })
     }
 

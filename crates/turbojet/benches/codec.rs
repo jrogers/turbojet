@@ -77,7 +77,8 @@ fn codec(c: &mut Criterion) {
     #[cfg(feature = "validation")]
     {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dictionaries/orchestra/OrchestraFIX42.xml");
-        let validator = turbojet::validation::Validator::new(&turbojet_dictionary::Dictionary::load(path).unwrap());
+        let validator =
+            turbojet::validation::Validator::new(&turbojet_dictionary::Dictionary::from_file(path).unwrap());
         let mut group = c.benchmark_group("validation");
         group.bench_function("validate NewOrderSingle", |b| b.iter(|| validator.validate(black_box(&order)).unwrap()));
         group.bench_function("validate NewOrderSingle with 3 allocs", |b| {
@@ -174,7 +175,8 @@ fn nested_groups(c: &mut Criterion) {
     #[cfg(feature = "validation")]
     {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../dictionaries/orchestra/OrchestraFIX44.xml");
-        let validator = turbojet::validation::Validator::new(&turbojet_dictionary::Dictionary::load(path).unwrap());
+        let validator =
+            turbojet::validation::Validator::new(&turbojet_dictionary::Dictionary::from_file(path).unwrap());
         let mut group = c.benchmark_group("validation");
         group.bench_function("validate FIX 4.4 NewOrderSingle with nested groups", |b| {
             b.iter(|| validator.validate(black_box(&nested)).unwrap())

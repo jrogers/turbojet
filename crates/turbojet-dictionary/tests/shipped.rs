@@ -4,7 +4,7 @@ use turbojet_dictionary::{Category, Dictionary, FieldType, Member};
 
 fn load(name: &str) -> Dictionary {
     let path = format!("{}/../../dictionaries/orchestra/{name}.xml", env!("CARGO_MANIFEST_DIR"));
-    Dictionary::load(&path).unwrap_or_else(|e| panic!("{e}"))
+    Dictionary::from_file(&path).unwrap_or_else(|e| panic!("{e}"))
 }
 
 #[test]
@@ -20,7 +20,7 @@ fn shipped_orchestra_files_load() {
     ];
     for (file, version, fields, messages, components, admin) in expected {
         let dict = load(file);
-        assert_eq!(dict.version.to_string(), version, "{file}");
+        assert_eq!(dict.version().to_string(), version, "{file}");
         assert_eq!(
             (dict.fields().len(), dict.messages().len(), dict.components().len()),
             (fields, messages, components),
@@ -66,7 +66,7 @@ fn fix50sp2_runs_over_fixt() {
     // The Unified Repository's FIX 5.0 SP2 carries a copy of FIXT's header and session messages;
     // the transport's own replace the header and trailer.
     let app = load("OrchestraFIX50SP2");
-    assert_eq!(app.version.to_string(), "FIX 5.0 SP2");
+    assert_eq!(app.version().to_string(), "FIX 5.0 SP2");
     assert_eq!((app.fields().len(), app.messages().len()), (1452, 116));
     let mut session: Vec<_> =
         app.messages().iter().filter(|m| m.category == Category::Admin).map(|m| m.msg_type.as_str()).collect();

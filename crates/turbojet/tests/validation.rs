@@ -11,7 +11,7 @@ use turbojet_dictionary::Dictionary;
 
 fn dictionary(name: &str) -> Dictionary {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dictionaries/orchestra").join(name);
-    Dictionary::load(path).unwrap_or_else(|e| panic!("{e}"))
+    Dictionary::from_file(path).unwrap_or_else(|e| panic!("{e}"))
 }
 
 fn time() -> UtcTimestamp {

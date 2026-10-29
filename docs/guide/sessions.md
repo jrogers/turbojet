@@ -114,7 +114,7 @@ dictionary, from `turbojet-dictionary`, before the application or the session ac
 use turbojet::SessionConfig;
 use turbojet_dictionary::Dictionary;
 
-let dict = Dictionary::load("dictionaries/orchestra/OrchestraFIX44.xml")?;
+let dict = Dictionary::from_file("dictionaries/orchestra/OrchestraFIX44.xml")?;
 let config = SessionConfig::new("FIX.4.4", "GATEWAY").with_dictionary(&dict);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -127,7 +127,7 @@ against the version it's in:
 use turbojet::fields::ApplVerID;
 use turbojet::{ApplVersion, SessionConfig};
 
-let sp2 = Dictionary::load("dictionaries/orchestra/OrchestraFIX50SP2.xml")?;
+let sp2 = Dictionary::from_file("dictionaries/orchestra/OrchestraFIX50SP2.xml")?;
 let config = SessionConfig::new("FIXT.1.1", "GATEWAY")
     .with_appl_version(ApplVersion::new(ApplVerID::Fix50Sp2).with_dictionary(&sp2))
     .with_appl_ver_id(ApplVerID::Fix50Sp1); // not checked

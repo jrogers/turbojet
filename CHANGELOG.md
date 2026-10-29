@@ -56,6 +56,12 @@ Notable changes to the published crates.
   `InvalidInput`, so an acceptor whose counterparties expect TLS can't be served without it by
   mistake. False by default.
 
+### `turbojet-dictionary`
+
+- **Changed:** `Dictionary::load` is `Dictionary::from_file`, to pair with `from_xml`. `version` is
+  read with `Dictionary::version()`: it was the one field that could be changed, leaving the
+  dictionary's version out of step with what it was loaded from. `Release` is `#[non_exhaustive]`.
+
 ### `turbojet-codegen`
 
 - **Changed:** generated SBE enums compare and hash by their value on the wire, so `Unknown`

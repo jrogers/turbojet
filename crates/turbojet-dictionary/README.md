@@ -9,7 +9,7 @@ marks required that counterparties leave out).
 ```rust,no_run
 use turbojet_dictionary::Dictionary;
 
-let mut dict = Dictionary::load("OrchestraFIX44.xml")?;
+let mut dict = Dictionary::from_file("OrchestraFIX44.xml")?;
 dict.merge_file("venue.xml")?;
 dict.make_optional("QuoteCancel", "NoQuoteEntries")?;
 let side = dict.field("Side").unwrap();

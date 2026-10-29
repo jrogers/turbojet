@@ -33,7 +33,7 @@ fn synopsis(text: &str) -> String {
 
 #[test]
 fn reads_versions() {
-    let version = |name, version| Dictionary::from_orchestra(&repository(name, version, "")).unwrap().version;
+    let version = |name, version| Dictionary::from_orchestra(&repository(name, version, "")).unwrap().version();
     let v = version("FIX.4.2", "FIX.4.2_EP310");
     assert_eq!(v.protocol, Protocol::Fix);
     assert_eq!(v.release, Release::Numbered { major: 4, minor: 2, service_pack: 0 });
@@ -265,8 +265,8 @@ fn detects_the_format() {
         let dict = Dictionary::from_xml(xml).unwrap();
         assert_eq!(dict.field("A").unwrap().ty, FieldType::Int);
     }
-    assert_eq!(Dictionary::from_xml(&orchestra).unwrap().version.to_string(), "FIX 4.2 EP310");
-    assert_eq!(Dictionary::from_quickfix(quickfix).unwrap().version.to_string(), "FIX 4.4");
+    assert_eq!(Dictionary::from_xml(&orchestra).unwrap().version().to_string(), "FIX 4.2 EP310");
+    assert_eq!(Dictionary::from_quickfix(quickfix).unwrap().version().to_string(), "FIX 4.4");
 
     for xml in ["<fox/>", "<repository name='FIX.4.2'/>"] {
         let err = Dictionary::from_xml(xml).unwrap_err();
@@ -287,8 +287,8 @@ fn detects_the_format() {
 fn load_detects_the_format() {
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("orchestra-detect.xml");
     std::fs::write(&path, repo("<fixr:fields><fixr:field id='1' name='A' type='int'/></fixr:fields>")).unwrap();
-    let dict = Dictionary::load(&path).unwrap();
-    assert_eq!(dict.version.to_string(), "FIX 4.2 EP310");
+    let dict = Dictionary::from_file(&path).unwrap();
+    assert_eq!(dict.version().to_string(), "FIX 4.2 EP310");
 }
 
 #[test]
@@ -304,7 +304,7 @@ fn quickfix_overlays_merge_onto_an_orchestra_base() {
     let mut dict = load("<fixr:fields><fixr:field id='1' name='A' type='int'/></fixr:fields>");
     dict.merge_xml("<fix><fields><field number='5001' name='VenueFlag' type='BOOLEAN'/></fields></fix>").unwrap();
     assert_eq!(dict.field_by_tag(5001).unwrap().ty, FieldType::Boolean);
-    assert_eq!(dict.version.to_string(), "FIX 4.2 EP310");
+    assert_eq!(dict.version().to_string(), "FIX 4.2 EP310");
 }
 
 const FIELDS: &str = "<fixr:fields>\

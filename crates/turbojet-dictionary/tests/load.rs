@@ -10,10 +10,10 @@ fn doc(body: &str) -> String {
 #[test]
 fn reads_version_and_fields() {
     let dict = Dictionary::from_xml(BASE).unwrap();
-    assert_eq!(dict.version.protocol, Protocol::Fix);
-    assert_eq!(dict.version.release, Release::Numbered { major: 4, minor: 4, service_pack: 0 });
-    assert_eq!(dict.version.extension_pack, None);
-    assert_eq!(dict.version.to_string(), "FIX 4.4");
+    assert_eq!(dict.version().protocol, Protocol::Fix);
+    assert_eq!(dict.version().release, Release::Numbered { major: 4, minor: 4, service_pack: 0 });
+    assert_eq!(dict.version().extension_pack, None);
+    assert_eq!(dict.version().to_string(), "FIX 4.4");
     assert_eq!(dict.fields().len(), 12);
     let side = dict.field("Side").unwrap();
     assert_eq!((side.tag, &side.ty), (54, &FieldType::Char));
@@ -27,9 +27,9 @@ fn reads_version_and_fields() {
 #[test]
 fn service_pack_and_fixt_versions_display() {
     let sp2 = Dictionary::from_xml("<fix type='FIX' major='5' minor='0' servicepack='2'/>").unwrap();
-    assert_eq!(sp2.version.to_string(), "FIX 5.0 SP2");
+    assert_eq!(sp2.version().to_string(), "FIX 5.0 SP2");
     let fixt = Dictionary::from_xml("<fix type='FIXT' major='1' minor='1'/>").unwrap();
-    assert_eq!(fixt.version.to_string(), "FIXT 1.1");
+    assert_eq!(fixt.version().to_string(), "FIXT 1.1");
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn rejects_a_document_that_is_not_a_dictionary() {
 
 #[test]
 fn load_reports_the_path() {
-    let err = Dictionary::load("no/such/FIX99.xml").unwrap_err();
+    let err = Dictionary::from_file("no/such/FIX99.xml").unwrap_err();
     assert!(err.to_string().starts_with("no/such/FIX99.xml: "), "{err}");
 }
 

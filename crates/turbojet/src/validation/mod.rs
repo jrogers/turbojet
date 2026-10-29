@@ -68,7 +68,7 @@ type FastSet<T> = HashSet<T, Fast>;
 /// use turbojet::validation::{ValidationOptions, Validator};
 /// use turbojet_dictionary::Dictionary;
 ///
-/// let dict = Dictionary::load("FIX44.xml")?;
+/// let dict = Dictionary::from_file("FIX44.xml")?;
 /// let mut options = ValidationOptions::default(); // QuickFIX's defaults
 /// options.allow_user_defined_tags = true; // a venue's tags from 5000 up
 /// options.application_values = true; // reject codes the dictionary doesn't list, in any message
@@ -218,7 +218,7 @@ impl Validator {
                 (m.msg_type.clone(), rules(&flat, &tag))
             })
             .collect();
-        let later_reasons = match (dict.version.protocol, dict.version.release) {
+        let later_reasons = match (dict.version().protocol, dict.version().release) {
             (Protocol::Fix, Release::Numbered { major, minor, .. }) => (major, minor) >= (4, 3),
             _ => true,
         };
