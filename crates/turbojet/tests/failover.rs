@@ -4,7 +4,7 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpSocket};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use turbojet::message::tags;
@@ -68,11 +68,14 @@ impl Harness {
         Arc::new(Recorder { name, events: self.sender.clone(), refuse_logon })
     }
 
-    /// Starts an acceptor on `addr` (or a free port) and returns its address.
-    async fn acceptor(&self, name: &'static str, addr: Option<&str>, refuse_logon: bool) -> (Acceptor, String) {
+    /// Starts an acceptor on `socket` (a [`dead_address`]'s) or a free port, and returns its address.
+    async fn acceptor(&self, name: &'static str, socket: Option<TcpSocket>, refuse_logon: bool) -> (Acceptor, String) {
         let config = SessionConfig::new("FIX.4.2", "SERVER");
         let acceptor = Acceptor::new(config, self.acceptor_storage.clone(), self.app(name, refuse_logon)).unwrap();
-        let listener = TcpListener::bind(addr.unwrap_or("127.0.0.1:0")).await.unwrap();
+        let listener = match socket {
+            Some(socket) => socket.listen(1024).unwrap(),
+            None => TcpListener::bind("127.0.0.1:0").await.unwrap(),
+        };
         let addr = listener.local_addr().unwrap().to_string();
         tokio::spawn(acceptor.clone().serve(listener));
         (acceptor, addr)
@@ -101,16 +104,20 @@ impl Harness {
     }
 }
 
-/// An address with nothing listening on it.
-async fn dead_address() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    listener.local_addr().unwrap().to_string()
+/// An address with nothing listening on it, refusing connections. The socket keeps the port bound
+/// while it lives, so a test running alongside can't be given it; pass it to [`Harness::acceptor`]
+/// to start listening there.
+fn dead_address() -> (TcpSocket, String) {
+    let socket = TcpSocket::new_v4().unwrap();
+    socket.bind("127.0.0.1:0".parse().unwrap()).unwrap();
+    let addr = socket.local_addr().unwrap().to_string();
+    (socket, addr)
 }
 
 #[tokio::test]
 async fn fails_over_when_the_primary_is_down() {
     let mut h = Harness::new();
-    let primary = dead_address().await;
+    let (_held, primary) = dead_address();
     let (_backup, backup_addr) = h.acceptor("backup", None, false).await;
     let initiator = h.initiator([primary.as_str(), backup_addr.as_str()]);
     tokio::spawn(initiator.run());
@@ -135,7 +142,8 @@ async fn tries_backups_in_order() {
     let mut h = Harness::new();
     let (_second, second_addr) = h.acceptor("second-backup", None, false).await;
     let (_first, first_addr) = h.acceptor("first-backup", None, false).await;
-    let initiator = h.initiator([dead_address().await, first_addr, second_addr]);
+    let (_held, dead) = dead_address();
+    let initiator = h.initiator([dead, first_addr, second_addr]);
     assert_eq!(initiator.endpoints().len(), 3);
     tokio::spawn(initiator.run());
 
@@ -145,7 +153,7 @@ async fn tries_backups_in_order() {
 #[tokio::test]
 async fn fails_back_to_the_primary_once_it_is_available() {
     let mut h = Harness::new();
-    let primary_addr = dead_address().await;
+    let (primary_socket, primary_addr) = dead_address();
     let (backup, backup_addr) = h.acceptor("backup", None, false).await;
     let initiator = h.initiator([primary_addr.as_str(), backup_addr.as_str()]);
     let handle = initiator.handle();
@@ -153,7 +161,7 @@ async fn fails_back_to_the_primary_once_it_is_available() {
     h.logged_on("backup").await;
 
     // The primary comes back; the live session on the backup is left alone until it ends.
-    let (_primary, _) = h.acceptor("primary", Some(&primary_addr), false).await;
+    let (_primary, _) = h.acceptor("primary", Some(primary_socket), false).await;
     backup.handle_for("CLIENT").logout(Some("maintenance")).unwrap();
     h.logged_on("primary").await;
     // The client may still be awaiting the Logon reply here; the send is queued until it arrives.
@@ -172,7 +180,7 @@ async fn fails_back_to_the_primary_once_it_is_available() {
 #[tokio::test]
 async fn connect_once_reports_every_failed_endpoint() {
     let h = Harness::new();
-    let (primary, backup) = (dead_address().await, dead_address().await);
+    let ((_held_primary, primary), (_held_backup, backup)) = (dead_address(), dead_address());
     let initiator = h.initiator([primary.as_str(), backup.as_str()]);
     let err = timeout(Duration::from_secs(5), initiator.connect_once()).await.unwrap().unwrap_err();
     assert_eq!(err.kind(), io::ErrorKind::NotConnected);
@@ -183,12 +191,12 @@ async fn connect_once_reports_every_failed_endpoint() {
 #[tokio::test]
 async fn keeps_retrying_until_an_endpoint_comes_up() {
     let mut h = Harness::new();
-    let (primary_addr, backup_addr) = (dead_address().await, dead_address().await);
+    let ((_held, primary_addr), (backup_socket, backup_addr)) = (dead_address(), dead_address());
     let initiator = h.initiator([primary_addr.as_str(), backup_addr.as_str()]);
     tokio::spawn(initiator.run());
 
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let (_backup, _) = h.acceptor("backup", Some(&backup_addr), false).await;
+    let (_backup, _) = h.acceptor("backup", Some(backup_socket), false).await;
     h.logged_on("backup").await;
 }
 
