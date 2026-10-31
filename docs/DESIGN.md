@@ -996,19 +996,24 @@ converting it, checks each group's structure with the borrowed form's `check_gro
 entries, so a member's tag isn't taken for the message's own, and then checks that the required
 fields and groups are there. A group's entries are parsed when it's read, so a bad entry fails the
 read, not the parse. Each read converts again; a field read often is worth keeping in a local. For
-FIX 4.2's NewOrderSingle the view is 280 bytes against the borrowed struct's 1,184. On the
-benchmark order (`benches/lazy_view.rs`, Apple M3, 2026-10-31, criterion medians):
+FIX 4.2's NewOrderSingle the view is 280 bytes against the borrowed struct's 1,184, and for its
+ExecutionReport 368 against 1,576. On the benchmark order (10 body fields set) and its ack (17)
+(`benches/lazy_view.rs`, Apple M3, 2026-10-31, criterion medians):
 
-| | parse | parse, read 2 fields | parse, read all 10 |
+| | parse | parse, read 2 fields | parse, read 10 fields |
 |---|---|---|---|
 | `NewOrderSingleRef` | 101.3 ns | 89.3 ns | 89.8 ns |
 | `NewOrderSingleView` | 36.4 ns | 36.3 ns | 80.4 ns |
+| `ExecutionReportRef` | 154.1 ns | 131.4 ns | 133.1 ns |
+| `ExecutionReportView` | 51.3 ns | 51.0 ns | 83.0 ns |
 
-The parse alone includes copying the borrowed struct into `black_box`, so it costs about 90 ns in
-use, and its empty slots only about 10 ns of that once the fields are read: converting the values
+The parse alone includes copying the borrowed struct into `black_box`, so it costs about 90 ns
+(NewOrderSingle) or 130 ns (ExecutionReport) in use, and its empty slots only about 10 ns of that once the fields are read: converting the values
 present is most of a typed parse either way. The view takes 40% of the time for code that reads a
 few fields of each message (routing on ClOrdID and Symbol, say) and a quarter of the memory, which
-matters to code that keeps parsed messages. A prototype (2026-10-29) measured two alternatives:
+matters to code that keeps parsed messages. The more fields a message carries, the more the view
+saves: reading 10 of the ack's 17 takes 62% of the borrowed form's time, against 90% for the
+order's 10 of 10. A prototype (2026-10-29) measured two alternatives:
 converting each value while indexing, to keep errors at the parse, was slower than the borrowed
 form once the fields were read (65.6 ns to parse, 102.8 ns to read all 10), since each read
 converted again; and `u16` indices, which halve the table but need a fallback for a message of more
