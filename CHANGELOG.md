@@ -2,6 +2,16 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- **Fixed:** a session took every Logon with ResetSeqNumFlag(141)=Y and MsgSeqNum 1 that arrived
+  while it was logged on as a new reset. A duplicate of the reset Logon the numbers had just
+  started again with made it reset again and reply, and when the counterparty took the reply the
+  same way, the two kept resetting each other, throwing away what they had sent in between. Such a
+  Logon arriving before anything else from the counterparty is now ignored.
+
 ## 0.8.0 (2026-10-30)
 
 ### `turbojet`

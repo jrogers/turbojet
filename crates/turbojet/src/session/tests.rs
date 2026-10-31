@@ -1139,6 +1139,45 @@ fn a_reset_at_logon_counts_in_the_activity() {
     assert_eq!((activity.resets, activity.next_outgoing), (1, 2));
 }
 
+/// A second reset Logon before anything else from the counterparty is a duplicate of the one the
+/// numbers started again with, or the reply to ours: answering it would reset again, and the reply
+/// would reset the counterparty, each answering the other's, throwing away what was sent between.
+#[test]
+fn a_reset_logon_repeated_before_anything_else_is_ignored() {
+    let h = Harness::new();
+    // The acceptor, reset at logon.
+    let mut s = h.session();
+    s.recv(reset_logon(), h.t0);
+    s.command(Command::Send(Message::new(MsgType::ExecutionReport).with(tags::EXEC_ID, "E"), None), h.t0); // our 2
+    assert!(s.recv(reset_logon(), h.t0).is_empty(), "a duplicate");
+    assert_eq!((s.peer().log.next_incoming(), s.peer().log.next_outgoing()), (2, 3));
+    assert_eq!(s.peer_mut().log.sent_messages(2, 2).unwrap().len(), 1, "our 2 kept");
+    // Once they've sent more, it's a new reset.
+    s.recv(client(2, MsgType::Heartbeat), h.t0);
+    assert_eq!(types(&s.recv(reset_logon(), h.t0)), ["Logon"]);
+    // Their repeat of the reset we just answered.
+    assert!(s.recv(reset_logon(), h.t0).is_empty(), "a duplicate");
+    assert_eq!(s.peer().log.next_incoming(), 2);
+    drop(s);
+
+    // The initiator, whose reset Logon was answered with one.
+    let mut s = h.initiator(true);
+    s.connect(h.t0);
+    s.recv(reset_logon(), h.t0);
+    assert!(s.is_logged_on());
+    assert!(s.recv(reset_logon(), h.t0).is_empty(), "a duplicate of the reply");
+    assert_eq!((s.peer().log.next_incoming(), s.peer().log.next_outgoing()), (2, 2));
+}
+
+/// Without a reset at logon, a reset Logon at the very start is a new reset all the same.
+#[test]
+fn a_reset_logon_after_a_logon_without_one_resets() {
+    let h = Harness::new();
+    let mut s = h.logged_on();
+    assert_eq!(s.peer().log.next_incoming(), 2);
+    assert_eq!(types(&s.recv(reset_logon(), h.t0)), ["Logon"]);
+}
+
 /// A reset Logon must be MsgSeqNum 1; otherwise a Logon while logged on is refused as before.
 #[test]
 fn a_reset_logon_at_another_number_is_refused() {

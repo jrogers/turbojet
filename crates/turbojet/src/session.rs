@@ -649,6 +649,10 @@ pub struct Session {
     ending: Option<Disconnect>,
     /// Whether the session ever reached the logged-on state.
     ever_logged_on: bool,
+    /// The numbers last started again with both sides' Logons carrying ResetSeqNumFlag(141)=Y,
+    /// theirs at 1. Another such Logon before anything else from them is a duplicate of theirs or
+    /// the reply to ours, not a new reset: answering it would start a reset each side answers.
+    reset_by_logon: bool,
     logon_deadline_from: Instant,
     last_sent: Instant,
     last_received: Instant,
@@ -828,6 +832,7 @@ impl Session {
             app_logged_on: false,
             ending: None,
             ever_logged_on: false,
+            reset_by_logon: false,
             logon_deadline_from: now,
             last_sent: now,
             last_received: now,
@@ -1746,6 +1751,7 @@ impl Session {
         }
         // Answer 789 with ours: after their Logon, or where their resend should start.
         let our_next = their_next.map(|_| if seq_num == expected { expected + 1 } else { expected });
+        self.reset_by_logon = reset && seq_num == 1;
         self.send(logon_message(heartbeat, reset, our_next, self.appl_ver_id()).into(), now);
         if let Some(from) = their_next
             && from < reply_seq
@@ -1836,6 +1842,9 @@ impl Session {
             self.resend(from, next_outgoing - 2, now);
         }
         let we_sent_ours = matches!(self.role, Role::Initiator { next_expected: true, .. });
+        self.reset_by_logon = matches!(self.role, Role::Initiator { reset_on_logon: true, .. })
+            && msg.flag(tags::RESET_SEQ_NUM_FLAG)
+            && seq_num == 1;
         self.logged_on(seq_num, expected, we_sent_ours && their_next.is_some(), now);
     }
 
@@ -2272,6 +2281,10 @@ impl Session {
             && self.status == Status::Active
             && msg.defect().is_none()
         {
+            if self.reset_by_logon && self.peer().log.next_incoming() == 2 {
+                debug!("ignoring a Logon with ResetSeqNumFlag=Y: the numbers have just started again");
+                return true;
+            }
             self.intraday_reset(msg, now);
             return true;
         }
@@ -2464,6 +2477,7 @@ impl Session {
         self.note_resending();
         self.queued.clear();
         self.set_next_incoming(2, now);
+        self.reset_by_logon = true;
         let our_next = msg.get(tags::NEXT_EXPECTED_MSG_SEQ_NUM).is_some().then_some(2);
         let heartbeat = self.peer().heartbeat;
         self.send(logon_message(heartbeat, true, our_next, self.appl_ver_id()).into(), now);
