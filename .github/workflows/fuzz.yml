@@ -22,6 +22,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Compiling turbojet-fix with the sanitizer takes one rustc to about 15 GB, the edge of the
+      # runner's 16, and a runner that runs out is killed. Swap lets the build finish, slower.
+      - run: |
+          sudo fallocate -l 8G /swapfile.fuzz
+          sudo chmod 600 /swapfile.fuzz
+          sudo mkswap /swapfile.fuzz
+          sudo swapon /swapfile.fuzz
+          swapon --show
+          df -h /
       - uses: dtolnay/rust-toolchain@nightly
       - uses: taiki-e/install-action@v2
         with:
