@@ -236,17 +236,17 @@ Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; crit
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 134 ns | 987 / 1,203 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 136 ns | 991 / 1,185 MiB/s |
 | Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 85 ns / 137 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 864 ns | 1.16M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.5 µs / 3.9 ms | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 11.2 µs | 89.3k/s |
-| The same, both ends spinning (`run_spinning`) | 9.2 µs | 109k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 1.03M msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 962k msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.2 µs | 3.20M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.7 ns / 219 ns | |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 26 ns / 41 ns | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 825 ns | 1.21M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.4 µs / 3.9 ms | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 9.6 µs | 104k/s |
+| The same, both ends spinning (`run_spinning`) | 8.7 µs | 115k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 1.06M msg/s |
+| Round trip over localhost TLS, 1,000 in flight | | 950k msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 3.97M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 181 ns | |
 
 Round trips go initiator → acceptor application → initiator, with a store that discards
 messages. [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#current-numbers) has every benchmark, what

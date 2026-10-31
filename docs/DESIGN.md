@@ -1156,38 +1156,35 @@ how the compiler happens to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 134 ns | 987 / 1,203 MiB/s |
-| Encode NewOrderSingle (169 B) | 39 ns | 4.0 GiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 136 ns | 991 / 1,185 MiB/s |
+| Encode NewOrderSingle (169 B) | 40 ns | 4.0 GiB/s |
 | Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 85 ns / 137 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 112 ns / 174 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 383 ns / 614 ns / 482 ns | |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 26 ns / 41 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 113 ns / 175 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 85 ns / 560 ns / 470 ns | |
 | Typed build ExecutionReport | 137 ns | |
-| Format a timestamp (same second / new second) | 8.9 ns / 27 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store) | 716 ns | 1.40M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 864 ns | 1.16M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 43 ns / 1.5 µs / 3.9 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync | 60 ns / 39 µs | |
+| Format a timestamp (same second / new second) | 9.0 ns / 27 ns | |
+| Session: order → ack, no I/O, encoded reply (memory store) | 675 ns | 1.48M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 825 ns | 1.21M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.4 µs / 3.9 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 37 ns / 40 µs | |
 | Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.0 ms / 140 µs | |
 | Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 49 µs / 7.1 µs | |
 | Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.6 µs / 179 µs / 146 µs | |
 | SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 6.7 ns / 30 ns | |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.7 ns / 219 ns | |
-| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 200 ns / 1.32 µs / 6.20 µs | |
-| FAST: encode the same refreshes | 297 ns / 1.90 µs / 8.28 µs | |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.2 µs | 3.20M msg/s |
-| Round trip over localhost TCP, one at a time | 31.2 µs | 32.1k/s |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 11.2 µs | 89.3k/s |
-| The same, both ends spinning (`run_spinning`) | 9.2 µs | 109k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 1.03M msg/s |
-| Round trip over localhost TLS, one at a time | 31.8 µs | 31.4k/s |
-| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.3 µs | 46.9k/s |
-| Round trip over localhost TLS, 1,000 in flight | | 962k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.4 µs | 885k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 3.9 ms | 18.3k msg/s |
-
-The borrowed typed-parse rows predate the lazy borrowed form (2026-10-31), and measured the
-struct it replaced; the lazy form hasn't been measured on this machine yet.
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 181 ns | |
+| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 197 ns / 1.34 µs / 6.43 µs | |
+| FAST: encode the same refreshes | 278 ns / 1.88 µs / 8.21 µs | |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 3.97M msg/s |
+| Round trip over localhost TCP, one at a time | 30.8 µs | 32.5k/s |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 9.6 µs | 104k/s |
+| The same, both ends spinning (`run_spinning`) | 8.7 µs | 115k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 1.06M msg/s |
+| Round trip over localhost TLS, one at a time | 31.3 µs | 31.9k/s |
+| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.2 µs | 47.2k/s |
+| Round trip over localhost TLS, 1,000 in flight | | 950k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.5 µs | 959k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 4.4 ms | 13.9k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor
@@ -1198,7 +1195,7 @@ Entrypoint schema; the FIXP rows carry its orders under FIXP 1.0 with recoverabl
 storing in memory. The FAST rows use the FAST specification's own incremental refresh template,
 each message following the one before. The SQL rows used PostgreSQL 18 on the same machine over
 TCP, and SQLite synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. Rows
-were measured 2026-10-25;
+were measured 2026-10-31, the SQL rows and the resend steps 2026-10-25;
 [Measurement history](#measurement-history) says what each was before.
 
 `tests/allocations.rs` counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
@@ -1247,21 +1244,38 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
 
 ### Measurement history
 
-[Current numbers](#current-numbers) has the latest. Every row was re-measured 2026-10-25 on the
-same machine, the SQL rows against PostgreSQL 18.6. A round trip replying from `on_message` varies
-more from run to run than the table's other rows (9.4 to 11.6 µs over TCP in seven runs), so it and
-the spinning, one-at-a-time TLS and pipelined TCP and FIXP rows are medians of three to seven runs. On 2026-10-18,
-in the table's order: decoding 162 / 133 ns, encoding 40 and 46 ns, typed parsing 87 / 137 ns
-borrowed and 111 / 174 ns owned, nested groups 398 / 616 / 484 ns, building 134 ns, timestamps
-9.2 / 27 ns; the session 739 ns and 866 ns wire to wire; storing 43 ns / 1.4 µs / 4.0 ms one per
-commit and 59 ns / 40 µs at 100, SQLite / synced / PostgreSQL 64 µs / 4.0 ms / 138 µs and
-2.5 / 48 / 6.4 µs, resend steps 11.7 / 179 / 148 µs; SBE 6.7 / 30 ns and 4.8 / 222 ns; FAST
-decoding 216 ns / 1.34 µs / 6.27 µs and encoding 301 ns / 2.01 µs / 8.65 µs; FIXP 16.2 µs and
-3.33M msg/s; TCP round trips 31.1 µs, 10.7 µs from `on_message`, 9.0 µs spinning and 1.04M msg/s;
-TLS 31.3 µs, 21.2 µs and 958k msg/s; the disk store 32.8 µs and 913k msg/s, and with fsync 4.0 ms
-and 16.7k msg/s. Most rows are within noise of then. FAST is 2-7% faster, the session's order → ack
-3%, and the disk store's pipelined round trip 3% slower (885k msg/s in each of three runs); with
-fsync, pipelining managed 10% more, which is the device.
+[Current numbers](#current-numbers) has the latest. Every row but the SQL rows and the resend steps
+was re-measured 2026-10-31 on the same machine, on `main` at c0f3dcc. A round trip replying from
+`on_message` varies more from run to run than the table's other rows (9.2 to 10.0 µs over TCP in
+five runs), so it and the spinning, TLS, pipelined TCP, FIXP and disk store round trips are medians
+of four to nine runs. On 2026-10-25, in the table's order: decoding 163 / 134 ns, encoding 39 and
+45 ns, typed parsing 85 / 137 ns borrowed and 112 / 174 ns owned, nested groups 383 / 614 /
+482 ns, building 137 ns, timestamps 8.9 / 27 ns; the session 716 ns and 864 ns wire to wire;
+storing 43 ns / 1.5 µs / 3.9 ms one per commit and 60 ns / 39 µs at 100; SBE 6.7 / 30 ns and
+4.7 / 219 ns; FAST decoding 200 ns / 1.32 µs / 6.20 µs and encoding 297 ns / 1.90 µs / 8.28 µs;
+FIXP 16.2 µs and 3.20M msg/s; TCP round trips 31.2 µs, 11.2 µs from `on_message` (9.4 to 11.6 µs
+in seven runs), 9.2 µs spinning and 1.03M msg/s; TLS 31.8 µs, 21.3 µs and 962k msg/s; the disk
+store 33.4 µs and 885k msg/s, and with fsync 3.9 ms and 18.3k msg/s. The borrowed parses are the
+lazy form, which reads a field only when asked; the 2026-10-25 rows measured the eager struct it
+replaced, and the tag=value SBE row parses borrowed too. Storing in memory and on disk at 100 per
+commit are faster for the ring-buffer index (see [the stores' indexes](#storage)), which came
+after that day's measurement, and the session's order → ack 4-6%, partly with it. FIXP pipelining is 24%
+faster (3.83M to 4.00M msg/s in five runs), and the disk store's pipelined round trip 8% (955k to
+966k in four runs, against 885k in each of three). With fsync, a round trip one at a time took
+4.4 ms and pipelining 100 managed 24% less (11.2k to 14.6k msg/s in four runs), though a commit
+alone still took 3.9 ms: that's the device.
+
+On 2026-10-18, in the table's order: decoding 162 / 133 ns, encoding 40 and 46 ns, typed parsing 87
+/ 137 ns borrowed and 111 / 174 ns owned, nested groups 398 / 616 / 484 ns, building 134 ns,
+timestamps 9.2 / 27 ns; the session 739 ns and 866 ns wire to wire; storing 43 ns / 1.4 µs / 4.0 ms
+one per commit and 59 ns / 40 µs at 100, SQLite / synced / PostgreSQL 64 µs / 4.0 ms / 138 µs and
+2.5 / 48 / 6.4 µs, resend steps 11.7 / 179 / 148 µs; SBE 6.7 / 30 ns and 4.8 / 222 ns; FAST decoding
+216 ns / 1.34 µs / 6.27 µs and encoding 301 ns / 2.01 µs / 8.65 µs; FIXP 16.2 µs and 3.33M msg/s;
+TCP round trips 31.1 µs, 10.7 µs from `on_message`, 9.0 µs spinning and 1.04M msg/s; TLS 31.3 µs,
+21.2 µs and 958k msg/s; the disk store 32.8 µs and 913k msg/s, and with fsync 4.0 ms and 16.7k
+msg/s. On 2026-10-25 most rows were within noise of those. FAST was 2-7% faster, the session's order
+→ ack 3%, and the disk store's pipelined round trip was 3% slower (885k msg/s in each of three
+runs); with fsync, pipelining managed 10% more, which is the device.
 
 Before that, every row was re-measured 2026-10-18 on an Apple M4 Pro (8 performance and 4
 efficiency cores), the SQL rows against PostgreSQL 18. On the M3 (4 + 4) before it, in the table's order: decoding 197 / 164 ns, encoding 47 and 54 ns, typed

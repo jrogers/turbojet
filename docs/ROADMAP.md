@@ -57,8 +57,8 @@ Each item needs a benchmark that shows the cost before the change is worth its c
 
 - **Sending on the caller's thread** (M, research). `SessionHandle::send` queues each message
   for the connection's task, and the hop to it is most of what separates a round trip sent one
-  at a time through a handle (31.2 µs over localhost TCP, M4 Pro) from one replying from
-  `on_message`, already on that task (11.2 µs; README, DESIGN.md Latency).
+  at a time through a handle (30.8 µs over localhost TCP, M4 Pro) from one replying from
+  `on_message`, already on that task (9.6 µs; README, DESIGN.md Latency).
   QuickFIX numbers, stores and encodes on the sender's thread under the session's lock, and in
   its threaded mode writes there too. A handle could do the same when the connection is idle:
   take a lock on the session, encode, commit and write without blocking, and fall back to the
