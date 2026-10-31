@@ -114,7 +114,7 @@ impl Application for GatewayApp {
                 }
                 ctx.send(report)?;
             }
-            MsgType::OrderCancelRequest => match self.orders.cancel(&owner, msg.parse()?) {
+            MsgType::OrderCancelRequest => match self.orders.cancel(&owner, msg.parse()?)? {
                 Ok(report) => {
                     self.metrics.canceled.increment(1);
                     ctx.send(report)?;
@@ -136,7 +136,7 @@ impl Application for GatewayApp {
             },
             MsgType::OrderStatusRequest => {
                 self.metrics.status_requests.increment(1);
-                ctx.send(self.orders.status(&owner, msg.parse()?))?;
+                ctx.send(self.orders.status(&owner, msg.parse()?)?)?;
             }
             _ => return Err(MessageReject::unsupported_message_type()),
         }
@@ -227,17 +227,19 @@ mod tests {
         assert_eq!(orders.order(&order_ids[0]).unwrap().status, OrdStatus::Canceled);
         assert_eq!(orders.order(&order_ids[1]).unwrap().status, OrdStatus::New, "another session's order");
 
-        let status = orders.status(
-            "C1",
-            OrderStatusRequest::new(OrderStatusRequestRequired {
-                cl_ord_id: "A".into(),
-                symbol: "AAPL".into(),
-                side: Side::Buy.into(),
-            })
-            .to_message()
-            .parse()
-            .unwrap(),
-        );
+        let status = orders
+            .status(
+                "C1",
+                OrderStatusRequest::new(OrderStatusRequestRequired {
+                    cl_ord_id: "A".into(),
+                    symbol: "AAPL".into(),
+                    side: Side::Buy.into(),
+                })
+                .to_message()
+                .parse()
+                .unwrap(),
+            )
+            .unwrap();
         assert_eq!((status.exec_type, status.ord_status), (ExecType::Canceled.into(), OrdStatus::Canceled.into()));
         assert_eq!(status.leaves_qty, 0u64.into());
 

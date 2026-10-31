@@ -10,7 +10,7 @@ use turbojet::fields::EncryptMethod;
 use turbojet::fields::ToFix;
 use turbojet::fields::UtcTimestamp;
 use turbojet::fields::{Decimal, format_compact};
-use turbojet::message::{Message, tags};
+use turbojet::message::{FieldError, Message, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::store::{SessionStorage, StoredSession};
 use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
@@ -37,10 +37,10 @@ pub fn new_order_single(cl_ord_id: u64) -> NewOrderSingle {
 }
 
 /// The acknowledgement an acceptor would send for `order`.
-pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
+pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> Result<ExecutionReport, FieldError> {
     let order_id = format_compact!("O{id}");
     let exec_id = format_compact!("E{id}");
-    let leaves_qty = order.order_qty.unwrap_or_default();
+    let leaves_qty = order.order_qty()?.unwrap_or_default();
     let cum_qty = Decimal::ZERO;
     let avg_px = Decimal::ZERO;
     let mut report = ExecutionReport::new(ExecutionReportRequired {
@@ -49,26 +49,26 @@ pub fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
         exec_trans_type: ExecTransType::New.into(),
         exec_type: ExecType::New.into(),
         ord_status: OrdStatus::New.into(),
-        symbol: order.symbol.into(),
-        side: order.side.into(),
+        symbol: order.symbol()?.into(),
+        side: order.side()?.into(),
         leaves_qty,
         cum_qty,
         avg_px,
     });
-    report.cl_ord_id = Some(order.cl_ord_id.into());
-    report.account = order.account.map(Into::into);
-    report.order_qty = order.order_qty;
-    report.ord_type = Some(order.ord_type.into());
-    report.price = order.price;
-    report.time_in_force = order.time_in_force.map(Into::into);
+    report.cl_ord_id = Some(order.cl_ord_id()?.into());
+    report.account = order.account()?.map(Into::into);
+    report.order_qty = order.order_qty()?;
+    report.ord_type = Some(order.ord_type()?.into());
+    report.price = order.price()?;
+    report.time_in_force = order.time_in_force()?.map(Into::into);
     report.transact_time = Some(UtcTimestamp::now());
-    report
+    Ok(report)
 }
 
 /// The acknowledgement of `new_order_single(id)`.
 pub fn ack_of(id: u64) -> ExecutionReport {
     let order: Message = new_order_single(id).into();
-    ack(order.parse().unwrap(), id)
+    ack(order.parse().unwrap(), id).unwrap()
 }
 
 /// `body` with a standard header, as sent by `sender` to `target`.
@@ -138,7 +138,7 @@ pub struct Acker {
 impl Application for Acker {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         let order: NewOrderSingleRef = msg.parse()?;
-        ctx.send(ack(order, self.next_id.fetch_add(1, Ordering::Relaxed)))?;
+        ctx.send(ack(order, self.next_id.fetch_add(1, Ordering::Relaxed))?)?;
         Ok(())
     }
 }

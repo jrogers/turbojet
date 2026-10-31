@@ -68,7 +68,8 @@ pub trait Application: Send + Sync + 'static {
     /// # use turbojet::{admin::LogonRef, Message};
     /// fn check(logon: &Message) -> Result<(), String> {
     ///     let logon: LogonRef = logon.parse().map_err(|e| e.to_string())?;
-    ///     match (logon.username, logon.password.map(|p| p.expose())) {
+    ///     let password = logon.password().map_err(|e| e.to_string())?;
+    ///     match (logon.username().map_err(|e| e.to_string())?, password.map(|p| p.expose())) {
     ///         (Some("trader"), Some("secret")) => Ok(()),
     ///         _ => Err("unknown user or wrong password".into()),
     ///     }
@@ -145,8 +146,9 @@ pub trait Application: Send + Sync + 'static {
     /// work is done.
     ///
     /// Parse typed messages with [`Message::parse`]; a [`FieldError`] converts into the matching
-    /// session-level reject. The borrowed form, `NameRef`, reads the message without copying its
-    /// strings; [`into_owned`](crate::FixMessageRef::into_owned) gives the owned one to keep:
+    /// session-level reject. The borrowed form, `NameRef`, reads each field as its method is
+    /// called, without copying its strings, so `?` rejects a malformed field when it's read;
+    /// [`into_owned`](crate::FixMessageRef::into_owned) gives the owned one to keep:
     ///
     /// ```
     /// # use turbojet::{Context, FixMessageRef, Message, MessageReject, MsgType};
@@ -158,10 +160,10 @@ pub trait Application: Send + Sync + 'static {
     ///         return Err(MessageReject::unsupported_message_type());
     ///     }
     ///     let order: NewOrderSingleRef = msg.parse()?;
-    ///     if order.symbol == Some("XYZ") {
+    ///     if order.symbol()? == Some("XYZ") {
     ///         return Err(MessageReject::value_incorrect(tags::SYMBOL, "not traded here"));
     ///     }
-    ///     book(order.into_owned());
+    ///     book(order.into_owned()?);
     ///     Ok(())
     /// }
     /// ```

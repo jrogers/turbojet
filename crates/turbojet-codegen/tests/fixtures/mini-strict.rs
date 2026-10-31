@@ -202,7 +202,7 @@ mod part0 {
 
 turbojet::fix_message! {
     /// NewOrderSingle(D).
-    NewOrderSingle / NewOrderSingleRef / NewOrderSingleView = "D" {
+    NewOrderSingle / NewOrderSingleRef = "D" {
         /// ClOrdID(11).
         cl_ord_id: req CompactString = CL_ORD_ID,
         /// NoPartyIDs(453).
@@ -241,7 +241,7 @@ impl NewOrderSingle {
 
 turbojet::fix_message! {
     /// AllocationInstruction(J).
-    AllocationInstruction / AllocationInstructionRef / AllocationInstructionView = "J" {
+    AllocationInstruction / AllocationInstructionRef = "J" {
         /// AllocID(70).
         alloc_id: req CompactString = ALLOC_ID,
         /// NoAllocs(78).
@@ -268,7 +268,7 @@ impl AllocationInstruction {
 
 turbojet::fix_message! {
     /// TradeReport(AE).
-    TradeReport / TradeReportRef / TradeReportView = "AE" {
+    TradeReport / TradeReportRef = "AE" {
         /// TradeReportID(571).
         trade_report_id: req CompactString = TRADE_REPORT_ID,
         /// NoSides(552).
@@ -301,7 +301,7 @@ impl TradeReport {
 
 turbojet::fix_message! {
     /// Schedule(U7).
-    Schedule / ScheduleRef / ScheduleView = "U7" {
+    Schedule / ScheduleRef = "U7" {
         /// ExecInst(18).
         exec_inst: req Vec<ExecInst> = EXEC_INST,
         /// TradeDate(75).

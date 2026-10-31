@@ -106,19 +106,19 @@ impl Application for OrderDesk {
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         match msg.msg_type() {
             MsgType::NewOrderSingle => {
-                // A missing or malformed field becomes a Reject(3) naming the tag.
+                // A missing or malformed field becomes a Reject(3) naming the tag, when parsed or read.
                 let order: NewOrderSingleRef = msg.parse()?;
                 let mut ack = ExecutionReport::new(ExecutionReportRequired {
                     order_id: "O1".into(),
                     exec_id: "E1".into(),
                     exec_type: ExecType::New.into(),
                     ord_status: OrdStatus::New.into(),
-                    side: order.side.into(),
-                    leaves_qty: order.order_qty.unwrap_or_default(),
+                    side: order.side()?.into(),
+                    leaves_qty: order.order_qty()?.unwrap_or_default(),
                     cum_qty: Decimal::ZERO,
                     avg_px: Decimal::ZERO,
                 });
-                ack.cl_ord_id = Some(order.cl_ord_id.into());
+                ack.cl_ord_id = Some(order.cl_ord_id()?.into());
                 ctx.send(ack)?;
                 Ok(())
             }

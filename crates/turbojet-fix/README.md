@@ -31,14 +31,15 @@ let msg = order.to_message();
 let parsed: NewOrderSingle = msg.parse().unwrap();
 assert_eq!(parsed, order);
 let borrowed: NewOrderSingleRef = msg.parse().unwrap();
-assert_eq!(borrowed.into_owned(), order);
+assert_eq!(borrowed.symbol().unwrap(), Some("AAPL"));
+assert_eq!(borrowed.into_owned().unwrap(), order);
 ```
 
-Each message and group also has a borrowed form, such as `NewOrderSingleRef`, whose strings and
-groups borrow from the received message rather than copying it: read messages with it, and call
-`into_owned()` to keep one.
-Each message has a view too, such as `NewOrderSingleView`, which finds the message's fields
-when parsed and converts each one as its method is called, for code that reads only a few.
+Each message also has a borrowed form, such as `NewOrderSingleRef`, which finds the message's
+fields when parsed and converts each one as its method is called, borrowing strings and groups
+from the received message rather than copying them: read messages with it, and call
+`into_owned()` to keep one. Each group has a borrowed form too, whose fields are converted when
+the group is read.
 
 From FIX 4.3 on, components such as Instrument and OrderQtyData are flattened into the messages
 that use them (`order.symbol`, `order.order_qty`); repeating groups, Parties among them, are

@@ -14,8 +14,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::net::TcpListener;
 use turbojet::fields::{Decimal, UtcTimestamp, format_compact};
 use turbojet::{
-    Acceptor, AcceptorConfig, Application, Context, Disconnect, MemoryStorage, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle,
+    Acceptor, AcceptorConfig, Application, Context, Disconnect, FieldError, MemoryStorage, Message, MessageReject,
+    MsgType, SessionConfig, SessionHandle,
 };
 use turbojet_fix::fix42::{
     ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingleRef, OrdStatus,
@@ -49,35 +49,35 @@ impl Application for Acker {
 
     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
         if msg.msg_type() == MsgType::NewOrderSingle {
-            ctx.send(ack(msg.parse()?, self.next_id.fetch_add(1, Ordering::Relaxed)))?;
+            ctx.send(ack(msg.parse()?, self.next_id.fetch_add(1, Ordering::Relaxed))?)?;
         }
         Ok(())
     }
 }
 
-/// The ExecutionReport accepting `order`, as order `id`.
-fn ack(order: NewOrderSingleRef<'_>, id: u64) -> ExecutionReport {
-    let leaves_qty = order.order_qty.unwrap_or_default();
+/// The ExecutionReport accepting `order`, as order `id`, or the field that doesn't convert.
+fn ack(order: NewOrderSingleRef<'_>, id: u64) -> Result<ExecutionReport, FieldError> {
+    let leaves_qty = order.order_qty()?.unwrap_or_default();
     let mut report = ExecutionReport::new(ExecutionReportRequired {
         order_id: format_compact!("O{id}"),
         exec_id: format_compact!("E{id}"),
         exec_trans_type: ExecTransType::New.into(),
         exec_type: ExecType::New.into(),
         ord_status: OrdStatus::New.into(),
-        symbol: order.symbol.into(),
-        side: order.side.into(),
+        symbol: order.symbol()?.into(),
+        side: order.side()?.into(),
         leaves_qty,
         cum_qty: Decimal::ZERO,
         avg_px: Decimal::ZERO,
     });
-    report.cl_ord_id = Some(order.cl_ord_id.into());
-    report.account = order.account.map(Into::into);
-    report.order_qty = order.order_qty;
-    report.ord_type = Some(order.ord_type.into());
-    report.price = order.price;
-    report.time_in_force = order.time_in_force.map(Into::into);
+    report.cl_ord_id = Some(order.cl_ord_id()?.into());
+    report.account = order.account()?.map(Into::into);
+    report.order_qty = order.order_qty()?;
+    report.ord_type = Some(order.ord_type()?.into());
+    report.price = order.price()?;
+    report.time_in_force = order.time_in_force()?.map(Into::into);
     report.transact_time = Some(UtcTimestamp::now());
-    report
+    Ok(report)
 }
 
 #[tokio::main]

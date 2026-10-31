@@ -159,7 +159,7 @@ fn nested_groups(c: &mut Criterion) {
     group.bench_function("parse FIX 4.4 NewOrderSingleRef with nested groups, read every entry", |b| {
         b.iter(|| {
             let order = black_box(&nested).parse::<turbojet_fix::fix44::NewOrderSingleRef>().unwrap();
-            for party in &order.party_ids {
+            for party in &order.party_ids().unwrap() {
                 black_box(party.party_id);
                 black_box(party.party_id_source);
                 black_box(party.party_role);
@@ -256,8 +256,8 @@ fn sbe(c: &mut Criterion) {
         b.iter(|| {
             assert!(matches!(decode_into(black_box(&tag_value_wire), &data, &mut msg), DecodedInto::Message(_)));
             let order = msg.parse::<NewOrderSingleRef>().unwrap();
-            black_box((order.cl_ord_id, order.symbol, order.price, order.order_qty, order.account));
-            black_box((order.side, order.ord_type, order.time_in_force));
+            black_box((order.cl_ord_id(), order.symbol(), order.price(), order.order_qty(), order.account()));
+            black_box((order.side(), order.ord_type(), order.time_in_force()));
         })
     });
     group.finish();

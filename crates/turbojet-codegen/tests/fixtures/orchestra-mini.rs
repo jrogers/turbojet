@@ -181,7 +181,7 @@ turbojet::fix_message! {
     ///
     /// The new order message type is used by institutions wishing to electronically submit securities and forex orders to a broker for execution.\
     /// The format of the new order message is as follows:
-    NewOrderSingle / NewOrderSingleRef / NewOrderSingleView = "D" {
+    NewOrderSingle / NewOrderSingleRef = "D" {
         /// ClOrdID(11).
         ///
         /// Unique identifier for Order as assigned by institution. Uniqueness must be guaranteed within a single trading day.
@@ -263,7 +263,7 @@ turbojet::fix_message! {
     /// Allocation(J).
     ///
     /// The Allocation message provides the ability to specify how an order or set of orders should be subdivided amongst one or more accounts.
-    Allocation / AllocationRef / AllocationView = "J" {
+    Allocation / AllocationRef = "J" {
         /// AllocID(70).
         alloc_id: req CompactString = ALLOC_ID,
         /// Side(54).

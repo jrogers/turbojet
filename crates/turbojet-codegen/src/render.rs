@@ -4,7 +4,6 @@ use std::fmt::Write;
 
 use turbojet_dictionary::Dictionary;
 
-use crate::naming;
 use crate::plan::{Plan, Presence, Slot, Struct};
 
 /// Why writing generated code can't fail: it goes into a `String`.
@@ -58,12 +57,7 @@ pub(crate) fn messages(plan: &Plan) -> String {
     let defs: Vec<&Struct> = plan.messages.iter().map(|m| &m.def).collect();
     out.push_str(&imports(plan, &defs, true));
     in_parts(&mut out, &plan.messages, |out, m| {
-        write_struct(
-            out,
-            "fix_message",
-            &format!("{} / {} / {} = {:?}", m.def.name, m.def.ref_name, naming::view_type(&m.def.name), m.msg_type),
-            &m.def,
-        );
+        write_struct(out, "fix_message", &format!("{} / {} = {:?}", m.def.name, m.def.ref_name, m.msg_type), &m.def);
     });
     out
 }

@@ -142,10 +142,10 @@ fn typed_message_items_stay_unambiguous_under_a_glob_import() {
     assert_eq!(SpreadOrderRef::MSG_TYPE, SpreadOrder::MSG_TYPE);
     let owned = SpreadOrder::from_message(&msg).unwrap();
     let borrowed = SpreadOrderRef::from_message(&msg).unwrap();
-    assert_eq!(borrowed.into_owned(), owned);
+    assert_eq!(borrowed.into_owned(), Ok(owned.clone()));
     assert_eq!(SpreadOrder::from_message_strict(&msg).unwrap(), owned);
-    assert_eq!(SpreadOrderRef::from_message_strict(&msg).unwrap(), borrowed);
-    assert_eq!(msg.parse::<SpreadOrderRef>().unwrap(), borrowed);
+    assert_eq!(SpreadOrderRef::from_message_strict(&msg).unwrap().into_owned(), Ok(owned.clone()));
+    assert_eq!(msg.parse::<SpreadOrderRef>().unwrap().into_owned(), Ok(owned));
 }
 
 #[tokio::test]

@@ -137,7 +137,8 @@ macro_rules! fix_enum {
 }
 
 /// Defines a typed message body, in two forms: `Name`, which owns its values, and its borrowed
-/// twin `NameRef<'a>`, whose string, data, list and group fields borrow from the message.
+/// twin `NameRef<'a>`, which finds where each field is and converts it when its method is called,
+/// borrowing strings, data, lists and groups from the message.
 ///
 /// ```text
 /// fix_message! {
@@ -154,22 +155,20 @@ macro_rules! fix_enum {
 /// ```
 ///
 /// A message has at least one field. Its doc comments, derives and most other attributes are
-/// `Name`'s alone, since `NameRef`'s fields have other types; `#[deprecated]`, `#[doc(hidden)]`
+/// `Name`'s alone, since `NameRef` has no fields of its own; `#[deprecated]`, `#[doc(hidden)]`
 /// and the lint levels (`allow`, `expect`, `warn`, `deny`) apply to `NameRef` too, and a `#[cfg]`
-/// to everything generated.
-///
-/// `NameRef<'a>` is invariant in `'a`, because its fields' types are trait projections
-/// ([`FieldRef::Ref`](crate::fields::FieldRef::Ref)). That only matters when mixing borrows of
-/// different lifetimes: a `NameRef<'long>` doesn't shorten to a `NameRef<'short>` by itself.
+/// to everything generated. A field's doc comments and attributes go on its method too.
 ///
 /// - `Type` is anything implementing [`FromFix`](crate::fields::FromFix),
 ///   [`ToFix`](crate::fields::ToFix) and [`FieldRef`](crate::fields::FieldRef): `String`, `u32`,
 ///   `u64`, `i64`, `bool`, [`Decimal`](crate::fields::Decimal),
 ///   [`UtcTimestamp`](crate::fields::UtcTimestamp), or an enum from [`fix_enum!`]. `Entry` is
 ///   defined with [`fix_group!`](crate::fix_group).
-/// - In `NameRef`, a field has its type's borrowed form ([`FieldRef::Ref`](crate::fields::FieldRef::Ref):
-///   `&str` for a `String`), a group is a [`Group`](crate::message::Group) of `EntryRef`s, and a
-///   data field is a `&[u8]`.
+/// - In `NameRef`, each field is a method of the same name returning a `Result` of its type's
+///   borrowed form ([`FieldRef::Ref`](crate::fields::FieldRef::Ref): `&str` for a `String`), in
+///   an `Option` if it's optional; a group's is a [`Group`](crate::message::Group) of `EntryRef`s,
+///   whose entries are parsed when it's called. A data field's returns a `&[u8]`, or an `Option`
+///   of one, since it needs no conversion.
 /// - `TAG` is a path to a `u32` constant: Turbojet's are in
 ///   [`tags`](crate::message::tags); define your own for custom tags. Tags are matched as
 ///   patterns, so a misspelt one is a compile error.
@@ -184,14 +183,15 @@ macro_rules! fix_enum {
 ///   there already.
 /// - Fields are written in declaration order, after the standard header the session adds.
 ///   Parsing is a single pass that takes each tag's first occurrence and ignores unknown tags.
-///   It builds `NameRef`, checking every field, so it allocates nothing; parsing `Name` is that
-///   followed by [`into_owned`](crate::message::FixMessageRef::into_owned), and fails alike.
-///   A group that is malformed, or has an entry that fails to parse, fails the parse where it is
-///   found; otherwise the error is for the first field, in declaration order, that is missing or
-///   has a value that doesn't convert.
+///   Parsing `Name` converts every field: a group that is malformed, or has an entry that fails
+///   to parse, fails the parse where it is found; otherwise the error is for the first field, in
+///   declaration order, that is missing or has a value that doesn't convert. Parsing `NameRef`
+///   allocates nothing and converts only each group's count, so it fails only on a malformed group
+///   or a missing required field; a value that doesn't convert fails when it's read, or when
+///   [`into_owned`](crate::message::FixMessageRef::into_owned) parses `Name`.
 ///
 /// Generates the struct, [`FixMessage`](crate::message::FixMessage) and `From<Name> for Message`;
-/// and `NameRef`, [`FixMessageRef`](crate::message::FixMessageRef), `From<NameRef> for Name` and
+/// and `NameRef`, [`FixMessageRef`](crate::message::FixMessageRef) and
 /// [`FromMessage`](crate::message::FromMessage), so [`Message::parse`](crate::Message::parse)
 /// gives either.
 ///
@@ -218,7 +218,7 @@ macro_rules! fix_enum {
 ///
 /// fix_message! {
 ///     /// The venue's order acknowledgement, MsgType U1.
-///     VenueAck / VenueAckRef / VenueAckView = "U1" {
+///     VenueAck / VenueAckRef = "U1" {
 ///         cl_ord_id: req String = CL_ORD_ID,
 ///         flag: opt VenueFlag = VENUE_FLAG,
 ///         notes: group Note = NO_NOTES,
@@ -235,17 +235,12 @@ macro_rules! fix_enum {
 /// assert_eq!(msg.msg_type(), MsgType::from_code("U1"));
 /// assert_eq!(msg.parse::<VenueAck>().unwrap(), ack);
 ///
-/// // Borrowed: the strings are the message's own.
+/// // Borrowed: each field is converted as it's read, and the strings are the message's own.
 /// let borrowed: VenueAckRef = msg.parse().unwrap();
-/// assert_eq!(borrowed.cl_ord_id, "ORD1");
-/// assert_eq!(borrowed.notes.iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
-/// assert_eq!(borrowed.into_owned(), ack);
-///
-/// // A view: each field is converted as it's read.
-/// let view: VenueAckView = msg.parse().unwrap();
-/// assert_eq!(view.cl_ord_id().unwrap(), "ORD1");
-/// assert_eq!(view.flag().unwrap(), Some(VenueFlag::Urgent));
-/// assert_eq!(view.notes().unwrap().iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
+/// assert_eq!(borrowed.cl_ord_id().unwrap(), "ORD1");
+/// assert_eq!(borrowed.flag().unwrap(), Some(VenueFlag::Urgent));
+/// assert_eq!(borrowed.notes().unwrap().iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
+/// assert_eq!(borrowed.into_owned().unwrap(), ack);
 /// ```
 ///
 /// A tag that doesn't exist fails to compile, rather than silently matching everything:
@@ -262,22 +257,22 @@ macro_rules! fix_message {
     // The message's attributes travel as token trees, so `@attrs` can sort them.
     (
         $(#[$($meta:tt)*])*
-        $name:ident / $ref_name:ident $(/ $view_name:ident)? = $msg_type:ident {
+        $name:ident / $ref_name:ident = $msg_type:ident {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
         $crate::fix_message!(@attrs fix_message [] [] [] [] [$(#[$($meta)*])*]
-            $name, $ref_name, [$($view_name)?], $crate::fields::MsgType::$msg_type,
+            $name, $ref_name, $crate::fields::MsgType::$msg_type,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     (
         $(#[$($meta:tt)*])*
-        $name:ident / $ref_name:ident $(/ $view_name:ident)? = $msg_type:literal {
+        $name:ident / $ref_name:ident = $msg_type:literal {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
         $crate::fix_message!(@attrs fix_message [] [] [] [] [$(#[$($meta)*])*]
-            $name, $ref_name, [$($view_name)?], $crate::fields::MsgType::from_static($msg_type),
+            $name, $ref_name, $crate::fields::MsgType::from_static($msg_type),
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     // Sorts a message's or group's attributes into its docs, which are the owned struct's alone;
@@ -316,11 +311,8 @@ macro_rules! fix_message {
     (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [] $($body:tt)*) => {
         $crate::$target!(@typed [$($doc)*] [$($shared)*] [$($owned)*] [$($cfg)*] $($body)*);
     };
-    (@typed [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $view:tt, $msg_type:expr,
+    (@typed [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $msg_type:expr,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
-        $crate::fix_message!(@view $view [$($shared)*] [$($cfg)*] $name, $msg_type,
-            $( [$(#[$fmeta])*] $field : $presence $ty = $tags ),+);
-
         $($doc)*
         $($shared)*
         $($owned)*
@@ -366,68 +358,18 @@ macro_rules! fix_message {
             }
         }
 
-        #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsed without allocating.")]
-        $($shared)*
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub struct $ref_name<'a> {
-            $( $(#[$fmeta])* pub $field: $crate::fix_message!(@reftype 'a, $presence $ty), )+
-        }
-
-        $($cfg)*
-        #[allow(deprecated)]
-        impl<'a> $crate::message::FixMessageRef<'a> for $ref_name<'a> {
-            type Owned = $name;
-
-            fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse borrowed 'a, msg.view(), false, $( $field : $presence $ty = $tags ),+)
-            }
-
-            fn from_message_strict(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse borrowed 'a, msg.view(), true, $( $field : $presence $ty = $tags ),+)
-            }
-
-            fn into_owned(self) -> $name {
-                $name { $( $field: $crate::fix_message!(@into_owned 'a, $presence $ty, self.$field), )+ }
-            }
-        }
-
-        $($cfg)*
-        #[allow(deprecated)]
-        impl<'a> $crate::message::FromMessage<'a> for $ref_name<'a> {
-            const PARSED_MSG_TYPE: $crate::fields::MsgType = <Self as $crate::message::FixMessageRef<'a>>::MSG_TYPE;
-
-            fn parse_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                <Self as $crate::message::FixMessageRef<'a>>::from_message(msg)
-            }
-
-            fn parse_strict_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                <Self as $crate::message::FixMessageRef<'a>>::from_message_strict(msg)
-            }
-        }
-
-        $($cfg)*
-        #[allow(deprecated)]
-        impl From<$ref_name<'_>> for $name {
-            fn from(body: $ref_name<'_>) -> Self {
-                $crate::message::FixMessageRef::into_owned(body)
-            }
-        }
-    };
-    // The view, if the message names one: the message and each field's first occurrence, one
-    // private `u32` per field, named as the field and read through the method of the same name.
-    // Parsing marks where the fields are, checking the groups' structure and that the required
-    // fields are there; a value is converted only when it's read. The accessors are `#[inline]`, so
-    // a dictionary's thousands of them cost nothing to build until an application calls them.
-    (@view [] $($rest:tt)*) => {};
-    (@view [$view:ident] [$($shared:tt)*] [$($cfg:tt)*] $name:ident, $msg_type:expr,
-        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
-        #[doc = concat!("A view of a [`", stringify!($name), "`]: parsing finds its fields, and each is converted as it's read.")]
+        // The borrowed form: the message and each field's first occurrence, one private `u32` per
+        // field, named as the field and read through the method of the same name. Parsing marks
+        // where the fields are, checking the groups' structure and that the required fields are
+        // there; a value is converted only when it's read. The accessors are `#[inline]`, so a
+        // dictionary's thousands of them cost nothing to build until an application calls them.
+        #[doc = concat!("The borrowed form of [`", stringify!($name), "`]: parsing finds its fields, without allocating, and each is converted as it's read.")]
         #[doc = ""]
         #[doc = "Parsing fails on a group that doesn't match its count or order, or a required field missing; a"]
-        #[doc = "value that doesn't convert fails only when it's read."]
+        #[doc = "value that doesn't convert fails when it's read."]
         $($shared)*
         #[derive(Clone, Copy)]
-        pub struct $view<'a> {
+        pub struct $ref_name<'a> {
             // Named to stay clear of the fields, which are named as declared.
             __msg: &'a $crate::message::Message,
             $( $field: u32, )+
@@ -436,8 +378,8 @@ macro_rules! fix_message {
         $($cfg)*
         // An accessor per field, of which an application reads a few.
         #[allow(deprecated, dead_code)]
-        impl<'a> $view<'a> {
-            /// The message viewed, for its header fields, say.
+        impl<'a> $ref_name<'a> {
+            /// The message parsed, for its header fields, say.
             #[inline]
             pub fn message(&self) -> &'a $crate::message::Message {
                 self.__msg
@@ -447,7 +389,7 @@ macro_rules! fix_message {
 
             fn __parse(msg: &'a $crate::message::Message, strict: bool) -> ::core::result::Result<Self, $crate::message::FieldError> {
                 let fields = msg.view();
-                let mut view = Self { __msg: msg, $( $field: $crate::message::__private::ABSENT, )+ };
+                let mut parsed = Self { __msg: msg, $( $field: $crate::message::__private::ABSENT, )+ };
                 let mut undeclared: ::std::option::Option<u32> = None;
                 let (mut index, end) = fields.bounds();
                 #[allow(unreachable_patterns)]
@@ -455,7 +397,7 @@ macro_rules! fix_message {
                     let (tag, _) = fields.at(index);
                     index = match tag {
                         $( $crate::fix_message!(@pattern $tags) =>
-                            $crate::fix_message!(@mark $presence $ty, view.$field, fields, index, tag, $tags), )+
+                            $crate::fix_message!(@mark $presence $ty, parsed.$field, fields, index, tag, $tags), )+
                         _ => {
                             if strict && undeclared.is_none() && !$crate::message::is_header_or_trailer(tag) {
                                 undeclared = Some(tag);
@@ -465,7 +407,7 @@ macro_rules! fix_message {
                     };
                 }
                 $(
-                    if $crate::fix_message!(@unmarked $presence, msg, view.$field) {
+                    if $crate::fix_message!(@unmarked $presence, msg, parsed.$field) {
                         return Err($crate::message::FieldError {
                             tag: $crate::fix_message!(@key $tags),
                             kind: $crate::message::FieldErrorKind::Missing,
@@ -475,20 +417,40 @@ macro_rules! fix_message {
                 if let Some(tag) = undeclared {
                     return Err($crate::message::FieldError { tag, kind: $crate::message::FieldErrorKind::NotDefined });
                 }
-                Ok(view)
-            }
-        }
-
-        $($cfg)*
-        impl ::core::fmt::Debug for $view<'_> {
-            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-                f.debug_tuple(stringify!($view)).field(self.__msg).finish()
+                Ok(parsed)
             }
         }
 
         $($cfg)*
         #[allow(deprecated)]
-        impl<'a> $crate::message::FromMessage<'a> for $view<'a> {
+        impl ::core::fmt::Debug for $ref_name<'_> {
+            // Each field as it reads, not the message, so a `Secret`'s value is masked.
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_struct(stringify!($ref_name)) $( .field(stringify!($field), &self.$field()) )+ .finish()
+            }
+        }
+
+        $($cfg)*
+        #[allow(deprecated)]
+        impl<'a> $crate::message::FixMessageRef<'a> for $ref_name<'a> {
+            type Owned = $name;
+
+            fn from_message(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                Self::__parse(msg, false)
+            }
+
+            fn from_message_strict(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                Self::__parse(msg, true)
+            }
+
+            fn into_owned(self) -> ::core::result::Result<$name, $crate::message::FieldError> {
+                <$name as $crate::message::FixMessage>::from_message(self.__msg)
+            }
+        }
+
+        $($cfg)*
+        #[allow(deprecated)]
+        impl<'a> $crate::message::FromMessage<'a> for $ref_name<'a> {
             const PARSED_MSG_TYPE: $crate::fields::MsgType = $msg_type;
 
             fn parse_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
@@ -524,7 +486,7 @@ macro_rules! fix_message {
     (@mark opt_data $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {
         $crate::fix_message!(@mark data $ty, $at, $fields, $index, $tag, $tags)
     };
-    // Whether a field fails the view's parse as missing.
+    // Whether a field fails the borrowed form's parse as missing.
     (@unmarked req, $msg:ident, $at:expr) => { $at == $crate::message::__private::ABSENT };
     (@unmarked data, $msg:ident, $at:expr) => { $at == $crate::message::__private::ABSENT };
     (@unmarked req_group, $msg:ident, $at:expr) => { $crate::message::__private::group_missing($msg, $at) };
@@ -870,7 +832,7 @@ mod tests {
     }
 
     fix_message! {
-        TestOrder / TestOrderRef / TestOrderView = NewOrderSingle {
+        TestOrder / TestOrderRef = NewOrderSingle {
             legs: group Leg = NO_ALLOCS,
             symbol: req String = SYMBOL,
             text: opt String = TEXT,
@@ -886,7 +848,7 @@ mod tests {
     }
 
     fix_message! {
-        TestAllocation / TestAllocationRef / TestAllocationView = "J" {
+        TestAllocation / TestAllocationRef = "J" {
             id: req String = CL_ORD_ID,
             allocs: req_group Allocation = NO_ALLOCS,
             text: opt String = TEXT,
@@ -993,7 +955,7 @@ mod tests {
     }
 
     fix_message! {
-        TestAssignments / TestAssignmentsRef / TestAssignmentsView = NewOrderSingle {
+        TestAssignments / TestAssignmentsRef = NewOrderSingle {
             assignments: group Assignment = NO_ALLOCS,
             symbol: req String = SYMBOL,
         }
@@ -1089,7 +1051,7 @@ mod tests {
 
     fix_message! {
         /// Fields whose values can fail to convert, declared out of tag order.
-        TestErrors / TestErrorsRef / TestErrorsView = "U9" {
+        TestErrors / TestErrorsRef = "U9" {
             leaves: req u32 = LEAVES_QTY,
             id: req String = CL_ORD_ID,
             qty: opt u64 = ORDER_QTY,
@@ -1158,7 +1120,7 @@ mod tests {
     }
 
     fix_message! {
-        DataOrder / DataOrderRef / DataOrderView = NewOrderSingle {
+        DataOrder / DataOrderRef = NewOrderSingle {
             raw_data: data Vec<u8> = RAW_DATA_LENGTH => RAW_DATA,
             xml_data: opt_data Vec<u8> = XML_DATA_LEN => XML_DATA,
             attachments: group Attachment = NO_ALLOCS,
@@ -1252,20 +1214,87 @@ mod tests {
 
     // ---- The borrowed form ----
 
-    /// Parses `text` as `T` and as `T::Ref`, leniently and strictly, and checks that the two
-    /// agree: the borrowed value made owned is the owned value, or both fail with the same error.
-    fn assert_same_parse<T: FixMessage + PartialEq + std::fmt::Debug>(text: &str) {
+    /// Builds the owned form by reading every field of the borrowed one, in declaration order.
+    trait ReadAll: FixMessage {
+        fn read_all(borrowed: &Self::Ref<'_>) -> Result<Self, FieldError>;
+    }
+
+    impl ReadAll for TestOrder {
+        fn read_all(r: &TestOrderRef<'_>) -> Result<Self, FieldError> {
+            Ok(TestOrder { legs: r.legs()?.into_owned(), symbol: r.symbol()?.into(), text: r.text()?.map(Into::into) })
+        }
+    }
+
+    impl ReadAll for TestAllocation {
+        fn read_all(r: &TestAllocationRef<'_>) -> Result<Self, FieldError> {
+            Ok(TestAllocation { id: r.id()?.into(), allocs: r.allocs()?.into_owned(), text: r.text()?.map(Into::into) })
+        }
+    }
+
+    impl ReadAll for TestErrors {
+        fn read_all(r: &TestErrorsRef<'_>) -> Result<Self, FieldError> {
+            Ok(TestErrors {
+                leaves: r.leaves()?,
+                id: r.id()?.into(),
+                qty: r.qty()?,
+                legs: r.legs()?.into_owned(),
+                sessions: r.sessions()?.into_owned(),
+                gap_fill: r.gap_fill()?,
+            })
+        }
+    }
+
+    impl ReadAll for TestAssignments {
+        fn read_all(r: &TestAssignmentsRef<'_>) -> Result<Self, FieldError> {
+            Ok(TestAssignments { assignments: r.assignments()?.into_owned(), symbol: r.symbol()?.into() })
+        }
+    }
+
+    impl ReadAll for LenientOrder {
+        fn read_all(r: &LenientOrderRef<'_>) -> Result<Self, FieldError> {
+            use crate::fields::{Code, FieldRef};
+            Ok(LenientOrder {
+                side: <Code<TestSide> as FieldRef>::into_owned(r.side()?),
+                ord_type: r.ord_type()?.map(<Code<TestSide> as FieldRef>::into_owned),
+            })
+        }
+    }
+
+    impl ReadAll for DataOrder {
+        fn read_all(r: &DataOrderRef<'_>) -> Result<Self, FieldError> {
+            Ok(DataOrder {
+                raw_data: r.raw_data().to_vec(),
+                xml_data: r.xml_data().map(<[u8]>::to_vec),
+                attachments: r.attachments()?.into_owned(),
+                symbol: r.symbol()?.into(),
+            })
+        }
+    }
+
+    /// Parses `text` as `T` and as `T::Ref`, leniently and strictly, and checks that reading every
+    /// field of the borrowed form gives the owned one, or fails, from the parse or a read, if the
+    /// owned one fails. Making it owned fails as the owned form's parse does.
+    fn assert_same_parse<T: ReadAll + PartialEq + std::fmt::Debug>(text: &str) {
         let msg = raw(text);
-        let owned = T::from_message(&msg);
-        let borrowed = <T::Ref<'_> as FixMessageRef<'_>>::from_message(&msg);
-        assert_eq!(borrowed.map(FixMessageRef::into_owned), owned, "{text}");
-        let owned = T::from_message_strict(&msg);
-        let borrowed = <T::Ref<'_> as FixMessageRef<'_>>::from_message_strict(&msg);
-        assert_eq!(borrowed.map(FixMessageRef::into_owned), owned, "strict: {text}");
+        for strict in [false, true] {
+            let (owned, borrowed) = if strict {
+                (T::from_message_strict(&msg), <T::Ref<'_> as FixMessageRef<'_>>::from_message_strict(&msg))
+            } else {
+                (T::from_message(&msg), <T::Ref<'_> as FixMessageRef<'_>>::from_message(&msg))
+            };
+            let read = borrowed.as_ref().map_err(Clone::clone).and_then(T::read_all);
+            match &owned {
+                Ok(owned) => assert_eq!(read.as_ref(), Ok(owned), "strict {strict}: {text}"),
+                Err(_) => assert!(read.is_err(), "strict {strict}: {text}: read {read:?}"),
+            }
+            if let Ok(borrowed) = borrowed {
+                assert_eq!(borrowed.into_owned(), T::from_message(&msg), "strict {strict}: {text}");
+            }
+        }
     }
 
     #[test]
-    fn the_borrowed_form_parses_as_the_owned_one_does() {
+    fn the_borrowed_form_reads_what_the_owned_one_parses() {
         let orders = [
             "35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|",
             "35=D|78=1|79=A|58=inside|55=AAPL|",
@@ -1273,6 +1302,10 @@ mod tests {
             "35=D|78=1|79=A|386=1|55=AAPL|",
             "35=D|55=X|9999=extra|",
             "35=D|58=no symbol|",
+            "35=D|78=1|79=A|78=1|79=B|55=X|",
+            "35=D|78=1|79=A|58=in|78=1|79=B|58=second|55=X|58=out|",
+            "35=D|78=1|79=A|78=2|55=X|",
+            "35=D|55=X|79=stray|",
         ];
         for text in orders {
             assert_same_parse::<TestOrder>(text);
@@ -1302,6 +1335,7 @@ mod tests {
             "35=U9|151=1|11=A|38=y|38=5|386=1|336=S|",
             "35=U9|151=z|151=w|11=A|386=1|336=S|",
             "35=U9|151=1|11=A|386=1|336=S|9999=x|",
+            "35=U9|151=1|11=A|386=1|336=S|",
         ];
         for text in errors {
             assert_same_parse::<TestErrors>(text);
@@ -1312,218 +1346,65 @@ mod tests {
         assert_same_parse::<DataOrder>("35=D|55=IBM|");
     }
 
-    // ---- Views ----
-
-    /// Reads every field of a view, in declaration order, into the borrowed form.
-    trait ReadAll<'a> {
-        type Ref;
-        fn read_all(&self) -> Result<Self::Ref, FieldError>;
-    }
-
-    impl<'a> ReadAll<'a> for TestOrderView<'a> {
-        type Ref = TestOrderRef<'a>;
-        fn read_all(&self) -> Result<Self::Ref, FieldError> {
-            Ok(TestOrderRef { legs: self.legs()?, symbol: self.symbol()?, text: self.text()? })
-        }
-    }
-
-    impl<'a> ReadAll<'a> for TestAllocationView<'a> {
-        type Ref = TestAllocationRef<'a>;
-        fn read_all(&self) -> Result<Self::Ref, FieldError> {
-            Ok(TestAllocationRef { id: self.id()?, allocs: self.allocs()?, text: self.text()? })
-        }
-    }
-
-    impl<'a> ReadAll<'a> for TestErrorsView<'a> {
-        type Ref = TestErrorsRef<'a>;
-        fn read_all(&self) -> Result<Self::Ref, FieldError> {
-            Ok(TestErrorsRef {
-                leaves: self.leaves()?,
-                id: self.id()?,
-                qty: self.qty()?,
-                legs: self.legs()?,
-                sessions: self.sessions()?,
-                gap_fill: self.gap_fill()?,
-            })
-        }
-    }
-
-    impl<'a> ReadAll<'a> for TestAssignmentsView<'a> {
-        type Ref = TestAssignmentsRef<'a>;
-        fn read_all(&self) -> Result<Self::Ref, FieldError> {
-            Ok(TestAssignmentsRef { assignments: self.assignments()?, symbol: self.symbol()? })
-        }
-    }
-
-    impl<'a> ReadAll<'a> for DataOrderView<'a> {
-        type Ref = DataOrderRef<'a>;
-        fn read_all(&self) -> Result<Self::Ref, FieldError> {
-            Ok(DataOrderRef {
-                raw_data: self.raw_data(),
-                xml_data: self.xml_data(),
-                attachments: self.attachments()?,
-                symbol: self.symbol()?,
-            })
-        }
-    }
-
-    /// A view of `text` reads, field by field, what the borrowed form parses: the same values if it
-    /// parses, and an error, from the view's parse or from a read, if it doesn't. Strictly too.
-    macro_rules! assert_view_reads_as_borrowed {
-        ($view:ident, $borrowed:ident, $text:expr) => {{
-            let text: &str = $text;
-            let msg = raw(text);
-            for strict in [false, true] {
-                let (view, borrowed) = if strict {
-                    (msg.parse_strict::<$view>(), msg.parse_strict::<$borrowed>())
-                } else {
-                    (msg.parse::<$view>(), msg.parse::<$borrowed>())
-                };
-                let read = view.and_then(|view| view.read_all());
-                match borrowed {
-                    Ok(borrowed) => assert_eq!(read, Ok(borrowed), "strict {strict}: {text}"),
-                    Err(_) => assert!(read.is_err(), "strict {strict}: {text}: the view read {read:?}"),
-                }
-            }
-        }};
-    }
-
     #[test]
-    fn a_view_reads_what_the_borrowed_form_parses() {
-        let orders = [
-            "35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|",
-            "35=D|78=1|79=A|58=inside|55=AAPL|",
-            "35=D|78=2|79=A|55=AAPL|",
-            "35=D|78=1|79=A|386=1|55=AAPL|",
-            "35=D|55=X|9999=extra|",
-            "35=D|58=no symbol|",
-            "35=D|78=1|79=A|78=1|79=B|55=X|",
-            "35=D|78=1|79=A|58=in|78=1|79=B|58=second|55=X|58=out|",
-            "35=D|78=1|79=A|78=2|55=X|",
-            "35=D|55=X|79=stray|",
-        ];
-        for text in orders {
-            assert_view_reads_as_borrowed!(TestOrderView, TestOrderRef, text);
-        }
-        let allocations = [
-            "35=J|11=A1|78=2|79=X|386=1|336=S1|79=Y|386=2|336=S2|336=S3|58=hi|",
-            "35=J|11=A1|58=hi|",
-            "35=J|11=A1|78=0|58=hi|",
-            "35=J|11=A1|78=1|79=X|",
-            "35=J|11=A1|78=1|79=X|386=0|",
-            "35=J|78=1|79=A|",
-        ];
-        for text in allocations {
-            assert_view_reads_as_borrowed!(TestAllocationView, TestAllocationRef, text);
-        }
-        let errors = [
-            "35=U9|11=A|123=x|38=y|151=z|",
-            "35=U9|151=1|11=A|123=x|38=y|386=1|336=S|",
-            "35=U9|38=y|",
-            "35=U9|151=z|",
-            "35=U9|38=y|151=1|",
-            "35=U9|123=x|151=1|11=A|",
-            "35=U9|123=x|151=1|11=A|386=0|",
-            "35=U9|123=x|151=1|11=A|386=1|336=S|",
-            "35=U9|151=z|78=2|79=A|",
-            "35=U9|151=1|11=A|38=5|38=y|386=1|336=S|",
-            "35=U9|151=1|11=A|38=y|38=5|386=1|336=S|",
-            "35=U9|151=z|151=w|11=A|386=1|336=S|",
-            "35=U9|151=1|11=A|386=1|336=S|9999=x|",
-            "35=U9|151=1|11=A|386=1|336=S|",
-        ];
-        for text in errors {
-            assert_view_reads_as_borrowed!(TestErrorsView, TestErrorsRef, text);
-        }
-        assert_view_reads_as_borrowed!(
-            TestAssignmentsView,
-            TestAssignmentsRef,
-            "35=D|78=2|386=2|336=A|336=B|58=first|386=1|336=C|55=X|"
-        );
-        assert_view_reads_as_borrowed!(TestAssignmentsView, TestAssignmentsRef, "35=D|78=1|58=lost|55=X|");
-        assert_view_reads_as_borrowed!(DataOrderView, DataOrderRef, "35=D|55=IBM|");
-        let msg = data_order().to_message();
-        let view: DataOrderView = msg.parse().unwrap();
-        assert_eq!(view.read_all(), msg.parse::<DataOrderRef>());
-        assert_eq!(view.raw_data(), b"\xff\x01\x00");
-    }
-
-    #[test]
-    fn a_view_fails_to_parse_only_on_structure() {
+    fn the_borrowed_form_fails_to_parse_only_on_structure() {
         use crate::message::FieldErrorKind::*;
-        let parse = |text: &str| raw(text).parse::<TestErrorsView>().map(|_| ()).map_err(|e| (e.tag, e.kind));
+        let parse = |text: &str| raw(text).parse::<TestErrorsRef>().map(|_| ()).map_err(|e| (e.tag, e.kind));
         // Missing required fields and groups, in declaration order, and malformed groups.
         assert_eq!(parse("35=U9|38=y|"), Err((LEAVES_QTY, Missing)));
         assert_eq!(parse("35=U9|38=y|151=1|"), Err((CL_ORD_ID, Missing)));
         assert_eq!(parse("35=U9|151=1|11=A|386=0|"), Err((NO_TRADING_SESSIONS, Missing)));
         assert_eq!(parse("35=U9|151=z|78=2|79=A|"), Err((NO_ALLOCS, IncorrectNumInGroup { declared: 2, found: 1 })));
-        assert_eq!(raw("35=D|55=X|").parse::<TestErrorsView>().unwrap_err().tag, MSG_TYPE);
-        // But not values that don't convert: those fail as they're read.
+        assert_eq!(raw("35=D|55=X|").parse::<TestErrorsRef>().unwrap_err().tag, MSG_TYPE);
+        // But not values that don't convert: those fail as they're read, or made owned.
         let msg = raw("35=U9|151=z|11=A|38=y|386=1|336=S|123=x|");
-        let view: TestErrorsView = msg.parse().unwrap();
-        assert_eq!(view.id(), Ok("A"));
-        assert_eq!(view.leaves(), Err(error(LEAVES_QTY, IncorrectFormat("z".into()))));
-        assert_eq!(view.qty(), Err(error(ORDER_QTY, IncorrectFormat("y".into()))));
-        assert_eq!(view.gap_fill(), Err(error(GAP_FILL_FLAG, IncorrectValue("x".into()))));
+        let order: TestErrorsRef = msg.parse().unwrap();
+        assert_eq!(order.id(), Ok("A"));
+        assert_eq!(order.leaves(), Err(error(LEAVES_QTY, IncorrectFormat("z".into()))));
+        assert_eq!(order.qty(), Err(error(ORDER_QTY, IncorrectFormat("y".into()))));
+        assert_eq!(order.gap_fill(), Err(error(GAP_FILL_FLAG, IncorrectValue("x".into()))));
+        assert_eq!(order.into_owned(), Err(error(LEAVES_QTY, IncorrectFormat("z".into()))));
         // A group entry that doesn't parse fails the group's read.
         let msg = raw("35=J|11=A1|78=1|79=X|");
-        let view: TestAllocationView = msg.parse().unwrap();
-        assert_eq!(view.allocs().unwrap_err(), error(NO_TRADING_SESSIONS, Missing));
+        let alloc: TestAllocationRef = msg.parse().unwrap();
+        assert_eq!(alloc.allocs().unwrap_err(), error(NO_TRADING_SESSIONS, Missing));
         // Strictly, an undeclared tag fails the parse, once the rest of its structure is sound.
-        assert_eq!(
-            raw("35=D|55=X|79=stray|").parse_strict::<TestOrderView>().unwrap_err(),
-            error(ALLOC_ACCOUNT, NotDefined)
-        );
-        assert_eq!(raw("35=D|79=stray|").parse_strict::<TestOrderView>().unwrap_err(), error(SYMBOL, Missing));
+        let strict = |text: &str| raw(text).parse_strict::<TestOrderRef>().unwrap_err();
+        assert_eq!(strict("35=D|55=X|79=stray|"), error(ALLOC_ACCOUNT, NotDefined));
+        assert_eq!(strict("35=D|79=stray|"), error(SYMBOL, Missing));
+        assert_eq!(strict("35=D|55=X|9999=extra|"), error(9999, NotDefined));
+        assert!(raw("35=D|55=X|9999=extra|").parse::<TestOrderRef>().is_ok());
+        assert_eq!(<TestOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, TestOrder::MSG_TYPE);
     }
 
     fix_message! {
-        /// Fields named as the view's own items might be.
-        TestNames / TestNamesRef / TestNamesView = "U8" {
+        /// Fields named as the borrowed form's own items might be.
+        TestNames / TestNamesRef = "U8" {
             msg: opt String = TEXT,
             parse: opt String = SYMBOL,
         }
     }
 
     #[test]
-    fn a_views_fields_may_have_any_name() {
+    fn borrowed_fields_may_have_any_name() {
         let msg = raw("35=U8|58=hi|55=X|");
-        let view: TestNamesView = msg.parse().unwrap();
-        assert_eq!((view.msg(), view.parse()), (Ok(Some("hi")), Ok(Some("X"))));
+        let names: TestNamesRef = msg.parse().unwrap();
+        assert_eq!((names.msg(), names.parse()), (Ok(Some("hi")), Ok(Some("X"))));
     }
 
     #[test]
-    fn a_view_is_small_and_borrows_the_message() {
-        let msg = raw("35=D|78=1|79=A|58=inside|55=AAPL|58=outside|");
-        let view: TestOrderView = msg.parse().unwrap();
-        assert_eq!(view.symbol().unwrap().as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
-        assert!(std::ptr::eq(view.message(), &msg));
-        let fields = size_of::<&Message>() + 3 * size_of::<u32>();
-        assert_eq!(size_of::<TestOrderView>(), fields.next_multiple_of(align_of::<&Message>()), "a u32 a field");
-        assert!(format!("{view:?}").starts_with("TestOrderView("));
-    }
-
-    #[test]
-    fn borrowed_fields_point_into_the_message() {
+    fn the_borrowed_form_is_small_and_borrows_the_message() {
         let msg = raw("35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|");
-        let order = TestOrderRef::from_message(&msg).unwrap();
-        assert_eq!((order.symbol, order.text), ("AAPL", Some("outside")));
-        assert_eq!(order.symbol.as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
-        // Copy, and convertible either way to the owned form.
+        let order: TestOrderRef = msg.parse().unwrap();
+        assert_eq!((order.symbol(), order.text()), (Ok("AAPL"), Ok(Some("outside"))));
+        assert_eq!(order.symbol().unwrap().as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
+        assert!(std::ptr::eq(order.message(), &msg));
+        let fields = size_of::<&Message>() + 3 * size_of::<u32>();
+        assert_eq!(size_of::<TestOrderRef>(), fields.next_multiple_of(align_of::<&Message>()), "a u32 a field");
+        // Copy, and convertible to the owned form.
         let copy = order;
-        assert_eq!(copy, order);
-        let owned: TestOrder = order.into();
-        assert_eq!(owned, msg.parse::<TestOrder>().unwrap());
-    }
-
-    #[test]
-    fn message_parse_gives_the_borrowed_form() {
-        let msg = raw("35=D|78=1|79=A|55=AAPL|9999=extra|");
-        let order: TestOrderRef<'_> = msg.parse().unwrap();
-        assert_eq!(order.symbol.as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
-        assert_eq!(order.into_owned(), msg.parse::<TestOrder>().unwrap());
-        let err = msg.parse_strict::<TestOrderRef<'_>>().unwrap_err();
-        assert_eq!((err.tag, err.kind), (9999, crate::message::FieldErrorKind::NotDefined));
+        assert_eq!(copy.into_owned(), msg.parse::<TestOrder>());
+        assert_eq!(order.into_owned(), msg.parse::<TestOrder>());
         // The MsgType is checked first, as for the owned form.
         let err = raw("35=J|78=1|79=A|55=AAPL|").parse::<TestOrderRef<'_>>().unwrap_err();
         assert_eq!((err.tag, err.kind), (MSG_TYPE, crate::message::FieldErrorKind::IncorrectValue("J".into())));
@@ -1532,19 +1413,19 @@ mod tests {
     #[test]
     fn a_borrowed_nested_group_iterates_as_the_owned_one() {
         let msg = raw("35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|");
-        let borrowed = TestOrderRef::from_message(&msg).unwrap();
+        let legs = TestOrderRef::from_message(&msg).unwrap().legs().unwrap();
         let owned: TestOrder = msg.parse().unwrap();
         let borrowed_notes: Vec<Vec<&str>> =
-            borrowed.legs.iter().map(|leg| leg.notes.iter().map(|note| note.id).collect()).collect();
+            legs.iter().map(|leg| leg.notes.iter().map(|note| note.id).collect()).collect();
         let owned_notes: Vec<Vec<&str>> =
             owned.legs.iter().map(|leg| leg.notes.iter().map(|note| note.id.as_str()).collect()).collect();
         assert_eq!(borrowed_notes, owned_notes);
         assert_eq!(borrowed_notes, [vec!["S1", "S2"], vec![]]);
-        assert_eq!(borrowed.legs.into_owned(), owned.legs);
+        assert_eq!(legs.into_owned(), owned.legs);
         // A required group is never empty.
         let msg = raw("35=J|11=A1|78=1|79=X|386=1|336=S1|");
-        let alloc = TestAllocationRef::from_message(&msg).unwrap();
-        assert_eq!(alloc.allocs.iter().next().map(|a| a.sessions.len()), Some(1));
+        let allocs = TestAllocationRef::from_message(&msg).unwrap().allocs().unwrap();
+        assert_eq!(allocs.iter().next().map(|a| a.sessions.len()), Some(1));
     }
 
     #[test]
@@ -1553,22 +1434,14 @@ mod tests {
         let data = crate::message::DataFields::standard().with(VENUE_DATA_LEN, VENUE_DATA);
         let crate::codec::Decoded::Message(msg, _) = crate::codec::decode_with(&wire, &data) else { panic!() };
         let order = DataOrderRef::from_message(&msg).unwrap();
-        assert_eq!(order.raw_data, b"\xff\x01\x00", "not UTF-8");
-        assert_eq!(order.raw_data.as_ptr(), msg.get_bytes(RAW_DATA).unwrap().as_ptr(), "not a copy");
-        assert_eq!(order.xml_data, None);
-        let blobs: Vec<Option<&[u8]>> = order.attachments.iter().map(|a| a.blob).collect();
+        assert_eq!(order.raw_data(), b"\xff\x01\x00", "not UTF-8");
+        assert_eq!(order.raw_data().as_ptr(), msg.get_bytes(RAW_DATA).unwrap().as_ptr(), "not a copy");
+        assert_eq!(order.xml_data(), None);
+        let blobs: Vec<Option<&[u8]>> = order.attachments().unwrap().iter().map(|a| a.blob).collect();
         assert_eq!(blobs, [Some(&b"x\x01y"[..]), None]);
-        assert_eq!(order.into_owned(), data_order());
-        assert_eq!(DataOrderRef::from_message_strict(&msg).unwrap(), order, "length fields are declared");
-    }
-
-    #[test]
-    fn the_borrowed_form_is_strict_on_request() {
-        let msg = raw("35=D|55=X|9999=extra|");
-        assert!(TestOrderRef::from_message(&msg).is_ok());
-        let err = TestOrderRef::from_message_strict(&msg).unwrap_err();
-        assert_eq!((err.tag, err.kind), (9999, crate::message::FieldErrorKind::NotDefined));
-        assert_eq!(<TestOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, TestOrder::MSG_TYPE);
+        assert_eq!(order.into_owned(), Ok(data_order()));
+        assert_eq!(DataOrder::read_all(&order), Ok(data_order()));
+        assert!(DataOrderRef::from_message_strict(&msg).is_ok(), "length fields are declared");
     }
 
     #[test]
@@ -1578,9 +1451,10 @@ mod tests {
         let debug = format!("{logon:?}");
         assert_eq!(
             debug,
-            "TestLogonRef { username: Some(\"trader\"), password: Some(***), new_password: None, \
-             credentials: [CredentialRef { user: \"ops\", secret: Some(***) }] }"
+            "TestLogonRef { username: Ok(Some(\"trader\")), password: Ok(Some(***)), new_password: Ok(None), \
+             credentials: Ok([CredentialRef { user: \"ops\", secret: Some(***) }]) }"
         );
+        assert!(!format!("{logon:#?}").contains("hunter"), "pretty-printed too");
     }
 
     // ---- Attributes ----
@@ -1612,8 +1486,8 @@ mod tests {
     fn a_deprecated_message_still_parses_both_ways() {
         let msg = raw("35=U8|11=A|");
         let borrowed = OldOrderRef::from_message(&msg).unwrap();
-        assert_eq!(borrowed.id, "A");
-        assert_eq!(msg.parse::<OldOrder>().unwrap(), borrowed.into_owned());
+        assert_eq!(borrowed.id(), Ok("A"));
+        assert_eq!(msg.parse::<OldOrder>(), borrowed.into_owned());
         assert_eq!(<OldOrderRef<'_> as FixMessageRef<'_>>::MSG_TYPE, OldOrder::MSG_TYPE, "the owned one's");
     }
 
@@ -1623,7 +1497,7 @@ mod tests {
     #[expect(deprecated, reason = "the borrowed twin of a deprecated message is deprecated too")]
     fn a_deprecated_message_marks_its_borrowed_twin() {
         let msg = raw("35=U8|11=A|");
-        assert_eq!(msg.parse::<OldOrderRef>().unwrap().id, "A");
+        assert_eq!(msg.parse::<OldOrderRef>().unwrap().id(), Ok("A"));
     }
 
     fix_group! {
@@ -1660,7 +1534,7 @@ mod tests {
 
     /// `text` parsed as `T` leniently and strictly, once [`assert_same_parse`] has checked that
     /// the borrowed form gives the same.
-    fn parse_both<T: FixMessage + PartialEq + std::fmt::Debug>(
+    fn parse_both<T: ReadAll + PartialEq + std::fmt::Debug>(
         text: &str,
     ) -> (Result<T, FieldError>, Result<T, FieldError>) {
         assert_same_parse::<T>(text);

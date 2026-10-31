@@ -583,8 +583,9 @@ fn typed_parsing_allocates_exactly_its_budget() {
             "NewOrderSingleRef, 3 allocs read",
             parse_counts(|| {
                 let order = with_allocs.parse::<NewOrderSingleRef>().unwrap();
-                assert_eq!(order.allocs.len(), 3);
-                for alloc in order.allocs.iter() {
+                let allocs = order.allocs().unwrap();
+                assert_eq!(allocs.len(), 3);
+                for alloc in allocs.iter() {
                     std::hint::black_box((alloc.alloc_account, alloc.alloc_shares));
                 }
             }),
