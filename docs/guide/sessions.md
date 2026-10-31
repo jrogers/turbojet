@@ -51,7 +51,8 @@ impl Application for Desk {
     // An `Err` refuses the Logon with that reason, and the connection is dropped.
     fn verify_logon(&self, session: &SessionHandle, logon: &Message, _from: &ConnectionInfo) -> Result<(), String> {
         let logon: LogonRef = logon.parse().map_err(|e| e.to_string())?;
-        match (logon.username, logon.password) {
+        let read = |e: turbojet::FieldError| e.to_string();
+        match (logon.username().map_err(read)?, logon.password().map_err(read)?) {
             (Some("client"), Some(password)) if password.expose() == "secret" => Ok(()),
             _ => Err(format!("{} isn't known", session.id())),
         }

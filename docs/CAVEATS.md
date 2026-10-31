@@ -20,6 +20,9 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   (which warns, with a `RuntimeWarning`), so its session stops reading 256 messages later. The hooks given to `turbojet.load` run with
   the GIL on the session's task, so a slow one, or Python busy elsewhere, holds the session up.
   Initiators only: no acceptor and no FIXP sessions. `log_to_stderr` writes to stderr, not to Python's `logging`.
+- A typed message's borrowed form (`NewOrderSingleRef`) converts a field when it's read, so a
+  malformed value fails the read, not the parse, and is found only if the application reads it:
+  parse the owned form to check every value up front. Each read converts again.
 - `SessionHandle::send` returning `Ok` means queued, not sent: its `Receipt` says whether the
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).

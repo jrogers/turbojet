@@ -6,12 +6,14 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
-- `fix_message!` makes a view of a message when given a third name,
-  `Name / NameRef / NameView = ...`: parsing one finds the message's fields, checking that the
-  required ones are there and that its groups match their counts, and each field is converted
-  when its method is called, which returns a `Result`. For code that reads a few fields of each
-  message, a view of FIX 4.2's NewOrderSingle parses in about 40% of the borrowed form's time and
-  takes 280 bytes against 1,184.
+- **Changed:** a message's borrowed form, `NameRef`, converts each field when it's read. Parsing
+  one finds the message's fields, checking that the required ones are there and that its groups
+  match their counts, and each field is a method returning a `Result`: `order.symbol` becomes
+  `order.symbol()?`, which in `on_message` still answers a malformed value with a Reject.
+  `into_owned` returns a `Result` too, and `From<NameRef> for Name` is gone. Group entries' borrowed
+  forms are unchanged. For FIX 4.2's NewOrderSingle, parsing and reading every field the
+  benchmark order sets takes about 10% less time than before, reading two of them about 60% less,
+  and the borrowed form is 280 bytes against 1,184.
 - **Fixed:** a session took every Logon with ResetSeqNumFlag(141)=Y and MsgSeqNum 1 that arrived
   while it was logged on as a new reset. A duplicate of the reset Logon the numbers had just
   started again with made it reset again and reply, and when the counterparty took the reply the
@@ -20,12 +22,8 @@ Notable changes to the published crates.
 
 ### `turbojet-fix`
 
-- Every message has a view, such as `NewOrderSingleView`, beside its owned and borrowed forms.
-
-### `turbojet-codegen`
-
-- Generated messages have views, named `NameView`. A message named like another's view is an
-  error, as one named like its borrowed twin is.
+- **Changed:** every message's borrowed form, such as `NewOrderSingleRef`, converts each field
+  when it's read, through a method of the field's name.
 
 ## 0.8.0 (2026-10-30)
 

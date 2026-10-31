@@ -40,10 +40,8 @@ To generate messages with only the fields your counterparty sends, re-list them 
 file given to `turbojet-codegen --merge` (see the `turbojet-codegen` README). A field that arrives
 but isn't declared is ignored by `parse`, and rejected by `parse_strict`.
 
-Code that reads only a few fields of each message can parse its view instead
-(`NewOrderSingleView`; see [Messages][messages]), which converts only the fields read: for a FIX
-4.2 NewOrderSingle, finding its fields and reading two takes about 40% of the time of a borrowed
-parse, and the view is a quarter of the size.
+The borrowed form (`NewOrderSingleRef`; see [Messages][messages]) converts only the fields read,
+so its cost follows what the application reads more than what the message declares.
 
 ## Allocations
 

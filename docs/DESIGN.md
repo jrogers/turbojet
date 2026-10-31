@@ -905,8 +905,8 @@ application itself asks for. Where it stands:
   session. A message type borrowing the read buffer would have to run through `Fields`, the
   typed-message macros and the generated crates.
 - Raw group access is zero-copy, and typed messages parse into borrowed forms
-  (`NewOrderSingleRef`) whose strings, lists and groups point into the message, so typed parsing
-  allocates nothing.
+  (`NewOrderSingleRef`) that read their strings, lists and groups from the message, so typed
+  parsing allocates nothing.
 - The session encodes what it sends once, straight into one reused output buffer, and the stores
   keep those bytes. The application's replies go into a list the session keeps, and a typed reply
   is written into a message the session reuses (`FixMessage::write_into`).
@@ -987,41 +987,47 @@ behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 1
 `Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,
 rather than building a `MsgType` to compare, saved nothing: finding the field is the cost.
 
-Every generated message also has a view, `NameView<'a>` (`fix_message!` makes one when given a
-third name): the message and a `u32` per declared field giving its first occurrence, with each
-value converted when its method is called, so the methods return a `Result` (and `?` in
-`on_message` still answers a malformed value with a Reject). Parsing walks the fields once, as the
-borrowed form's does, matching each tag to its field; it marks where a field is rather than
-converting it, checks each group's structure with the borrowed form's `check_group` and skips its
-entries, so a member's tag isn't taken for the message's own, and then checks that the required
-fields and groups are there. A group's entries are parsed when it's read, so a bad entry fails the
-read, not the parse. Each read converts again; a field read often is worth keeping in a local. For
-FIX 4.2's NewOrderSingle the view is 280 bytes against the borrowed struct's 1,184, and for its
-ExecutionReport 368 against 1,576. On the benchmark order (10 body fields set) and its ack (17)
-(`benches/lazy_view.rs`, Apple M3, 2026-10-31, criterion medians):
+A message's borrowed form, `NameRef<'a>`, is the message and a `u32` per declared field giving
+its first occurrence, with each value converted when its method is called, so the methods return
+a `Result` (and `?` in `on_message` still answers a malformed value with a Reject). Parsing walks
+the fields once, matching each tag to its field; it marks where a field is rather than converting
+it, checks each group's structure with `check_group` and skips its entries, so a member's tag isn't
+taken for the message's own, and then checks that the required fields and groups are there. A
+group's entries are parsed when it's read, into the group entries' borrowed form, which converts
+every field as before; so a bad entry fails the read, not the parse. Each read converts again; a
+field read often is worth keeping in a local. `into_owned` parses the owned form from the message,
+so it fails as that does. `Debug` reads every field, rather than printing the message, so a
+`Secret` is masked.
+
+Until 2026-10-31 the borrowed form was a struct with every field converted, like the owned one but
+borrowing; the lazy form was added beside it as `NameView`, and replaced it once it beat it even
+reading every field. For FIX 4.2's NewOrderSingle the lazy form is 280 bytes against the struct's
+1,184, and for its ExecutionReport 368 against 1,576. On the benchmark order (10 body fields set)
+and its ack (17) (`benches/lazy_view.rs`, since removed, Apple M3, 2026-10-31, criterion medians):
 
 | | parse | parse, read 2 fields | parse, read 10 fields |
 |---|---|---|---|
-| `NewOrderSingleRef` | 101.3 ns | 89.3 ns | 89.8 ns |
-| `NewOrderSingleView` | 36.4 ns | 36.3 ns | 80.4 ns |
-| `ExecutionReportRef` | 154.1 ns | 131.4 ns | 133.1 ns |
-| `ExecutionReportView` | 51.3 ns | 51.0 ns | 83.0 ns |
+| NewOrderSingle, struct | 101.3 ns | 89.3 ns | 89.8 ns |
+| NewOrderSingle, lazy | 36.4 ns | 36.3 ns | 80.4 ns |
+| ExecutionReport, struct | 154.1 ns | 131.4 ns | 133.1 ns |
+| ExecutionReport, lazy | 51.3 ns | 51.0 ns | 83.0 ns |
 
-The parse alone includes copying the borrowed struct into `black_box`, so it costs about 90 ns
-(NewOrderSingle) or 130 ns (ExecutionReport) in use, and its empty slots only about 10 ns of that once the fields are read: converting the values
-present is most of a typed parse either way. The view takes 40% of the time for code that reads a
-few fields of each message (routing on ClOrdID and Symbol, say) and a quarter of the memory, which
-matters to code that keeps parsed messages. The more fields a message carries, the more the view
-saves: reading 10 of the ack's 17 takes 62% of the borrowed form's time, against 90% for the
-order's 10 of 10. A prototype (2026-10-29) measured two alternatives:
-converting each value while indexing, to keep errors at the parse, was slower than the borrowed
-form once the fields were read (65.6 ns to parse, 102.8 ns to read all 10), since each read
+The struct's parse alone includes copying it into `black_box`, so it costs about 90 ns
+(NewOrderSingle) or 130 ns (ExecutionReport) in use, and its empty slots only about 10 ns of that
+once the fields are read: converting the values present is most of a typed parse either way. The
+lazy form takes 40% of the time for code that reads a few fields of each message (routing on
+ClOrdID and Symbol, say) and a quarter of the memory, which matters to code that keeps parsed
+messages. The more fields a message carries, the more it saves: reading 10 of the ack's 17 takes
+62% of the struct's time, against 90% for the order's 10 of 10. What it costs is errors at read
+time rather than at the parse, and a conversion each read. A prototype (2026-10-29) measured two
+alternatives: converting each value while indexing, to keep errors at the parse, was slower than
+the struct once the fields were read (65.6 ns to parse, 102.8 ns to read all 10), since each read
 converted again; and `u16` indices, which halve the table but need a fallback for a message of more
 than 65,535 fields, which one built in code can be. The accessors are `#[inline]`, so the thousands
 a dictionary generates aren't compiled until an application calls them: clean builds of
-`turbojet-fix` alone took 27 s and 16 s (release, debug) for FIX 4.4 before and 31 s and 16 s
-after, and 63 s and 34 s for FIX 5.0 SP2 before and 55 s and 29 s after, within the noise of a
-machine running other work. Moving rarely used fields into a boxed sub-struct was considered too,
+`turbojet-fix` alone took 27 s and 16 s (release, debug) for FIX 4.4 before the lazy form was added
+beside the struct and 31 s and 16 s after, and 63 s and 34 s for FIX 5.0 SP2 before and 55 s and
+29 s after, within the noise of a machine running other work. Moving rarely used fields into a boxed sub-struct was considered too,
 but it changes the default API, needs a rule for which fields are rare, and wins only part of
 the gain.
 
@@ -1179,6 +1185,9 @@ how the compiler happens to partition the crate.
 | Round trip over localhost TLS, 1,000 in flight | | 962k msg/s |
 | Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.4 µs | 885k msg/s |
 | Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 3.9 ms | 18.3k msg/s |
+
+The borrowed typed-parse rows predate the lazy borrowed form (2026-10-31), and measured the
+struct it replaced; the lazy form hasn't been measured on this machine yet.
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor

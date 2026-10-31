@@ -36,9 +36,14 @@ fix_message! {
 ```
 
 Each message and group comes in two forms. `SpreadOrder` owns its values: build one to send, or
-keep one. `SpreadOrderRef<'a>` borrows its strings, lists and groups from the message it was
-parsed from, so parsing it allocates nothing; read messages with it, and call `into_owned()` on
-one worth keeping:
+keep one. `SpreadOrderRef<'a>` borrows from the message it was parsed from, so parsing it
+allocates nothing; read messages with it, and call `into_owned()` on one worth keeping.
+
+Parsing a message's borrowed form only finds where its fields are, checking that the required
+ones are there and that each group matches its count. Each field is a method that converts it
+when called, so it returns a `Result`, and `?` in `on_message` still answers a malformed value
+with a Reject. A group's method parses its entries, whose own fields are plain values. Reading
+a field converts it again each time, so keep one that's read often in a local.
 
 ```rust
 # use turbojet::fields::CompactString;
@@ -62,48 +67,14 @@ one worth keeping:
 use turbojet::FixMessageRef; // into_owned
 
 let msg: Message = "8=FIX.4.4|35=U1|49=A|56=B|34=2|11=spread-1|5001=U|5002=2|5003=ACME|5003=WIDGET".parse()?;
-let order: SpreadOrderRef = msg.parse()?; // borrows from msg
-for leg in &order.legs {
-    println!("{}", leg.symbol);
-}
-let kept: SpreadOrder = order.into_owned(); // or msg.parse::<SpreadOrder>()?
-assert_eq!(kept.legs.len(), 2);
-# Ok::<(), Box<dyn std::error::Error>>(())
-```
-
-A message can have a third form, a view, which `turbojet-fix` generates for every message
-(`NewOrderSingleView`) and `fix_message!` makes when given a third name:
-`SpreadOrder / SpreadOrderRef / SpreadOrderView = "U1"`. Parsing a view only finds where the fields
-are, checking that the required ones are there and that each group matches its count; each field
-is converted when its method is called, so the methods return a `Result`, and `?` in `on_message`
-still answers a malformed value with a Reject. It suits code that reads a few fields of each
-message, such as a router that reads ClOrdID and Symbol, and takes far less memory than the
-borrowed form; code that reads every field gains little from it.
-
-```rust
-# use turbojet::fields::CompactString;
-# use turbojet::{fix_enum, fix_group, fix_message, Message};
-# mod venue_tags {
-#     pub use turbojet::message::tags::*;
-#     pub const PRIORITY: u32 = 5001;
-#     pub const NO_LEGS: u32 = 5002;
-#     pub const LEG_SYMBOL: u32 = 5003;
-# }
-# use venue_tags::*;
-# fix_enum! { Priority { Normal = "N", Urgent = "U", } }
-# fix_group! { Leg / LegRef { symbol: req CompactString = LEG_SYMBOL } }
-# fix_message! {
-#     SpreadOrder / SpreadOrderRef / SpreadOrderView = "U1" {
-#         cl_ord_id: req CompactString = CL_ORD_ID,
-#         priority: opt Priority = PRIORITY,
-#         legs: req_group Leg = NO_LEGS,
-#     }
-# }
-let msg: Message = "8=FIX.4.4|35=U1|49=A|56=B|34=2|11=spread-1|5001=U|5002=2|5003=ACME|5003=WIDGET".parse()?;
-let order: SpreadOrderView = msg.parse()?; // finds the fields
+let order: SpreadOrderRef = msg.parse()?; // finds the fields, borrowing from msg
 assert_eq!(order.cl_ord_id()?, "spread-1"); // converts this one
 assert_eq!(order.priority()?, Some(Priority::Urgent));
-assert_eq!(order.legs()?.len(), 2);
+for leg in &order.legs()? {
+    println!("{}", leg.symbol);
+}
+let kept: SpreadOrder = order.into_owned()?; // or msg.parse::<SpreadOrder>()?
+assert_eq!(kept.legs.len(), 2);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -145,8 +116,8 @@ takes a venue's own data fields.
 
 Groups are parsed from a `GroupSpec`: the group's fields in order, the first being the delimiter
 that starts each entry, with nested groups by their NumInGroup tag. Typed messages declare them
-with `fix_group!`, as a `Vec` in the owned form and a `Group` in the borrowed one, which reads
-each entry as it's iterated; FIX 4.2 NewOrderSingle has `allocs` (NoAllocs 78) and
+with `fix_group!`, as a `Vec` in the owned form and a `Group` in the borrowed one, which the
+group's method returns once every entry parses, and which reads each entry as it's iterated; FIX 4.2 NewOrderSingle has `allocs` (NoAllocs 78) and
 `trading_sessions` (NoTradingSessions 386), and ExecutionReport has `contra_brokers`
 (NoContraBrokers 382).
 
@@ -157,7 +128,7 @@ use turbojet_fix::fix42::NewOrderSingleRef;
 
 let msg: Message = "8=FIX.4.2|35=D|49=A|56=B|34=2|11=order-1|21=1|55=ACME|54=1|60=20261025-12:00:00|40=1|38=300|78=2|79=FUND1|80=100|79=FUND2|80=200".parse()?;
 let order: NewOrderSingleRef = msg.parse()?;
-for alloc in &order.allocs {
+for alloc in &order.allocs()? {
     println!("{} gets {:?}", alloc.alloc_account, alloc.alloc_shares);
 }
 
