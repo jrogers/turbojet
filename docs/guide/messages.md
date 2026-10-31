@@ -71,6 +71,42 @@ assert_eq!(kept.legs.len(), 2);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+A message can have a third form, a view, which `turbojet-fix` generates for every message
+(`NewOrderSingleView`) and `fix_message!` makes when given a third name:
+`SpreadOrder / SpreadOrderRef / SpreadOrderView = "U1"`. Parsing a view only finds where the fields
+are, checking that the required ones are there and that each group matches its count; each field
+is converted when its method is called, so the methods return a `Result`, and `?` in `on_message`
+still answers a malformed value with a Reject. It suits code that reads a few fields of each
+message, such as a router that reads ClOrdID and Symbol, and takes far less memory than the
+borrowed form; code that reads every field gains little from it.
+
+```rust
+# use turbojet::fields::CompactString;
+# use turbojet::{fix_enum, fix_group, fix_message, Message};
+# mod venue_tags {
+#     pub use turbojet::message::tags::*;
+#     pub const PRIORITY: u32 = 5001;
+#     pub const NO_LEGS: u32 = 5002;
+#     pub const LEG_SYMBOL: u32 = 5003;
+# }
+# use venue_tags::*;
+# fix_enum! { Priority { Normal = "N", Urgent = "U", } }
+# fix_group! { Leg / LegRef { symbol: req CompactString = LEG_SYMBOL } }
+# fix_message! {
+#     SpreadOrder / SpreadOrderRef / SpreadOrderView = "U1" {
+#         cl_ord_id: req CompactString = CL_ORD_ID,
+#         priority: opt Priority = PRIORITY,
+#         legs: req_group Leg = NO_LEGS,
+#     }
+# }
+let msg: Message = "8=FIX.4.4|35=U1|49=A|56=B|34=2|11=spread-1|5001=U|5002=2|5003=ACME|5003=WIDGET".parse()?;
+let order: SpreadOrderView = msg.parse()?; // finds the fields
+assert_eq!(order.cl_ord_id()?, "spread-1"); // converts this one
+assert_eq!(order.priority()?, Some(Priority::Urgent));
+assert_eq!(order.legs()?.len(), 2);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
 Text fields in the generated messages are `CompactString`s (re-exported as
 `turbojet::fields::CompactString`), which keep values of up to 24 bytes inline, so typical IDs and
 symbols are parsed and sent without allocating. Build one with `.into()` from a `&str` or `String`,

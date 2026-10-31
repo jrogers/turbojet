@@ -40,6 +40,11 @@ To generate messages with only the fields your counterparty sends, re-list them 
 file given to `turbojet-codegen --merge` (see the `turbojet-codegen` README). A field that arrives
 but isn't declared is ignored by `parse`, and rejected by `parse_strict`.
 
+Code that reads only a few fields of each message can parse its view instead
+(`NewOrderSingleView`; see [Messages][messages]), which converts only the fields read: for a FIX
+4.2 NewOrderSingle, finding its fields and reading two takes about 40% of the time of a borrowed
+parse, and the view is a quarter of the size.
+
 ## Allocations
 
 Decoding into the message a connection reuses, the session, and an application that parses its
@@ -47,4 +52,5 @@ orders borrowed (`NewOrderSingleRef`) and replies with owned messages whose text
 `CompactString` allocate nothing per order once warmed up. A test in the repository counts them
 by stage, and fails if any count changes.
 
+[messages]: messages.md
 [storage]: storage.md

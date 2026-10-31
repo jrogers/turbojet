@@ -987,29 +987,38 @@ behind an out-parameter API. Shrinking every enumerated field from 24 bytes to 1
 `Code::Unknown`'s string) saved 1 to 4%. Comparing MsgType(35)'s raw code in `Message::parse`,
 rather than building a `MsgType` to compare, saved nothing: finding the field is the cost.
 
-A lazy borrowed view was prototyped on 2026-10-29 (`benches/lazy_view.rs`): the message's
-`FieldView` and a table giving each declared field's first occurrence as a `u16`, with each value
-converted when it's read, so an accessor returns a `Result` (and `?` in `on_message` still answers
-a malformed value with a Reject). For the FIX 4.2 NewOrderSingle it's 184 bytes against the
-generated borrowed struct's 1,184; the table is 2 bytes a field, so a FIX 4.4 one (152 fields)
-would be about 352 bytes against 2,768, and a FIX 5.0 SP2 one (238) about 524. On the benchmark
-order (Apple M3, criterion medians):
+Every generated message also has a view, `NameView<'a>` (`fix_message!` makes one when given a
+third name): the message and a `u32` per declared field giving its first occurrence, with each
+value converted when its method is called, so the methods return a `Result` (and `?` in
+`on_message` still answers a malformed value with a Reject). Parsing walks the fields once, as the
+borrowed form's does, matching each tag to its field; it marks where a field is rather than
+converting it, checks each group's structure with the borrowed form's `check_group` and skips its
+entries, so a member's tag isn't taken for the message's own, and then checks that the required
+fields and groups are there. A group's entries are parsed when it's read, so a bad entry fails the
+read, not the parse. Each read converts again; a field read often is worth keeping in a local. For
+FIX 4.2's NewOrderSingle the view is 280 bytes against the borrowed struct's 1,184. On the
+benchmark order (`benches/lazy_view.rs`, Apple M3, 2026-10-31, criterion medians):
 
 | | parse | parse, read 2 fields | parse, read all 10 |
 |---|---|---|---|
-| generated `NewOrderSingleRef` | 101.3 ns | 90.5 ns | 89.7 ns |
-| view, converting on read | 43.8 ns | 44.1 ns | 83.3 ns |
-| view, converting while indexing | 65.6 ns | | 102.8 ns |
+| `NewOrderSingleRef` | 101.3 ns | 89.3 ns | 89.8 ns |
+| `NewOrderSingleView` | 36.4 ns | 36.3 ns | 80.4 ns |
 
-The parse alone includes copying the generated struct into `black_box`, so the generated form
-costs about 90 ns in use, and its empty slots only about 7 ns of that once the fields are read:
-converting the values present is most of a typed parse either way. The view halves the cost for
-code that reads a few fields of each message (routing on ClOrdID and Symbol, say), gains 7% for
-code that reads them all, and takes a sixth to an eighth of the memory, which matters to code that
-keeps parsed messages. Converting while indexing, to keep errors at the parse, converts each value
-again when it's read, and is slower than the generated form. The prototype records a group by its
-NumInGroup field without skipping its entries, and finds a data field again when it's read; 1-byte
-indices would halve the table for messages of under 255 fields.
+The parse alone includes copying the borrowed struct into `black_box`, so it costs about 90 ns in
+use, and its empty slots only about 10 ns of that once the fields are read: converting the values
+present is most of a typed parse either way. The view takes 40% of the time for code that reads a
+few fields of each message (routing on ClOrdID and Symbol, say) and a quarter of the memory, which
+matters to code that keeps parsed messages. A prototype (2026-10-29) measured two alternatives:
+converting each value while indexing, to keep errors at the parse, was slower than the borrowed
+form once the fields were read (65.6 ns to parse, 102.8 ns to read all 10), since each read
+converted again; and `u16` indices, which halve the table but need a fallback for a message of more
+than 65,535 fields, which one built in code can be. The accessors are `#[inline]`, so the thousands
+a dictionary generates aren't compiled until an application calls them: clean builds of
+`turbojet-fix` alone took 27 s and 16 s (release, debug) for FIX 4.4 before and 31 s and 16 s
+after, and 63 s and 34 s for FIX 5.0 SP2 before and 55 s and 29 s after, within the noise of a
+machine running other work. Moving rarely used fields into a boxed sub-struct was considered too,
+but it changes the default API, needs a rule for which fields are rare, and wins only part of
+the gain.
 
 Text such as `8=FIX.4.4|35=0|…` (`codec::decode_text`, `Message`'s `FromStr`) is turned into a
 wire frame and parsed by the same code as one received: fields are split at SOH or `|`, a data

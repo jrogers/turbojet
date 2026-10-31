@@ -6,11 +6,26 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- `fix_message!` makes a view of a message when given a third name,
+  `Name / NameRef / NameView = ...`: parsing one finds the message's fields, checking that the
+  required ones are there and that its groups match their counts, and each field is converted
+  when its method is called, which returns a `Result`. For code that reads a few fields of each
+  message, a view of FIX 4.2's NewOrderSingle parses in about 40% of the borrowed form's time and
+  takes 280 bytes against 1,184.
 - **Fixed:** a session took every Logon with ResetSeqNumFlag(141)=Y and MsgSeqNum 1 that arrived
   while it was logged on as a new reset. A duplicate of the reset Logon the numbers had just
   started again with made it reset again and reply, and when the counterparty took the reply the
   same way, the two kept resetting each other, throwing away what they had sent in between. Such a
   Logon arriving before anything else from the counterparty is now ignored.
+
+### `turbojet-fix`
+
+- Every message has a view, such as `NewOrderSingleView`, beside its owned and borrowed forms.
+
+### `turbojet-codegen`
+
+- Generated messages have views, named `NameView`. A message named like another's view is an
+  error, as one named like its borrowed twin is.
 
 ## 0.8.0 (2026-10-30)
 

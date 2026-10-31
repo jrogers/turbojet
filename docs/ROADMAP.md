@@ -55,21 +55,6 @@ What's left is FIX Latest and the rest of Orchestra.
 
 Each item needs a benchmark that shows the cost before the change is worth its complexity.
 
-- **Large generated messages** (M). Generated messages carry every field in the dictionary, so
-  a FIX 4.2 NewOrderSingle is 1,376 bytes owned and 1,184 borrowed, and a FIX 4.4 one 3,080 and
-  2,768, mostly empty `Option`s. That's about half of a typed parse: declaring only the 10
-  fields a FIX 4.2 order carries takes its parse from 100.5 ns to 59.5 ns borrowed and 124.0 ns
-  to 62.8 ns owned (Apple M3, 2026-10-26; see DESIGN.md). An application can have that already,
-  by re-listing its messages with only their fields in a `--merge` file; what's left would shrink
-  the default crate's messages, and each option changes what's generated:
-  - Move rarely used fields into a sub-struct per message: boxed in the owned form, parsed on
-    access in the borrowed one, which can't allocate. Changes the default API, needs a rule, or
-    per-venue configuration, for which fields are common, and wins only part of the gain.
-  - A borrowed view that keeps the message and a table from tag to field, and parses each field
-    as it's read. Prototyped (DESIGN.md, `benches/lazy_view.rs`): it halves the cost for code
-    that reads a few fields, gains 7% for code that reads them all, and is a sixth to an eighth of
-    the size, but every accessor returns a `Result`. It could be generated beside the borrowed
-    form rather than in place of it; groups are still to do.
 - **Sending on the caller's thread** (M, research). `SessionHandle::send` queues each message
   for the connection's task, and the hop to it is most of what separates a round trip sent one
   at a time through a handle (31.2 µs over localhost TCP, M4 Pro) from one replying from
