@@ -14,7 +14,7 @@ Typed application messages come from `turbojet-fix`, with a feature per FIX vers
 ```toml
 [dependencies]
 turbojet = "0.8"
-turbojet-fix = { version = "0.8", features = ["fix44"] }
+turbojet-fix = { version = "0.8", features = ["fix42"] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = "0.3"
 ```
@@ -41,8 +41,8 @@ use turbojet::{
     Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
     SessionConfig, SessionHandle,
 };
-use turbojet_fix::fix44::{
-    ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingle, NewOrderSingleRef, NewOrderSingleRequired,
+use turbojet_fix::fix42::{
+    ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, HandlInst, NewOrderSingle, NewOrderSingleRef, NewOrderSingleRequired,
     OrdStatus, OrdType, Side,
 };
 
@@ -58,8 +58,10 @@ impl Application for OrderDesk {
                 let mut ack = ExecutionReport::new(ExecutionReportRequired {
                     order_id: "O1".into(),
                     exec_id: "E1".into(),
+                    exec_trans_type: ExecTransType::New.into(),
                     exec_type: ExecType::New.into(),
                     ord_status: OrdStatus::New.into(),
+                    symbol: order.symbol()?.into(),
                     side: order.side()?.into(),
                     leaves_qty: order.order_qty()?.unwrap_or_default(),
                     cum_qty: Decimal::ZERO,
@@ -98,13 +100,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?.to_string();
-    let config = SessionConfig::new("FIX.4.4", "SERVER");
+    let config = SessionConfig::new("FIX.4.2", "SERVER");
     let server = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(OrderDesk))?;
     tokio::spawn(server.clone().serve(listener));
 
     let (logons, mut logged_on) = mpsc::unbounded_channel();
     let (messages, mut received) = mpsc::unbounded_channel();
-    let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER").with_endpoint(addr);
+    let config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint(addr);
     let app = Arc::new(Client { logons, messages });
     let client = Initiator::new(config, Arc::new(MemoryStorage::new()), app)?;
     tokio::spawn(client.clone().run());
@@ -112,11 +114,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = logged_on.recv().await.ok_or("never logged on")?;
     let mut order = NewOrderSingle::new(NewOrderSingleRequired {
         cl_ord_id: "order-1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "ACME".into(),
         side: Side::Buy.into(),
         transact_time: UtcTimestamp::now(),
         ord_type: OrdType::Market.into(),
     });
-    order.symbol = Some("ACME".into());
     order.order_qty = Some(Decimal::from(100));
     let seq = session.send(order)?.await?;
     println!("sent order-1 as MsgSeqNum {seq}");
@@ -198,14 +201,14 @@ handle, and look at what it sent:
 ```rust
 # use turbojet::fields::Decimal;
 # use turbojet::{Application, Context, Message, MessageReject, MsgType};
-# use turbojet_fix::fix44::{ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingleRef, OrdStatus};
+# use turbojet_fix::fix42::{ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, HandlInst, NewOrderSingleRef, OrdStatus};
 # struct OrderDesk;
 # impl Application for OrderDesk {
 #     fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
 #         let order: NewOrderSingleRef = msg.parse()?;
 #         let mut ack = ExecutionReport::new(ExecutionReportRequired {
-#             order_id: "O1".into(), exec_id: "E1".into(), exec_type: ExecType::New.into(),
-#             ord_status: OrdStatus::New.into(), side: order.side()?.into(), leaves_qty: order.order_qty()?.unwrap_or_default(),
+#             order_id: "O1".into(), exec_id: "E1".into(), exec_trans_type: ExecTransType::New.into(), exec_type: ExecType::New.into(),
+#             ord_status: OrdStatus::New.into(), symbol: order.symbol()?.into(), side: order.side()?.into(), leaves_qty: order.order_qty()?.unwrap_or_default(),
 #             cum_qty: Decimal::ZERO, avg_px: Decimal::ZERO,
 #         });
 #         ack.cl_ord_id = Some(order.cl_ord_id()?.into());
@@ -215,9 +218,9 @@ handle, and look at what it sent:
 # }
 use turbojet::{SessionHandle, SessionId};
 
-let session = SessionHandle::disconnected(SessionId::new("FIX.4.4", "SERVER", "CLIENT"));
+let session = SessionHandle::disconnected(SessionId::new("FIX.4.2", "SERVER", "CLIENT"));
 let mut ctx = Context::new(&session);
-let order: Message = "8=FIX.4.4|35=D|49=CLIENT|56=SERVER|34=2|11=order-1|54=1|60=20261025-12:00:00|40=1|38=100".parse()?;
+let order: Message = "8=FIX.4.2|35=D|49=CLIENT|56=SERVER|34=2|11=order-1|21=1|55=ACME|54=1|60=20261025-12:00:00|40=1|38=100".parse()?;
 OrderDesk.on_message(&mut ctx, &order)?;
 let ack: ExecutionReport = ctx.replies()[0].parse()?;
 assert_eq!(ack.cl_ord_id.as_deref(), Some("order-1"));
@@ -239,7 +242,7 @@ session-level message type, an ApplVerID the session doesn't support, or SOH in 
 
 ## FIX versions
 
-FIX 4.0 to 4.4 sessions name their version as BeginString: `SessionConfig::new("FIX.4.4",
+FIX 4.0 to 4.4 sessions name their version as BeginString: `SessionConfig::new("FIX.4.2",
 "CLIENT")`. FIX 5.0, 5.0 SP1 and 5.0 SP2 run over the FIXT 1.1 session protocol: give the session
 BeginString `FIXT.1.1` and its application version, and the engine negotiates
 DefaultApplVerID(1137) at logon (an acceptor may support several), and reports the agreed version

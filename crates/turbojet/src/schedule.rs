@@ -57,7 +57,7 @@ const _: () = assert!(MAX_CANDIDATES > 366 + 2);
 ///
 /// // A clock a test moves by hand, to see a schedule's end without waiting for it.
 /// let now = Arc::new(Mutex::new(Utc.with_ymd_and_hms(2026, 10, 26, 16, 59, 0).unwrap()));
-/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// config.clock = Clock::from_fn({
 ///     let now = now.clone();
 ///     move || *now.lock().unwrap()
@@ -391,7 +391,7 @@ enum Kind {
 ///
 /// let schedule: SessionSchedule = "daily 08:00-17:00 mon-fri UTC".parse()?;
 /// let weekly: SessionSchedule = "weekly sun 17:00-fri 17:00 UTC".parse()?;
-/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// config.schedule = Some(schedule.with_holidays("2026-12-25\n2027-01-01".parse::<HolidayCalendar>()?));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```

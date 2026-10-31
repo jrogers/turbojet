@@ -18,8 +18,8 @@ of its own:
 # }
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
-# let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
+# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+# let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
 use turbojet::tls::{ClientTls, ClientTrust, Identity, ServerTls, Trust};
 
 // Acceptor: server certificate, and client authentication (mutual TLS):
@@ -60,7 +60,7 @@ current then (sessions aren't resumed).
 # }
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 # let listener = tokio::net::TcpListener::bind("0.0.0.0:9876").await?;
 # let (cert_pem, key_pem, ca_pem, new_cert_pem, new_key_pem) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
 use turbojet::tls::{ClientTrust, Identity, ServerTls, Trust};

@@ -27,7 +27,7 @@ use crate::message::tags;
 #[non_exhaustive]
 pub struct LogFilter {
     /// Only these sessions, as [`SessionId`](crate::SessionId) displays them
-    /// (`FIX.4.4:US->THEM`). A message whose session wasn't known yet has none to match.
+    /// (`FIX.4.2:US->THEM`). A message whose session wasn't known yet has none to match.
     pub sessions: Vec<String>,
     /// Only messages received, or only messages sent.
     pub direction: Option<Direction>,

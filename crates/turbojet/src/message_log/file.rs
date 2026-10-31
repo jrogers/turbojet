@@ -43,7 +43,7 @@ pub type FinishedHook = Arc<dyn Fn(&Path) + Send + Sync>;
 /// let mut options = FileLogOptions::default();
 /// options.retention = Some(Duration::from_secs(7 * 365 * 86_400)); // seven years
 /// options.compress = true; // feature gzip
-/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// config.message_log = Some(Arc::new(FileMessageLog::open("/var/log/fix", options)?));
 /// # Ok::<(), std::io::Error>(())
 /// ```
@@ -134,7 +134,7 @@ impl Default for FileLogOptions {
 /// let mut options = FileLogOptions::default();
 /// options.retention = Some(Duration::from_secs(7 * 365 * 86_400));
 /// let log = FileMessageLog::open("/var/log/fix", options)?;
-/// let mut config = SessionConfig::new("FIX.4.4", "ME");
+/// let mut config = SessionConfig::new("FIX.4.2", "ME");
 /// config.message_log = Some(Arc::new(log));
 /// # Ok::<(), std::io::Error>(())
 /// ```

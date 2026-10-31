@@ -14,7 +14,7 @@ and correct its session's sequence numbers, connected or not:
 # }
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 let session = acceptor.handle_for("CLIENT1");
 let SequenceNumbers { next_incoming, next_outgoing, .. } = session.sequence_numbers().await?;
 session.set_next_incoming(42).await?;   // either direction
@@ -55,7 +55,7 @@ websocket, with authentication, is left to the application.
 # }
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 // Where each connected session, FIX or FIXP, stands: when and from where it connected, its
 // state, sequence numbers and last messages each way. Never waits on a session.
 for status in acceptor.statuses() {
@@ -126,7 +126,7 @@ use turbojet::{
     SessionHandle,
 };
 
-let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 // Disconnect, or DisconnectOrLogout (a Logout counts too); a grace of up to MAX_CANCEL_GRACE, an hour.
 config.cancel_on_disconnect = Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(5)));
 
@@ -178,7 +178,7 @@ connection blocked writing to a counterparty that has stopped reading, say. Shut
 # }
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 tokio::signal::ctrl_c().await?;
 acceptor.shutdown(Some("end of day")).await;
 # Ok(())
@@ -227,7 +227,7 @@ impl MessageLog for Audit {
 }
 
 let (sender, entries) = channel();
-let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 config.message_log = Some(Arc::new(Audit(sender)));
 ```
 
@@ -257,7 +257,7 @@ ignored as garbled is a record `<time> garbled <length> "<reason>" <session>`, r
 `--message-log-days N`, `--message-log-gzip`).
 
 ```rust,no_run
-# let mut config = turbojet::SessionConfig::new("FIX.4.4", "VENUE");
+# let mut config = turbojet::SessionConfig::new("FIX.4.2", "VENUE");
 use std::sync::Arc;
 use std::time::Duration;
 use turbojet::{FileLogOptions, FileMessageLog};
@@ -306,9 +306,9 @@ FIXT.1.1 uses 5.0 SP2), or from a dictionary of one's own with `--dictionary FIL
 QuickFIX XML):
 
 ```sh
-$ turbojet-log /var/log/fix --session 'FIX.4.4:US->THEM' --type D,8 --tag 11=ORD1 --since 12:00
-2026-10-08 12:00:00.000000 in  FIX.4.4:US->THEM D NewOrderSingle
-  8 BeginString=FIX.4.4
+$ turbojet-log /var/log/fix --session 'FIX.4.2:US->THEM' --type D,8 --tag 11=ORD1 --since 12:00
+2026-10-08 12:00:00.000000 in  FIX.4.2:US->THEM D NewOrderSingle
+  8 BeginString=FIX.4.2
   ...
   11 ClOrdID=ORD1
   54 Side=1 (Buy)
@@ -334,10 +334,10 @@ delivered: duplicates ignored, messages behind a gap held, invalid ones rejected
 # impl Application for App {
 #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
 # }
-# let (config, app) = (SessionConfig::new("FIX.4.4", "US"), Arc::new(App));
+# let (config, app) = (SessionConfig::new("FIX.4.2", "US"), Arc::new(App));
 use std::io;
 
-let id = SessionId::new("FIX.4.4", "US", "THEM");
+let id = SessionId::new("FIX.4.2", "US", "THEM");
 let records = FileMessageLog::files("/var/log/fix")?
     .into_iter()
     .map(|file| FileMessageLog::read(&file.path))

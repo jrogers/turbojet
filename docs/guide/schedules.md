@@ -6,7 +6,7 @@ Set `SessionConfig::schedule` (or the example gateway's `--schedule`) to confine
 trading hours:
 
 ```rust
-# let mut config = turbojet::SessionConfig::new("FIX.4.4", "CLIENT");
+# let mut config = turbojet::SessionConfig::new("FIX.4.2", "CLIENT");
 config.schedule = Some("daily 08:00-17:00 mon-fri America/New_York".parse()?);
 // or: "weekly sun 17:00-fri 17:00 America/New_York", "daily 22:00-06:00 UTC",
 //     "daily 00:00-00:00 +05:30" (continuous, new period each midnight)
@@ -45,7 +45,7 @@ comments (a sessions file names one with `holidays`, and the example gateway rea
 ```rust
 use turbojet::{HolidayCalendar, SessionSchedule};
 
-# let mut config = turbojet::SessionConfig::new("FIX.4.4", "CLIENT");
+# let mut config = turbojet::SessionConfig::new("FIX.4.2", "CLIENT");
 let holidays: HolidayCalendar = "# New York\n2026-11-26\n2026-11-27 13:00\n2026-12-25\n".parse()?; // or from a file
 let schedule: SessionSchedule = "daily 09:30-16:00 mon-fri America/New_York".parse()?;
 config.schedule = Some(schedule.with_holidays(holidays));
@@ -71,7 +71,7 @@ Venues limit how fast a counterparty may send. `SessionConfig::outbound_limit` k
 within such a limit, and `inbound_limit` holds a counterparty to one:
 
 ```rust
-# let mut config = turbojet::SessionConfig::new("FIX.4.4", "CLIENT");
+# let mut config = turbojet::SessionConfig::new("FIX.4.2", "CLIENT");
 use turbojet::InboundLimit;
 
 config.outbound_limit = Some("100/1s".parse()?); // RateLimit::new(100, Duration::from_secs(1))

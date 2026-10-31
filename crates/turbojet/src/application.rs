@@ -153,14 +153,14 @@ pub trait Application: Send + Sync + 'static {
     /// ```
     /// # use turbojet::{Context, FixMessageRef, Message, MessageReject, MsgType};
     /// # use turbojet::message::tags;
-    /// # use turbojet_fix::fix44::messages::{NewOrderSingle, NewOrderSingleRef};
+    /// # use turbojet_fix::fix42::messages::{NewOrderSingle, NewOrderSingleRef};
     /// # fn book(_: NewOrderSingle) {}
     /// fn on_message(ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
     ///     if msg.msg_type() != MsgType::NewOrderSingle {
     ///         return Err(MessageReject::unsupported_message_type());
     ///     }
     ///     let order: NewOrderSingleRef = msg.parse()?;
-    ///     if order.symbol()? == Some("XYZ") {
+    ///     if order.symbol()? == "XYZ" {
     ///         return Err(MessageReject::value_incorrect(tags::SYMBOL, "not traded here"));
     ///     }
     ///     book(order.into_owned()?);
@@ -220,9 +220,9 @@ pub enum Disconnect {
 /// }
 ///
 /// // In a unit test: a context for a disconnected session, and what it sent.
-/// let session = SessionHandle::disconnected(SessionId::new("FIX.4.4", "US", "THEM"));
+/// let session = SessionHandle::disconnected(SessionId::new("FIX.4.2", "US", "THEM"));
 /// let mut ctx = Context::new(&session);
-/// Echo.on_message(&mut ctx, &"8=FIX.4.4|35=B|148=Hello".parse()?)?;
+/// Echo.on_message(&mut ctx, &"8=FIX.4.2|35=B|148=Hello".parse()?)?;
 /// assert_eq!(ctx.replies().len(), 1);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
@@ -745,7 +745,7 @@ impl Outbox {
 ///     Ok(())
 /// }
 ///
-/// let order: Message = "8=FIX.4.4|35=D|11=order-1".parse().unwrap();
+/// let order: Message = "8=FIX.4.2|35=D|11=order-1".parse().unwrap();
 /// assert!(check(&order).is_err());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]

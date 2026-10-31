@@ -30,7 +30,7 @@ use crate::fields::UtcTimestamp;
 /// use turbojet::SessionId;
 ///
 /// // BeginString, our CompID, then the counterparty's: what an acceptor VENUE calls CLIENT1's session.
-/// let id = SessionId::new("FIX.4.4", "VENUE", "CLIENT1").with_target_sub_id("DESK2");
+/// let id = SessionId::new("FIX.4.2", "VENUE", "CLIENT1").with_target_sub_id("DESK2");
 /// assert_eq!(id.target_comp_id, "CLIENT1");
 /// println!("{id}");
 /// ```
@@ -185,8 +185,8 @@ impl SessionId {
     }
 }
 
-/// `FIX.4.4:GATEWAY->CLIENT`, or as QuickFIX writes one with more:
-/// `FIX.4.4:GATEWAY/DESK/NY->CLIENT/TRADER7:qualifier`, a LocationID without a SubID following an
+/// `FIX.4.2:GATEWAY->CLIENT`, or as QuickFIX writes one with more:
+/// `FIX.4.2:GATEWAY/DESK/NY->CLIENT/TRADER7:qualifier`, a LocationID without a SubID following an
 /// empty one (`GATEWAY//NY`).
 impl fmt::Display for SessionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -16,7 +16,7 @@ pub use data::DataFields;
 pub const SOH: u8 = 0x01;
 
 /// Tag numbers of the fields this crate reads or writes itself. Each generated version crate
-/// has a `tags` module for every field in its dictionary, e.g. `turbojet_fix::fix44::tags`.
+/// has a `tags` module for every field in its dictionary, e.g. `turbojet_fix::fix42::tags`.
 pub mod tags {
     /// Account(1).
     pub const ACCOUNT: u32 = 1;
@@ -279,7 +279,7 @@ pub fn is_header_or_trailer(tag: u32) -> bool {
 /// assert_eq!(news.get(tags::TEXT), Some("Markets open"));
 ///
 /// // Or parse one, with `|` or SOH between fields; it prints the same way.
-/// let msg: Message = "8=FIX.4.4|35=D|49=CLIENT|56=VENUE|34=2|11=order-1|38=100".parse()?;
+/// let msg: Message = "8=FIX.4.2|35=D|49=CLIENT|56=VENUE|34=2|11=order-1|38=100".parse()?;
 /// assert_eq!(msg.msg_type(), MsgType::NewOrderSingle);
 /// let qty: u64 = msg.field(tags::ORDER_QTY)?;
 /// assert_eq!(qty, 100);
@@ -1197,12 +1197,13 @@ pub mod __private {
 /// use turbojet::Message;
 /// use turbojet::message::GroupSpec;
 ///
-/// // The Parties group: PartyID(448) starts each entry, then PartyIDSource(447) and PartyRole(452).
-/// const PARTIES: GroupSpec = GroupSpec::new(&[(448, None), (447, None), (452, None)], &[0; 3]);
+/// // The ContraBrokers group: ContraBroker(375) starts each entry, then ContraTrader(337) and
+/// // ContraTradeQty(437).
+/// const CONTRA_BROKERS: GroupSpec = GroupSpec::new(&[(375, None), (337, None), (437, None)], &[0; 3]);
 ///
-/// let msg: Message = "8=FIX.4.4|35=D|453=2|448=BROKER|447=D|452=1|448=DESK|447=D|452=24".parse()?;
-/// let parties = msg.group(453, &PARTIES)?;
-/// assert_eq!(parties[1].get(448), Some("DESK"));
+/// let msg: Message = "8=FIX.4.2|35=8|382=2|375=BROKER1|437=100|375=BROKER2|337=T7|437=200".parse()?;
+/// let contras = msg.group(382, &CONTRA_BROKERS)?;
+/// assert_eq!(contras[1].get(375), Some("BROKER2"));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug)]
@@ -1919,10 +1920,12 @@ impl<'a> Iterator for Entries<'a> {
 /// ```
 /// use turbojet::fields::{Decimal, UtcTimestamp};
 /// use turbojet::{FixMessage, Message};
-/// use turbojet_fix::fix44::{NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
+/// use turbojet_fix::fix42::{HandlInst, NewOrderSingle, NewOrderSingleRequired, OrdType, Side};
 ///
 /// let mut order = NewOrderSingle::new(NewOrderSingleRequired {
 ///     cl_ord_id: "order-1".into(),
+///     handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+///     symbol: "ACME".into(),
 ///     side: Side::Buy.into(),
 ///     transact_time: UtcTimestamp::now(),
 ///     ord_type: OrdType::Market.into(),
@@ -1979,9 +1982,9 @@ pub trait FixMessage: Sized + Into<Message> {
 ///
 /// ```
 /// use turbojet::{FixMessageRef, Message};
-/// use turbojet_fix::fix44::{NewOrderSingle, NewOrderSingleRef};
+/// use turbojet_fix::fix42::{NewOrderSingle, NewOrderSingleRef};
 ///
-/// let msg: Message = "8=FIX.4.4|35=D|11=order-1|54=1|60=20261025-12:00:00|40=1".parse().unwrap();
+/// let msg: Message = "8=FIX.4.2|35=D|11=order-1|21=1|55=ACME|54=1|60=20261025-12:00:00|40=1".parse().unwrap();
 /// let order: NewOrderSingleRef = msg.parse()?; // borrows from msg
 /// assert_eq!(order.cl_ord_id()?, "order-1");
 /// let kept: NewOrderSingle = order.into_owned()?; // to keep it past msg

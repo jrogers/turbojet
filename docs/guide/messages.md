@@ -66,7 +66,7 @@ a field converts it again each time, so keep one that's read often in a local.
 # }
 use turbojet::FixMessageRef; // into_owned
 
-let msg: Message = "8=FIX.4.4|35=U1|49=A|56=B|34=2|11=spread-1|5001=U|5002=2|5003=ACME|5003=WIDGET".parse()?;
+let msg: Message = "8=FIX.4.2|35=U1|49=A|56=B|34=2|11=spread-1|5001=U|5002=2|5003=ACME|5003=WIDGET".parse()?;
 let order: SpreadOrderRef = msg.parse()?; // finds the fields, borrowing from msg
 assert_eq!(order.cl_ord_id()?, "spread-1"); // converts this one
 assert_eq!(order.priority()?, Some(Priority::Urgent));
@@ -103,8 +103,8 @@ passwords masked), and text in that form parses back into one, with SOH or `|` b
 ```rust
 use turbojet::Message;
 
-let msg: Message = "8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=125|".parse()?;
-let msg: Message = "8=FIX.4.4|35=0|49=A|56=B|34=1".parse()?; // BodyLength and CheckSum added
+let msg: Message = "8=FIX.4.2|9=20|35=0|49=A|56=B|34=1|10=123|".parse()?;
+let msg: Message = "8=FIX.4.2|35=0|49=A|56=B|34=1".parse()?; // BodyLength and CheckSum added
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
@@ -134,10 +134,10 @@ for alloc in &order.allocs()? {
 
 // Raw access, without a typed definition: one zero-copy view per entry.
 // Each field (the delimiter first), and for each a data field's Length tag, else 0.
-const PARTIES: GroupSpec = GroupSpec::new(&[(448, None), (447, None), (452, None)], &[0; 3]);
-let msg: Message = "8=FIX.4.4|35=D|49=A|56=B|34=2|453=2|448=BROKER|447=D|452=1|448=DESK|447=D|452=24".parse()?;
-for party in msg.group(453, &PARTIES)? {
-    println!("{:?} role {:?}", party.get(448), party.get(452));
+const CONTRA_BROKERS: GroupSpec = GroupSpec::new(&[(375, None), (337, None), (437, None)], &[0; 3]);
+let msg: Message = "8=FIX.4.2|35=8|49=A|56=B|34=2|382=2|375=BROKER1|437=100|375=BROKER2|337=T7|437=200".parse()?;
+for contra in msg.group(382, &CONTRA_BROKERS)? {
+    println!("{:?} traded {:?}", contra.get(375), contra.get(437));
 }
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```

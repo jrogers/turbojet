@@ -67,8 +67,8 @@ pub type ReceiptSender = oneshot::Sender<Result<u64, Dropped>>;
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let session: SessionHandle = SessionHandle::disconnected(SessionId::new("FIX.4.4", "US", "THEM"));
-/// # let news: Message = "8=FIX.4.4|35=B|148=Hello".parse()?;
+/// # let session: SessionHandle = SessionHandle::disconnected(SessionId::new("FIX.4.2", "US", "THEM"));
+/// # let news: Message = "8=FIX.4.2|35=B|148=Hello".parse()?;
 /// if let Ok(receipt) = session.send(news) {
 ///     match receipt.await {
 ///         Ok(seq) => println!("stored as MsgSeqNum {seq}: resent if the counterparty misses it"),
@@ -644,7 +644,7 @@ impl LiveStatus {
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 /// let mut events = acceptor.subscribe();
 /// loop {
 ///     match events.recv().await {
@@ -751,7 +751,7 @@ pub struct Activity {
 /// # impl Application for App {
 /// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
 /// # }
-/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 /// for status in acceptor.statuses() {
 ///     let state = status.activity.as_ref().map(|activity| activity.state);
 ///     println!("{} since {} from {:?}: {state:?}", status.id, status.since, status.connection.addr);
@@ -801,11 +801,11 @@ fn status<T>(id: &SessionId, entry: &Entry<T>, paused: bool) -> Option<SessionSt
 /// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
 /// # }
 /// let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
-/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE").with_endpoint("venue.example.com:9876");
+/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE").with_endpoint("venue.example.com:9876");
 /// let initiator = Initiator::with_registry(config, registry.clone(), Arc::new(App))?;
 ///
 /// // Handles from the registry outlive the initiator, and see every session sharing it.
-/// let handle = registry.handle(SessionId::new("FIX.4.4", "CLIENT", "VENUE"));
+/// let handle = registry.handle(SessionId::new("FIX.4.2", "CLIENT", "VENUE"));
 /// let events = registry.subscribe();
 /// println!("{} connected", registry.statuses().len());
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -1391,9 +1391,9 @@ impl<T> Drop for SessionRegistry<T> {
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+/// # let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "VENUE"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
 /// let session = acceptor.handle_for("CLIENT1"); // valid whether or not it's connected
-/// match session.send("8=FIX.4.4|35=B|148=Hello".parse::<Message>()?) {
+/// match session.send("8=FIX.4.2|35=B|148=Hello".parse::<Message>()?) {
 ///     Ok(receipt) => println!("stored as {}", receipt.await?),
 ///     Err(SendError::NotConnected(_)) => println!("{} isn't logged on", session.id()),
 ///     Err(e) => return Err(e.into()),

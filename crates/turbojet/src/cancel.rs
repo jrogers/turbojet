@@ -22,7 +22,7 @@ use crate::store::SessionId;
 /// use std::time::Duration;
 /// use turbojet::{CancelOnDisconnect, CancelTrigger, SessionConfig};
 ///
-/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// // Cancel if a session drops without a Logout and isn't back within 5 s.
 /// config.cancel_on_disconnect = Some(CancelOnDisconnect::new(CancelTrigger::Disconnect, Duration::from_secs(5)));
 /// ```

@@ -163,7 +163,7 @@ impl fmt::Display for Per {
 /// ```
 /// use turbojet::{InboundLimit, SessionConfig};
 ///
-/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// // Stop reading while the counterparty is over 50 a second, so TCP slows it down;
 /// // InboundLimit::Reject answers each message over it with a BusinessMessageReject instead.
 /// config.inbound_limit = Some(InboundLimit::Delay("50/1s".parse()?));

@@ -5,7 +5,7 @@ counterparties, initiators and their stores, read from TOML and reloaded while r
 
 ```toml
 [acceptor]
-begin_string = "FIX.4.4"
+begin_string = "FIX.4.2"
 sender_comp_id = "VENUE"
 listen = "0.0.0.0:9876"
 unknown = "refuse"                  # or "admit": unlisted counterparties get [defaults]

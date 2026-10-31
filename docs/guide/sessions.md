@@ -17,12 +17,12 @@ the same counterparty:
 # impl Application for App {
 #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
 # }
-# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
-let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
+# let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "SERVER"), Arc::new(MemoryStorage::new()), Arc::new(App))?;
+let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
 config.sender_sub_id = Some("DESK1".into());
 config.target_location_id = Some("LDN".into());
 
-let id = SessionId::new("FIX.4.4", "SERVER", "CLIENT").with_target_sub_id("DESK1");
+let id = SessionId::new("FIX.4.2", "SERVER", "CLIENT").with_target_sub_id("DESK1");
 let session = acceptor.handle(&id); // acceptor.handle_for("CLIENT") is the session without them
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
@@ -115,8 +115,8 @@ dictionary, from `turbojet-dictionary`, before the application or the session ac
 use turbojet::SessionConfig;
 use turbojet_dictionary::Dictionary;
 
-let dict = Dictionary::from_file("dictionaries/orchestra/OrchestraFIX44.xml")?;
-let config = SessionConfig::new("FIX.4.4", "GATEWAY").with_dictionary(&dict);
+let dict = Dictionary::from_file("dictionaries/orchestra/OrchestraFIX42.xml")?;
+let config = SessionConfig::new("FIX.4.2", "GATEWAY").with_dictionary(&dict);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 

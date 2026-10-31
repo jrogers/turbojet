@@ -39,7 +39,7 @@ pub struct Replayed {
 /// Feeds the messages `session` received, as `records` recorded them, to `app` again: through a
 /// [`Session`] as an acceptor with `config` (as in production), at the recorded times, to
 /// reproduce a problem away from production. `session` is as the log names it,
-/// `FIX.4.4:US->THEM`; `records` is [`FileMessageLog::read`](super::FileMessageLog::read), or
+/// `FIX.4.2:US->THEM`; `records` is [`FileMessageLog::read`](super::FileMessageLog::read), or
 /// several files' records chained.
 ///
 /// The log records no connections, so each inbound Logon starts one, ending any still open. Each

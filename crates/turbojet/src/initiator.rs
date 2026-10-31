@@ -31,7 +31,7 @@ use crate::store::{SessionId, SessionStorage};
 /// use std::time::Duration;
 /// use turbojet::{InitiatorConfig, ReconnectPolicy, SessionConfig};
 ///
-/// let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE")
+/// let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE")
 ///     .with_endpoint("venue.example.com:9876")
 ///     .with_endpoint("dr.venue.example.com:9876"); // a backup, tried in turn
 /// config.heartbeat_interval = Duration::from_secs(30);
@@ -209,7 +209,7 @@ pub(crate) fn endpoints_problem(
 /// ```
 /// use turbojet::{Endpoint, InitiatorConfig, SessionConfig};
 ///
-/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE")
+/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE")
 ///     .with_endpoint("venue.example.com:9876")
 ///     .with_endpoint(Endpoint::new("10.1.2.3:9876").with_tls_server_name("venue.example.com"));
 /// ```
@@ -298,12 +298,12 @@ impl std::fmt::Debug for InitiatorTls {
 /// # }
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "VENUE").with_endpoint("venue.example.com:9876");
+/// let config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "VENUE").with_endpoint("venue.example.com:9876");
 /// let initiator = Initiator::new(config, Arc::new(DiskStorage::new("./store")?), Arc::new(App))?;
 /// tokio::spawn(initiator.clone().run()); // connects, and reconnects, until shut down
 ///
 /// // Valid across reconnects; sends wait in its queue until the session has logged on.
-/// let seq = initiator.handle().send("8=FIX.4.4|35=B|148=Hello".parse::<Message>()?)?.await?;
+/// let seq = initiator.handle().send("8=FIX.4.2|35=B|148=Hello".parse::<Message>()?)?.await?;
 /// initiator.shutdown(None).await;
 /// # Ok(())
 /// # }

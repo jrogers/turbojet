@@ -9,9 +9,9 @@ marks required that counterparties leave out).
 ```rust,no_run
 use turbojet_dictionary::Dictionary;
 
-let mut dict = Dictionary::from_file("OrchestraFIX44.xml")?;
+let mut dict = Dictionary::from_file("OrchestraFIX42.xml")?;
 dict.merge_file("venue.xml")?;
-dict.make_optional("QuoteCancel", "NoQuoteEntries")?;
+dict.make_optional("NewOrderSingle", "HandlInst")?;
 let side = dict.field("Side").unwrap();
 assert_eq!(side.tag, 54);
 # Ok::<(), turbojet_dictionary::Error>(())

@@ -113,7 +113,7 @@ impl ConfigError {
 /// use std::time::Duration;
 /// use turbojet::{InboundLimit, SessionConfig};
 ///
-/// let mut config = SessionConfig::new("FIX.4.4", "VENUE");
+/// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// config.schedule = Some("daily 08:00-17:00 mon-fri UTC".parse()?);
 /// config.max_latency = Some(Duration::from_secs(30)); // SendingTime tolerance
 /// config.inbound_limit = Some(InboundLimit::Delay("100/1s".parse()?));
@@ -123,7 +123,7 @@ impl ConfigError {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SessionConfig {
-    /// BeginString(8), e.g. `FIX.4.4`, or `FIXT.1.1` with [`with_appl_ver_id`](Self::with_appl_ver_id).
+    /// BeginString(8), e.g. `FIX.4.2`, or `FIXT.1.1` with [`with_appl_ver_id`](Self::with_appl_ver_id).
     pub begin_string: String,
     /// Our CompID.
     pub sender_comp_id: String,
@@ -311,7 +311,7 @@ impl SessionConfig {
     ///
     /// ```
     /// # use turbojet::SessionConfig;
-    /// let config = SessionConfig::new("FIX.4.4", "VENUE").with_data_field(5000, 5001);
+    /// let config = SessionConfig::new("FIX.4.2", "VENUE").with_data_field(5000, 5001);
     /// ```
     #[must_use]
     pub fn with_data_field(mut self, length_tag: u32, data_tag: u32) -> Self {
@@ -601,11 +601,11 @@ struct Resend {
 ///
 /// let registry = Arc::new(SessionRegistry::new(Arc::new(MemoryStorage::new())));
 /// let now = Instant::now();
-/// let (mut session, _commands) = Session::acceptor(SessionConfig::new("FIX.4.4", "VENUE"), registry, Arc::new(App), now)?;
+/// let (mut session, _commands) = Session::acceptor(SessionConfig::new("FIX.4.2", "VENUE"), registry, Arc::new(App), now)?;
 ///
 /// // What a driver does with each frame it decodes: feed it, commit, write the output.
 /// let logon = Message::default()
-///     .with(tags::BEGIN_STRING, "FIX.4.4")
+///     .with(tags::BEGIN_STRING, "FIX.4.2")
 ///     .with(tags::MSG_TYPE, MsgType::Logon)
 ///     .with(tags::SENDER_COMP_ID, "CLIENT")
 ///     .with(tags::TARGET_COMP_ID, "VENUE")

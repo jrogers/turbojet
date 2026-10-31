@@ -69,7 +69,7 @@ impl std::fmt::Display for ParseMessageError {
 impl std::error::Error for ParseMessageError {}
 
 /// Parses a message from text as logs and tools show it, such as
-/// `8=FIX.4.4|9=20|35=0|49=A|56=B|34=1|10=125|`: fields separated by SOH or `|`, a separator after
+/// `8=FIX.4.2|9=20|35=0|49=A|56=B|34=1|10=123|`: fields separated by SOH or `|`, a separator after
 /// the last field optional. A data field in `data` that follows its Length field is read by that
 /// length, so its value may contain either separator. BodyLength(9) and CheckSum(10) are checked
 /// when they're there, counting each separator as the SOH it stands for, and added when they

@@ -34,7 +34,7 @@ use crate::telemetry;
 /// # impl Application for App {
 /// #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
 /// # }
-/// let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+/// let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "VENUE"));
 /// config.max_connections_per_ip = 4;
 /// config.allowed_ips = Some(AllowedIps::new(["10.0.0.0/8"])?);
 /// let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(App))?;
@@ -147,12 +147,12 @@ const REFUSALS_REPORTED_EVERY: Duration = Duration::from_secs(60);
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let storage = Arc::new(DiskStorage::new("./store")?);
-/// let acceptor = Acceptor::new(SessionConfig::new("FIX.4.4", "VENUE"), storage, Arc::new(App))?;
+/// let acceptor = Acceptor::new(SessionConfig::new("FIX.4.2", "VENUE"), storage, Arc::new(App))?;
 /// let listener = tokio::net::TcpListener::bind("0.0.0.0:9876").await?;
 /// tokio::spawn(acceptor.clone().serve(listener));
 ///
 /// // From anywhere: send to a counterparty while it's logged on.
-/// let receipt = acceptor.handle_for("CLIENT1").send("8=FIX.4.4|35=B|148=Hello".parse::<Message>()?)?;
+/// let receipt = acceptor.handle_for("CLIENT1").send("8=FIX.4.2|35=B|148=Hello".parse::<Message>()?)?;
 ///
 /// tokio::signal::ctrl_c().await?;
 /// acceptor.shutdown(Some("closing")).await; // logs every session out

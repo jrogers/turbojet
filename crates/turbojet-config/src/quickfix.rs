@@ -116,7 +116,7 @@ fn proxy(session: &mut Session, problems: &mut Vec<String>) -> Option<String> {
 
 /// A `[SESSION]`, with `[DEFAULT]` merged in, and what's been taken from it.
 struct Session {
-    /// For messages: `[SESSION] 2 (FIX.4.4:EXEC->BANZAI)`.
+    /// For messages: `[SESSION] 2 (FIX.4.2:EXEC->BANZAI)`.
     name: String,
     keys: BTreeMap<String, String>,
     taken: BTreeSet<String>,

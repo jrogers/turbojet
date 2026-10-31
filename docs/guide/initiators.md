@@ -16,7 +16,7 @@ tried in order:
 #     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
 # }
 # let (storage, app) = (Arc::new(MemoryStorage::new()), Arc::new(App));
-let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER")
+let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER")
     .with_endpoint("primary.example.com:9876")
     .with_endpoint("dr.example.com:9876")
     .with_endpoint(Endpoint::new("10.1.2.3:9876").with_tls_server_name("dr2.example.com"));
@@ -48,7 +48,7 @@ the same every time:
 use std::time::Duration;
 use turbojet::{InitiatorConfig, ReconnectPolicy, SessionConfig};
 
-let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
+let mut config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
 config.reconnect = ReconnectPolicy::fixed(Duration::from_secs(5));
 ```
 
@@ -70,7 +70,7 @@ configuration files it's an initiator's `proxy`, with the password in the enviro
 `proxy_password_env` names.
 
 ```rust
-# let mut config = turbojet::InitiatorConfig::new(turbojet::SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER");
+# let mut config = turbojet::InitiatorConfig::new(turbojet::SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER");
 # let password = "secret";
 use turbojet::Proxy;
 

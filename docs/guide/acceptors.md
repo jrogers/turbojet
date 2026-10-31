@@ -32,13 +32,13 @@ let counterparties = CounterpartyMap::new()
         c.heartbeat = Duration::from_secs(10)..=Duration::from_secs(60);
     })
     // One of BROKER's sessions, told apart by its SubID, with settings of its own.
-    .with_session(SessionId::new("FIX.4.4", "VENUE", "BROKER").with_target_sub_id("DESK2"), |c| {
+    .with_session(SessionId::new("FIX.4.2", "VENUE", "BROKER").with_target_sub_id("DESK2"), |c| {
         c.config.max_latency = None;
     })
     .refuse_unknown(); // or admit others with the acceptor's own settings
 let storage = StorageByCounterparty::new(Arc::new(MemoryStorage::new()))
     .with("FUND", Arc::new(DiskStorage::new(dir.path())?));
-let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "VENUE"));
 config.counterparties = Some(Arc::new(counterparties));
 let acceptor = Acceptor::new(config, Arc::new(storage), app)?;
 # Ok::<(), Box<dyn std::error::Error>>(())
@@ -77,7 +77,7 @@ stay. In a sessions file it's `allowed_ips` in `[acceptor]`, reloaded with the r
 # let (storage, app) = (Arc::new(MemoryStorage::new()), Arc::new(App));
 use turbojet::AllowedIps;
 
-let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "VENUE"));
 config.allowed_ips = Some(AllowedIps::new(["10.1.0.0/16", "203.0.113.5"])?);
 config.proxy_protocol = Some(AllowedIps::new(["10.9.0.10", "10.9.0.11"])?); // the load balancers
 let acceptor = Acceptor::new(config, storage, app)?;

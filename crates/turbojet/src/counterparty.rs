@@ -139,7 +139,7 @@ type Adjust = Box<dyn Fn(&mut Counterparty) + Send + Sync>;
 ///     .with("BROKER", |c| c.config.schedule = Some("daily 08:00-17:00".parse().unwrap()))
 ///     .with("FUND", |c| c.require_client_certificate = true)
 ///     .refuse_unknown();
-/// let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.4", "VENUE"));
+/// let mut config = AcceptorConfig::new(SessionConfig::new("FIX.4.2", "VENUE"));
 /// config.counterparties = Some(Arc::new(counterparties));
 /// let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(App)).unwrap();
 /// ```

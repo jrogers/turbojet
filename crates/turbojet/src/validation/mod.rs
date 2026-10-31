@@ -68,11 +68,11 @@ type FastSet<T> = HashSet<T, Fast>;
 /// use turbojet::validation::{ValidationOptions, Validator};
 /// use turbojet_dictionary::Dictionary;
 ///
-/// let dict = Dictionary::from_file("FIX44.xml")?;
+/// let dict = Dictionary::from_file("FIX42.xml")?;
 /// let mut options = ValidationOptions::default(); // QuickFIX's defaults
 /// options.allow_user_defined_tags = true; // a venue's tags from 5000 up
 /// options.application_values = true; // reject codes the dictionary doesn't list, in any message
-/// let config = SessionConfig::new("FIX.4.4", "VENUE").with_validator(Validator::new(&dict).with_options(options));
+/// let config = SessionConfig::new("FIX.4.2", "VENUE").with_validator(Validator::new(&dict).with_options(options));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

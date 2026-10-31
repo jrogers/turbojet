@@ -6,7 +6,7 @@ direction, MsgType, a field's value or a time range.
 
 ```sh
 cargo install turbojet-log
-turbojet-log /var/log/fix --session 'FIX.4.4:US->THEM' --type D,8 --tag 11=ORD1 --since 12:00
+turbojet-log /var/log/fix --session 'FIX.4.2:US->THEM' --type D,8 --tag 11=ORD1 --since 12:00
 ```
 
 Names come from the standard FIX 4.2, 4.3, 4.4 and 5.0 SP2 dictionaries (FIX Orchestra, by the

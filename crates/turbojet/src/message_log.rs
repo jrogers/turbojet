@@ -63,7 +63,7 @@ pub use replay::{Replayed, replay};
 ///
 /// let (sender, receiver) = channel();
 /// let audit = Audit(sender);
-/// audit.inbound(None, b"8=FIX.4.4\x01...");
+/// audit.inbound(None, b"8=FIX.4.2\x01...");
 /// assert!(receiver.recv().unwrap().0);
 /// ```
 pub trait MessageLog: Send + Sync + fmt::Debug {

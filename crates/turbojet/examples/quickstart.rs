@@ -10,9 +10,9 @@ use turbojet::{
     Acceptor, Application, Context, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
     SessionConfig, SessionHandle,
 };
-use turbojet_fix::fix44::{
-    ExecType, ExecutionReport, ExecutionReportRequired, NewOrderSingle, NewOrderSingleRef, NewOrderSingleRequired,
-    OrdStatus, OrdType, Side,
+use turbojet_fix::fix42::{
+    ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, HandlInst, NewOrderSingle, NewOrderSingleRef,
+    NewOrderSingleRequired, OrdStatus, OrdType, Side,
 };
 
 /// Acknowledges every order.
@@ -27,8 +27,10 @@ impl Application for OrderDesk {
                 let mut ack = ExecutionReport::new(ExecutionReportRequired {
                     order_id: "O1".into(),
                     exec_id: "E1".into(),
+                    exec_trans_type: ExecTransType::New.into(),
                     exec_type: ExecType::New.into(),
                     ord_status: OrdStatus::New.into(),
+                    symbol: order.symbol()?.into(),
                     side: order.side()?.into(),
                     leaves_qty: order.order_qty()?.unwrap_or_default(),
                     cum_qty: Decimal::ZERO,
@@ -67,13 +69,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?.to_string();
-    let config = SessionConfig::new("FIX.4.4", "SERVER");
+    let config = SessionConfig::new("FIX.4.2", "SERVER");
     let server = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(OrderDesk))?;
     tokio::spawn(server.clone().serve(listener));
 
     let (logons, mut logged_on) = mpsc::unbounded_channel();
     let (messages, mut received) = mpsc::unbounded_channel();
-    let config = InitiatorConfig::new(SessionConfig::new("FIX.4.4", "CLIENT"), "SERVER").with_endpoint(addr);
+    let config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint(addr);
     let app = Arc::new(Client { logons, messages });
     let client = Initiator::new(config, Arc::new(MemoryStorage::new()), app)?;
     tokio::spawn(client.clone().run());
@@ -81,11 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = logged_on.recv().await.ok_or("never logged on")?;
     let mut order = NewOrderSingle::new(NewOrderSingleRequired {
         cl_ord_id: "order-1".into(),
+        handl_inst: HandlInst::AutomatedExecutionNoIntervention.into(),
+        symbol: "ACME".into(),
         side: Side::Buy.into(),
         transact_time: UtcTimestamp::now(),
         ord_type: OrdType::Market.into(),
     });
-    order.symbol = Some("ACME".into());
     order.order_qty = Some(Decimal::from(100));
     let seq = session.send(order)?.await?;
     println!("sent order-1 as MsgSeqNum {seq}");
