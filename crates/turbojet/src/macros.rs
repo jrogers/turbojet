@@ -218,7 +218,7 @@ macro_rules! fix_enum {
 ///
 /// fix_message! {
 ///     /// The venue's order acknowledgement, MsgType U1.
-///     VenueAck / VenueAckRef = "U1" {
+///     VenueAck / VenueAckRef / VenueAckView = "U1" {
 ///         cl_ord_id: req String = CL_ORD_ID,
 ///         flag: opt VenueFlag = VENUE_FLAG,
 ///         notes: group Note = NO_NOTES,
@@ -240,6 +240,12 @@ macro_rules! fix_enum {
 /// assert_eq!(borrowed.cl_ord_id, "ORD1");
 /// assert_eq!(borrowed.notes.iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
 /// assert_eq!(borrowed.into_owned(), ack);
+///
+/// // A view: each field is converted as it's read.
+/// let view: VenueAckView = msg.parse().unwrap();
+/// assert_eq!(view.cl_ord_id().unwrap(), "ORD1");
+/// assert_eq!(view.flag().unwrap(), Some(VenueFlag::Urgent));
+/// assert_eq!(view.notes().unwrap().iter().map(|n| n.note).collect::<Vec<_>>(), ["queued"]);
 /// ```
 ///
 /// A tag that doesn't exist fails to compile, rather than silently matching everything:
@@ -256,22 +262,22 @@ macro_rules! fix_message {
     // The message's attributes travel as token trees, so `@attrs` can sort them.
     (
         $(#[$($meta:tt)*])*
-        $name:ident / $ref_name:ident = $msg_type:ident {
+        $name:ident / $ref_name:ident $(/ $view_name:ident)? = $msg_type:ident {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
         $crate::fix_message!(@attrs fix_message [] [] [] [] [$(#[$($meta)*])*]
-            $name, $ref_name, $crate::fields::MsgType::$msg_type,
+            $name, $ref_name, [$($view_name)?], $crate::fields::MsgType::$msg_type,
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     (
         $(#[$($meta:tt)*])*
-        $name:ident / $ref_name:ident = $msg_type:literal {
+        $name:ident / $ref_name:ident $(/ $view_name:ident)? = $msg_type:literal {
             $( $(#[$fmeta:meta])* $field:ident : $presence:ident $ty:ty = $tag:path $(=> $data:path)? ),+ $(,)?
         }
     ) => {
         $crate::fix_message!(@attrs fix_message [] [] [] [] [$(#[$($meta)*])*]
-            $name, $ref_name, $crate::fields::MsgType::from_static($msg_type),
+            $name, $ref_name, [$($view_name)?], $crate::fields::MsgType::from_static($msg_type),
             $( [$(#[$fmeta])*] $field : $presence $ty = [$tag $(=> $data)?] ),+);
     };
     // Sorts a message's or group's attributes into its docs, which are the owned struct's alone;
@@ -310,8 +316,11 @@ macro_rules! fix_message {
     (@attrs $target:ident [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] [] $($body:tt)*) => {
         $crate::$target!(@typed [$($doc)*] [$($shared)*] [$($owned)*] [$($cfg)*] $($body)*);
     };
-    (@typed [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $msg_type:expr,
+    (@typed [$($doc:tt)*] [$($shared:tt)*] [$($owned:tt)*] [$($cfg:tt)*] $name:ident, $ref_name:ident, $view:tt, $msg_type:expr,
         $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
+        $crate::fix_message!(@view $view [$($shared)*] [$($cfg)*] $name, $msg_type,
+            $( [$(#[$fmeta])*] $field : $presence $ty = $tags ),+);
+
         $($doc)*
         $($shared)*
         $($owned)*
@@ -402,6 +411,160 @@ macro_rules! fix_message {
             fn from(body: $ref_name<'_>) -> Self {
                 $crate::message::FixMessageRef::into_owned(body)
             }
+        }
+    };
+    // The view, if the message names one: the message and each field's first occurrence, one
+    // private `u32` per field, named as the field and read through the method of the same name.
+    // Parsing marks where the fields are, checking the groups' structure and that the required
+    // fields are there; a value is converted only when it's read. The accessors are `#[inline]`, so
+    // a dictionary's thousands of them cost nothing to build until an application calls them.
+    (@view [] $($rest:tt)*) => {};
+    (@view [$view:ident] [$($shared:tt)*] [$($cfg:tt)*] $name:ident, $msg_type:expr,
+        $( [$(#[$fmeta:meta])*] $field:ident : $presence:ident $ty:ty = $tags:tt ),+) => {
+        #[doc = concat!("A view of a [`", stringify!($name), "`]: parsing finds its fields, and each is converted as it's read.")]
+        #[doc = ""]
+        #[doc = "Parsing fails on a group that doesn't match its count or order, or a required field missing; a"]
+        #[doc = "value that doesn't convert fails only when it's read."]
+        $($shared)*
+        #[derive(Clone, Copy)]
+        pub struct $view<'a> {
+            // Named to stay clear of the fields, which are named as declared.
+            __msg: &'a $crate::message::Message,
+            $( $field: u32, )+
+        }
+
+        $($cfg)*
+        // An accessor per field, of which an application reads a few.
+        #[allow(deprecated, dead_code)]
+        impl<'a> $view<'a> {
+            /// The message viewed, for its header fields, say.
+            #[inline]
+            pub fn message(&self) -> &'a $crate::message::Message {
+                self.__msg
+            }
+
+            $( $crate::fix_message!(@accessor [$(#[$fmeta])*] $presence $ty, $field, $tags); )+
+
+            fn __parse(msg: &'a $crate::message::Message, strict: bool) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                let fields = msg.view();
+                let mut view = Self { __msg: msg, $( $field: $crate::message::__private::ABSENT, )+ };
+                let mut undeclared: ::std::option::Option<u32> = None;
+                let (mut index, end) = fields.bounds();
+                #[allow(unreachable_patterns)]
+                while index < end {
+                    let (tag, _) = fields.at(index);
+                    index = match tag {
+                        $( $crate::fix_message!(@pattern $tags) =>
+                            $crate::fix_message!(@mark $presence $ty, view.$field, fields, index, tag, $tags), )+
+                        _ => {
+                            if strict && undeclared.is_none() && !$crate::message::is_header_or_trailer(tag) {
+                                undeclared = Some(tag);
+                            }
+                            index + 1
+                        }
+                    };
+                }
+                $(
+                    if $crate::fix_message!(@unmarked $presence, msg, view.$field) {
+                        return Err($crate::message::FieldError {
+                            tag: $crate::fix_message!(@key $tags),
+                            kind: $crate::message::FieldErrorKind::Missing,
+                        });
+                    }
+                )+
+                if let Some(tag) = undeclared {
+                    return Err($crate::message::FieldError { tag, kind: $crate::message::FieldErrorKind::NotDefined });
+                }
+                Ok(view)
+            }
+        }
+
+        $($cfg)*
+        impl ::core::fmt::Debug for $view<'_> {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                f.debug_tuple(stringify!($view)).field(self.__msg).finish()
+            }
+        }
+
+        $($cfg)*
+        #[allow(deprecated)]
+        impl<'a> $crate::message::FromMessage<'a> for $view<'a> {
+            const PARSED_MSG_TYPE: $crate::fields::MsgType = $msg_type;
+
+            fn parse_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                Self::__parse(msg, false)
+            }
+
+            fn parse_strict_from(msg: &'a $crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                Self::__parse(msg, true)
+            }
+        }
+    };
+    // Marks a field's first occurrence, returning the index to read next: past a group's entries.
+    (@mark req $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {{
+        $crate::message::__private::mark(&mut $at, $index);
+        $index + 1
+    }};
+    (@mark opt $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {
+        $crate::fix_message!(@mark req $ty, $at, $fields, $index, $tag, $tags)
+    };
+    (@mark group $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {
+        $crate::message::__private::mark_group::<$ty>(&mut $at, &$fields, $index, $tag)?
+    };
+    (@mark req_group $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {
+        $crate::fix_message!(@mark group $ty, $at, $fields, $index, $tag, $tags)
+    };
+    // A data field's Length field matches too; the data field's own tag is the one marked.
+    (@mark data $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {{
+        if $tag == $crate::fix_message!(@key $tags) {
+            $crate::message::__private::mark(&mut $at, $index);
+        }
+        $index + 1
+    }};
+    (@mark opt_data $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {
+        $crate::fix_message!(@mark data $ty, $at, $fields, $index, $tag, $tags)
+    };
+    // Whether a field fails the view's parse as missing.
+    (@unmarked req, $msg:ident, $at:expr) => { $at == $crate::message::__private::ABSENT };
+    (@unmarked data, $msg:ident, $at:expr) => { $at == $crate::message::__private::ABSENT };
+    (@unmarked req_group, $msg:ident, $at:expr) => { $crate::message::__private::group_missing($msg, $at) };
+    (@unmarked $presence:ident, $msg:ident, $at:expr) => { false };
+    (@accessor [$($fmeta:tt)*] req $ty:ty, $field:ident, $tags:tt) => {
+        $($fmeta)*
+        #[inline]
+        pub fn $field(&self) -> ::core::result::Result<<$ty as $crate::fields::FieldRef<'a>>::Ref, $crate::message::FieldError> {
+            $crate::message::__private::read_required::<$ty>(self.__msg, self.$field, $crate::fix_message!(@key $tags))
+        }
+    };
+    (@accessor [$($fmeta:tt)*] opt $ty:ty, $field:ident, $tags:tt) => {
+        $($fmeta)*
+        #[inline]
+        pub fn $field(&self) -> ::core::result::Result<Option<<$ty as $crate::fields::FieldRef<'a>>::Ref>, $crate::message::FieldError> {
+            $crate::message::__private::read::<$ty>(self.__msg, self.$field, $crate::fix_message!(@key $tags))
+        }
+    };
+    (@accessor [$($fmeta:tt)*] group $ty:ty, $field:ident, $tags:tt) => {
+        $($fmeta)*
+        #[inline]
+        pub fn $field(&self) -> ::core::result::Result<$crate::fix_message!(@reftype 'a, group $ty), $crate::message::FieldError> {
+            $crate::message::__private::read_group(self.__msg, self.$field, $crate::fix_message!(@key $tags))
+        }
+    };
+    (@accessor [$($fmeta:tt)*] req_group $ty:ty, $field:ident, $tags:tt) => {
+        $crate::fix_message!(@accessor [$($fmeta)*] group $ty, $field, $tags);
+    };
+    (@accessor [$($fmeta:tt)*] data $ty:ty, $field:ident, $tags:tt) => {
+        $($fmeta)*
+        #[inline]
+        pub fn $field(&self) -> &'a [u8] {
+            $crate::message::__private::read_data(self.__msg, self.$field).expect("a required data field is checked present when parsed")
+        }
+    };
+    (@accessor [$($fmeta:tt)*] opt_data $ty:ty, $field:ident, $tags:tt) => {
+        $($fmeta)*
+        #[inline]
+        pub fn $field(&self) -> Option<&'a [u8]> {
+            $crate::message::__private::read_data(self.__msg, self.$field)
         }
     };
     // One pass over the fields: each tag's first occurrence is converted straight into its field's
@@ -707,7 +870,7 @@ mod tests {
     }
 
     fix_message! {
-        TestOrder / TestOrderRef = NewOrderSingle {
+        TestOrder / TestOrderRef / TestOrderView = NewOrderSingle {
             legs: group Leg = NO_ALLOCS,
             symbol: req String = SYMBOL,
             text: opt String = TEXT,
@@ -723,7 +886,7 @@ mod tests {
     }
 
     fix_message! {
-        TestAllocation / TestAllocationRef = "J" {
+        TestAllocation / TestAllocationRef / TestAllocationView = "J" {
             id: req String = CL_ORD_ID,
             allocs: req_group Allocation = NO_ALLOCS,
             text: opt String = TEXT,
@@ -830,7 +993,7 @@ mod tests {
     }
 
     fix_message! {
-        TestAssignments / TestAssignmentsRef = NewOrderSingle {
+        TestAssignments / TestAssignmentsRef / TestAssignmentsView = NewOrderSingle {
             assignments: group Assignment = NO_ALLOCS,
             symbol: req String = SYMBOL,
         }
@@ -926,7 +1089,7 @@ mod tests {
 
     fix_message! {
         /// Fields whose values can fail to convert, declared out of tag order.
-        TestErrors / TestErrorsRef = "U9" {
+        TestErrors / TestErrorsRef / TestErrorsView = "U9" {
             leaves: req u32 = LEAVES_QTY,
             id: req String = CL_ORD_ID,
             qty: opt u64 = ORDER_QTY,
@@ -995,7 +1158,7 @@ mod tests {
     }
 
     fix_message! {
-        DataOrder / DataOrderRef = NewOrderSingle {
+        DataOrder / DataOrderRef / DataOrderView = NewOrderSingle {
             raw_data: data Vec<u8> = RAW_DATA_LENGTH => RAW_DATA,
             xml_data: opt_data Vec<u8> = XML_DATA_LEN => XML_DATA,
             attachments: group Attachment = NO_ALLOCS,
@@ -1147,6 +1310,197 @@ mod tests {
         assert_same_parse::<TestAssignments>("35=D|78=1|58=lost|55=X|");
         assert_same_parse::<LenientOrder>("35=D|54=Z|40=1|");
         assert_same_parse::<DataOrder>("35=D|55=IBM|");
+    }
+
+    // ---- Views ----
+
+    /// Reads every field of a view, in declaration order, into the borrowed form.
+    trait ReadAll<'a> {
+        type Ref;
+        fn read_all(&self) -> Result<Self::Ref, FieldError>;
+    }
+
+    impl<'a> ReadAll<'a> for TestOrderView<'a> {
+        type Ref = TestOrderRef<'a>;
+        fn read_all(&self) -> Result<Self::Ref, FieldError> {
+            Ok(TestOrderRef { legs: self.legs()?, symbol: self.symbol()?, text: self.text()? })
+        }
+    }
+
+    impl<'a> ReadAll<'a> for TestAllocationView<'a> {
+        type Ref = TestAllocationRef<'a>;
+        fn read_all(&self) -> Result<Self::Ref, FieldError> {
+            Ok(TestAllocationRef { id: self.id()?, allocs: self.allocs()?, text: self.text()? })
+        }
+    }
+
+    impl<'a> ReadAll<'a> for TestErrorsView<'a> {
+        type Ref = TestErrorsRef<'a>;
+        fn read_all(&self) -> Result<Self::Ref, FieldError> {
+            Ok(TestErrorsRef {
+                leaves: self.leaves()?,
+                id: self.id()?,
+                qty: self.qty()?,
+                legs: self.legs()?,
+                sessions: self.sessions()?,
+                gap_fill: self.gap_fill()?,
+            })
+        }
+    }
+
+    impl<'a> ReadAll<'a> for TestAssignmentsView<'a> {
+        type Ref = TestAssignmentsRef<'a>;
+        fn read_all(&self) -> Result<Self::Ref, FieldError> {
+            Ok(TestAssignmentsRef { assignments: self.assignments()?, symbol: self.symbol()? })
+        }
+    }
+
+    impl<'a> ReadAll<'a> for DataOrderView<'a> {
+        type Ref = DataOrderRef<'a>;
+        fn read_all(&self) -> Result<Self::Ref, FieldError> {
+            Ok(DataOrderRef {
+                raw_data: self.raw_data(),
+                xml_data: self.xml_data(),
+                attachments: self.attachments()?,
+                symbol: self.symbol()?,
+            })
+        }
+    }
+
+    /// A view of `text` reads, field by field, what the borrowed form parses: the same values if it
+    /// parses, and an error, from the view's parse or from a read, if it doesn't. Strictly too.
+    macro_rules! assert_view_reads_as_borrowed {
+        ($view:ident, $borrowed:ident, $text:expr) => {{
+            let text: &str = $text;
+            let msg = raw(text);
+            for strict in [false, true] {
+                let (view, borrowed) = if strict {
+                    (msg.parse_strict::<$view>(), msg.parse_strict::<$borrowed>())
+                } else {
+                    (msg.parse::<$view>(), msg.parse::<$borrowed>())
+                };
+                let read = view.and_then(|view| view.read_all());
+                match borrowed {
+                    Ok(borrowed) => assert_eq!(read, Ok(borrowed), "strict {strict}: {text}"),
+                    Err(_) => assert!(read.is_err(), "strict {strict}: {text}: the view read {read:?}"),
+                }
+            }
+        }};
+    }
+
+    #[test]
+    fn a_view_reads_what_the_borrowed_form_parses() {
+        let orders = [
+            "35=D|78=2|79=A|58=inside|386=2|336=S1|336=S2|79=B|55=AAPL|58=outside|",
+            "35=D|78=1|79=A|58=inside|55=AAPL|",
+            "35=D|78=2|79=A|55=AAPL|",
+            "35=D|78=1|79=A|386=1|55=AAPL|",
+            "35=D|55=X|9999=extra|",
+            "35=D|58=no symbol|",
+            "35=D|78=1|79=A|78=1|79=B|55=X|",
+            "35=D|78=1|79=A|58=in|78=1|79=B|58=second|55=X|58=out|",
+            "35=D|78=1|79=A|78=2|55=X|",
+            "35=D|55=X|79=stray|",
+        ];
+        for text in orders {
+            assert_view_reads_as_borrowed!(TestOrderView, TestOrderRef, text);
+        }
+        let allocations = [
+            "35=J|11=A1|78=2|79=X|386=1|336=S1|79=Y|386=2|336=S2|336=S3|58=hi|",
+            "35=J|11=A1|58=hi|",
+            "35=J|11=A1|78=0|58=hi|",
+            "35=J|11=A1|78=1|79=X|",
+            "35=J|11=A1|78=1|79=X|386=0|",
+            "35=J|78=1|79=A|",
+        ];
+        for text in allocations {
+            assert_view_reads_as_borrowed!(TestAllocationView, TestAllocationRef, text);
+        }
+        let errors = [
+            "35=U9|11=A|123=x|38=y|151=z|",
+            "35=U9|151=1|11=A|123=x|38=y|386=1|336=S|",
+            "35=U9|38=y|",
+            "35=U9|151=z|",
+            "35=U9|38=y|151=1|",
+            "35=U9|123=x|151=1|11=A|",
+            "35=U9|123=x|151=1|11=A|386=0|",
+            "35=U9|123=x|151=1|11=A|386=1|336=S|",
+            "35=U9|151=z|78=2|79=A|",
+            "35=U9|151=1|11=A|38=5|38=y|386=1|336=S|",
+            "35=U9|151=1|11=A|38=y|38=5|386=1|336=S|",
+            "35=U9|151=z|151=w|11=A|386=1|336=S|",
+            "35=U9|151=1|11=A|386=1|336=S|9999=x|",
+            "35=U9|151=1|11=A|386=1|336=S|",
+        ];
+        for text in errors {
+            assert_view_reads_as_borrowed!(TestErrorsView, TestErrorsRef, text);
+        }
+        assert_view_reads_as_borrowed!(
+            TestAssignmentsView,
+            TestAssignmentsRef,
+            "35=D|78=2|386=2|336=A|336=B|58=first|386=1|336=C|55=X|"
+        );
+        assert_view_reads_as_borrowed!(TestAssignmentsView, TestAssignmentsRef, "35=D|78=1|58=lost|55=X|");
+        assert_view_reads_as_borrowed!(DataOrderView, DataOrderRef, "35=D|55=IBM|");
+        let msg = data_order().to_message();
+        let view: DataOrderView = msg.parse().unwrap();
+        assert_eq!(view.read_all(), msg.parse::<DataOrderRef>());
+        assert_eq!(view.raw_data(), b"\xff\x01\x00");
+    }
+
+    #[test]
+    fn a_view_fails_to_parse_only_on_structure() {
+        use crate::message::FieldErrorKind::*;
+        let parse = |text: &str| raw(text).parse::<TestErrorsView>().map(|_| ()).map_err(|e| (e.tag, e.kind));
+        // Missing required fields and groups, in declaration order, and malformed groups.
+        assert_eq!(parse("35=U9|38=y|"), Err((LEAVES_QTY, Missing)));
+        assert_eq!(parse("35=U9|38=y|151=1|"), Err((CL_ORD_ID, Missing)));
+        assert_eq!(parse("35=U9|151=1|11=A|386=0|"), Err((NO_TRADING_SESSIONS, Missing)));
+        assert_eq!(parse("35=U9|151=z|78=2|79=A|"), Err((NO_ALLOCS, IncorrectNumInGroup { declared: 2, found: 1 })));
+        assert_eq!(raw("35=D|55=X|").parse::<TestErrorsView>().unwrap_err().tag, MSG_TYPE);
+        // But not values that don't convert: those fail as they're read.
+        let msg = raw("35=U9|151=z|11=A|38=y|386=1|336=S|123=x|");
+        let view: TestErrorsView = msg.parse().unwrap();
+        assert_eq!(view.id(), Ok("A"));
+        assert_eq!(view.leaves(), Err(error(LEAVES_QTY, IncorrectFormat("z".into()))));
+        assert_eq!(view.qty(), Err(error(ORDER_QTY, IncorrectFormat("y".into()))));
+        assert_eq!(view.gap_fill(), Err(error(GAP_FILL_FLAG, IncorrectValue("x".into()))));
+        // A group entry that doesn't parse fails the group's read.
+        let msg = raw("35=J|11=A1|78=1|79=X|");
+        let view: TestAllocationView = msg.parse().unwrap();
+        assert_eq!(view.allocs().unwrap_err(), error(NO_TRADING_SESSIONS, Missing));
+        // Strictly, an undeclared tag fails the parse, once the rest of its structure is sound.
+        assert_eq!(
+            raw("35=D|55=X|79=stray|").parse_strict::<TestOrderView>().unwrap_err(),
+            error(ALLOC_ACCOUNT, NotDefined)
+        );
+        assert_eq!(raw("35=D|79=stray|").parse_strict::<TestOrderView>().unwrap_err(), error(SYMBOL, Missing));
+    }
+
+    fix_message! {
+        /// Fields named as the view's own items might be.
+        TestNames / TestNamesRef / TestNamesView = "U8" {
+            msg: opt String = TEXT,
+            parse: opt String = SYMBOL,
+        }
+    }
+
+    #[test]
+    fn a_views_fields_may_have_any_name() {
+        let msg = raw("35=U8|58=hi|55=X|");
+        let view: TestNamesView = msg.parse().unwrap();
+        assert_eq!((view.msg(), view.parse()), (Ok(Some("hi")), Ok(Some("X"))));
+    }
+
+    #[test]
+    fn a_view_is_small_and_borrows_the_message() {
+        let msg = raw("35=D|78=1|79=A|58=inside|55=AAPL|58=outside|");
+        let view: TestOrderView = msg.parse().unwrap();
+        assert_eq!(view.symbol().unwrap().as_ptr(), msg.get(SYMBOL).unwrap().as_ptr(), "not a copy");
+        assert!(std::ptr::eq(view.message(), &msg));
+        let fields = size_of::<&Message>() + 3 * size_of::<u32>();
+        assert_eq!(size_of::<TestOrderView>(), fields.next_multiple_of(align_of::<&Message>()), "a u32 a field");
+        assert!(format!("{view:?}").starts_with("TestOrderView("));
     }
 
     #[test]

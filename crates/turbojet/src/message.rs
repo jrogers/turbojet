@@ -1113,6 +1113,80 @@ pub mod __private {
     pub fn required_group<G>(tag: u32, entries: Option<Vec<G>>) -> Result<Vec<G>, FieldError> {
         entries.filter(|entries| !entries.is_empty()).ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
     }
+
+    // ---- Views (`NameView`): parsing records where each field is, reading converts it ----
+
+    /// A view's mark for a field the message doesn't have.
+    pub const ABSENT: u32 = u32::MAX;
+
+    /// Notes `index` as a field's position in a view, unless an earlier occurrence was noted.
+    #[inline(always)]
+    pub fn mark(at: &mut u32, index: usize) {
+        if *at == ABSENT {
+            // Field offsets are `u32`s, so a message has fewer fields than that.
+            *at = u32::try_from(index).expect("a field's index fits in u32");
+        }
+    }
+
+    /// Checks the group whose NumInGroup field is at `index`, marking it, and returns the index after
+    /// it, so its entries' tags aren't taken for the message's own. A second occurrence is skipped
+    /// whole, as when parsing `NameRef`.
+    #[inline(never)]
+    pub fn mark_group<G: FixGroup>(
+        at: &mut u32,
+        fields: &FieldView<'_>,
+        index: usize,
+        tag: u32,
+    ) -> Result<usize, FieldError> {
+        let (_, end) = check_group(fields.msg, index, fields.end, tag, &G::SPEC)?;
+        mark(at, index);
+        Ok(end)
+    }
+
+    /// Whether a required group is missing: absent, or with no entries.
+    pub fn group_missing(msg: &Message, at: u32) -> bool {
+        at == ABSENT || msg.text(&msg.fields[index_of(at)]).and_then(|count| count.parse::<u32>().ok()) == Some(0)
+    }
+
+    /// Converts the field marked at `at`, if any.
+    #[inline(never)]
+    pub fn read<'a, T: FieldRef<'a>>(msg: &'a Message, at: u32, tag: u32) -> Result<Option<T::Ref>, FieldError> {
+        if at == ABSENT {
+            return Ok(None);
+        }
+        match msg.text(&msg.fields[index_of(at)]) {
+            Some(raw) => T::parse_ref(raw).map(Some).map_err(|error| conversion_error(tag, raw, error)),
+            None => Err(conversion_error(tag, "", ValueError::Format)),
+        }
+    }
+
+    /// Converts a required field, which parsing checked is marked.
+    #[inline(always)]
+    pub fn read_required<'a, T: FieldRef<'a>>(msg: &'a Message, at: u32, tag: u32) -> Result<T::Ref, FieldError> {
+        debug_assert_ne!(at, ABSENT, "a required field is checked present when parsed");
+        read::<T>(msg, at, tag)?.ok_or(FieldError { tag, kind: FieldErrorKind::Missing })
+    }
+
+    /// The data field marked at `at`, if any.
+    #[inline(always)]
+    pub fn read_data(msg: &Message, at: u32) -> Option<&[u8]> {
+        (at != ABSENT).then(|| msg.bytes(&msg.fields[index_of(at)]))
+    }
+
+    /// The group marked at `at`, its entries each parsed so that a bad one fails here; empty if
+    /// absent.
+    #[inline(never)]
+    pub fn read_group<'a, G: FixGroupRef<'a>>(msg: &'a Message, at: u32, tag: u32) -> Result<Group<'a, G>, FieldError> {
+        let mut group = None;
+        if at != ABSENT {
+            take_group_ref::<G>(&mut group, &msg.view(), index_of(at), tag)?;
+        }
+        Ok(group.unwrap_or_else(Group::empty))
+    }
+
+    fn index_of(at: u32) -> usize {
+        usize::try_from(at).expect("a u32 fits in usize")
+    }
 }
 
 /// Defines a repeating group: its fields in order, the first being the *delimiter* that starts

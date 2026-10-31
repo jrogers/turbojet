@@ -22,11 +22,18 @@ fn main() {
         println!("cargo::rerun-if-changed={path}");
         let source = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"));
         writeln!(out, "    ({begin_string:?}, &[").unwrap();
-        // Each message opens with `Name / NameRef = "MsgType" {` inside `fix_message!`.
-        let names: Vec<_> = source.lines().filter_map(message_name).collect();
+        // Each message opens with `Name / NameRef / NameView = "MsgType" {` inside `fix_message!`.
+        let names: Vec<_> = source.lines().filter_map(message_names).collect();
         assert!(!names.is_empty(), "no messages found in {path}");
-        for name in names {
-            writeln!(out, "        check::<turbojet_fix::{module}::{name}>,").unwrap();
+        for (name, view) in names {
+            // A closure, since the view's lifetime is the message's.
+            let view = format!("turbojet_fix::{module}::{view}");
+            writeln!(
+                out,
+                "        |msg| check::<turbojet_fix::{module}::{name}>(msg, {view}::parse_from(msg).err(), \
+                 {view}::parse_strict_from(msg).err()),"
+            )
+            .unwrap();
         }
         writeln!(out, "    ]),").unwrap();
     }
@@ -34,13 +41,14 @@ fn main() {
     fs::write(format!("{}/versions.rs", env::var("OUT_DIR").unwrap()), out).unwrap();
 }
 
-/// The message a line opens, if it's `Name / NameRef = "MsgType" {`, indented.
-fn message_name(line: &str) -> Option<&str> {
+/// The message and view a line opens, if it's `Name / NameRef / NameView = "MsgType" {`, indented.
+fn message_names(line: &str) -> Option<(&str, &str)> {
     let (names, msg_type) = line.trim_start().strip_suffix("\" {")?.split_once(" = \"")?;
-    let (name, ref_name) = names.split_once(" / ")?;
+    let (name, twins) = names.split_once(" / ")?;
+    let (ref_name, view) = twins.split_once(" / ")?;
     let identifier = |s: &str| {
         s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
             && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
     };
-    (identifier(name) && identifier(ref_name) && !msg_type.contains('"')).then_some(name)
+    (identifier(name) && identifier(ref_name) && identifier(view) && !msg_type.contains('"')).then_some((name, view))
 }

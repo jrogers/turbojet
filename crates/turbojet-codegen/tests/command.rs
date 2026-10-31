@@ -119,7 +119,7 @@ fn merge_trims_a_message_to_the_venues_fields() {
     let base = workspace().join("dictionaries/orchestra/OrchestraFIX42.xml");
     let out = generate(&[base.as_os_str(), "--merge".as_ref(), venue.path().as_os_str()]);
     let messages = read(&out, "messages.rs");
-    let start = messages.find("NewOrderSingle / NewOrderSingleRef = \"D\" {").unwrap();
+    let start = messages.find("NewOrderSingle / NewOrderSingleRef / NewOrderSingleView = \"D\" {").unwrap();
     let body = &messages[start..start + messages[start..].find("\n        }").unwrap()];
     assert!(body.contains("= CL_ORD_ID,") && body.contains("= PRICE,"), "{body}");
     assert_eq!(body.matches(" = ").count(), 3, "the msgtype and two fields: {body}");
@@ -168,7 +168,7 @@ fn fixtures() -> std::path::PathBuf {
 fn transport_adds_the_fixt_fields() {
     let (app, transport) = (fixtures().join("fix50.xml"), fixtures().join("fixt11.xml"));
     let out = generate(&[app.as_os_str(), "--transport".as_ref(), transport.as_os_str()]);
-    assert!(read(&out, "messages.rs").contains("NewOrderSingle / NewOrderSingleRef = \"D\" {"));
+    assert!(read(&out, "messages.rs").contains("NewOrderSingle / NewOrderSingleRef / NewOrderSingleView = \"D\" {"));
     // ApplExtID is only in the transport.
     assert!(read(&out, "tags.rs").contains("pub const APPL_EXT_ID: u32 = 1156;"));
 }

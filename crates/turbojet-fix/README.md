@@ -37,6 +37,8 @@ assert_eq!(borrowed.into_owned(), order);
 Each message and group also has a borrowed form, such as `NewOrderSingleRef`, whose strings and
 groups borrow from the received message rather than copying it: read messages with it, and call
 `into_owned()` to keep one.
+Each message has a view too, such as `NewOrderSingleView`, which finds the message's fields
+when parsed and converts each one as its method is called, for code that reads only a few.
 
 From FIX 4.3 on, components such as Instrument and OrderQtyData are flattened into the messages
 that use them (`order.symbol`, `order.order_qty`); repeating groups, Parties among them, are

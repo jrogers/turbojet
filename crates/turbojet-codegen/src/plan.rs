@@ -153,9 +153,10 @@ pub(crate) struct Options<'a> {
 pub(crate) fn build(dict: &Dictionary, options: &Options) -> Result<Plan, Error> {
     let tags = field_tags(dict)?;
     let messages = app_messages(dict, options.skip, options.only)?;
-    // Each message's borrowed twin is a type too.
+    // Each message's borrowed twin and view are types too.
     let message_refs: Vec<String> = messages.iter().map(|(m, _)| naming::ref_type(&m.name)).collect();
-    let message_names = message_names(&messages, &message_refs)?;
+    let message_views: Vec<String> = messages.iter().map(|(m, _)| naming::view_type(&m.name)).collect();
+    let message_names = message_names(&messages, &[("borrowed twin", &message_refs), ("view", &message_views)])?;
     let (enums, enum_types) = plan_enums(dict, &messages, options, &message_names)?;
     let enum_names: HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
 
@@ -220,21 +221,23 @@ fn app_messages<'a>(
     Ok(messages)
 }
 
-/// The names of the messages and their borrowed twins (`refs`, in the same order). Messages keep
-/// their official names, so a message named like another's twin, or a twin like a type generated
-/// code uses, is an error.
-fn message_names<'a>(messages: &'a [(&Message, Vec<Flat>)], refs: &'a [String]) -> Result<HashSet<&'a str>, Error> {
-    debug_assert_eq!(messages.len(), refs.len());
-    if let Some(((m, _), twin)) = messages.iter().zip(refs).find(|(_, twin)| naming::type_in_use(twin)) {
-        return Err(Error(format!(
-            "message {}'s borrowed twin {twin} would shadow a type generated code uses",
-            m.name
-        )));
-    }
+/// The names of the messages and their twins: each of `twins` is a kind of twin (the borrowed one,
+/// the view) and its names, in the messages' order. Messages keep their official names, so a
+/// message named like another's twin, or a twin like a type generated code uses, is an error.
+fn message_names<'a>(
+    messages: &'a [(&Message, Vec<Flat>)],
+    twins: &[(&str, &'a [String])],
+) -> Result<HashSet<&'a str>, Error> {
     let mut names: HashSet<&str> = messages.iter().map(|(m, _)| m.name.as_str()).collect();
-    for ((m, _), twin) in messages.iter().zip(refs) {
-        if !names.insert(twin) {
-            return Err(Error(format!("message {twin} is named like message {}'s borrowed twin", m.name)));
+    for (kind, kind_twins) in twins {
+        debug_assert_eq!(messages.len(), kind_twins.len());
+        if let Some(((m, _), twin)) = messages.iter().zip(*kind_twins).find(|(_, twin)| naming::type_in_use(twin)) {
+            return Err(Error(format!("message {}'s {kind} {twin} would shadow a type generated code uses", m.name)));
+        }
+        for ((m, _), twin) in messages.iter().zip(*kind_twins) {
+            if !names.insert(twin) {
+                return Err(Error(format!("message {twin} is named like message {}'s {kind}", m.name)));
+            }
         }
     }
     Ok(names)
@@ -1209,6 +1212,13 @@ mod tests {
             "<field number='1' name='X' type='STRING'/>",
         );
         assert_eq!(error(&twins), "message FooRef is named like message Foo's borrowed twin");
+        let views = dict(
+            "<message name='Foo' msgtype='U1' msgcat='app'><field name='X' required='Y'/></message>\
+             <message name='FooView' msgtype='U2' msgcat='app'><field name='X' required='Y'/></message>",
+            "",
+            "<field number='1' name='X' type='STRING'/>",
+        );
+        assert_eq!(error(&views), "message FooView is named like message Foo's view");
         let prelude = dict(
             "<message name='As' msgtype='U1' msgcat='app'><field name='X' required='Y'/></message>",
             "",

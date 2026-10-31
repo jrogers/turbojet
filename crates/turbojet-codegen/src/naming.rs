@@ -72,6 +72,12 @@ pub(crate) fn ref_type(name: &str) -> String {
     format!("{}Ref", name.strip_prefix("r#").unwrap_or(name))
 }
 
+/// The view `fix_message!` generates beside the message `name`, as [`ref_type`]:
+/// `NewOrderSingle` → `NewOrderSingleView`.
+pub(crate) fn view_type(name: &str) -> String {
+    format!("{}View", name.strip_prefix("r#").unwrap_or(name))
+}
+
 /// `ClOrdID` → `cl_ord_id`. A word starts at a capital after a lowercase letter or digit, or at an
 /// acronym's last capital when a lowercase letter follows (`MDEntry` → `md_entry`), unless that's a
 /// lone `s` pluralising the acronym (`PartyIDs` → `party_ids`). A lowercase `id` ending the name or

@@ -10,7 +10,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// IOI(6).
-        IOI / IOIRef = "6" {
+        IOI / IOIRef / IOIView = "6" {
             /// IOIID(23).
             ioi_id: req CompactString = IOI_ID,
             /// IOITransType(28).
@@ -145,7 +145,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// Advertisement(7).
-        Advertisement / AdvertisementRef = "7" {
+        Advertisement / AdvertisementRef / AdvertisementView = "7" {
             /// AdvId(2).
             adv_id: req CompactString = ADV_ID,
             /// AdvTransType(5).
@@ -268,7 +268,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// ExecutionReport(8).
-        ExecutionReport / ExecutionReportRef = "8" {
+        ExecutionReport / ExecutionReportRef / ExecutionReportView = "8" {
             /// OrderID(37).
             order_id: req CompactString = ORDER_ID,
             /// SecondaryOrderID(198).
@@ -586,7 +586,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// OrderCancelReject(9).
-        OrderCancelReject / OrderCancelRejectRef = "9" {
+        OrderCancelReject / OrderCancelRejectRef / OrderCancelRejectView = "9" {
             /// OrderID(37).
             order_id: req CompactString = ORDER_ID,
             /// SecondaryOrderID(198).
@@ -659,7 +659,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// News(B).
-        News / NewsRef = "B" {
+        News / NewsRef / NewsView = "B" {
             /// OrigTime(42).
             orig_time: opt UtcTimestamp = ORIG_TIME,
             /// Urgency(61).
@@ -710,7 +710,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// Email(C).
-        Email / EmailRef = "C" {
+        Email / EmailRef / EmailView = "C" {
             /// EmailThreadID(164).
             email_thread_id: req CompactString = EMAIL_THREAD_ID,
             /// EmailType(94).
@@ -771,7 +771,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// NewOrderSingle(D).
-        NewOrderSingle / NewOrderSingleRef = "D" {
+        NewOrderSingle / NewOrderSingleRef / NewOrderSingleView = "D" {
             /// ClOrdID(11).
             cl_ord_id: req CompactString = CL_ORD_ID,
             /// ClientID(109).
@@ -1007,7 +1007,7 @@ mod part0 {
 
     turbojet::fix_message! {
         /// NewOrderList(E).
-        NewOrderList / NewOrderListRef = "E" {
+        NewOrderList / NewOrderListRef / NewOrderListView = "E" {
             /// ListID(66).
             list_id: req CompactString = LIST_ID,
             /// BidID(390).
@@ -1073,7 +1073,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// OrderCancelRequest(F).
-        OrderCancelRequest / OrderCancelRequestRef = "F" {
+        OrderCancelRequest / OrderCancelRequestRef / OrderCancelRequestView = "F" {
             /// OrigClOrdID(41).
             orig_cl_ord_id: req CompactString = ORIG_CL_ORD_ID,
             /// OrderID(37).
@@ -1199,7 +1199,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// OrderCancelReplaceRequest(G).
-        OrderCancelReplaceRequest / OrderCancelReplaceRequestRef = "G" {
+        OrderCancelReplaceRequest / OrderCancelReplaceRequestRef / OrderCancelReplaceRequestView = "G" {
             /// OrderID(37).
             order_id: opt CompactString = ORDER_ID,
             /// ClientID(109).
@@ -1442,7 +1442,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// OrderStatusRequest(H).
-        OrderStatusRequest / OrderStatusRequestRef = "H" {
+        OrderStatusRequest / OrderStatusRequestRef / OrderStatusRequestView = "H" {
             /// OrderID(37).
             order_id: opt CompactString = ORDER_ID,
             /// ClOrdID(11).
@@ -1537,7 +1537,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// Allocation(J).
-        Allocation / AllocationRef = "J" {
+        Allocation / AllocationRef / AllocationView = "J" {
             /// AllocID(70).
             alloc_id: req CompactString = ALLOC_ID,
             /// AllocTransType(71).
@@ -1700,7 +1700,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// ListCancelRequest(K).
-        ListCancelRequest / ListCancelRequestRef = "K" {
+        ListCancelRequest / ListCancelRequestRef / ListCancelRequestView = "K" {
             /// ListID(66).
             list_id: req CompactString = LIST_ID,
             /// TransactTime(60).
@@ -1731,7 +1731,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// ListExecute(L).
-        ListExecute / ListExecuteRef = "L" {
+        ListExecute / ListExecuteRef / ListExecuteView = "L" {
             /// ListID(66).
             list_id: req CompactString = LIST_ID,
             /// ClientBidID(391).
@@ -1766,7 +1766,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// ListStatusRequest(M).
-        ListStatusRequest / ListStatusRequestRef = "M" {
+        ListStatusRequest / ListStatusRequestRef / ListStatusRequestView = "M" {
             /// ListID(66).
             list_id: req CompactString = LIST_ID,
             /// Text(58).
@@ -1787,7 +1787,7 @@ mod part1 {
 
     turbojet::fix_message! {
         /// ListStatus(N).
-        ListStatus / ListStatusRef = "N" {
+        ListStatus / ListStatusRef / ListStatusView = "N" {
             /// ListID(66).
             list_id: req CompactString = LIST_ID,
             /// ListStatusType(429).
@@ -1864,7 +1864,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// AllocationAck(P).
-        AllocationAck / AllocationAckRef = "P" {
+        AllocationAck / AllocationAckRef / AllocationAckView = "P" {
             /// ClientID(109).
             client_id: opt CompactString = CLIENT_ID,
             /// ExecBroker(76).
@@ -1917,7 +1917,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// DontKnowTrade(Q).
-        DontKnowTrade / DontKnowTradeRef = "Q" {
+        DontKnowTrade / DontKnowTradeRef / DontKnowTradeView = "Q" {
             /// OrderID(37).
             order_id: req CompactString = ORDER_ID,
             /// ExecID(17).
@@ -2028,7 +2028,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// QuoteRequest(R).
-        QuoteRequest / QuoteRequestRef = "R" {
+        QuoteRequest / QuoteRequestRef / QuoteRequestView = "R" {
             /// QuoteReqID(131).
             quote_req_id: req CompactString = QUOTE_REQ_ID,
             /// NoRelatedSym(146).
@@ -2055,7 +2055,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// Quote(S).
-        Quote / QuoteRef = "S" {
+        Quote / QuoteRef / QuoteView = "S" {
             /// QuoteReqID(131).
             quote_req_id: opt CompactString = QUOTE_REQ_ID,
             /// QuoteID(117).
@@ -2187,7 +2187,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// SettlementInstructions(T).
-        SettlementInstructions / SettlementInstructionsRef = "T" {
+        SettlementInstructions / SettlementInstructionsRef / SettlementInstructionsView = "T" {
             /// SettlInstID(162).
             settl_inst_id: req CompactString = SETTL_INST_ID,
             /// SettlInstTransType(163).
@@ -2337,7 +2337,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// MarketDataRequest(V).
-        MarketDataRequest / MarketDataRequestRef = "V" {
+        MarketDataRequest / MarketDataRequestRef / MarketDataRequestView = "V" {
             /// MDReqID(262).
             md_req_id: req CompactString = MD_REQ_ID,
             /// SubscriptionRequestType(263).
@@ -2394,7 +2394,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// MarketDataSnapshotFullRefresh(W).
-        MarketDataSnapshotFullRefresh / MarketDataSnapshotFullRefreshRef = "W" {
+        MarketDataSnapshotFullRefresh / MarketDataSnapshotFullRefreshRef / MarketDataSnapshotFullRefreshView = "W" {
             /// MDReqID(262).
             md_req_id: opt CompactString = MD_REQ_ID,
             /// Symbol(55).
@@ -2484,7 +2484,7 @@ mod part2 {
 
     turbojet::fix_message! {
         /// MarketDataIncrementalRefresh(X).
-        MarketDataIncrementalRefresh / MarketDataIncrementalRefreshRef = "X" {
+        MarketDataIncrementalRefresh / MarketDataIncrementalRefreshRef / MarketDataIncrementalRefreshView = "X" {
             /// MDReqID(262).
             md_req_id: opt CompactString = MD_REQ_ID,
             /// NoMDEntries(268).
@@ -2507,7 +2507,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// MarketDataRequestReject(Y).
-        MarketDataRequestReject / MarketDataRequestRejectRef = "Y" {
+        MarketDataRequestReject / MarketDataRequestRejectRef / MarketDataRequestRejectView = "Y" {
             /// MDReqID(262).
             md_req_id: req CompactString = MD_REQ_ID,
             /// MDReqRejReason(281).
@@ -2530,7 +2530,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// QuoteCancel(Z).
-        QuoteCancel / QuoteCancelRef = "Z" {
+        QuoteCancel / QuoteCancelRef / QuoteCancelView = "Z" {
             /// QuoteReqID(131).
             quote_req_id: opt CompactString = QUOTE_REQ_ID,
             /// QuoteID(117).
@@ -2572,7 +2572,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// QuoteStatusRequest(a).
-        QuoteStatusRequest / QuoteStatusRequestRef = "a" {
+        QuoteStatusRequest / QuoteStatusRequestRef / QuoteStatusRequestView = "a" {
             /// QuoteID(117).
             quote_id: opt CompactString = QUOTE_ID,
             /// Symbol(55).
@@ -2648,7 +2648,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// QuoteAcknowledgement(b).
-        QuoteAcknowledgement / QuoteAcknowledgementRef = "b" {
+        QuoteAcknowledgement / QuoteAcknowledgementRef / QuoteAcknowledgementView = "b" {
             /// QuoteReqID(131).
             quote_req_id: opt CompactString = QUOTE_REQ_ID,
             /// QuoteID(117).
@@ -2688,7 +2688,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// SecurityDefinitionRequest(c).
-        SecurityDefinitionRequest / SecurityDefinitionRequestRef = "c" {
+        SecurityDefinitionRequest / SecurityDefinitionRequestRef / SecurityDefinitionRequestView = "c" {
             /// SecurityReqID(320).
             security_req_id: req CompactString = SECURITY_REQ_ID,
             /// SecurityRequestType(321).
@@ -2784,7 +2784,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// SecurityDefinition(d).
-        SecurityDefinition / SecurityDefinitionRef = "d" {
+        SecurityDefinition / SecurityDefinitionRef / SecurityDefinitionView = "d" {
             /// SecurityReqID(320).
             security_req_id: req CompactString = SECURITY_REQ_ID,
             /// SecurityResponseID(322).
@@ -2888,7 +2888,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// SecurityStatusRequest(e).
-        SecurityStatusRequest / SecurityStatusRequestRef = "e" {
+        SecurityStatusRequest / SecurityStatusRequestRef / SecurityStatusRequestView = "e" {
             /// SecurityStatusReqID(324).
             security_status_req_id: req CompactString = SECURITY_STATUS_REQ_ID,
             /// Symbol(55).
@@ -2977,7 +2977,7 @@ mod part3 {
 
     turbojet::fix_message! {
         /// SecurityStatus(f).
-        SecurityStatus / SecurityStatusRef = "f" {
+        SecurityStatus / SecurityStatusRef / SecurityStatusView = "f" {
             /// SecurityStatusReqID(324).
             security_status_req_id: opt CompactString = SECURITY_STATUS_REQ_ID,
             /// Symbol(55).
@@ -3100,7 +3100,7 @@ mod part4 {
 
     turbojet::fix_message! {
         /// TradingSessionStatusRequest(g).
-        TradingSessionStatusRequest / TradingSessionStatusRequestRef = "g" {
+        TradingSessionStatusRequest / TradingSessionStatusRequestRef / TradingSessionStatusRequestView = "g" {
             /// TradSesReqID(335).
             trad_ses_req_id: req CompactString = TRAD_SES_REQ_ID,
             /// TradingSessionID(336).
@@ -3139,7 +3139,7 @@ mod part4 {
 
     turbojet::fix_message! {
         /// TradingSessionStatus(h).
-        TradingSessionStatus / TradingSessionStatusRef = "h" {
+        TradingSessionStatus / TradingSessionStatusRef / TradingSessionStatusView = "h" {
             /// TradSesReqID(335).
             trad_ses_req_id: opt CompactString = TRAD_SES_REQ_ID,
             /// TradingSessionID(336).
@@ -3205,7 +3205,7 @@ mod part4 {
 
     turbojet::fix_message! {
         /// MassQuote(i).
-        MassQuote / MassQuoteRef = "i" {
+        MassQuote / MassQuoteRef / MassQuoteView = "i" {
             /// QuoteReqID(131).
             quote_req_id: opt CompactString = QUOTE_REQ_ID,
             /// QuoteID(117).
@@ -3247,7 +3247,7 @@ mod part4 {
 
     turbojet::fix_message! {
         /// BidRequest(k).
-        BidRequest / BidRequestRef = "k" {
+        BidRequest / BidRequestRef / BidRequestView = "k" {
             /// BidID(390).
             bid_id: opt CompactString = BID_ID,
             /// ClientBidID(391).
@@ -3370,7 +3370,7 @@ mod part4 {
 
     turbojet::fix_message! {
         /// BidResponse(l).
-        BidResponse / BidResponseRef = "l" {
+        BidResponse / BidResponseRef / BidResponseView = "l" {
             /// BidID(390).
             bid_id: opt CompactString = BID_ID,
             /// ClientBidID(391).
@@ -3390,7 +3390,7 @@ mod part4 {
 
     turbojet::fix_message! {
         /// ListStrikePrice(m).
-        ListStrikePrice / ListStrikePriceRef = "m" {
+        ListStrikePrice / ListStrikePriceRef / ListStrikePriceView = "m" {
             /// ListID(66).
             list_id: req CompactString = LIST_ID,
             /// TotNoStrikes(422).
