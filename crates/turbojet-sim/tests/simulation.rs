@@ -25,9 +25,14 @@ fn fixed_seeds_pass_or_fail_as_known() {
     let known = listed(include_str!("../known_failures.txt"));
     let start = Instant::now();
     let mut problems = Vec::new();
+    // The paths only some Logons take: resending at once from a 789, and resetting.
+    let (mut logon_resent, mut logon_resets) = (0, 0);
     for seed in 0..SEEDS {
         match (run(&Options::per_push(seed)), known.get(&seed)) {
-            (Ok(_), None) => {}
+            (Ok(report), None) => {
+                logon_resent += report.logon_resent;
+                logon_resets += report.logon_resets;
+            }
             (Err(failure), Some(why)) if why.starts_with(failure.violation.rule) => {}
             (Ok(_), Some(why)) => {
                 problems.push(format!("seed {seed} passes now: remove it from known_failures.txt ({why})"))
@@ -37,6 +42,8 @@ fn fixed_seeds_pass_or_fail_as_known() {
     }
     eprintln!("{SEEDS} seeds in {:?}", start.elapsed());
     assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(logon_resent > 0, "no seed resent from a Logon's 789");
+    assert!(logon_resets > 0, "no seed reset at logon");
 }
 
 #[test]

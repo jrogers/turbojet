@@ -239,6 +239,9 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s)),
             connections: world.connections,
             resent: world.checker.resent,
+            // FIXP has no FIX Logon.
+            logon_resent: 0,
+            logon_resets: 0,
             redelivered: world
                 .nodes
                 .iter()

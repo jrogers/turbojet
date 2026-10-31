@@ -105,6 +105,10 @@ pub struct Report {
     /// Connections made, and resends (PossDup messages) sent.
     pub connections: u64,
     pub resent: u64,
+    /// Resends written straight after a Logon with NextExpectedMsgSeqNum(789), unasked, and
+    /// Logons written with ResetSeqNumFlag(141)=Y.
+    pub logon_resent: u64,
+    pub logon_resets: u64,
     /// Deliveries marked as possibly handled already (after a crash or store failure).
     pub redelivered: usize,
     /// Sends the applications had refused, their queue full.
@@ -435,8 +439,16 @@ struct World {
     events: u64,
     connections: u64,
     resent: u64,
+    logons: Logons,
     refused: u64,
     trace: Vec<String>,
+}
+
+/// What the Logons with options did: the counts [`Report`] gives.
+#[derive(Default)]
+struct Logons {
+    resent: u64,
+    resets: u64,
 }
 
 pub fn run(options: &Options) -> Result<Report, Failure> {
@@ -451,6 +463,8 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s).count()),
             connections: world.connections,
             resent: world.resent,
+            logon_resent: world.logons.resent,
+            logon_resets: world.logons.resets,
             refused: world.refused,
             redelivered: world
                 .nodes
@@ -746,9 +760,18 @@ fn initiator(
     initiator.sender_location_id.clone_from(&id.sender_location_id);
     initiator.target_sub_id.clone_from(&id.target_sub_id);
     initiator.heartbeat_interval = heartbeat;
+    (initiator.next_expected_msg_seq_num, initiator.reset_on_logon) = logon_options(seed);
     let mut reconnect_rng = Rng::new(seed ^ 0x7ec0_22ec);
     initiator.reconnect = reconnect_policy(reconnect, &mut reconnect_rng);
     (initiator, reconnect_rng)
+}
+
+/// Whether the initiator's Logons carry NextExpectedMsgSeqNum(789), on about a third of seeds, and
+/// ResetSeqNumFlag(141)=Y, on about a sixth: fewer, as each reset gives up what wasn't delivered.
+/// Drawn apart from the world's random stream, as for [`cancels`].
+fn logon_options(seed: u64) -> (bool, bool) {
+    let mut rng = Rng::new(seed ^ 0x7890_1410);
+    (rng.chance(333_333), rng.chance(166_667))
 }
 
 /// The initiator's reconnects, fixed or backing off from `reconnect`, chosen and jittered from
@@ -832,6 +855,7 @@ impl World {
             events: 0,
             connections: 0,
             resent: 0,
+            logons: Logons::default(),
             refused: 0,
             trace: Vec::new(),
         };
@@ -839,15 +863,8 @@ impl World {
         world
     }
 
-    /// The first events: a trace header, the first connect, the workload and the faults.
-    fn schedule_start(&mut self) {
-        if self.faults.store == (StoreKind::Disk { sync: false }) {
-            self.queue.push(SimTime(0), Event::WriteBack);
-            if let Some(every) = self.faults.power_loss_every {
-                let at = self.after_about(SimTime(0), every);
-                self.queue.push(at, Event::PowerLoss);
-            }
-        }
+    /// The trace's first line: the seed and what it drew.
+    fn header(&self) -> String {
         let mut header = format!(
             "seed {}: {:?}, {:?}",
             self.options.seed,
@@ -857,6 +874,13 @@ impl World {
         // Only when there is one, so the headers (and digests) of other seeds stay as they were.
         if let Some(holiday) = self.schedule.as_ref().and_then(|s| s.holidays().last()) {
             header.push_str(&format!(", holiday {holiday}"));
+        }
+        // Likewise the Logon's options.
+        match logon_options(self.options.seed) {
+            (false, false) => {}
+            (next_expected, reset) => {
+                header.push_str(&format!(", initiator logs on with 789 {next_expected}, 141 {reset}"));
+            }
         }
         // Likewise the limits.
         let (outbound, inbound) = limits(self.options.seed);
@@ -882,6 +906,19 @@ impl World {
                 header.push_str(&format!(", {side:?} cancels on {trigger:?} after {grace:?}"));
             }
         }
+        header
+    }
+
+    /// The first events: a trace header, the first connect, the workload and the faults.
+    fn schedule_start(&mut self) {
+        if self.faults.store == (StoreKind::Disk { sync: false }) {
+            self.queue.push(SimTime(0), Event::WriteBack);
+            if let Some(every) = self.faults.power_loss_every {
+                let at = self.after_about(SimTime(0), every);
+                self.queue.push(at, Event::PowerLoss);
+            }
+        }
+        let header = self.header();
         self.record(&header);
         if let Some((replication, ..)) = self.replication {
             self.replication_again(true, SimTime(0), replication.failover_every, Event::Failover { deposed: false });
@@ -1737,9 +1774,16 @@ impl World {
     fn observe(&mut self, side: Side, bytes: &[u8], now: SimTime) -> Result<(), Violation> {
         self.sync_ledger(side)?;
         let mut rest = bytes;
+        // A 789 resend is written with the Logon, in the same step.
+        let mut after_789 = false;
         while let Decoded::Message(msg, len) = decode(rest) {
             if msg.get(tags::POSS_DUP_FLAG) == Some("Y") {
                 self.resent += 1;
+                self.logons.resent += u64::from(after_789);
+            }
+            if msg.msg_type() == turbojet::MsgType::Logon {
+                after_789 = msg.get(tags::NEXT_EXPECTED_MSG_SEQ_NUM).is_some();
+                self.logons.resets += u64::from(msg.get(tags::RESET_SEQ_NUM_FLAG) == Some("Y"));
             }
             rest = &rest[len..];
         }
