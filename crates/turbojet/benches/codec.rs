@@ -256,8 +256,9 @@ fn sbe(c: &mut Criterion) {
         b.iter(|| {
             assert!(matches!(decode_into(black_box(&tag_value_wire), &data, &mut msg), DecodedInto::Message(_)));
             let order = msg.parse::<NewOrderSingleRef>().unwrap();
-            black_box((order.cl_ord_id(), order.symbol(), order.price(), order.order_qty(), order.account()));
-            black_box((order.side(), order.ord_type(), order.time_in_force()));
+            black_box((order.cl_ord_id().unwrap(), order.symbol().unwrap(), order.price().unwrap()));
+            black_box((order.order_qty().unwrap(), order.account().unwrap()));
+            black_box((order.side().unwrap(), order.ord_type().unwrap(), order.time_in_force().unwrap()));
         })
     });
     group.finish();

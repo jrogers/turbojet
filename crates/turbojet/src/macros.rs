@@ -376,8 +376,9 @@ macro_rules! fix_message {
         }
 
         $($cfg)*
-        // An accessor per field, of which an application reads a few.
-        #[allow(deprecated, dead_code)]
+        // An accessor per field, of which an application reads a few; each fails only as its value
+        // doesn't convert, which the type's docs say once.
+        #[allow(deprecated, dead_code, clippy::missing_errors_doc)]
         impl<'a> $ref_name<'a> {
             /// The message parsed, for its header fields, say.
             #[inline]
