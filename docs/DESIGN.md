@@ -36,7 +36,10 @@ machine with an injected clock. It has:
   order checked on every message, each of which can be turned off;
 - messages that arrive ahead of a gap kept until it's filled, then processed in order, and a
   Logout that arrives during one answered at once;
-- a counterparty's sequence reset while logged on (a Logon with ResetSeqNumFlag=Y at 1) accepted;
+- a counterparty's sequence reset while logged on (a Logon with ResetSeqNumFlag=Y at 1) accepted,
+  except one arriving before anything else from it since the numbers started again with a reset
+  Logon from each side: that's a duplicate, or the reply to ours, and answering it would set the two
+  sides resetting each other;
 - routing fields (OnBehalfOf and DeliverTo) kept in the header, and session-level rejects routed
   back to where the message came from;
 - data fields (RawData, XmlData, the Encoded* fields, a venue's own) carrying any bytes, SOH
@@ -849,13 +852,18 @@ invariants, and tests that look for bugs rather than confirm what already works.
   and black-holes connections (on some seeds behind a middlebox that drops, duplicates, reorders and
   corrupts messages), with process crashes between events and inside store calls, store errors,
   power loss on disk stores with and without sync, logout requests, operators skipping numbers ahead
-  and resetting both sides, daily schedules, and on a third of the seeds sessions with SubIDs and a
-  LocationID. After every event a checker holds both sides to what their stores recorded, what they
+  and resetting both sides, daily schedules, on a third of the seeds sessions with SubIDs and a
+  LocationID, and initiators logging on with NextExpectedMsgSeqNum (a third of the seeds) or a
+  reset (a sixth). The per-push run fails if no seed resends straight after a Logon's 789 or resets
+  at logon, since nothing else would show those paths are taken. After every event a checker holds both sides to what their stores recorded, what they
   wrote and what their applications received, and once the faults stop they must settle; bugs
   planted in the simulator show the checker catches what it should. 100 seeds run on every push and
   random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write
-  deadlock in the connection driver, torn sequence-number records in `DiskStorage`, and an
-  operator's skip ahead making a counterparty abandon a gap, all since fixed. It exercises outbound
+  deadlock in the connection driver, torn sequence-number records in `DiskStorage`, an operator's
+  skip ahead making a counterparty abandon a gap, and a duplicated reset Logon setting both sides
+  resetting each other, all since fixed. Its checker keeps every earlier sequence epoch for the
+  rest of the seed: an initiator resetting at each attempt to log on can leave an acceptor that still
+  holds the old connection delivering from many epochs back. It exercises outbound
   limits and inbound `Delay`, but not `Reject`, since its checker can't cheaply model a
   BusinessMessageReject in place of a delivery, and no `MessageLog`; session and connection tests
   cover both.
