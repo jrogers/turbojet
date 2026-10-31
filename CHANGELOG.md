@@ -2,7 +2,7 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.9.0 (2026-10-31)
 
 ### `turbojet`
 
