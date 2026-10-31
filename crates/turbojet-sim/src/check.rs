@@ -1,6 +1,6 @@
 //! The invariants, checked against what each side writes and what each application receives.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 use turbojet::codec::{Decoded, decode};
@@ -75,9 +75,12 @@ struct Sent {
     uncertain: Vec<Stored>,
     /// The operators' skips under way when those changes were made, which they may include.
     uncertain_skips: BTreeSet<u64>,
-    /// What was recorded in the epoch before this one, for deliveries checked only after a reset
-    /// (a delivery and the reset that follows it can come in one step).
-    previous: BTreeMap<u64, Option<Message>>,
+    /// What was recorded in each epoch before this one, latest first, for deliveries checked only
+    /// after a reset (a delivery and the reset that follows it can come in one step), and for those
+    /// the counterparty takes late, from a connection it still holds while this side resets on
+    /// logon again at each attempt to log on over another (any number of times: each id is sent
+    /// once, so a delivery matches at most one).
+    previous: VecDeque<BTreeMap<u64, Option<Message>>>,
     /// Operators are moving the next outgoing number forward to these: the store may record the
     /// number before one as used, skipping those between. Several can be under way at once.
     skip_to: BTreeSet<u64>,
@@ -93,7 +96,13 @@ impl Sent {
             // An operator's skip under way may still land after a reset.
             Stored::Reset => {
                 let skip_to = std::mem::take(&mut self.skip_to);
-                let previous = std::mem::take(&mut self.recorded);
+                let mut previous = std::mem::take(&mut self.previous);
+                // With what the store evicted from it: still deliverable, from a connection held.
+                let mut recorded = std::mem::take(&mut self.recorded);
+                for (seq, msg) in std::mem::take(&mut self.evicted) {
+                    recorded.insert(seq, Some(msg));
+                }
+                previous.push_front(recorded);
                 *self = Sent { ledger_seen: self.ledger_seen, skip_to, previous, ..Sent::default() };
             }
             Stored::Incoming { seq } => {
@@ -273,7 +282,7 @@ impl Default for Sent {
             uncertain_skips: BTreeSet::new(),
             skip_to: BTreeSet::new(),
             rejected_late: BTreeSet::new(),
-            previous: BTreeMap::new(),
+            previous: VecDeque::new(),
         }
     }
 }
@@ -457,7 +466,7 @@ impl Checker {
             return Ok(());
         }
         let sent = &self.sent[side.index()];
-        let epochs = [&sent.recorded, &sent.previous];
+        let epochs: Vec<_> = std::iter::once(&sent.recorded).chain(&sent.previous).collect();
         // Stored, then evicted by the time the receipt is checked, counts as stored.
         let evicted_as = |seq: u64| sent.evicted.get(&seq).and_then(id_of) == Some(id);
         let stored_as = |seq: u64| {
@@ -671,10 +680,10 @@ impl Checker {
                 expected = gone.and_then(id_of).map(str::to_string);
             }
             if expected.as_deref() != Some(delivery.id.as_str())
-                && in_epoch(&sender.previous).as_deref() == Some(&delivery.id)
+                && sender.previous.iter().any(|epoch| in_epoch(epoch).as_deref() == Some(&delivery.id))
             {
                 // Sent before a reset the checker has already seen, and delivered just before it.
-                expected = in_epoch(&sender.previous);
+                expected = Some(delivery.id.clone());
             }
             if expected.as_deref() != Some(delivery.id.as_str()) {
                 return Err(violation(

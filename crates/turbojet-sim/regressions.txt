@@ -17,3 +17,5 @@
 1793059102225391187 an async failover's old active, bound as the standby with the same numbers, kept messages the promoted copy had skipped, and resent them once promoted itself
 1793058764484453729 a message a promotion skipped, received before the failover behind a gap and delivered after it, not expected (simulator bug)
 1793238734474872527 an async failover's resends unmarked: the ledger store didn't pass marks through, so the session never saw the promotion's maybe_handled (simulator bug)
+1793415352863041893 a duplicated reset Logon, answered as a new reset, set the two sides resetting each other
+1793416240997937105 an acceptor delivered messages from a connection it still held, from epochs ago, while the initiator reset at each logon (simulator bug)
