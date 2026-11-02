@@ -234,13 +234,7 @@ impl Node {
         if let Some(command) = running.commands.try_control() {
             running.session.on_command(command, instant);
         } else if running.takes_sends() {
-            for _ in 0..MAX_COMMANDS_PER_BATCH {
-                if !running.session.can_send(instant) {
-                    break;
-                }
-                let Some(command) = running.commands.try_send() else { break };
-                running.session.on_command(command, instant);
-            }
+            running.take_sends(instant);
         }
         self.settle(conn, now)
     }
@@ -380,6 +374,11 @@ impl Node {
             {
                 running.session.on_command(command, instant);
             }
+            // Sends already queued join this batch's commit, lest input arriving faster than the
+            // store commits hold them off.
+            if running.takes_sends() {
+                running.take_sends(instant);
+            }
             // Whatever the session did is committed before it's written; a resend step or a logon
             // the store reads or opens with a job waits for it.
             if running.store.is_none() {
@@ -469,6 +468,17 @@ impl Running {
             && !self.session.is_closed()
             && self.store.is_none()
             && self.outbox.len() < COMMANDS_PAUSE_AT
+    }
+
+    /// Takes the sends queued, up to a batch or as many as the outbound window allows.
+    fn take_sends(&mut self, now: Instant) {
+        for _ in 0..MAX_COMMANDS_PER_BATCH {
+            if !self.session.can_send(now) {
+                break;
+            }
+            let Some(command) = self.commands.try_send() else { break };
+            self.session.on_command(command, now);
+        }
     }
 
     /// The resume branch is enabled.

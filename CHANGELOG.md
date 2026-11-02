@@ -2,6 +2,16 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- **Fixed:** a session whose store commits take time (`DiskStorage`, each commit's fsyncs) took
+  application sends only between commits, and each commit's end started the next for the input
+  that arrived meanwhile. A counterparty sending faster than the store commits held every send off
+  until it paused: a gateway's client sending orders steadily got none of its reports. Sends
+  already queued now join each commit.
+
 ## 0.9.0 (2026-10-31)
 
 ### `turbojet`

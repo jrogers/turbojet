@@ -617,14 +617,8 @@ impl<P: Driven> Driver<P> {
         // goes out in the middle of the range; each step waits until the last has been written.
         // While committing, everything but reading and writing waits.
         let resending = self.session.is_resending();
-        // Application sends are taken once logged on (until then they wait in their bounded
-        // queue), and not while resending or with output backed up, or while the outbound window
-        // is full.
-        let takes_sends = !closed
-            && !committing
-            && self.session.has_logged_on()
-            && !resending
-            && self.unwritten() < COMMANDS_PAUSE_AT;
+        // Sends wait for the outbound window too.
+        let takes_sends = self.takes_sends();
         let (sends, sends_free_at) = sends_this_time(&self.session, &self.commands, takes_sends);
         // While the inbound window holds input, the socket isn't read: input waits there, in
         // order, and TCP slows the counterparty, rather than filling `buf` (MAX_UNPROCESSED).
@@ -724,6 +718,12 @@ impl<P: Driven> Driver<P> {
                 self.session.on_command(command, Instant::now().into_std());
             }
             self.read_arrived(reader)?;
+            // Sends already queued join this batch's commit: otherwise, with input arriving
+            // faster than the store commits, each commit's end would start the next for that
+            // input alone, and the sends, taken only between commits, would wait for a pause.
+            if self.takes_sends() {
+                self.take_sends(0, Instant::now().into_std());
+            }
             self.start_store_job();
             // Input that stopped for a commit made at once goes on: each time round, the commit
             // opens the window it stopped for, or is left under way. Input the inbound window
@@ -891,14 +891,27 @@ impl<P: Driven> Driver<P> {
         };
         let now = Instant::now().into_std();
         let sending = matches!(command, Command::Send(..));
-        let mut sends = u64::from(sending);
         self.session.on_command(command, now);
-        // Take whatever else is already queued, so a burst of sends becomes one write, up to what
-        // the outbound window allows.
-        for _ in (1..MAX_COMMANDS_PER_BATCH).take_while(|_| sending) {
-            if !self.session.can_send(now) {
-                break;
-            }
+        if sending {
+            self.take_sends(1, now);
+        }
+    }
+
+    /// Application sends are taken once logged on (until then they wait in their bounded queue),
+    /// and not while resending, committing or with output backed up, nor once closed.
+    fn takes_sends(&self) -> bool {
+        !self.session.is_closed()
+            && self.store.is_none()
+            && self.session.has_logged_on()
+            && !self.session.is_resending()
+            && self.unwritten() < COMMANDS_PAUSE_AT
+    }
+
+    /// Takes the sends already queued, after the `taken` just now, so a burst of sends becomes
+    /// one write, up to a batch or what the outbound window allows.
+    fn take_sends(&mut self, taken: usize, now: std::time::Instant) {
+        let mut sends = taken;
+        while sends < MAX_COMMANDS_PER_BATCH && self.session.can_send(now) {
             let Some(command) = self.commands.try_send() else { break };
             self.session.on_command(command, now);
             sends += 1;
@@ -907,7 +920,7 @@ impl<P: Driven> Driver<P> {
         // emptied haven't.
         if self.sends_held && sends > 0 {
             if let Some(metrics) = self.session.metrics() {
-                metrics.throttled_outbound(sends);
+                metrics.throttled_outbound(sends as u64);
             }
             self.sends_held = self.commands.has_sends();
         }
@@ -2201,6 +2214,44 @@ mod tests {
         let calls = calls.lock().unwrap().clone();
         let commits = calls.iter().filter(|c| *c == "commit").count();
         assert_eq!(commits, 3, "the Logon, then each order's batch: {calls:?}");
+    }
+
+    /// A send queued during a commit joins the next one, made for input that arrived meanwhile:
+    /// a counterparty sending faster than the store commits can't hold sends off.
+    #[tokio::test]
+    async fn a_send_queued_during_a_commit_joins_the_next() {
+        let storage = crate::store::deferring::DeferringStorage::default();
+        let (permits, gate) = std::sync::mpsc::channel::<()>();
+        let gate = Arc::new(std::sync::Mutex::new(gate));
+        *storage.job.lock().unwrap() =
+            Arc::new(move || gate.lock().unwrap().recv().map_err(|_| io::Error::other("the test ended")));
+        let calls = storage.calls.clone();
+        let (ours, mut peer) = duplex(1 << 20);
+        let registry = Arc::new(SessionRegistry::new(Arc::new(storage)));
+        let now = tokio::time::Instant::now().into_std();
+        let (session, commands) =
+            Session::acceptor(SessionConfig::new("FIX.4.2", "US"), registry.clone(), Arc::new(Acker), now).unwrap();
+        tokio::spawn(run(ours, session, commands));
+        let logon = Message::new(MsgType::Logon).with(tags::ENCRYPT_METHOD, "0").with(tags::HEART_BT_INT, 30u64);
+        peer.write_all(&from_peer(1, logon)).await.unwrap();
+        permits.send(()).unwrap();
+        let mut buf = Vec::new();
+        assert_eq!(receive(&mut peer, &mut buf, 1).await[0].msg_type(), MsgType::Logon);
+
+        // A's commit waits; meanwhile a send is queued and B arrives.
+        peer.write_all(&from_peer(2, order("A"))).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let sent = registry.handle(peer_session()).send(order("SENT")).unwrap();
+        peer.write_all(&from_peer(3, order("B"))).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        permits.send(()).unwrap(); // A's batch
+        permits.send(()).unwrap(); // B's, and the send's
+        let ids: Vec<_> =
+            receive(&mut peer, &mut buf, 3).await.iter().map(|m| m.get(tags::CL_ORD_ID).map(String::from)).collect();
+        assert_eq!(ids, [Some("A".into()), Some("B".into()), Some("SENT".into())]);
+        assert_eq!(sent.await.unwrap(), 4, "after the replies to the Logon, A and B");
+        let calls = calls.lock().unwrap().clone();
+        assert_eq!(calls.iter().filter(|c| *c == "commit").count(), 3, "{calls:?}");
     }
 
     /// A peer that sends a Logout and closes while a commit is under way is noticed once the
