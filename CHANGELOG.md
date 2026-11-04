@@ -2,6 +2,15 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet-replica`
+
+- **Changed:** the link to a standby writes batches already queued together, and the standby its
+  answers to every batch it has read, rather than a system call each. Over loopback, a commit
+  takes 40-70% less time committing asynchronously, and 8% less with 8 sessions committing at once
+  and 35% with 64; one session committing synchronously, with one batch in flight, is unchanged.
+
 ## 0.9.1 (2026-11-02)
 
 ### `turbojet`

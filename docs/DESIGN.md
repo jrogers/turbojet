@@ -456,10 +456,19 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     Many sessions committing at once over one link (Apple M3, 2026-10-27, `replicated commits at
     once`, wall time per commit across all sessions): memory 22.2 µs for 1 session, 4.55 µs for
     8, 3.09 µs for 64 synchronously, and 2.05 µs, 2.09 µs and 2.36 µs asynchronously, 64 behind:
-    the link's per-batch cost (a frame, a write and an answer each, applied in turn) caps it near
-    450,000 commits a second. With fsync, replicated, 6.9 ms, 7.3 ms and 6.1 ms; `DiskStorage`
+    the link's per-batch cost (a frame, a write and an answer each, applied in turn) capped it
+    near 450,000 commits a second. With fsync, replicated, 6.9 ms, 7.3 ms and 6.1 ms; `DiskStorage`
     alone, 4.03 ms, 2.36 ms and 3.43 ms, since concurrent `F_FULLFSYNC`s barely overlap. Not
     measured on Linux, where `fdatasync` is per file and journals merge concurrent ones.
+    The link then wrote each frame with a system call of its own, both ways: the active each batch
+    as it was queued, the standby each answer before taking the next frame, however many were
+    already read. Now the active's writer takes everything queued into one write, and the standby
+    answers in one write every frame it has read whole. Before and after (Apple M4 Pro, 2026-11-04,
+    the same benchmark): memory 25.9 and 26.3 µs for 1 session, 6.91 and 6.36 µs for 8, 5.70 and
+    3.74 µs for 64 synchronously; asynchronously, 64 behind, 2.63 and 0.79 µs, 4.11 and 1.65 µs,
+    4.06 and 2.13 µs. With fsync, 8 sessions took 6.98 and 5.12 ms, and 1 and 64 no different.
+    One session synchronous has one frame in flight, so nothing to join; asynchronous, the active
+    queues batches faster than one write each could take them.
 - **Marks** (`StoredSession::marks`): what a restart must find besides sequence numbers, an
   operator's pause and the cancel on disconnect a session logged on with. They're the session's,
   kept through resets, and written rarely (a logon, an ending, an operator), so the disk store

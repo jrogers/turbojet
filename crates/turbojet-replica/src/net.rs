@@ -116,6 +116,13 @@ where
     let mut connection = None;
     let mut out = Vec::new();
     let result = loop {
+        // Answers wait while more frames are already here, and go together: one write, not one each.
+        if !out.is_empty() && !frames.buffered() {
+            if let Err(e) = frames.inner.write_all(&out).await {
+                break Err(e);
+            }
+            out.clear();
+        }
         let frame = match frames.next().await {
             Ok(Some(frame)) => frame,
             Ok(None) => break Ok(()),
@@ -131,13 +138,7 @@ where
             answer
         };
         match answer {
-            Ok(Some(answer)) => {
-                out.clear();
-                answer.encode(&mut out);
-                if let Err(e) = frames.inner.write_all(&out).await {
-                    break Err(e);
-                }
-            }
+            Ok(Some(answer)) => answer.encode(&mut out),
             Ok(None) => {}
             Err(e) => break Err(e),
         }
@@ -157,6 +158,11 @@ struct FrameReader<R> {
 impl<R: AsyncRead + Unpin> FrameReader<R> {
     fn new(inner: R) -> Self {
         Self { inner, buf: Vec::new() }
+    }
+
+    /// Whether a whole frame (or input that won't decode) is already here, to take without reading.
+    fn buffered(&self) -> bool {
+        !matches!(Frame::decode(&self.buf), Ok(None))
     }
 
     /// The next frame, or `None` once the stream has ended between frames.
@@ -376,8 +382,15 @@ where
     let read = tokio::spawn(async move { reading.read(frames).await });
     let writing = conn.clone();
     let write = tokio::spawn(async move {
+        // Whatever else is queued goes with each frame: one write, not one each.
+        let mut batch = Vec::new();
         while let Some(frame) = frames_out.recv().await {
-            if writer.write_all(&frame).await.is_err() {
+            batch.clear();
+            batch.extend_from_slice(&frame);
+            while let Ok(frame) = frames_out.try_recv() {
+                batch.extend_from_slice(&frame);
+            }
+            if writer.write_all(&batch).await.is_err() {
                 writing.lost();
                 break;
             }
