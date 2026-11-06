@@ -485,12 +485,10 @@ fn reference_errors_name_the_line() {
         ("<fixr:fieldRef id='99'/>", "unknown field id 99"),
         ("<fixr:componentRef id='99'/>", "unknown component id 99"),
         ("<fixr:groupRef id='99'/>", "unknown group id 99"),
-        ("<fixr:fieldRef id='11' presence='constant'/>", "unsupported presence 'constant'"),
-        ("<fixr:groupRef id='2001' presence='forbidden'/>", "unsupported presence 'forbidden'"),
+        ("<fixr:fieldRef id='11' presence='sometimes'/>", "unknown presence 'sometimes'"),
         ("<fixr:thing/>", "unexpected <thing>"),
-        ("<fixr:fieldRef id='11' scenario='Short'/>", "scenarios aren't supported yet"),
-        ("<fixr:groupRef id='2001' scenario='Short'/>", "scenarios aren't supported yet"),
-        ("<fixr:componentRef id='1001' scenario='Short'/>", "scenarios aren't supported yet"),
+        ("<fixr:groupRef id='2001' scenario='Short'/>", "PreAllocGrp has no scenario 'Short'"),
+        ("<fixr:componentRef id='1001' scenario='Short'/>", "Instrument has no scenario 'Short'"),
     ];
     for (refs, expected) in cases {
         let err = Dictionary::from_orchestra(&message(refs)).unwrap_err();
@@ -528,16 +526,6 @@ fn definition_errors_name_the_line() {
                 .to_string(),
             "StandardHeader can only be used in a message",
         ),
-        (
-            "<fixr:messages>\n<fixr:message id='1' name='M' msgType='U1' scenario='Short'><fixr:structure/></fixr:message>\n\
-             </fixr:messages>"
-                .to_string(),
-            "scenarios aren't supported yet",
-        ),
-        (
-            "<fixr:fields>\n<fixr:field id='5001' name='V' type='int' scenario='Short'/>\n</fixr:fields>".to_string(),
-            "scenarios aren't supported yet",
-        ),
     ];
     for (first, expected) in cases {
         let err = Dictionary::from_orchestra(&with_common(&first)).unwrap_err();
@@ -561,6 +549,7 @@ fn duplicate_definitions_name_the_line() {
     let message = |name, msg_type| {
         format!("<fixr:message id='1' name='{name}' msgType='{msg_type}'><fixr:structure/></fixr:message>")
     };
+    let short = |xml: &str| xml.replacen(" name=", " scenario='Short' name=", 1);
     let cases = [
         ("components", component(3001, "C"), component(3002, "C"), "component C is defined twice"),
         ("components", component(3001, "C"), component(3001, "D"), "component id 3001 is both C and D"),
@@ -568,6 +557,30 @@ fn duplicate_definitions_name_the_line() {
         ("groups", group(3001, "G"), group(3001, "H"), "group id 3001 is both G and H"),
         ("messages", message("M", "U1"), message("M", "U2"), "message M is defined twice"),
         ("messages", message("M", "U1"), message("N", "U1"), "msgtype U1 is both M and N"),
+        (
+            "messages",
+            short("<fixr:message id='1' name='M' msgType='U1'><fixr:structure/></fixr:message>"),
+            short("<fixr:message id='1' name='M' msgType='U1'><fixr:structure/></fixr:message>"),
+            "message M is defined twice in scenario Short",
+        ),
+        (
+            "groups",
+            group(3001, "G"),
+            short("<fixr:group id='3001' name='G'><fixr:numInGroup id='136'/><fixr:fieldRef id='1'/></fixr:group>"),
+            "group G is counted by NoRelatedSym and in scenario Short by NoMiscFees",
+        ),
+        (
+            "groups",
+            group(3001, "G"),
+            short("<fixr:group id='3001' name='G'><fixr:numInGroup id='146'/><fixr:fieldRef id='44'/></fixr:group>"),
+            "group G starts with Account and in scenario Short with Price",
+        ),
+        (
+            "fields",
+            short("<fixr:field id='5001' name='V' type='int'/>"),
+            short("<fixr:field id='5001' name='V' type='int'/>"),
+            "field V is defined twice in scenario Short",
+        ),
     ];
     for (section, first, second, expected) in cases {
         let xml = with_common(&format!("<fixr:{section}>\n{first}\n{second}\n</fixr:{section}>"));
@@ -731,4 +744,102 @@ fn relisted_messages_keep_official_docs() {
     let order = dict.message("NewOrderSingle").unwrap();
     assert_eq!(order.members, [field("ClOrdID", true), field("Account", false)]);
     assert_eq!(order.doc.as_deref(), Some("An order."));
+}
+
+/// `sections` (scenarios of messages, components or groups) on top of the common definitions.
+fn scenarios(sections: &str) -> Dictionary {
+    Dictionary::from_orchestra(&with_common(sections)).unwrap_or_else(|e| panic!("{e}"))
+}
+
+#[test]
+fn merges_a_messages_scenarios() {
+    let dict = scenarios(
+        "<fixr:messages>\
+         <fixr:message id='1' name='M' msgType='U1'><fixr:structure>\
+         <fixr:fieldRef id='11' presence='required'/><fixr:fieldRef id='1' presence='required'/></fixr:structure></fixr:message>\
+         <fixr:message id='1' name='M' msgType='U1' scenario='Priced'><fixr:structure>\
+         <fixr:fieldRef id='11' presence='required'/><fixr:fieldRef id='44' presence='required'/></fixr:structure></fixr:message>\
+         </fixr:messages>",
+    );
+    // A field one scenario lacks is optional, and comes after the one it follows in its scenario.
+    assert_eq!(
+        dict.message("M").unwrap().members,
+        [field("ClOrdID", true), field("Price", false), field("Account", false)]
+    );
+    assert_eq!(dict.messages().len(), 1);
+}
+
+#[test]
+fn the_base_scenario_comes_first() {
+    let dict = scenarios(
+        "<fixr:messages>\
+         <fixr:message id='1' name='M' msgType='U1' scenario='Priced'><fixr:structure><fixr:fieldRef id='44'/>\
+         </fixr:structure></fixr:message>\
+         <fixr:message id='1' name='M' msgType='U1'><fixr:structure><fixr:fieldRef id='11'/></fixr:structure></fixr:message>\
+         </fixr:messages>",
+    );
+    assert_eq!(dict.message("M").unwrap().members, [field("ClOrdID", false), field("Price", false)]);
+}
+
+#[test]
+fn merges_component_and_group_scenarios() {
+    let dict = scenarios(
+        "<fixr:components>\
+         <fixr:component id='1001' name='Instrument' scenario='Priced'><fixr:fieldRef id='55' presence='required'/>\
+         <fixr:fieldRef id='44'/></fixr:component></fixr:components>\
+         <fixr:groups><fixr:group id='2001' name='PreAllocGrp' scenario='Priced'><fixr:numInGroup id='78'/>\
+         <fixr:fieldRef id='79' presence='required'/><fixr:fieldRef id='44'/></fixr:group></fixr:groups>\
+         <fixr:messages><fixr:message id='1' name='M' msgType='U1'><fixr:structure>\
+         <fixr:componentRef id='1001' scenario='Priced'/><fixr:groupRef id='2001'/></fixr:structure></fixr:message>\
+         </fixr:messages>",
+    );
+    assert_eq!(dict.component("Instrument").unwrap().members, [field("Symbol", true), field("Price", false)]);
+    let allocs = group(
+        "NoAllocs",
+        "PreAllocGrp",
+        false,
+        vec![field("AllocAccount", false), field("Price", false), field("AllocShares", false)],
+    );
+    assert_eq!(dict.message("M").unwrap().members[1], allocs);
+}
+
+#[test]
+fn merges_code_set_and_field_scenarios() {
+    let dict = load(
+        "<fixr:codeSets>\
+         <fixr:codeSet id='1' name='SideCodeSet' type='char'><fixr:code id='11' name='Buy' value='1'/>\
+         <fixr:code id='12' name='Sell' value='2'/></fixr:codeSet>\
+         <fixr:codeSet id='1' name='SideCodeSet' type='char' scenario='Short'><fixr:code id='12' name='Sell' value='2'/>\
+         <fixr:code id='15' name='SellShort' value='5'/></fixr:codeSet>\
+         <fixr:codeSet id='2' name='ShortSideCodeSet' type='char' scenario='Short'><fixr:code id='16' name='SellShortExempt' value='6'/>\
+         </fixr:codeSet></fixr:codeSets>\
+         <fixr:fields><fixr:field id='54' name='Side' type='SideCodeSet'/>\
+         <fixr:field id='54' name='Side' type='ShortSideCodeSet' scenario='Short'/></fixr:fields>",
+    );
+    let codes: Vec<_> = dict.field("Side").unwrap().values.iter().map(|v| v.code.as_str()).collect();
+    assert_eq!(codes, ["1", "2", "5", "6"]);
+}
+
+#[test]
+fn reads_constant_forbidden_and_ignored_presence() {
+    assert_eq!(
+        members(
+            "<fixr:fieldRef id='11' presence='constant' value='X'/><fixr:fieldRef id='1' presence='forbidden'/>\
+             <fixr:groupRef id='2001' presence='forbidden'/><fixr:componentRef id='1001' presence='forbidden'/>\
+             <fixr:fieldRef id='44' presence='ignored'/>"
+        ),
+        [field("ClOrdID", true), field("Price", false)]
+    );
+}
+
+#[test]
+fn a_field_one_scenario_forbids_is_optional() {
+    let dict = scenarios(
+        "<fixr:messages>\
+         <fixr:message id='1' name='M' msgType='U1'><fixr:structure><fixr:fieldRef id='44' presence='required'/>\
+         </fixr:structure></fixr:message>\
+         <fixr:message id='1' name='M' msgType='U1' scenario='Market'><fixr:structure>\
+         <fixr:fieldRef id='44' presence='forbidden'/></fixr:structure></fixr:message></fixr:messages>",
+    );
+    assert_eq!(dict.message("M").unwrap().members, [field("Price", false)]);
 }
