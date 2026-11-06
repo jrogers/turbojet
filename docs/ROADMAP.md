@@ -101,13 +101,6 @@ Each item needs a benchmark that shows the cost before the change is worth its c
     the database's own clock would remove that requirement but differs between SQLite and
     PostgreSQL. A gateway learns that its lease was taken only at its next commit; renewing it
     on a timer would let an idle session notice sooner.
-- **Replication, next steps** (`turbojet-replica`; S to M each). Still to do:
-  - batching across sessions (S, measured, parked). Many sessions committing at once over one
-    link cost about 2 µs a commit in all with memory stores, sync or async, however many share
-    it: some 450,000 a second, which writing every queued frame in one write, and the standby's
-    answers likewise, would raise. With fsync, replicated commits cost one sync on each side in
-    turn, and the store alone already caps them at a few hundred a second (DESIGN.md), so a group
-    commit on the standby would at best halve that. See "Group commit in `DiskStorage`" below.
 - **Group commit in `DiskStorage`** (M to L, research). Each session's commit syncs its own
   file, and concurrent syncs barely overlap on macOS (`F_FULLFSYNC` flushes the whole drive
   cache each time): 64 sessions committing at once take 3.4 ms a commit in all (DESIGN.md).
