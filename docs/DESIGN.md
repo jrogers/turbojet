@@ -533,6 +533,20 @@ re-lists something. `turbojet-codegen` turns a dictionary into `fix_enum!`, `fix
 `fix_message!` invocations (copying the dictionary's documentation into doc comments only on
 request), from an application's `build.rs` or as a command for checked-in crates.
 
+Orchestra scenarios, a venue's variants of a message, component, group, field or code set (a
+NewOrderSingle for limit orders and another for market orders, both MsgType D), load as one
+definition (2026-11-06). Nothing on the wire names a message's scenario, and a dictionary keys
+messages by MsgType, so neither validation nor generated code could pick one; the union accepts
+every scenario's messages. Members merge in the base scenario's order (the base first, then the
+others as the file has them), each other scenario's new ones after the member they follow there,
+and required only where every scenario requires them. A group's scenarios must start with the
+same field, since it delimits each entry. A code set's scenarios are one set with every
+scenario's codes, and a field's scenarios one field with every code set they name. `forbidden`
+leaves a member out (so one forbidden in only some scenarios ends up optional), `constant` makes
+it required, and `ignored` optional: `Member` has no room for a constant's value without a
+breaking change, so it isn't checked. Choosing a scenario per message, which would keep them
+apart, was the alternative; it only fits a session that only ever sends one.
+
 The macros convert and write each field through out-of-line helpers, one copy per field type
 rather than one per field, which keeps whole versions quick to build: built alone (Apple M3, Rust
 1.98.1, 2026-09-28), FIX 4.4 (84 messages) takes about 6 s debug and 16 s release, down

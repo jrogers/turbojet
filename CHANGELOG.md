@@ -2,6 +2,15 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet-dictionary`
+
+- **Added:** Orchestra files with scenarios load: each definition's scenarios as one, with every
+  scenario's members, each required only where every scenario requires it, and every scenario's
+  codes. `forbidden` presence leaves a member out, `constant` makes it required (its value isn't
+  checked) and `ignored` optional; each was an error before.
+
 ## 0.9.2 (2026-11-04)
 
 ### `turbojet-replica`

@@ -76,6 +76,13 @@ impl Dictionary {
     /// Parses and validates a FIX Orchestra repository, such as the FIX Trading Community's
     /// `OrchestraFIX44.xml`.
     ///
+    /// A definition's scenarios (a venue's NewOrderSingle as a limit and as a market order, both
+    /// MsgType D) load as one, since the wire doesn't say which scenario a message is: every member
+    /// of any scenario, required only if every scenario requires it, and for a field, every
+    /// scenario's codes. A group's scenarios must start with the same field. A `forbidden` member
+    /// is left out, a `constant` one is required (its value isn't checked) and an `ignored` one is
+    /// optional.
+    ///
     /// # Errors
     ///
     /// The XML doesn't parse, or the dictionary isn't valid: a member that isn't defined, a

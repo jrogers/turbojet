@@ -37,11 +37,8 @@ What's left is FIX Latest and the rest of Orchestra.
   every version, and all eight already take 173 s and 10 GB in release, which CI's runners
   strain. An application can generate just the messages it uses meanwhile
   (`turbojet-codegen --message`). QuickFIX has no acceptance scripts for it.
-- **More of FIX Orchestra** (M). Loading covers what the standard FIX 4.2 and 4.4 files use.
-  Still to do:
-  - scenarios (per-workflow variants of a message) and `constant` and `forbidden` presence,
-    which the loader rejects with an error for now;
-  - venue overlays in Orchestra format (`merge_xml` takes only QuickFIX format).
+- **Venue overlays in Orchestra format** (S to M). `merge_xml` takes only QuickFIX format, so
+  a venue's Orchestra file has to be loaded whole rather than merged onto the official one.
 
 ## 3. Encoding and data types
 

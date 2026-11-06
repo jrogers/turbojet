@@ -27,6 +27,9 @@ and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
   message was stored (with its MsgSeqNum) or dropped, and why (the connection ending first,
   logging out, a store failure).
 - Custom stores that don't record creation times never reset on a session schedule.
+- An Orchestra file's scenarios load as one definition, so a message is checked against every
+  scenario's fields at once: a field only some scenarios have, or require, is optional, and one a
+  scenario forbids is accepted if another allows it. A `constant` field's value isn't checked.
 - `turbojet-replica`: unless the store is `degrading`, a commit the standby can't take (unreachable
   within `DEFAULT_ANSWER_TIMEOUT`, or refusing a deposed active) fails the session, so the active
   is only as available as its standby. Degrading needs a lease that can fence (`SqlLease`, not
