@@ -1678,7 +1678,11 @@ impl World {
                 self.reset_left[side.index()] = fenced;
             }
         }
-        if (!idle || self.reset_left.contains(&true)) && now.since(since) < RESET_BOTH_LIMIT {
+        // Once one side is reset, the other, fenced off as its instance was deposed, is tried until
+        // the failover lets it be, however long that takes (its instance paused, say): giving up
+        // would leave one side reset and not the other, as no operator would.
+        let half_done = self.reset_left.contains(&true) && self.reset_left.contains(&false);
+        if (!idle || self.reset_left.contains(&true)) && now.since(since) < RESET_BOTH_LIMIT || half_done {
             self.queue.push(now.after(RESET_BOTH_CHECK), Event::ResetBothStep);
             return Ok(());
         }

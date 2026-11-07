@@ -19,3 +19,4 @@
 1793238734474872527 an async failover's resends unmarked: the ledger store didn't pass marks through, so the session never saw the promotion's maybe_handled (simulator bug)
 1793415352863041893 a duplicated reset Logon, answered as a new reset, set the two sides resetting each other
 1793416240997937105 an acceptor delivered messages from a connection it still held, from epochs ago, while the initiator reset at each logon (simulator bug)
+1794018289513615899 an operator resetting both sides gave up waiting for a deposed acceptor's failover, which its pause held off past the limit, leaving only the initiator reset (simulator bug)
