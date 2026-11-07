@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use roxmltree::{Document, Node};
 
 use crate::load::{self, Error};
+use crate::merge;
 use crate::model::{
     Category, Component, Dictionary, Field, FieldType, Member, Message, Protocol, Release, Value, Version,
 };
@@ -27,11 +28,15 @@ pub(crate) fn is_any_repository(node: Node) -> bool {
     node.tag_name().name() == "repository" && node.tag_name().namespace().is_some()
 }
 
-/// Parses and validates a repository.
-pub(crate) fn parse(doc: &Document) -> Result<Dictionary, Error> {
+/// Parses and validates a repository, returning it and the groups it defines, expanded. With a
+/// `base` (an overlay), refs may also name the base's fields by tag and its components and groups
+/// by Orchestra id, and it may not renumber the base's fields or give their tags or its msgtypes
+/// other names.
+pub(crate) fn parse(doc: &Document, base: Option<&Dictionary>) -> Result<(Dictionary, Vec<Member>), Error> {
     let root = doc.root_element();
     let parser = Parser {
         doc,
+        base,
         datatypes: HashMap::new(),
         fields: Vec::new(),
         tags: HashMap::new(),
@@ -39,8 +44,6 @@ pub(crate) fn parse(doc: &Document) -> Result<Dictionary, Error> {
         groups: HashMap::new(),
         expanded: HashMap::new(),
         expanding: Vec::new(),
-        header: None,
-        trailer: None,
     };
     if !is_repository(root) {
         let message = match root.tag_name().namespace() {
@@ -57,6 +60,7 @@ type Item<'a, 'input> = (&'a str, &'a str, Vec<Node<'a, 'input>>);
 
 struct Parser<'a, 'input> {
     doc: &'a Document<'input>,
+    base: Option<&'a Dictionary>,
     /// Datatypes by name, with their base types.
     datatypes: HashMap<&'a str, Option<&'a str>>,
     fields: Vec<Field>,
@@ -70,17 +74,18 @@ struct Parser<'a, 'input> {
     expanded: HashMap<&'a str, (String, Vec<Member>)>,
     /// The ids of the groups being expanded, outermost first.
     expanding: Vec<&'a str>,
-    /// The StandardHeader component's id.
-    header: Option<&'a str>,
-    /// The StandardTrailer component's id.
-    trailer: Option<&'a str>,
+}
+
+/// Whether a component is the header or the trailer, which are the dictionary's own.
+fn is_header_or_trailer(name: &str) -> bool {
+    name == "StandardHeader" || name == "StandardTrailer"
 }
 
 /// The session-level msgtypes, for repositories without message categories (FIX 4.2).
 const SESSION_MSG_TYPES: [&str; 7] = ["0", "1", "2", "3", "4", "5", "A"];
 
 impl<'a, 'input> Parser<'a, 'input> {
-    fn parse(mut self, root: Node<'a, 'input>) -> Result<Dictionary, Error> {
+    fn parse(mut self, root: Node<'a, 'input>) -> Result<(Dictionary, Vec<Member>), Error> {
         let version = self.version(root)?;
         for el in section(root, "datatypes", "datatype") {
             self.datatypes.insert(self.attr(el, "name")?, el.attribute("baseType"));
@@ -90,10 +95,10 @@ impl<'a, 'input> Parser<'a, 'input> {
         self.tags = self.fields.iter().enumerate().map(|(i, f)| (f.tag, i)).collect();
         // Index components and groups first: refs may point to ones defined later.
         let components = self.index(root, "components", "component", "id")?;
+        self.check_ids(&components, "component", |base| &base.ids.components)?;
         self.components = components.iter().map(|(id, name, els)| (*id, (*name, els.clone()))).collect();
-        self.header = components.iter().find(|c| c.1 == "StandardHeader").map(|c| c.0);
-        self.trailer = components.iter().find(|c| c.1 == "StandardTrailer").map(|c| c.0);
         let groups = self.index(root, "groups", "group", "id")?;
+        self.check_ids(&groups, "group", |base| &base.ids.groups)?;
         self.groups = groups.iter().map(|(id, name, els)| (*id, (*name, els.clone()))).collect();
         for (id, _, els) in &groups {
             self.group(els[0], id, false)?;
@@ -101,24 +106,56 @@ impl<'a, 'input> Parser<'a, 'input> {
         let (mut header, mut trailer) = (Vec::new(), Vec::new());
         let mut list = Vec::new();
         let mut nodes = Vec::new();
-        for (id, name, els) in components {
+        for (_, name, els) in components {
             let members = self.merged(&els, false)?;
             let el = els[0];
-            if Some(id) == self.header {
+            if name == "StandardHeader" {
                 header = members;
-            } else if Some(id) == self.trailer {
+            } else if name == "StandardTrailer" {
                 trailer = members;
             } else {
                 list.push(Component { name: name.to_string(), members });
                 nodes.push(el);
             }
         }
-        if let Some((i, message)) = load::component_cycle(&[], &list) {
+        let base_components = self.base.map(Dictionary::components).unwrap_or_default();
+        if let Some((i, message)) = load::component_cycle(base_components, &list) {
             return Err(self.error(nodes[i], message));
         }
         let messages = self.messages(root)?;
         let fields = std::mem::take(&mut self.fields);
-        Ok(Dictionary::new(version, header, trailer, fields, list, messages))
+        let mut dict = Dictionary::new(version, header, trailer, fields, list, messages);
+        dict.ids.components =
+            self.components.iter().map(|(id, (name, _))| (id.to_string(), name.to_string())).collect();
+        dict.ids.groups = self.groups.iter().map(|(id, (name, _))| (id.to_string(), name.to_string())).collect();
+        let defined = groups
+            .iter()
+            .map(|(id, name, _)| {
+                let (count, members) = self.expanded[id].clone();
+                Member::Group { name: count, official_name: Some(name.to_string()), required: false, members }
+            })
+            .collect();
+        Ok((dict, defined))
+    }
+
+    /// Checks that an overlay gives none of the base's component or group ids to another name.
+    fn check_ids(
+        &self,
+        items: &[Item],
+        item: &str,
+        ids: impl Fn(&Dictionary) -> &HashMap<String, String>,
+    ) -> Result<(), Error> {
+        let Some(base) = self.base else { return Ok(()) };
+        for (id, name, els) in items {
+            if let Some(existing) = ids(base).get(*id)
+                && existing != name
+            {
+                return Err(
+                    self.error(els[0], format!("{item} id {id} is {name}, but {existing} in the base dictionary"))
+                );
+            }
+        }
+        Ok(())
     }
 
     /// The `item`s of the section `section_name`, in order, as (key, name, elements): `key` is the
@@ -180,6 +217,9 @@ impl<'a, 'input> Parser<'a, 'input> {
         let mut messages = Vec::new();
         for (msg_type, name, els) in self.index(root, "messages", "message", "msgType")? {
             let el = els[0];
+            if let Some(base) = self.base {
+                load::check_message(base, name, msg_type).map_err(|message| self.error(el, message))?;
+            }
             let admin = match has_categories {
                 true => el.attribute("category") == Some("Session"),
                 false => SESSION_MSG_TYPES.contains(&msg_type),
@@ -229,10 +269,17 @@ impl<'a, 'input> Parser<'a, 'input> {
                 "componentRef" => {
                     let required = self.required(el)?;
                     let id = self.attr(el, "id")?;
-                    let (name, els) =
-                        self.components.get(id).ok_or_else(|| self.error(el, format!("unknown component id {id}")))?;
-                    self.check_ref_scenario(el, name, els)?;
-                    if Some(id) == self.header || Some(id) == self.trailer {
+                    let name = match self.components.get(id) {
+                        Some((name, els)) => {
+                            self.check_ref_scenario(el, name, els)?;
+                            *name
+                        }
+                        None => self
+                            .base
+                            .and_then(|base| base.ids.components.get(id))
+                            .ok_or_else(|| self.error(el, format!("unknown component id {id}")))?,
+                    };
+                    if is_header_or_trailer(name) {
                         if in_message {
                             continue;
                         }
@@ -263,8 +310,13 @@ impl<'a, 'input> Parser<'a, 'input> {
             let group = Some(self.groups[id].0.to_string());
             return Ok(Member::Group { name: count.clone(), official_name: group, required, members: members.clone() });
         }
-        let (name, els) =
-            self.groups.get(id).cloned().ok_or_else(|| self.error(at, format!("unknown group id {id}")))?;
+        let Some((name, els)) = self.groups.get(id).cloned() else {
+            // The base's, already expanded.
+            let group = self.base.and_then(|base| merge::official_group(base, base.ids.groups.get(id)?));
+            let mut group = group.ok_or_else(|| self.error(at, format!("unknown group id {id}")))?;
+            *required_mut(&mut group) = required;
+            return Ok(group);
+        };
         if let Some(start) = self.expanding.iter().position(|&g| g == id) {
             let mut cycle: Vec<&str> = self.expanding[start..].iter().map(|g| self.groups[g].0).collect();
             cycle.push(name);
@@ -323,8 +375,7 @@ impl<'a, 'input> Parser<'a, 'input> {
         let id = self.attr(el, "id")?;
         id.parse()
             .ok()
-            .and_then(|tag: u32| self.tags.get(&tag))
-            .map(|&i| &self.fields[i])
+            .and_then(|tag: u32| self.tags.get(&tag).map(|&i| &self.fields[i]).or_else(|| self.base?.field_by_tag(tag)))
             .ok_or_else(|| self.error(el, format!("unknown field id {id}")))
     }
 
@@ -448,6 +499,9 @@ impl<'a, 'input> Parser<'a, 'input> {
                 Some((ty, values)) => (ty.clone(), values.clone()),
                 None => (self.field_type(type_name), Vec::new()),
             };
+            if let Some(base) = self.base {
+                load::check_field(base, name, tag, &ty).map_err(|message| self.error(el, message))?;
+            }
             if let Some(&i) = tags.get(&tag) {
                 // Another scenario of a field already read: it takes this one's values too.
                 let field = &mut fields[i];

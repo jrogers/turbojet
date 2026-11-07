@@ -57,7 +57,7 @@ impl Dictionary {
         if root.tag_name().name() == "fix" {
             quickfix(&doc, None)
         } else if orchestra::is_any_repository(root) {
-            orchestra::parse(&doc)
+            orchestra::parse(&doc, None).map(|(dict, _)| dict)
         } else {
             Err(error(&doc, root, "not a QuickFIX or Orchestra dictionary".into()))
         }
@@ -70,7 +70,7 @@ impl Dictionary {
     /// The XML doesn't parse, or the dictionary isn't valid: a member that isn't defined, a
     /// component that includes itself, and the like; the error says where.
     pub fn from_quickfix(xml: &str) -> Result<Self, Error> {
-        parse(xml, None)
+        quickfix(&document(xml)?, None)
     }
 
     /// Parses and validates a FIX Orchestra repository, such as the FIX Trading Community's
@@ -88,7 +88,7 @@ impl Dictionary {
     /// The XML doesn't parse, or the dictionary isn't valid: a member that isn't defined, a
     /// component that includes itself, and the like; the error says where.
     pub fn from_orchestra(xml: &str) -> Result<Self, Error> {
-        orchestra::parse(&document(xml)?)
+        orchestra::parse(&document(xml)?, None).map(|(dict, _)| dict)
     }
 
     /// Reads, parses and validates a dictionary file in either format, like
@@ -112,14 +112,15 @@ pub(crate) fn read(path: &Path) -> Result<String, Error> {
     })
 }
 
-/// Parses a QuickFIX-format dictionary. With a `base`, names may also refer to the base's fields
-/// and components (a venue overlay), and the root's version attributes may be left out.
-pub(crate) fn parse(xml: &str, base: Option<&Dictionary>) -> Result<Dictionary, Error> {
+/// Parses a venue overlay in either format, whose names (QuickFIX) or ids (Orchestra) may also
+/// refer to the base's; a QuickFIX one may leave out the root's version attributes. Returns the
+/// overlay and, for Orchestra, the groups it defines, expanded.
+pub(crate) fn parse_overlay(xml: &str, base: &Dictionary) -> Result<(Dictionary, Vec<Member>), Error> {
     let doc = document(xml)?;
-    if base.is_some() && orchestra::is_repository(doc.root_element()) {
-        return Err(error(&doc, doc.root_element(), "Orchestra overlays aren't supported yet".into()));
+    if orchestra::is_any_repository(doc.root_element()) {
+        return orchestra::parse(&doc, Some(base));
     }
-    quickfix(&doc, base)
+    Ok((quickfix(&doc, Some(base))?, Vec::new()))
 }
 
 pub(crate) fn document(xml: &str) -> Result<Document<'_>, Error> {
@@ -188,7 +189,9 @@ impl Parser<'_, '_> {
                 if let Some(other) = msg_types.insert(msg_type, name) {
                     return Err(self.error(el, format!("msgtype {msg_type} is both {other} and {name}")));
                 }
-                self.check_message_against_base(el, name, msg_type)?;
+                if let Some(base) = self.base {
+                    check_message(base, name, msg_type).map_err(|message| self.error(el, message))?;
+                }
                 let category = match el.attribute("msgcat") {
                     Some("admin") => Category::Admin,
                     _ => Category::App,
@@ -292,7 +295,9 @@ impl Parser<'_, '_> {
                 return Err(self.error(el, format!("tag {tag} is both {other} and {name}")));
             }
             let ty = FieldType::from(self.attr(el, "type")?);
-            self.check_against_base(el, &name, tag, &ty)?;
+            if let Some(base) = self.base {
+                check_field(base, &name, tag, &ty).map_err(|message| self.error(el, message))?;
+            }
             let mut values = Vec::new();
             let mut codes = HashSet::new();
             for v in elements(el) {
@@ -307,49 +312,6 @@ impl Parser<'_, '_> {
             fields.push(Field { tag, name, ty, values, allow_other_values, doc: None, deprecated: false });
         }
         Ok(fields)
-    }
-
-    /// A venue may extend a base field, but not renumber it, reuse its tag for another name, or
-    /// retype a count field the base's groups rely on.
-    fn check_against_base(&self, el: Node, name: &str, tag: u32, ty: &FieldType) -> Result<(), Error> {
-        let Some(base) = self.base else { return Ok(()) };
-        if let Some(existing) = base.field(name)
-            && existing.tag != tag
-        {
-            return Err(
-                self.error(el, format!("field {name} has tag {tag}, but {} in the base dictionary", existing.tag))
-            );
-        }
-        if let Some(existing) = base.field_by_tag(tag)
-            && existing.name != name
-        {
-            return Err(self.error(el, format!("tag {tag} is {name}, but {} in the base dictionary", existing.name)));
-        }
-        let is_count = |ty: &FieldType| matches!(ty, FieldType::NumInGroup | FieldType::Int);
-        if let Some(existing) = base.field(name)
-            && is_count(&existing.ty)
-            && !is_count(ty)
-            && counts_group(base, name)
-        {
-            return Err(self.error(
-                el,
-                format!("field {name} counts a group in the base dictionary, so it must stay NUMINGROUP or INT"),
-            ));
-        }
-        Ok(())
-    }
-
-    /// A venue may replace a base message, but not give its msgtype to another name.
-    fn check_message_against_base(&self, el: Node, name: &str, msg_type: &str) -> Result<(), Error> {
-        let Some(base) = self.base else { return Ok(()) };
-        if let Some(existing) = base.messages().iter().find(|m| m.msg_type == msg_type)
-            && existing.name != name
-        {
-            return Err(
-                self.error(el, format!("msgtype {msg_type} is {name}, but {} in the base dictionary", existing.name))
-            );
-        }
-        Ok(())
     }
 
     /// Rejects a component that includes itself (see [`component_cycle`]), reporting it where
@@ -368,6 +330,40 @@ impl Parser<'_, '_> {
 
     fn error(&self, node: Node, message: String) -> Error {
         error(self.doc, node, message)
+    }
+}
+
+/// A venue may extend a base field, but not renumber it, reuse its tag for another name, or
+/// retype a count field the base's groups rely on.
+pub(crate) fn check_field(base: &Dictionary, name: &str, tag: u32, ty: &FieldType) -> Result<(), String> {
+    if let Some(existing) = base.field(name)
+        && existing.tag != tag
+    {
+        return Err(format!("field {name} has tag {tag}, but {} in the base dictionary", existing.tag));
+    }
+    if let Some(existing) = base.field_by_tag(tag)
+        && existing.name != name
+    {
+        return Err(format!("tag {tag} is {name}, but {} in the base dictionary", existing.name));
+    }
+    let is_count = |ty: &FieldType| matches!(ty, FieldType::NumInGroup | FieldType::Int);
+    if let Some(existing) = base.field(name)
+        && is_count(&existing.ty)
+        && !is_count(ty)
+        && counts_group(base, name)
+    {
+        return Err(format!("field {name} counts a group in the base dictionary, so it must stay NUMINGROUP or INT"));
+    }
+    Ok(())
+}
+
+/// A venue may replace a base message, but not give its msgtype to another name.
+pub(crate) fn check_message(base: &Dictionary, name: &str, msg_type: &str) -> Result<(), String> {
+    match base.messages().iter().find(|m| m.msg_type == msg_type) {
+        Some(existing) if existing.name != name => {
+            Err(format!("msgtype {msg_type} is {name}, but {} in the base dictionary", existing.name))
+        }
+        _ => Ok(()),
     }
 }
 

@@ -4,15 +4,17 @@ use crate::load::{self, Error};
 use crate::model::{Dictionary, Member, Message, Protocol};
 
 impl Dictionary {
-    /// Applies a venue's QuickFIX-format dictionary, whose names may refer to this one's (whatever
-    /// format this one was loaded from). Orchestra overlays aren't supported yet.
+    /// Applies a venue's dictionary, in QuickFIX format, whose names may refer to this one's (whatever
+    /// format this one was loaded from), or in Orchestra format, whose refs may name this one's
+    /// fields by tag and, if this one was loaded from Orchestra, its components and groups by id.
     ///
     /// New fields, components and messages are added. An existing field gains the venue's enum
     /// values (and its `allowOtherValues`, if set) and takes its type, and an existing value takes the venue's description where it
-    /// gives one; the field's and its values' official names and documentation are kept, since a
-    /// QuickFIX dictionary has none. An existing component or message is replaced whole, except
-    /// that a message keeps its documentation. A header or trailer in the venue replaces this
-    /// one's.
+    /// gives one; the field's and its values' official names and documentation are kept where the
+    /// venue gives none (a QuickFIX dictionary never does). An existing component or message is
+    /// replaced whole, except that a message keeps its documentation if the venue gives none. A
+    /// header or trailer in the venue replaces this one's. A group an Orchestra venue defines
+    /// replaces the group of that official name wherever this dictionary uses it.
     ///
     /// A QuickFIX group has no official name; where the venue re-lists a message or component
     /// (or brings a header or trailer) with a group that's the same as exactly one of this
@@ -23,16 +25,17 @@ impl Dictionary {
     ///
     /// Renumbering a field, giving one of its tags another name, giving a message's msgtype to
     /// another message, or making a field that counts one of this dictionary's groups something
-    /// other than NUMINGROUP or INT, or making a component include itself, is an error, and on
-    /// error nothing is changed.
+    /// other than NUMINGROUP or INT, making a component include itself, or giving one of this
+    /// dictionary's Orchestra component or group ids another name, is an error, and on error
+    /// nothing is changed.
     ///
     /// # Errors
     ///
     /// If the XML doesn't parse or the venue's dictionary isn't valid, or for any of the conflicts
     /// above; on error nothing is changed.
     pub fn merge_xml(&mut self, xml: &str) -> Result<(), Error> {
-        let venue = load::parse(xml, Some(self))?;
-        self.apply(venue);
+        let (venue, groups) = load::parse_overlay(xml, self)?;
+        self.apply(venue, &groups);
         Ok(())
     }
 
@@ -75,7 +78,11 @@ impl Dictionary {
         Ok(self)
     }
 
-    fn apply(&mut self, mut venue: Dictionary) {
+    /// Applies an overlay, and the groups it (in Orchestra format) defines wherever they're used.
+    fn apply(&mut self, mut venue: Dictionary, groups: &[Member]) {
+        let ids = std::mem::take(&mut venue.ids);
+        self.ids.components.extend(ids.components);
+        self.ids.groups.extend(ids.groups);
         let official = official_groups(self);
         let sections = venue.components.iter_mut().map(|c| &mut c.members);
         let sections = sections.chain(venue.messages.iter_mut().map(|m| &mut m.members));
@@ -131,8 +138,42 @@ impl Dictionary {
         if !venue.trailer.is_empty() {
             self.trailer = venue.trailer;
         }
+        if !groups.is_empty() {
+            let sections = self.components.iter_mut().map(|c| &mut c.members);
+            let sections = sections.chain(self.messages.iter_mut().map(|m| &mut m.members));
+            for members in sections.chain([&mut self.header, &mut self.trailer]) {
+                replace_groups(members, groups);
+            }
+        }
         self.reindex();
     }
+}
+
+/// Gives each group that's one of `groups` (by official name) that one's count field and members,
+/// however nested.
+fn replace_groups(members: &mut [Member], groups: &[Member]) {
+    for member in members {
+        let Member::Group { name, official_name, members, .. } = member else { continue };
+        let new = groups.iter().find(|g| matches!(g, Member::Group { official_name: o, .. } if o == official_name));
+        match new {
+            Some(Member::Group { name: count, members: new, .. }) if official_name.is_some() => {
+                name.clone_from(count);
+                members.clone_from(new);
+            }
+            _ => replace_groups(members, groups),
+        }
+    }
+}
+
+/// The official group named `name` as `dict` uses it, expanded, if it's used anywhere.
+pub(crate) fn official_group(dict: &Dictionary, name: &str) -> Option<Member> {
+    let (count, group, members) = official_groups(dict).into_iter().find(|&(_, group, _)| group == name)?;
+    Some(Member::Group {
+        name: count.to_string(),
+        official_name: Some(group.to_string()),
+        required: false,
+        members: members.to_vec(),
+    })
 }
 
 /// An official group definition: the count field, the official name and the members.
@@ -261,7 +302,7 @@ mod tests {
     #[test]
     fn takes_names_and_docs_the_venue_gives() {
         let mut merged = base();
-        merged.apply(dict(side(Some("Venue side."), vec![value("1", Some("VenueBuy"), "", Some("Venue buy."))])));
+        merged.apply(dict(side(Some("Venue side."), vec![value("1", Some("VenueBuy"), "", Some("Venue buy."))])), &[]);
         let side = merged.field("Side").unwrap();
         assert_eq!(side.doc.as_deref(), Some("Venue side."));
         assert_eq!(

@@ -344,6 +344,16 @@ pub struct Dictionary {
     field_tags: HashMap<u32, usize>,
     component_names: HashMap<String, usize>,
     message_names: HashMap<String, usize>,
+    /// Orchestra ids, for an Orchestra overlay's refs to this dictionary's definitions.
+    pub(crate) ids: Ids,
+}
+
+/// The Orchestra ids of a dictionary's components (the header and trailer among them) and groups,
+/// with their names; empty for one loaded from QuickFIX format.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Ids {
+    pub(crate) components: HashMap<String, String>,
+    pub(crate) groups: HashMap<String, String>,
 }
 
 impl Dictionary {
@@ -372,6 +382,7 @@ impl Dictionary {
             field_tags: HashMap::new(),
             component_names: HashMap::new(),
             message_names: HashMap::new(),
+            ids: Ids::default(),
         };
         dict.reindex();
         dict

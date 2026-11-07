@@ -292,14 +292,6 @@ fn load_detects_the_format() {
 }
 
 #[test]
-fn orchestra_overlays_are_rejected() {
-    let mut dict = load("<fixr:fields><fixr:field id='1' name='A' type='int'/></fixr:fields>");
-    let err = dict.merge_xml(&repo("<fixr:fields><fixr:field id='2' name='B' type='int'/></fixr:fields>")).unwrap_err();
-    assert_eq!((err.line, err.message.as_str()), (Some(1), "Orchestra overlays aren't supported yet"));
-    assert!(dict.field("B").is_none());
-}
-
-#[test]
 fn quickfix_overlays_merge_onto_an_orchestra_base() {
     let mut dict = load("<fixr:fields><fixr:field id='1' name='A' type='int'/></fixr:fields>");
     dict.merge_xml("<fix><fields><field number='5001' name='VenueFlag' type='BOOLEAN'/></fields></fix>").unwrap();
@@ -842,4 +834,115 @@ fn a_field_one_scenario_forbids_is_optional() {
          <fixr:fieldRef id='44' presence='forbidden'/></fixr:structure></fixr:message></fixr:messages>",
     );
     assert_eq!(dict.message("M").unwrap().members, [field("Price", false)]);
+}
+
+/// The common definitions, with a message N that uses Instrument, PreAllocGrp and MiscFeesGrp
+/// (which nests PreAllocGrp).
+fn orchestra_base() -> Dictionary {
+    Dictionary::from_orchestra(&with_common(
+        "<fixr:messages><fixr:message id='1' name='N' msgType='U1'><fixr:structure>\
+         <fixr:componentRef id='1024' presence='required'/><fixr:componentRef id='1001'/>\
+         <fixr:groupRef id='2001'/><fixr:groupRef id='2002'/><fixr:componentRef id='1025' presence='required'/>\
+         </fixr:structure></fixr:message></fixr:messages>",
+    ))
+    .unwrap_or_else(|e| panic!("{e}"))
+}
+
+#[test]
+fn orchestra_overlays_refer_to_the_base_by_id() {
+    let mut dict = orchestra_base();
+    dict.merge_xml(&repo(
+        "<fixr:fields><fixr:field id='5001' name='VenueFlag' type='Boolean'/></fixr:fields>\
+         <fixr:messages><fixr:message id='2' name='M' msgType='U2'><fixr:structure>\
+         <fixr:componentRef id='1024' presence='required'/><fixr:fieldRef id='11' presence='required'/>\
+         <fixr:componentRef id='1001'/><fixr:groupRef id='2001' presence='required'/><fixr:fieldRef id='5001'/>\
+         <fixr:componentRef id='1025' presence='required'/></fixr:structure></fixr:message></fixr:messages>",
+    ))
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        dict.message("M").unwrap().members,
+        [
+            field("ClOrdID", true),
+            Member::Component { name: "Instrument".into(), required: false },
+            pre_alloc_grp(true),
+            field("VenueFlag", false),
+        ]
+    );
+    assert_eq!(dict.field_by_tag(5001).unwrap().ty, FieldType::Boolean);
+    assert!(dict.message("N").is_some());
+}
+
+#[test]
+fn an_overlays_group_replaces_the_bases_wherever_its_used() {
+    let mut dict = orchestra_base();
+    dict.merge_xml(&repo(
+        "<fixr:fields><fixr:field id='5001' name='VenueAccountType' type='int'/></fixr:fields>\
+         <fixr:groups><fixr:group id='2001' name='PreAllocGrp'><fixr:numInGroup id='78'/>\
+         <fixr:fieldRef id='79' presence='required'/><fixr:fieldRef id='5001'/></fixr:group></fixr:groups>\
+         <fixr:components><fixr:component id='1001' name='Instrument'><fixr:fieldRef id='55' presence='required'/>\
+         <fixr:fieldRef id='5001'/></fixr:component></fixr:components>",
+    ))
+    .unwrap_or_else(|e| panic!("{e}"));
+    let allocs =
+        group("NoAllocs", "PreAllocGrp", false, vec![field("AllocAccount", true), field("VenueAccountType", false)]);
+    let n = &dict.message("N").unwrap().members;
+    assert_eq!(n[1], allocs);
+    assert_eq!(n[2], group("NoMiscFees", "MiscFeesGrp", false, vec![field("MiscFeeAmt", false), allocs]));
+    assert_eq!(
+        dict.component("Instrument").unwrap().members,
+        [field("Symbol", true), field("VenueAccountType", false)]
+    );
+}
+
+#[test]
+fn orchestra_overlay_conflicts_name_the_line_and_change_nothing() {
+    let cases = [
+        (
+            "<fixr:fields><fixr:field id='11' name='VenueID' type='String'/></fixr:fields>",
+            "tag 11 is VenueID, but ClOrdID in the base dictionary",
+        ),
+        (
+            "<fixr:components><fixr:component id='1001' name='Venue'><fixr:fieldRef id='1'/></fixr:component></fixr:components>",
+            "component id 1001 is Venue, but Instrument in the base dictionary",
+        ),
+        (
+            "<fixr:groups><fixr:group id='2001' name='Venue'><fixr:numInGroup id='78'/><fixr:fieldRef id='1'/></fixr:group></fixr:groups>",
+            "group id 2001 is Venue, but PreAllocGrp in the base dictionary",
+        ),
+        (
+            "<fixr:messages><fixr:message id='3' name='V' msgType='U1'><fixr:structure/></fixr:message></fixr:messages>",
+            "msgtype U1 is V, but N in the base dictionary",
+        ),
+        (
+            "<fixr:messages><fixr:message id='3' name='V' msgType='U3'><fixr:structure><fixr:componentRef id='9999'/>\
+             </fixr:structure></fixr:message></fixr:messages>",
+            "unknown component id 9999",
+        ),
+    ];
+    for (overlay, expected) in cases {
+        let mut dict = orchestra_base();
+        let err = dict.merge_xml(&repo(overlay)).unwrap_err();
+        assert_eq!((err.line, err.message.as_str()), (Some(2), expected), "{overlay}");
+        assert!(dict.message("V").is_none() && dict.field("VenueID").is_none());
+        assert_eq!(dict.component("Instrument").unwrap().members, [field("Symbol", true)]);
+    }
+}
+
+#[test]
+fn orchestra_overlays_on_a_quickfix_base_refer_to_fields_only() {
+    let mut dict = Dictionary::from_quickfix(
+        "<fix major='4' minor='2'><fields><field number='11' name='ClOrdID' type='STRING'/></fields>\
+         <components><component name='Instrument'><field name='ClOrdID' required='N'/></component></components></fix>",
+    )
+    .unwrap();
+    let message = |refs: &str| {
+        repo(&format!(
+            "<fixr:messages><fixr:message id='1' name='V' msgType='U1'><fixr:structure>{refs}</fixr:structure>\
+             </fixr:message></fixr:messages>"
+        ))
+    };
+    dict.merge_xml(&message("<fixr:fieldRef id='11' presence='required'/>")).unwrap();
+    assert_eq!(dict.message("V").unwrap().members, [field("ClOrdID", true)]);
+    let err = dict.merge_xml(&message("<fixr:componentRef id='1001'/>")).unwrap_err();
+    assert_eq!(err.message, "unknown component id 1001");
 }
