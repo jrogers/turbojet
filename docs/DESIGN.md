@@ -2,8 +2,7 @@
 
 How Turbojet is built and why, what's been measured along the way, and what testing found.
 [ARCHITECTURE.md](ARCHITECTURE.md) is the overview, with diagrams, [the guide](guide/README.md)
-says how to use it, [ROADMAP.md](ROADMAP.md) what's still to do, and
-[CAVEATS.md](CAVEATS.md) the behaviour worth knowing about. The house style, safety first, then
+says how to use it, and [CAVEATS.md](CAVEATS.md) the behaviour worth knowing about. The house style, safety first, then
 performance, then developer experience, is in [STYLE.md](STYLE.md).
 
 A standing goal behind the design: the engine's hot path should get as close as possible to zero
@@ -208,6 +207,10 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
 
 ## Storage
 
+- **Backends.** `MemoryStorage`, `DiskStorage` and `turbojet-sql`'s `SqlStorage`. A new one lives
+  behind its own feature (or in its own crate) so its dependencies stay optional, records
+  `created_at` so session schedules work, passes the conformance suite
+  (`turbojet::store::conformance`), and is measured against `DiskStorage`.
 - **Group commit.** The store commits what each batch of work did (one read, one batch of sends,
   one step of a resend) once, before any of it is written, and a store that waits for its device
   hands the commit to the driver, which runs it on a blocking thread. `DiskStorage` buffers until

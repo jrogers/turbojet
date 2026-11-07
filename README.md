@@ -57,7 +57,7 @@ bug in a FIX engine can send a duplicate order or lose a fill.
 | [`turbojet-python`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-python) | Initiators from Python's asyncio (built with maturin; not on PyPI) |
 
 How the pieces fit is in [ARCHITECTURE.md](https://github.com/jrogers/turbojet/blob/main/docs/ARCHITECTURE.md), how they're built and
-measured in [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md), and planned work in [ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md).
+measured in [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md).
 
 ## Using the engine
 
@@ -267,8 +267,7 @@ The memory store copies each message it keeps; the reallocs are the stores' inde
 
 ## Limitations
 
-[CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) lists behaviour worth knowing about, and
-[ROADMAP.md](https://github.com/jrogers/turbojet/blob/main/docs/ROADMAP.md) the planned work. In brief:
+[CAVEATS.md](https://github.com/jrogers/turbojet/blob/main/docs/CAVEATS.md) lists behaviour worth knowing about. In brief:
 
 - Resends read the disk store on the connection task, and opening a session's store scans its
   segments (up to 1 GiB by default) there.

@@ -42,8 +42,7 @@ end has just closed.
 
 ## Known failures
 
-`known_failures.txt` lists the scenarios that fail, and why: checks Turbojet doesn't do yet (on
-the roadmap), deviations from the spec's test cases still to fix, and scripts that rely on
+`known_failures.txt` lists the scenarios that fail, and why: checks Turbojet doesn't do yet, deviations from the spec's test cases still to fix, and scripts that rely on
 QuickFIX's own behaviour. Their tests pass while they fail; a listed scenario that starts passing
 fails its test until it's removed from the list. A failure prints the step, the difference and a
 transcript of everything sent each way.

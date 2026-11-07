@@ -3,8 +3,8 @@
 Turbojet is a FIX engine in Rust: a sans-IO session state machine with an injected clock, tokio
 transport, and typed messages generated from the FIX Orchestra files. Read [STYLE.md](docs/STYLE.md)
 before writing code; it's the house style and isn't repeated here. [ARCHITECTURE.md](docs/ARCHITECTURE.md)
-is the overview of how the pieces fit, [DESIGN.md](docs/DESIGN.md) says how it's built and what's been measured, [ROADMAP.md](docs/ROADMAP.md) what's still to do (open work only),
-and [CAVEATS.md](docs/CAVEATS.md) the behaviour worth knowing about.
+is the overview of how the pieces fit, [DESIGN.md](docs/DESIGN.md) says how it's built and what's been measured, the GitHub issues
+(`gh issue list`) what's still to do, and [CAVEATS.md](docs/CAVEATS.md) the behaviour worth knowing about.
 
 ## Checking a change
 
@@ -76,9 +76,10 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - A feature ends with a commit that records it: how to use it in the guide's chapter for it
   (`docs/guide/`, for users: no measurement history or internals; its examples are doctests, run
   from `crates/turbojet/src/guide.rs`), and in README.md only if it changes the overview or the
-  quick start; how it works and its numbers in DESIGN.md, its entry taken
-  off ROADMAP.md (not marked done), any caveat in CAVEATS.md, and CHANGELOG.md
-  (`## Unreleased`), e.g. "Record X in the guide, design notes and changelog".
+  quick start; how it works and its numbers in DESIGN.md, any caveat in CAVEATS.md, and
+  CHANGELOG.md (`## Unreleased`), e.g. "Record X in the guide, design notes and changelog". If it
+  has an issue, the commit closes it ("Closes #17"). Planned work goes in an issue, with its size
+  (S, M or L) in the body and `research` or `needs-linux` where they apply.
 - Public documents (README, SECURITY.md, the changelog, crate docs) make no promises: no
   timelines, support commitments or fix commitments unless the maintainer says so. They name no
   commercial FIX engine vendors.

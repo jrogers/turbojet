@@ -16,8 +16,8 @@ don't: simple code tends to be easier to make correct, to make fast and to read.
 - The first design that works is rarely the simple one. Spend the thinking up front, and revise
   until the design is simple. It costs less than fixing it once it's in use.
 - Don't ship a known showstopper: work that grows without limit, a latency spike on a common path,
-  or an error that's silently ignored. If a problem is accepted for now, it goes in
-  [ROADMAP.md](ROADMAP.md) with its size, so the decision is written down rather than forgotten.
+  or an error that's silently ignored. If a problem is accepted for now, it goes in a GitHub
+  issue with its size, so the decision is written down rather than forgotten.
 
 ## Safety
 
@@ -157,7 +157,6 @@ points come before the helpers.
   checks every dependency's licence and known advisories.
 - **Heap allocation, for now.** Tiger Style allocates everything statically at startup. Turbojet
   works towards the same end (no allocation per message in steady state), but `Message` and the
-  stores still allocate. The roadmap tracks the remaining allocations, and the allocation budget
-  measures them.
+  stores still allocate. The allocation budget measures what's left.
 - **Scripts in shell.** Tiger Style writes scripts in the project's own language. Turbojet's few
   scripts (`scripts/`) are short enough to stay in bash.

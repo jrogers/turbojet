@@ -1,7 +1,7 @@
 # Known caveats
 
 Behaviour that is deliberate or documented, but worth knowing about before you rely on Turbojet,
-and worth revisiting. Planned work is in [ROADMAP.md](ROADMAP.md).
+and worth revisiting.
 
 - FIX 4.0 and 4.1 sessions always write SendingTime in whole seconds, ignoring
   `timestamp_precision`, since their UTCTimestamp has no fractions (they came in FIX 4.2); the typed crates' other timestamps are written as the application sets
