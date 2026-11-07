@@ -639,7 +639,8 @@ impl<T: Send + 'static> Job<T> {
     /// # Errors
     ///
     /// The job's own error, or, for a future job, an error if no multi-threaded tokio runtime is
-    /// current. A panic in the job isn't caught.
+    /// current, and a panic in it as an error: tokio's, say, when the runtime shuts down under a
+    /// job run on a thread that outlives it. A panic in a blocking job isn't caught.
     pub fn run(self) -> io::Result<T> {
         match self.0 {
             Work::Blocking(job) => job(),
@@ -649,7 +650,15 @@ impl<T: Send + 'static> Job<T> {
                 if handle.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
                     return Err(io::Error::other("a store's future job can't block a current-thread runtime"));
                 }
-                tokio::task::block_in_place(|| handle.block_on(job))
+                let run = std::panic::AssertUnwindSafe(|| tokio::task::block_in_place(|| handle.block_on(job)));
+                std::panic::catch_unwind(run).unwrap_or_else(|panic| {
+                    let message = panic
+                        .downcast_ref::<&str>()
+                        .copied()
+                        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+                        .unwrap_or("a panic");
+                    Err(io::Error::other(format!("the store's job failed: {message}")))
+                })
             }
         }
     }
@@ -980,6 +989,21 @@ mod tests {
 
         let current = tokio::runtime::Builder::new_current_thread().build().unwrap();
         assert!(current.block_on(async { future().run() }).is_err(), "would deadlock");
+    }
+
+    /// A future job run on a thread that outlives its runtime (a blocking one, say) fails once
+    /// the runtime's drivers are gone, rather than panic in the timer it polls.
+    #[test]
+    fn a_future_job_fails_once_its_runtime_shuts_down() {
+        let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+        let handle = runtime.handle().clone();
+        runtime.shutdown_background();
+        let _entered = handle.enter();
+        let job = Job::future(async {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            Ok(())
+        });
+        assert!(job.run().unwrap_err().to_string().contains("being shutdown"));
     }
 
     /// Joined, two jobs both run, even when the first fails, which fails the whole; two blocking
