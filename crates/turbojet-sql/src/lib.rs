@@ -39,8 +39,7 @@
 //! with a margin for a slow database. Closing the log gives the lease up; a gateway that stops
 //! without closing it leaves it to expire.
 //!
-//! Leases compare times from each gateway's clock, so gateways sharing a database need clocks
-//! in step to well within the lease.
+//! Leases are timed by the database's clock, so gateways sharing it needn't have clocks in step.
 //!
 //! # Backends
 //!
@@ -212,6 +211,16 @@ impl Backend {
                 io::ErrorKind::Unsupported,
                 format!("turbojet-sql doesn't support '{scheme}' databases with the features it was built with"),
             )),
+        }
+    }
+
+    /// The database's time, in milliseconds since the Unix epoch, as SQL: what leases are timed
+    /// by, so that gateways' clocks needn't agree.
+    fn now(self) -> &'static str {
+        match self {
+            // julianday rather than unixepoch('subsec'), which needs SQLite 3.42.
+            Self::Sqlite => "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+            Self::Postgres => "CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)",
         }
     }
 }

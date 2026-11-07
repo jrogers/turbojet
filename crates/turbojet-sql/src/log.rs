@@ -7,7 +7,7 @@ use std::io;
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use sqlx::any::{AnyArguments, AnyRow};
 use sqlx::query::Query;
@@ -29,8 +29,7 @@ const NOT_EVICTED: u64 = 0;
 /// Opens `id`'s log: creates its row if it has none, takes its lease, and reads its state.
 pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn StoredSession>> {
     let token = new_token();
-    let now = now_millis();
-    let until = now.saturating_add(millis(shared.config.lease));
+    let now = shared.backend.now();
     let extra = id.key_suffix();
     let mut tx = shared.pool.begin().await.map_err(database("opening a session"))?;
     sqlx::query(
@@ -45,39 +44,40 @@ pub async fn open(shared: Arc<Shared>, id: SessionId) -> io::Result<Box<dyn Stor
     .await
     .map_err(database("creating a session"))?;
     // Free, expired, or ours: this process's registry already lets one connection run a session.
-    let taken = sqlx::query(
-        "UPDATE turbojet_sessions SET lease_holder = $5, lease_token = $6, lease_until = $7
+    let take = format!(
+        "UPDATE turbojet_sessions SET lease_holder = $5, lease_token = $6, lease_until = {now} + $7
          WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3 AND extra = $4
-           AND (lease_holder IS NULL OR lease_until < $8 OR lease_holder = $5)",
-    )
-    .bind(&id.begin_string)
-    .bind(&id.sender_comp_id)
-    .bind(&id.target_comp_id)
-    .bind(&extra)
-    .bind(&shared.config.holder)
-    .bind(&token)
-    .bind(until)
-    .bind(now)
-    .execute(&mut *tx)
-    .await
-    .map_err(database("taking a session's lease"))?;
-    let row = sqlx::query(
+           AND (lease_holder IS NULL OR lease_until < {now} OR lease_holder = $5)"
+    );
+    let taken = sqlx::query(&take)
+        .bind(&id.begin_string)
+        .bind(&id.sender_comp_id)
+        .bind(&id.target_comp_id)
+        .bind(&extra)
+        .bind(&shared.config.holder)
+        .bind(&token)
+        .bind(millis(shared.config.lease))
+        .execute(&mut *tx)
+        .await
+        .map_err(database("taking a session's lease"))?;
+    let read = format!(
         "SELECT id, next_outgoing, next_incoming, in_flight, created_at, evicted_through, marks, lease_holder,
-                lease_until
+                lease_until - {now} AS lease_left
          FROM turbojet_sessions
-         WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3 AND extra = $4",
-    )
-    .bind(&id.begin_string)
-    .bind(&id.sender_comp_id)
-    .bind(&id.target_comp_id)
-    .bind(&extra)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(database("reading a session"))?;
+         WHERE begin_string = $1 AND sender_comp_id = $2 AND target_comp_id = $3 AND extra = $4"
+    );
+    let row = sqlx::query(&read)
+        .bind(&id.begin_string)
+        .bind(&id.sender_comp_id)
+        .bind(&id.target_comp_id)
+        .bind(&extra)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(database("reading a session"))?;
     if taken.rows_affected() == 0 {
         let holder: Option<String> = row.try_get("lease_holder").map_err(database("reading a lease"))?;
-        let until: Option<i64> = row.try_get("lease_until").map_err(database("reading a lease"))?;
-        let left = Duration::from_millis(until.map_or(0, |until| until.saturating_sub(now)).try_into().unwrap_or(0));
+        let left: Option<i64> = row.try_get("lease_left").map_err(database("reading a lease"))?;
+        let left = Duration::from_millis(left.unwrap_or(0).try_into().unwrap_or(0));
         return Err(io::Error::new(
             io::ErrorKind::ResourceBusy,
             format!("{id} is leased to {} for another {left:?}", holder.as_deref().unwrap_or("another gateway")),
@@ -363,29 +363,30 @@ impl Committing {
         let added: u64 = changes.messages.iter().map(|(_, msg)| byte_count(msg)).sum();
         let mut tx = shared.pool.begin().await.map_err(database("starting a commit"))?;
         // The lease first: if another gateway has taken it, nothing else is written.
-        let until = now_millis().saturating_add(millis(shared.config.lease));
-        let row = sqlx::query(
+        let commit = format!(
             "UPDATE turbojet_sessions SET
                 next_outgoing = $3, next_incoming = $4, in_flight = $5, created_at = $6, marks = $10,
                 evicted_through = CASE WHEN $7 THEN NULL ELSE evicted_through END,
                 stored_bytes = CASE WHEN $7 THEN 0 ELSE stored_bytes END + $8,
-                lease_until = $9
+                lease_until = {} + $9
              WHERE id = $1 AND lease_token = $2
              RETURNING stored_bytes",
-        )
-        .bind(key)
-        .bind(&token)
-        .bind(signed(state.next_outgoing)?)
-        .bind(signed(state.next_incoming)?)
-        .bind(state.in_flight.map(signed).transpose()?)
-        .bind(state.created_at.map(|at| at.to_fix().to_string()))
-        .bind(changes.reset)
-        .bind(signed(added)?)
-        .bind(until)
-        .bind((!state.marks.is_empty()).then(|| state.marks.to_string()))
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(database("committing a session"))?;
+            shared.backend.now()
+        );
+        let row = sqlx::query(&commit)
+            .bind(key)
+            .bind(&token)
+            .bind(signed(state.next_outgoing)?)
+            .bind(signed(state.next_incoming)?)
+            .bind(state.in_flight.map(signed).transpose()?)
+            .bind(state.created_at.map(|at| at.to_fix().to_string()))
+            .bind(changes.reset)
+            .bind(signed(added)?)
+            .bind(millis(shared.config.lease))
+            .bind((!state.marks.is_empty()).then(|| state.marks.to_string()))
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(database("committing a session"))?;
         let Some(row) = row else {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -523,11 +524,6 @@ fn byte_count(msg: &[u8]) -> u64 {
 
 pub(crate) fn millis(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
-}
-
-/// The time on this gateway's clock, in milliseconds since the Unix epoch, as leases record it.
-pub(crate) fn now_millis() -> i64 {
-    millis(SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default())
 }
 
 /// A token unique to one opening of a log: random, from the standard library's hasher keys.

@@ -16,6 +16,13 @@ Notable changes to the published crates.
   did the acceptor's, when the file's text is the same. Certificates and CAs renewed in place
   (by cert-manager, say) were used only once the initiator's own section changed.
 
+### `turbojet-sql`
+
+- **Changed:** session leases and `SqlLease` are timed by the database's clock rather than each
+  gateway's, so gateways sharing a database no longer need their clocks in step. Gateways of an
+  earlier version sharing the database still time theirs by their own clocks, so during an upgrade
+  those clocks need to be in step with the database's.
+
 ### `turbojet-dictionary`
 
 - **Added:** Orchestra files with scenarios load: each definition's scenarios as one, with every

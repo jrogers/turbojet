@@ -10,12 +10,12 @@ use turbojet::store::Job;
 use turbojet_replica::Lease;
 
 use crate::Shared;
-use crate::log::{database, millis, now_millis};
+use crate::log::{database, millis};
 
 /// A [`Lease`] in `turbojet_leases`, under a name the instances sharing it agree on: whoever
 /// holds it is the active. Taking it raises its epoch; renewing and giving it up are fenced on
 /// the holder and the epoch, so an instance it was taken from can't renew it. Times come from
-/// each instance's clock, as for the session leases.
+/// the database's clock, as the session leases' do.
 #[derive(Clone)]
 pub struct SqlLease {
     shared: Arc<Shared>,
@@ -46,33 +46,31 @@ impl Lease for SqlLease {
         Job::future(async move {
             let Self { shared, name, duration } = &lease;
             let holder = &shared.config.holder;
-            let now = now_millis();
+            let now = shared.backend.now();
             let mut tx = shared.pool.begin().await.map_err(database("taking a lease"))?;
             sqlx::query("INSERT INTO turbojet_leases (name) VALUES ($1) ON CONFLICT (name) DO NOTHING")
                 .bind(name)
                 .execute(&mut *tx)
                 .await
                 .map_err(database("creating a lease"))?;
-            let taken = sqlx::query(
-                "UPDATE turbojet_leases SET holder = $2, epoch = epoch + 1, lease_until = $3
-                 WHERE name = $1 AND (holder IS NULL OR lease_until < $4 OR holder = $2)",
-            )
-            .bind(name)
-            .bind(holder)
-            .bind(now.saturating_add(millis(*duration)))
-            .bind(now)
-            .execute(&mut *tx)
-            .await
-            .map_err(database("taking a lease"))?;
-            let row = sqlx::query("SELECT holder, epoch, lease_until FROM turbojet_leases WHERE name = $1")
+            let take = format!(
+                "UPDATE turbojet_leases SET holder = $2, epoch = epoch + 1, lease_until = {now} + $3
+                 WHERE name = $1 AND (holder IS NULL OR lease_until < {now} OR holder = $2)"
+            );
+            let taken = sqlx::query(&take)
                 .bind(name)
-                .fetch_one(&mut *tx)
+                .bind(holder)
+                .bind(millis(*duration))
+                .execute(&mut *tx)
                 .await
-                .map_err(database("reading a lease"))?;
+                .map_err(database("taking a lease"))?;
+            let read =
+                format!("SELECT holder, epoch, lease_until - {now} AS lease_left FROM turbojet_leases WHERE name = $1");
+            let row = sqlx::query(&read).bind(name).fetch_one(&mut *tx).await.map_err(database("reading a lease"))?;
             if taken.rows_affected() == 0 {
                 let holder: Option<String> = row.try_get("holder").map_err(database("reading a lease"))?;
-                let until: Option<i64> = row.try_get("lease_until").map_err(database("reading a lease"))?;
-                let left = Duration::from_millis(until.unwrap_or(now).saturating_sub(now).try_into().unwrap_or(0));
+                let left: Option<i64> = row.try_get("lease_left").map_err(database("reading a lease"))?;
+                let left = Duration::from_millis(left.unwrap_or(0).try_into().unwrap_or(0));
                 return Err(io::Error::new(
                     io::ErrorKind::ResourceBusy,
                     format!("lease {name} is held by {} for another {left:?}", holder.as_deref().unwrap_or("another")),
@@ -88,16 +86,18 @@ impl Lease for SqlLease {
         let lease = self.clone();
         Job::future(async move {
             let Self { shared, name, duration } = &lease;
-            let renewed = sqlx::query(
-                "UPDATE turbojet_leases SET lease_until = $3 WHERE name = $1 AND holder = $2 AND epoch = $4",
-            )
-            .bind(name)
-            .bind(&shared.config.holder)
-            .bind(now_millis().saturating_add(millis(*duration)))
-            .bind(i64::try_from(epoch).unwrap_or(i64::MAX))
-            .execute(&shared.pool)
-            .await
-            .map_err(database("renewing a lease"))?;
+            let renew = format!(
+                "UPDATE turbojet_leases SET lease_until = {} + $3 WHERE name = $1 AND holder = $2 AND epoch = $4",
+                shared.backend.now()
+            );
+            let renewed = sqlx::query(&renew)
+                .bind(name)
+                .bind(&shared.config.holder)
+                .bind(millis(*duration))
+                .bind(i64::try_from(epoch).unwrap_or(i64::MAX))
+                .execute(&shared.pool)
+                .await
+                .map_err(database("renewing a lease"))?;
             if renewed.rows_affected() == 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,

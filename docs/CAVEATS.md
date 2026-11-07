@@ -44,7 +44,7 @@ and worth revisiting.
   noticed. The link is plain TCP unless TLS is set up on both sides. A reset waits
   for the standby where the built-in stores write it at once. The standby holds open every
   session the active has open, so a `DiskStorage` under it is locked while the active is connected,
-  until `Replica::promote`. `SqlLease`, like the session leases, compares the instances' clocks.
+  until `Replica::promote`.
   Made `asynchronous(n)`, a failover can lose up to `n` of each session's outgoing messages: the
   promoted standby skips their numbers, and the counterparty is gap-filled, so the application
   must reconcile what it sent (orders' status, say). The standby can lack incoming state too, so
@@ -110,9 +110,8 @@ and worth revisiting.
 - A process that shuts down fires its cancel-on-disconnect countdowns at once, as does
   replacing an initiator during a grace period.
 - A `SqlStorage` lease must outlast the longest heartbeat interval, since heartbeats are the
-  commits that renew it while a session is idle, and gateways sharing a database need clocks in
-  step to well within the lease. A log closed without a tokio runtime to give its lease up on
-  leaves it to expire.
+  commits that renew it while a session is idle. A log closed without a tokio runtime to give
+  its lease up on leaves it to expire.
 - An operator change to a disconnected session runs a store's blocking commit (`DiskStorage`
   with fsync) on the calling task. On a multi-threaded runtime the worker's other tasks move to
   another thread meanwhile; on a current-thread runtime they wait for the fsync.
