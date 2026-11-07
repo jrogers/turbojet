@@ -45,7 +45,7 @@ let disk: Arc<dyn SessionStorage> = Arc::new(DiskStorage::new("./store")?);
   default), which every commit renews and closing gives up: another gateway can't open the
   session meanwhile, and a gateway whose lease expired and was taken can't commit, so it
   disconnects rather than send under numbers the other uses. Heartbeats are commits, so the lease
-  must be longer than the longest heartbeat interval. Leases compare the gateways' clocks.
+  must be longer than the longest heartbeat interval. Leases are timed by the database's clock.
 
 Stores outside Turbojet can check themselves against the suite its own stores pass:
 `turbojet::store::conformance::check`, with the `conformance` feature. A store with limits of
