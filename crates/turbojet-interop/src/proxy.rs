@@ -27,6 +27,9 @@
 //! - [`Proxy::bandwidth`]: paces forwarding to a byte rate.
 //! - [`Proxy::stall`] and [`Proxy::unstall`]: stops reading from the sender, so its writes back
 //!   up into TCP and block, then reads again. What was read before the stall is still forwarded.
+//! - [`Proxy::cut`]: closes both sides of the current pair at once, whatever they carry (TLS
+//!   too, which the frame faults can't read). Set on no pair, it cuts the next one at the next
+//!   change of faults, so [`Proxy::heal`] after it.
 //!
 //! Each direction runs as a reader, which frames what arrives and applies the faults on single
 //! frames, and a writer, which applies holds, delays and pacing. Between them is a queue of at most
@@ -146,6 +149,8 @@ struct Faults {
     /// Bytes per second.
     bandwidth: [Option<u32>; 2],
     stall: [bool; 2],
+    /// Close both sides now.
+    cut: bool,
 }
 
 /// A fault on the next frame of a MsgType.
@@ -288,6 +293,17 @@ impl Proxy {
     /// Reads from the sender in `dir` again.
     pub fn unstall(&self, dir: Dir) {
         self.faults.send_modify(|f| f.stall[dir.index()] = false);
+    }
+
+    /// Closes both sides of the current pair at once.
+    pub fn cut(&self) {
+        self.faults.send_modify(|f| f.cut = true);
+    }
+
+    /// Forgets the events so far, for a run that doesn't wait on them, which would otherwise
+    /// keep every frame a blackhole swallows.
+    pub fn clear_events(&mut self) {
+        self.events.clear();
     }
 
     /// Clears every fault on the current pair. A close withheld by a blackhole is passed on.
@@ -472,8 +488,9 @@ async fn link(
                 (downstream_to_upstream.reverse(), end)
             }
             Ok(()) = changes.changed() => {
+                let faults = changes.borrow_and_update();
                 // A withheld close goes through once nothing is blackholed.
-                if ended.iter().any(|&e| e) && !changes.borrow_and_update().blackholed() {
+                if faults.cut || ended.iter().any(|&e| e) && !faults.blackholed() {
                     return;
                 }
                 continue;

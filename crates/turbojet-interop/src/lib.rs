@@ -16,6 +16,7 @@ mod proxy;
 
 pub use pair::{Options, Pair, Role, Setup, TjEvent, Tls, Version};
 pub use peer::{EVENT_TIMEOUT, Engine, FixMsg, Peer, PeerConfig, PeerEvent, QFJ};
+pub use pki::Pki;
 pub use proxy::{Dir, Fault, Proxy, ProxyEvent};
 
 /// Turbojet's CompID in every interop session.

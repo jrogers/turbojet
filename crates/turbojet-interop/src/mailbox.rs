@@ -78,6 +78,12 @@ impl<T, M> Mailbox<T, M> {
     }
 
     /// Everything buffered, after taking what has already arrived.
+    /// Forgets everything received so far, as a long run that doesn't wait for items does.
+    pub(crate) fn clear(&mut self) {
+        while self.rx.try_recv().is_ok() {}
+        self.pending.clear();
+    }
+
     pub(crate) fn drain(&mut self) -> &VecDeque<T> {
         while let Ok(m) = self.rx.try_recv() {
             let item = (self.convert)(m);
