@@ -418,6 +418,8 @@ struct World {
     replication: Option<(Replication, Rng, Arc<std::sync::Mutex<Pair>>)>,
     /// Processes paused, from their own random stream for the same reason.
     pauses: Pauses,
+    /// Faults aimed at resends, from their own random stream for the same reason.
+    aimed: Aimed,
     /// The states of [`COVERAGE`] the world counts itself, and how often each came.
     covered: BTreeMap<&'static str, u64>,
     /// Each node's clocks and their wall clocks' steps, from their own random stream likewise.
@@ -490,6 +492,21 @@ impl Pauses {
         let secs = Duration::from_secs;
         let every = if rng.chance(333_333) { rng.pick(&[Some(secs(30)), Some(secs(10))]) } else { None };
         Self { every, rng, held: [None, None], made: 0, resumed_deposed: 0 }
+    }
+}
+
+/// On a third of the seeds, faults aimed at resends (see `World::aim_at_resends`), and whether
+/// each side was resending after the last event.
+struct Aimed {
+    on: bool,
+    rng: Rng,
+    resending: [bool; 2],
+}
+
+impl Aimed {
+    fn draw(seed: u64) -> Self {
+        let mut rng = Rng::new(seed ^ 0xa1_3ed5);
+        Self { on: rng.chance(333_333), rng, resending: [false; 2] }
     }
 }
 
@@ -913,6 +930,7 @@ impl World {
             skew,
             pauses: Pauses::draw(options.seed),
             covered: BTreeMap::new(),
+            aimed: Aimed::draw(options.seed),
             options,
             faults,
             clocks,
@@ -1123,6 +1141,7 @@ impl World {
             self.operator_traps(at)?;
             self.schedule_cancels(at);
             self.schedule_releases();
+            self.aim_at_resends(at)?;
             // A trap's crash kills the process when its call is made, not at some later step.
             assert!(
                 self.storage.iter().all(|s| !s.crash_pending()),
@@ -1412,29 +1431,8 @@ impl World {
                 }
             }
             Event::Failover { deposed } => {
-                let (replication, _, pair) = self.replication.as_ref().expect("a replicated seed");
-                let (every, pair) = (replication.failover_every, pair.clone());
-                let mut pair = pair.lock().unwrap();
-                // Only with the acceptor up and not paused, and a plain failover not while one deposed waits, nor
-                // to a standby the lease says is out of sync (a deposed acceptor's lease was
-                // taken only from one in sync).
-                let happens = !self.down[Side::Acceptor.index()]
-                    && self.pauses.held[Side::Acceptor.index()].is_none()
-                    && pair.deposed() == deposed
-                    && (deposed || pair.may_fail_over());
-                if happens {
-                    if self.resending_any() {
-                        self.cover("failover mid-resend");
-                    }
-                    self.crash(Side::Acceptor, now);
-                    pair.fail_over();
-                    if pair.max_lag() > 0 {
-                        let promoted = Stored::Promoted { max_lag: pair.max_lag() };
-                        self.storage[Side::Acceptor.index()].ledger.lock().unwrap().push(promoted);
-                    }
-                    self.record(&format!("failover: {}", pair.describe()));
-                }
-                drop(pair);
+                let every = self.replication.as_ref().expect("a replicated seed").0.failover_every;
+                let happens = self.fail_over(deposed, now);
                 if !deposed {
                     self.replication_again(busy, now, every, Event::Failover { deposed: false });
                 } else if !happens {
@@ -1639,6 +1637,32 @@ impl World {
         self.queue.push(now.after(after), Event::Restart(side));
     }
 
+    /// The acceptor fails over, if it can: only with it up and not paused, and a plain failover
+    /// not while one deposed waits, nor to a standby the lease says is out of sync (a deposed
+    /// acceptor's lease was taken only from one in sync). Returns whether it did.
+    fn fail_over(&mut self, deposed: bool, now: SimTime) -> bool {
+        let (_, _, pair) = self.replication.as_ref().expect("a replicated seed");
+        let pair = pair.clone();
+        let mut pair = pair.lock().unwrap();
+        let happens = !self.down[Side::Acceptor.index()]
+            && self.pauses.held[Side::Acceptor.index()].is_none()
+            && pair.deposed() == deposed
+            && (deposed || pair.may_fail_over());
+        if happens {
+            if self.resending_any() {
+                self.cover("failover mid-resend");
+            }
+            self.crash(Side::Acceptor, now);
+            pair.fail_over();
+            if pair.max_lag() > 0 {
+                let promoted = Stored::Promoted { max_lag: pair.max_lag() };
+                self.storage[Side::Acceptor.index()].ledger.lock().unwrap().push(promoted);
+            }
+            self.record(&format!("failover: {}", pair.describe()));
+        }
+        happens
+    }
+
     /// Another instance takes the acceptor's lease while it runs on, if the standby is in sync
     /// (the only one it takes it from), the failover to follow at `failover_at`.
     fn depose(&mut self, failover_at: SimTime) -> bool {
@@ -1719,6 +1743,50 @@ impl World {
         for event in held {
             self.queue.push_first(now, event);
         }
+    }
+
+    /// On an aimed seed, a third of the resends still under way after the step that began them
+    /// meet one of the seed's own faults at once, during the busy phase: a crash of either side,
+    /// an operator's skip on the resending one, or a failover. Most resends take a step, so a fault
+    /// at a random time rarely finds one under way.
+    fn aim_at_resends(&mut self, now: SimTime) -> Result<(), Violation> {
+        for side in [Side::Initiator, Side::Acceptor] {
+            let resending = self.resending(side);
+            let started = resending && !self.aimed.resending[side.index()];
+            self.aimed.resending[side.index()] = resending;
+            if !started || !self.aimed.on || now >= self.busy_end || !self.aimed.rng.chance(333_333) {
+                continue;
+            }
+            let failover = self.replication.as_ref().is_some_and(|(r, ..)| r.failover_every.is_some());
+            let mut kinds = Vec::new();
+            if self.faults.crash_every.is_some() {
+                kinds.push("crash");
+            }
+            if self.faults.skip_every.is_some() {
+                kinds.push("skip");
+            }
+            if failover {
+                kinds.push("failover");
+            }
+            if kinds.is_empty() {
+                continue;
+            }
+            let kind = self.aimed.rng.pick(&kinds);
+            self.record(&format!("aimed at {side:?}'s resend: {kind}"));
+            match kind {
+                "crash" => {
+                    let target = if self.aimed.rng.chance(500_000) { side } else { side.other() };
+                    if !self.down[target.index()] && self.pauses.held[target.index()].is_none() {
+                        self.crash(target, now);
+                    }
+                }
+                "skip" => self.skip(side, now)?,
+                _ => {
+                    self.fail_over(false, now);
+                }
+            }
+        }
+        Ok(())
     }
 
     fn cover(&mut self, state: &'static str) {

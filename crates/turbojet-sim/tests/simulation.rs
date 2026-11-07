@@ -9,9 +9,11 @@ use turbojet_sim::{COVERAGE, Options, Plant, run};
 const SEEDS: u64 = 100;
 
 /// The fewest of those seeds that must reach each state, about half as many as did when this was
-/// written. The states only about one seed in a hundred reaches or fewer (a crash, failover or skip
-/// mid-resend, a resend after a clock step) aren't asserted; random runs print their shares.
-const MIN_REACHED: [(&str, u64); 6] = [
+/// written. The states fewer than one seed in a hundred reaches (a failover mid-resend, a resend
+/// after a clock step) aren't asserted; random runs print their shares.
+const MIN_REACHED: [(&str, u64); 8] = [
+    ("crash mid-resend", 3),
+    ("skip mid-resend", 1),
     ("logon 789 resend", 5),
     ("logon reset", 4),
     ("pause", 12),

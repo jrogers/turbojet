@@ -894,9 +894,13 @@ invariants, and tests that look for bugs rather than confirm what already works.
   fails if fewer of its seeds reach one than about half as many as did (2026-11-07): a resend
   straight after a Logon's 789 (11 of 100), a reset at logon (8), a pause (24), a deposed acceptor
   resuming (3), a power loss with writes not written back (9) and a torn commit (5), since nothing
-  else would show a change stopped reaching them. Random runs print each state's share: in 7,056
-  seeds, a crash during a resend came on 0.99%, an operator's skip during one on 0.23%, a failover
-  during one on 0.11% and a resend after a clock step on 0.10%, too few to assert on a hundred. After every event a checker holds both sides to what their stores recorded, what they
+  else would show a change stopped reaching them. Random runs print each state's share. A resend
+  mostly takes one step of the driver, so faults at random times rarely found one under way: in
+  7,056 seeds a crash came during one on 0.99%, a skip on 0.23% and a failover on 0.11%. On a third
+  of the seeds, a third of the resends still under way after their first step now meet one of the
+  seed's faults at once, and in 49,708 seeds those came on 5.55%, 4.51% and 0.58%; the per-push run
+  asserts crashes (6 of 100) and skips (3) during a resend too. A resend after a clock step (0.06%)
+  and a failover during one are still too rare to assert on a hundred. After every event a checker holds both sides to what their stores recorded, what they
   wrote and what their applications received, and once the faults stop they must settle; bugs
   planted in the simulator show the checker catches what it should. 100 seeds run on every push and
   random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write
