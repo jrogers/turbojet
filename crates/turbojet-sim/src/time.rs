@@ -117,9 +117,10 @@ impl NodeClock {
         SimTime(u64::try_from((nanos * MILLION + rate - 1) / rate).expect("simulations are short"))
     }
 
-    /// When the node's monotonic clock has run `d` from `t`.
+    /// When the node's monotonic clock has run `d` from `t`: never before `t`, though a slow clock
+    /// reads `t`'s instant from an earlier simulated time.
     pub fn after(&self, t: SimTime, d: Duration) -> SimTime {
-        self.sim_time(self.instant(t) + d)
+        self.sim_time(self.instant(t) + d).max(t)
     }
 
     /// The node's wall clock, for `SessionConfig::clock` and its registry.
@@ -169,6 +170,8 @@ mod tests {
                 assert!(woken.0 == 0 || clock.instant(SimTime(woken.0 - 1)) < deadline, "{ppm} ppm at {t}: woken late");
                 // A slow clock reads the same nanosecond at neighbouring times: the first of them.
                 assert!(clock.sim_time(clock.instant(t)) <= t, "{ppm} ppm at {t}");
+                // A grace period of nothing ends as it starts, not at that first time.
+                assert_eq!(clock.after(t, Duration::ZERO), t, "{ppm} ppm at {t}");
             }
         }
         let fast = NodeClock::skewed(&clocks, 200, 0);
