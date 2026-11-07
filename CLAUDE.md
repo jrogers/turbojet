@@ -24,6 +24,7 @@ cargo bench -p turbojet --all-features -- --quick           # benchmark smoke ru
 scripts/fuzz.sh 60 session                                  # fuzz one target (nightly, cargo-fuzz)
 scripts/python.sh                                           # the Python bindings (uv)
 scripts/nightly.sh                                          # last night's runs, and how to replay a failure
+TURBOJET_SOAK=60 cargo test -p turbojet-interop --release --test soak -- --test-threads=1   # the soak
 scripts/site.sh [--serve]                                   # the website, into target/site (mdbook, mdbook-mermaid)
 ```
 

@@ -1,8 +1,9 @@
 name: Simulate
 
 # Runs the deterministic simulator (crates/turbojet-sim) on random seeds for a while each night,
-# FIX sessions and FIXP sessions in jobs of their own, beyond the fixed seeds every push runs.
-# Run it by hand for a longer or shorter session.
+# FIX sessions and FIXP sessions in jobs of their own, beyond the fixed seeds every push runs; and
+# the soak (crates/turbojet-interop/tests/soak.rs), the real engine through a fault proxy, over TCP
+# and TLS. Run it by hand for a longer or shorter session.
 on:
   schedule:
     - cron: "47 3 * * *"
@@ -54,10 +55,24 @@ jobs:
             sim.log
             trace-*.txt
 
+  # Turbojet against itself through a proxy that cuts, blackholes, stalls, holds and slows the link,
+  # each process crashing now and then: ten minutes of faults over TCP, then over TLS, one at a time
+  # so that neither slows the other's heartbeats.
+  soak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Soak
+        run: cargo test -p turbojet-interop --release --test soak -- --nocapture --test-threads=1
+        env:
+          TURBOJET_SOAK: "600"
+
   # Opens an issue when a scheduled run fails (or comments on the open one), and closes it when one
   # passes, so a failure doesn't go unnoticed for days. Manual runs are watched by whoever ran them.
   report:
-    needs: simulate
+    needs: [simulate, soak]
     if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:
@@ -65,7 +80,9 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@v7
-      - run: scripts/nightly-report.sh "${{ github.workflow }}" "${{ needs.simulate.result }}" "$URL"
+      # Failed if either job failed; a cancelled one says nothing either way.
+      - run: scripts/nightly-report.sh "${{ github.workflow }}" "$RESULT" "$URL"
         env:
           GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ contains(needs.*.result, 'failure') && 'failure' || (contains(needs.*.result, 'cancelled') && 'cancelled' || 'success') }}
           URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

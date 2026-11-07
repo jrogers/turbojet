@@ -154,7 +154,28 @@ forwards whole FIX frames and, per direction (`Dir::ToPeer` or `Dir::ToTj`), can
 - `hold` the direction (keep reading, forward nothing) until `release`, or `delay_next` one frame
   with what follows queued behind it;
 - cap its `bandwidth` in bytes a second;
-- `stall` it: stop reading from the sender, so TCP pushes back, until `unstall`.
+- `stall` it: stop reading from the sender, so TCP pushes back, until `unstall`;
+- `cut` the connection, both sides at once, whatever it carries (TLS too).
 
 Each new connection starts without faults. `pair.proxy()` sets them, and `applied`,
 `disconnected` and the other waits say when they've happened.
+
+## The soak
+
+`tests/soak.rs` needs no peer: Turbojet against itself for a while, client and server each in a
+runtime of its own over a `DiskStorage`, through the proxy. One fault at a time, every second or
+so, for up to three seconds: the connection cut, a direction blackholed, stalled, held or slowed,
+or a process crashed (its runtime dropped, its files kept) and started again. The client sends
+orders as fast as its queue takes them and the server acknowledges each; every order the client
+stored must reach the server's application, and every order it saw be acknowledged, once each and
+in order (a repeat only marked as possibly handled), and once the faults stop, within two minutes.
+It runs over TCP and over TLS: the proxy can't read TLS frames, but every fault the soak uses acts
+on the link, not on single messages.
+
+```sh
+TURBOJET_SOAK=60 cargo test -p turbojet-interop --release --test soak -- --nocapture --test-threads=1
+```
+
+`TURBOJET_SOAK` is the seconds of faults each way; it goes on past them until every kind has come.
+Without it both tests pass without doing anything. The nightly simulation workflow runs ten minutes
+each way.

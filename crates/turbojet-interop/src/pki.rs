@@ -45,7 +45,7 @@ impl Pki {
         (self.path(&format!("{side}.pem")), self.path(&format!("{side}.key")))
     }
 
-    /// `side`'s certificate and key as a PKCS#12 bundle, under [`BUNDLE_PASSWORD`].
+    /// `side`'s certificate and key as a PKCS#12 bundle, under `BUNDLE_PASSWORD`.
     pub fn bundle_path(&self, side: &str) -> PathBuf {
         self.path(&format!("{side}.pfx"))
     }

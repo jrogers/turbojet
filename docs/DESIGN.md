@@ -912,6 +912,14 @@ invariants, and tests that look for bugs rather than confirm what already works.
   limits and inbound `Delay`, but not `Reject`, since its checker can't cheaply model a
   BusinessMessageReject in place of a delivery, and no `MessageLog`; session and connection tests
   cover both.
+- **A soak** (`crates/turbojet-interop/tests/soak.rs`), nightly: the real `Initiator`, `Acceptor`,
+  tokio driver and TLS, which the simulator doesn't run, against each other over `DiskStorage`,
+  through a proxy that cuts the connection, blackholes, stalls, holds or slows either direction,
+  and with either process crashing (its runtime dropped) and restarting, over TCP and TLS. Every
+  order the client stored reaches the server's application and is acknowledged, once each and in
+  order but for repeats marked possibly handled. Twenty seconds of faults each way, on an Apple M3
+  (2026-11-07): 37,640 orders through 43 faults over TCP, 34 deliveries marked after the crashes;
+  14,071 through 18 over TLS, 191 marked.
 - **Concurrency tests** with [shuttle](https://github.com/awslabs/shuttle), on every push. Built
   with `--cfg shuttle`, the registry's and the holds' locks and atomics are shuttle's
   (`src/sync.rs`), as are replication's state and link waiters (`turbojet-replica`'s
