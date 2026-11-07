@@ -3,10 +3,22 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use turbojet_sim::{Options, Plant, run};
+use turbojet_sim::{COVERAGE, Options, Plant, run};
 
 /// Seeds run on every push: as many as fit in a few seconds of a debug build.
 const SEEDS: u64 = 100;
+
+/// The fewest of those seeds that must reach each state, about half as many as did when this was
+/// written. The states only about one seed in a hundred reaches or fewer (a crash, failover or skip
+/// mid-resend, a resend after a clock step) aren't asserted; random runs print their shares.
+const MIN_REACHED: [(&str, u64); 6] = [
+    ("logon 789 resend", 5),
+    ("logon reset", 4),
+    ("pause", 12),
+    ("power lost unwritten", 4),
+    ("resumed deposed", 1),
+    ("torn commit", 2),
+];
 
 /// Seeds from `list`: each line a seed, then (for known failures) the rule it breaks and why.
 fn listed(list: &str) -> BTreeMap<u64, String> {
@@ -25,16 +37,14 @@ fn fixed_seeds_pass_or_fail_as_known() {
     let known = listed(include_str!("../known_failures.txt"));
     let start = Instant::now();
     let mut problems = Vec::new();
-    // The paths only some Logons take: resending at once from a 789, and resetting; and pauses,
-    // an acceptor among them resuming after another instance took its lease.
-    let (mut logon_resent, mut logon_resets, mut pauses, mut resumed_deposed) = (0, 0, 0, 0);
+    // How many seeds reached each of the states only some seeds reach.
+    let mut reached: BTreeMap<&str, u64> = COVERAGE.iter().map(|s| (*s, 0)).collect();
     for seed in 0..SEEDS {
         match (run(&Options::per_push(seed)), known.get(&seed)) {
             (Ok(report), None) => {
-                logon_resent += report.logon_resent;
-                logon_resets += report.logon_resets;
-                pauses += report.pauses;
-                resumed_deposed += report.resumed_deposed;
+                for (state, count) in &report.coverage {
+                    *reached.get_mut(state).expect("a state of COVERAGE") += u64::from(*count > 0);
+                }
             }
             (Err(failure), Some(why)) if why.starts_with(failure.violation.rule) => {}
             (Ok(_), Some(why)) => {
@@ -45,11 +55,12 @@ fn fixed_seeds_pass_or_fail_as_known() {
     }
     eprintln!("{SEEDS} seeds in {:?}", start.elapsed());
     assert!(problems.is_empty(), "{}", problems.join("\n"));
-    assert!(logon_resent > 0, "no seed resent from a Logon's 789");
-    assert!(logon_resets > 0, "no seed reset at logon");
-    eprintln!("{pauses} pauses, {resumed_deposed} resumed deposed");
-    assert!(pauses > 0, "no seed paused a process");
-    assert!(resumed_deposed > 0, "no paused acceptor resumed deposed");
+    eprintln!("seeds reaching each state: {reached:?}");
+    // Nothing else would show a change to the simulation stopped reaching these.
+    for (state, least) in MIN_REACHED {
+        let got = reached[state];
+        assert!(got >= least, "{got} of {SEEDS} seeds reached {state}, fewer than the {least} expected");
+    }
 }
 
 #[test]

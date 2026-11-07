@@ -94,6 +94,25 @@ impl Options {
     }
 }
 
+/// The states only some seeds reach, which [`Report::coverage`] counts, so a run can show it
+/// reached them: a crash, a failover or an operator's skip while either side resends, a commit a
+/// power loss tore, a power loss with writes the OS hadn't written back, a resend whose
+/// OrigSendingTime is after its SendingTime (a wall clock stepped back), a resend written straight
+/// after a Logon's NextExpectedMsgSeqNum(789), a Logon with ResetSeqNumFlag(141)=Y, a process
+/// paused, and an acceptor resuming after another instance took its lease.
+pub const COVERAGE: [&str; 10] = [
+    "crash mid-resend",
+    "failover mid-resend",
+    "skip mid-resend",
+    "torn commit",
+    "power lost unwritten",
+    "resend after clock step",
+    "logon 789 resend",
+    "logon reset",
+    "pause",
+    "resumed deposed",
+];
+
 /// A seed that passed.
 #[derive(Debug)]
 pub struct Report {
@@ -105,17 +124,12 @@ pub struct Report {
     /// Connections made, and resends (PossDup messages) sent.
     pub connections: u64,
     pub resent: u64,
-    /// Resends written straight after a Logon with NextExpectedMsgSeqNum(789), unasked, and
-    /// Logons written with ResetSeqNumFlag(141)=Y.
-    pub logon_resent: u64,
-    pub logon_resets: u64,
     /// Deliveries marked as possibly handled already (after a crash or store failure).
     pub redelivered: usize,
     /// Sends the applications had refused, their queue full.
     pub refused: u64,
-    /// Processes paused, and acceptors that resumed deposed: another instance had taken the lease.
-    pub pauses: u64,
-    pub resumed_deposed: u64,
+    /// How often the seed reached each of the states only some seeds reach (see [`COVERAGE`]).
+    pub coverage: BTreeMap<&'static str, u64>,
     pub trace: Vec<String>,
 }
 
@@ -404,6 +418,8 @@ struct World {
     replication: Option<(Replication, Rng, Arc<std::sync::Mutex<Pair>>)>,
     /// Processes paused, from their own random stream for the same reason.
     pauses: Pauses,
+    /// The states of [`COVERAGE`] the world counts itself, and how often each came.
+    covered: BTreeMap<&'static str, u64>,
     /// Each node's clocks and their wall clocks' steps, from their own random stream likewise.
     skew: Skew,
     /// Connects in a row that haven't logged on, as Initiator::run counts them.
@@ -532,11 +548,8 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s).count()),
             connections: world.connections,
             resent: world.resent,
-            logon_resent: world.logons.resent,
-            logon_resets: world.logons.resets,
             refused: world.refused,
-            pauses: world.pauses.made,
-            resumed_deposed: world.pauses.resumed_deposed,
+            coverage: world.coverage(),
             redelivered: world
                 .nodes
                 .iter()
@@ -899,6 +912,7 @@ impl World {
             checker: Checker::new(cancels(options.seed), skew.clocks.clone()),
             skew,
             pauses: Pauses::draw(options.seed),
+            covered: BTreeMap::new(),
             options,
             faults,
             clocks,
@@ -1409,6 +1423,9 @@ impl World {
                     && pair.deposed() == deposed
                     && (deposed || pair.may_fail_over());
                 if happens {
+                    if self.resending_any() {
+                        self.cover("failover mid-resend");
+                    }
                     self.crash(Side::Acceptor, now);
                     pair.fail_over();
                     if pair.max_lag() > 0 {
@@ -1512,6 +1529,9 @@ impl World {
             Event::PowerLoss => {
                 let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
                 if !self.down[side.index()] && self.pauses.held[side.index()].is_none() {
+                    if self.storage[side.index()].unwritten() {
+                        self.cover("power lost unwritten");
+                    }
                     self.crash(side, now);
                     let (kept, new_seqnums) = (self.rng.between(0, 1000), self.rng.chance(500_000));
                     self.record(&format!(
@@ -1591,6 +1611,9 @@ impl World {
     /// `side`'s process dies: its sessions go without another write, the OS resets its
     /// connections (so the other end's fail), and it restarts after a while.
     fn crash(&mut self, side: Side, now: SimTime) {
+        if self.resending_any() {
+            self.cover("crash mid-resend");
+        }
         // A paused process dies with what it hadn't handled yet, which then finds it down.
         if self.pauses.held[side.index()].is_some() {
             self.unpause(side, now);
@@ -1698,6 +1721,33 @@ impl World {
         }
     }
 
+    fn cover(&mut self, state: &'static str) {
+        debug_assert!(COVERAGE.contains(&state), "{state} isn't in COVERAGE");
+        *self.covered.entry(state).or_default() += 1;
+    }
+
+    /// Every state of [`COVERAGE`], with how often the seed reached it.
+    fn coverage(&self) -> BTreeMap<&'static str, u64> {
+        let mut coverage: BTreeMap<_, _> = COVERAGE.iter().map(|s| (*s, 0)).collect();
+        coverage.extend(self.covered.iter().map(|(s, n)| (*s, *n)));
+        coverage.insert("torn commit", self.storage.iter().map(|s| s.torn()).sum());
+        coverage.insert("logon 789 resend", self.logons.resent);
+        coverage.insert("logon reset", self.logons.resets);
+        coverage.insert("pause", self.pauses.made);
+        coverage.insert("resumed deposed", self.pauses.resumed_deposed);
+        coverage
+    }
+
+    /// Whether `side` is resending on any of its connections.
+    fn resending(&self, side: Side) -> bool {
+        let node = &self.nodes[side.index()];
+        node.conns().any(|c| node.sessions_by_conn(c).is_some_and(|s| s.is_resending()))
+    }
+
+    fn resending_any(&self) -> bool {
+        self.resending(Side::Initiator) || self.resending(Side::Acceptor)
+    }
+
     fn pick_side(&mut self) -> Side {
         if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor }
     }
@@ -1721,6 +1771,9 @@ impl World {
     /// An operator moves `side`'s next outgoing number a little ahead; the checker is told first.
     fn skip(&mut self, side: Side, now: SimTime) -> Result<(), Violation> {
         self.sync_ledger(side)?;
+        if self.resending(side) {
+            self.cover("skip mid-resend");
+        }
         // Past any skip still under way, as the operator asked for it: one waiting on a paused
         // process leaves the numbers where they were, and two to the same number would answer as
         // one, the checker expecting each once.
@@ -1995,6 +2048,11 @@ impl World {
         let mut after_789 = false;
         while let Decoded::Message(msg, len) = decode(rest) {
             if msg.get(tags::POSS_DUP_FLAG) == Some("Y") {
+                if let (Some(orig), Some(sent)) = (msg.get(tags::ORIG_SENDING_TIME), msg.get(tags::SENDING_TIME))
+                    && orig > sent
+                {
+                    self.cover("resend after clock step");
+                }
                 self.resent += 1;
                 self.logons.resent += u64::from(after_789);
             }

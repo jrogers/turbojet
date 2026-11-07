@@ -239,12 +239,8 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             committed: [Side::Initiator, Side::Acceptor].map(|s| world.checker.committed(s)),
             connections: world.connections,
             resent: world.checker.resent,
-            // FIXP has no FIX Logon.
-            logon_resent: 0,
-            logon_resets: 0,
-            // Nor pauses, yet.
-            pauses: 0,
-            resumed_deposed: 0,
+            // The FIX world's states; FIXP counts none yet.
+            coverage: std::collections::BTreeMap::new(),
             redelivered: world
                 .nodes
                 .iter()

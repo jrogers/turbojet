@@ -8,6 +8,7 @@
 //! random start for `seconds`, stopping at the first failure. `--fixp` runs the FIXP simulation
 //! rather than the FIX one.
 
+use std::collections::BTreeMap;
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -63,14 +64,33 @@ fn main() -> ExitCode {
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let mut seed = start;
     let mut ran = 0u64;
+    // How many seeds reached each of the states only some seeds reach.
+    let mut reached: BTreeMap<&str, u64> = BTreeMap::new();
     while Instant::now() < deadline {
-        if let Err(failure) = run(&Options::per_push(seed)) {
-            println!("{failure}");
-            return ExitCode::FAILURE;
+        match run(&Options::per_push(seed)) {
+            Ok(report) => {
+                for (state, count) in report.coverage {
+                    *reached.entry(state).or_default() += u64::from(count > 0);
+                }
+            }
+            Err(failure) => {
+                println!("{failure}");
+                return ExitCode::FAILURE;
+            }
         }
         seed = seed.wrapping_add(1);
         ran += 1;
     }
     println!("{ran} seeds passed");
+    print_reached(&reached, ran);
     ExitCode::SUCCESS
+}
+
+/// How many of `ran` seeds reached each state.
+fn print_reached(reached: &BTreeMap<&str, u64>, ran: u64) {
+    for (state, seeds) in reached {
+        #[expect(clippy::cast_precision_loss, reason = "a share to print")]
+        let share = *seeds as f64 * 100.0 / ran as f64;
+        println!("  {state}: {seeds} seeds ({share:.2}%)");
+    }
 }

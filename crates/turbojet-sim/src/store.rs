@@ -92,6 +92,8 @@ struct Traps {
     armed: Option<Trap>,
     /// A trap went off: whether it crashed the process.
     sprung: Option<bool>,
+    /// Commits a power loss tore.
+    torn: u64,
 }
 
 /// Wraps a store, appending to `ledger` whatever its logs record.
@@ -171,6 +173,16 @@ impl LedgerStorage {
     /// Whether a trap has gone off since the last call, and if so whether it crashed the process.
     pub fn sprung(&self) -> Option<bool> {
         self.traps.lock().unwrap().sprung.take()
+    }
+
+    /// Commits a power loss has torn so far.
+    pub fn torn(&self) -> u64 {
+        self.traps.lock().unwrap().torn
+    }
+
+    /// Whether the files hold writes the OS hasn't written back, which a power loss would lose.
+    pub fn unwritten(&self) -> bool {
+        self.files.as_ref().is_some_and(|files| files.snapshot() != *self.written_back.lock().unwrap())
     }
 
     /// Whether a crashing trap has gone off that nothing has handled yet.
@@ -336,6 +348,7 @@ impl LedgerLog {
                 // evicted comes back with the tear, so isn't noted.
                 assert!(self.inner.commit()?.is_none(), "the simulator's disk stores commit at once");
                 files.tear(&before, &backup, tear);
+                self.traps.lock().unwrap().torn += 1;
                 let changes = std::mem::take(&mut self.pending);
                 self.ledger.entries().push(Stored::Uncertain(changes));
                 Err(io::Error::other("power lost in Commit"))

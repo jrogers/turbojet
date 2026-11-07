@@ -151,6 +151,13 @@ output waits.
 
 ## Running
 
+Each seed counts the states only some seeds reach (`turbojet_sim::COVERAGE`: a crash, failover or
+operator's skip during a resend, a torn commit, a power loss with writes not written back, a
+resend after a clock step back, a Logon's 789 resend or reset, a pause, an acceptor resuming
+deposed). The per-push run fails if fewer of its seeds reach one than it expects, so a change
+can't quietly stop reaching it, and a random run prints how many seeds reached each, the rarest
+on about one seed in a hundred or fewer.
+
 Every push runs 100 fixed seeds; a nightly workflow (`.github/workflows/simulate.yml`) runs random
 ones for half an hour and uploads the trace of any that fails. A scheduled run that fails opens
 an issue (or comments on the open one), closed when one passes; `scripts/nightly.sh` downloads a

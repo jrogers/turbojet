@@ -890,8 +890,13 @@ invariants, and tests that look for bugs rather than confirm what already works.
   lease), logout requests, operators skipping numbers ahead
   and resetting both sides, daily schedules, on a third of the seeds sessions with SubIDs and a
   LocationID, and initiators logging on with NextExpectedMsgSeqNum (a third of the seeds) or a
-  reset (a sixth). The per-push run fails if no seed resends straight after a Logon's 789 or resets
-  at logon, or no paused acceptor resumes deposed, since nothing else would show those paths are taken. After every event a checker holds both sides to what their stores recorded, what they
+  reset (a sixth). Each seed counts the states only some reach (`COVERAGE`), and the per-push run
+  fails if fewer of its seeds reach one than about half as many as did (2026-11-07): a resend
+  straight after a Logon's 789 (11 of 100), a reset at logon (8), a pause (24), a deposed acceptor
+  resuming (3), a power loss with writes not written back (9) and a torn commit (5), since nothing
+  else would show a change stopped reaching them. Random runs print each state's share: in 7,056
+  seeds, a crash during a resend came on 0.99%, an operator's skip during one on 0.23%, a failover
+  during one on 0.11% and a resend after a clock step on 0.10%, too few to assert on a hundred. After every event a checker holds both sides to what their stores recorded, what they
   wrote and what their applications received, and once the faults stop they must settle; bugs
   planted in the simulator show the checker catches what it should. 100 seeds run on every push and
   random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write

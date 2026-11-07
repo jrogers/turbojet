@@ -17,7 +17,7 @@ pub struct DiskFiles {
 
 /// What the files held at a moment: the seqnums file, and each journal segment's length by its
 /// number.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Snapshot {
     seqnums: Vec<u8>,
     segments: BTreeMap<u64, u64>,
