@@ -6,6 +6,8 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Added:** a guide chapter on running in containers and on Kubernetes (`turbojet::guide::containers`):
+  storage, shutting down, a hot standby, message logs, networking, latency and probes.
 - **Fixed:** `Job::run` on a future job fails with an error, rather than panicking, when the
   runtime shuts down under it on a thread that outlives the runtime: a store's commit on a
   blocking thread, say, polling a timer as its pool waits for a connection.

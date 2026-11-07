@@ -22,6 +22,8 @@ compiled and run as tests, so they work as shown. The API reference has the deta
    down, logging, message logs and metrics.
 10. [Performance][performance]: the lowest-latency ways to send, and spinning connections.
 11. [Binary encodings][binary]: SBE codecs, FIXP sessions and FAST.
+12. [Containers and Kubernetes][containers]: storage, shutdown, a hot standby, networking, latency
+    and probes when running in containers.
 
 [first-session]: first-session.md
 [messages]: messages.md
@@ -34,3 +36,4 @@ compiled and run as tests, so they work as shown. The API reference has the deta
 [operations]: operations.md
 [performance]: performance.md
 [binary]: binary.md
+[containers]: containers.md

@@ -211,6 +211,8 @@ examples are compiled and run as tests, and it's also in the API documentation, 
    shutting down, logging, message logs and metrics.
 10. [Performance](https://github.com/jrogers/turbojet/blob/main/docs/guide/performance.md): the lowest-latency ways to send, and spinning connections.
 11. [Binary encodings](https://github.com/jrogers/turbojet/blob/main/docs/guide/binary.md): SBE codecs, FIXP sessions and FAST.
+12. [Containers and Kubernetes](https://github.com/jrogers/turbojet/blob/main/docs/guide/containers.md): storage, shutdown, a hot standby,
+    networking, latency and probes when running in containers.
 
 ## Examples
 

@@ -49,3 +49,7 @@ pub mod performance {}
 #[doc = guide_links!()]
 #[doc = include_str!("../guide/binary.md")]
 pub mod binary {}
+
+#[doc = guide_links!()]
+#[doc = include_str!("../guide/containers.md")]
+pub mod containers {}

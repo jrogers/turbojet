@@ -272,7 +272,8 @@ macro_rules! guide_links {
          [schedules]: crate::guide::schedules\n\
          [operations]: crate::guide::operations\n\
          [performance]: crate::guide::performance\n\
-         [binary]: crate::guide::binary\n"
+         [binary]: crate::guide::binary\n\
+         [containers]: crate::guide::containers\n"
     };
 }
 
