@@ -884,7 +884,8 @@ invariants, and tests that look for bugs rather than confirm what already works.
   each other in one thread from a seed, over a TCP-like network that splits, delays, stalls, resets
   and black-holes connections (on some seeds behind a middlebox that drops, duplicates, reorders and
   corrupts messages), with process crashes between events and inside store calls, store errors,
-  power loss on disk stores with and without sync, processes paused for longer than their
+  power loss on disk stores with and without sync, each node's clocks its own (drifting up to
+  200 ppm, its wall clock off by up to half a second and stepped), processes paused for longer than their
   counterparties wait (on replicated seeds, an acceptor resuming after another instance took its
   lease), logout requests, operators skipping numbers ahead
   and resetting both sides, daily schedules, on a third of the seeds sessions with SubIDs and a

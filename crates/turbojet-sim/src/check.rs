@@ -10,7 +10,7 @@ use turbojet::{CancelOnDisconnect, CancelTrigger, Disconnect, Message, MsgType};
 use crate::Side;
 use crate::app::{Delivery, Lifecycle, id_of};
 use crate::store::Stored;
-use crate::time::SimTime;
+use crate::time::{NodeClock, SimTime};
 
 /// A broken invariant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -309,6 +309,8 @@ struct Cancels {
     cancel_now: bool,
     /// The process is paused, since then: a countdown can't end until it resumes.
     paused: Option<SimTime>,
+    /// The side's clocks, on which its grace period runs.
+    clock: Option<NodeClock>,
 }
 
 impl Cancels {
@@ -343,7 +345,8 @@ impl Cancels {
                 if let Some(CancelOnDisconnect { trigger, grace, .. }) = self.config
                     && counts(trigger, ended)
                 {
-                    self.pending = Some((at.after(grace), ended));
+                    let deadline = self.clock.as_ref().map_or_else(|| at.after(grace), |c| c.after(at, grace));
+                    self.pending = Some((deadline, ended));
                     self.cancel_now = grace.is_zero();
                 }
             }
@@ -409,9 +412,15 @@ fn body(msg: &Message) -> Vec<(u32, String)> {
 }
 
 impl Checker {
-    /// A checker for sides with these cancel-on-disconnect settings.
-    pub fn new(cancels: [Option<CancelOnDisconnect>; 2]) -> Self {
-        Self { cancels: cancels.map(|config| Cancels { config, ..Cancels::default() }), ..Self::default() }
+    /// A checker for sides with these cancel-on-disconnect settings and clocks.
+    pub fn new(cancels: [Option<CancelOnDisconnect>; 2], clocks: [NodeClock; 2]) -> Self {
+        let [initiator, acceptor] = clocks;
+        let cancels = [(cancels[0], initiator), (cancels[1], acceptor)].map(|(config, clock)| Cancels {
+            config,
+            clock: Some(clock),
+            ..Cancels::default()
+        });
+        Self { cancels, ..Self::default() }
     }
 
     /// Rule 8, on `side`'s lifecycle events since the last call, at `now`: a cancel on disconnect
@@ -924,7 +933,8 @@ mod tests {
     /// `grace` seconds, then checks at `now` seconds.
     fn cancels(trigger: CancelTrigger, grace: u64, events: &[(u64, Lifecycle)], now: u64) -> Result<(), &'static str> {
         let config = CancelOnDisconnect::new(trigger, std::time::Duration::from_secs(grace));
-        let mut checker = Checker::new([None, Some(config)]);
+        let clocks = crate::time::Clocks::new();
+        let mut checker = Checker::new([None, Some(config)], [NodeClock::exact(&clocks), NodeClock::exact(&clocks)]);
         let at = |secs: u64| SimTime::from_duration(std::time::Duration::from_secs(secs));
         let events: Vec<_> = events.iter().map(|(secs, event)| (at(*secs), *event)).collect();
         checker.lifecycle(Side::Acceptor, &events, at(now)).map_err(|e| e.rule)

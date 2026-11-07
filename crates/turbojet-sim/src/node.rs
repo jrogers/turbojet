@@ -15,7 +15,7 @@ use turbojet::{CancelOnDisconnect, InitiatorConfig, Message, Session, SessionCon
 use crate::Side;
 use crate::app::RecordingApp;
 use crate::net::ConnId;
-use crate::time::{Clocks, SimTime};
+use crate::time::{NodeClock, SimTime};
 
 /// As `MAX_COMMANDS_PER_BATCH` in the connection driver.
 const MAX_COMMANDS_PER_BATCH: usize = 256;
@@ -38,7 +38,7 @@ pub struct Node {
     role: Role,
     pub registry: Arc<SessionRegistry>,
     pub app: Arc<RecordingApp>,
-    clocks: Clocks,
+    clock: NodeClock,
     /// A session per connection: an initiator has at most one, an acceptor one per connection
     /// it has accepted and not yet seen end.
     running: BTreeMap<ConnId, Running>,
@@ -105,13 +105,24 @@ pub struct Wants {
 }
 
 impl Node {
-    pub fn new(side: Side, role: Role, registry: Arc<SessionRegistry>, app: Arc<RecordingApp>, clocks: Clocks) -> Self {
+    /// The node's own clocks.
+    pub fn clock(&self) -> &NodeClock {
+        &self.clock
+    }
+
+    pub fn new(
+        side: Side,
+        role: Role,
+        registry: Arc<SessionRegistry>,
+        app: Arc<RecordingApp>,
+        clock: NodeClock,
+    ) -> Self {
         let data_fields = match &role {
             Role::Initiator(config) => config.session.data_fields.clone(),
             Role::Acceptor(config) => config.data_fields.clone(),
         };
         let (running, logged_on) = (BTreeMap::new(), BTreeSet::new());
-        Self { side, role, registry, app, clocks, running, data_fields, resend_batch: None, logged_on }
+        Self { side, role, registry, app, clock, running, data_fields, resend_batch: None, logged_on }
     }
 
     pub fn conns(&self) -> impl Iterator<Item = ConnId> + '_ {
@@ -143,7 +154,7 @@ impl Node {
 
     /// A new connection: the driver starts with `on_connect`.
     pub fn start(&mut self, conn: ConnId, now: SimTime) -> Effects {
-        let instant = self.clocks.instant(now);
+        let instant = self.clock.instant(now);
         let (mut session, commands) = match &self.role {
             Role::Initiator(config) => Session::initiator(config, self.registry.clone(), self.app.clone(), instant),
             Role::Acceptor(config) => {
@@ -200,7 +211,7 @@ impl Node {
     /// came.
     pub fn read(&mut self, conn: ConnId, now: SimTime) -> Effects {
         let data_fields = &self.data_fields;
-        let instant = self.clocks.instant(now);
+        let instant = self.clock.instant(now);
         let Some(running) = self.running.get_mut(&conn).filter(|r| r.reads(instant)) else {
             return Effects::default();
         };
@@ -227,7 +238,7 @@ impl Node {
     /// otherwise, once logged on and not resending or backed up, sends, up to a batch or as many
     /// as the outbound window allows.
     pub fn commands(&mut self, conn: ConnId, now: SimTime) -> Effects {
-        let instant = self.clocks.instant(now);
+        let instant = self.clock.instant(now);
         let Some(running) = self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.store.is_none()) else {
             return Effects::default();
         };
@@ -250,8 +261,8 @@ impl Node {
     /// The timer branch, if the timer is due: at `now`, or earlier (a sleep whose deadline has
     /// passed fires at once).
     pub fn timer(&mut self, conn: ConnId, now: SimTime) -> Effects {
-        let instant = self.clocks.instant(now);
-        let clocks = self.clocks.clone();
+        let instant = self.clock.instant(now);
+        let clock = self.clock.clone();
         let Some(running) =
             self.running.get_mut(&conn).filter(|r| !r.session.is_closed() && r.store.is_none() && r.timer <= now)
         else {
@@ -259,7 +270,7 @@ impl Node {
         };
         running.timer = now.after(MAX_TIMER_SLEEP);
         running.session.on_timer(instant);
-        running.stuck = running.session.next_deadline().map(|d| clocks.sim_time(d)).filter(|d| *d <= now);
+        running.stuck = running.session.next_deadline().map(|d| clock.sim_time(d)).filter(|d| *d <= now);
         self.settle(conn, now)
     }
 
@@ -334,12 +345,12 @@ impl Node {
     /// cancel-on-disconnect countdown, start at `now`. Whether it was running.
     fn end(&mut self, conn: ConnId, now: SimTime) -> bool {
         let Some(mut running) = self.running.remove(&conn) else { return false };
-        running.session.on_disconnect(self.clocks.instant(now));
+        running.session.on_disconnect(self.clock.instant(now));
         true
     }
 
     fn step(&mut self, conn: ConnId, now: SimTime, f: impl FnOnce(&mut Session, Instant)) -> Effects {
-        let instant = self.clocks.instant(now);
+        let instant = self.clock.instant(now);
         if let Some(running) = self.running.get_mut(&conn) {
             f(&mut running.session, instant);
         }
@@ -350,13 +361,13 @@ impl Node {
     /// session's output into the outbox, the limits, and the timer brought forward to its next
     /// deadline.
     fn settle(&mut self, conn: ConnId, now: SimTime) -> Effects {
-        let clocks = &self.clocks;
+        let clock = &self.clock;
         let data_fields = &self.data_fields;
         let Some(running) = self.running.get_mut(&conn) else { return Effects::default() };
         if running.session.has_logged_on() {
             self.logged_on.insert(conn);
         }
-        let instant = clocks.instant(now);
+        let instant = clock.instant(now);
         loop {
             if running.deferred
                 && !running.session.is_resending()
@@ -409,7 +420,7 @@ impl Node {
             self.end(conn, now);
             return Effects { output, ended: true, ..Effects::default() };
         }
-        if let Some(deadline) = running.session.next_deadline().map(|d| clocks.sim_time(d))
+        if let Some(deadline) = running.session.next_deadline().map(|d| clock.sim_time(d))
             && deadline < running.timer
             && running.stuck != Some(deadline)
         {
@@ -421,7 +432,7 @@ impl Node {
     /// What `conn`'s driver would do next at `now`, for the world to schedule.
     pub fn wants(&self, conn: ConnId, now: SimTime) -> Option<Wants> {
         let running = self.running.get(&conn)?;
-        let instant = self.clocks.instant(now);
+        let instant = self.clock.instant(now);
         let closed = running.session.is_closed();
         let committing = running.store.is_some();
         let sends = running.takes_sends() && running.commands.has_sends();
@@ -439,8 +450,8 @@ impl Node {
                 .then(|| running.session.send_free_at())
                 .flatten()
                 .filter(|at| *at > instant)
-                .map(|at| self.clocks.sim_time(at)),
-            input_free: running.input_held_until(instant).map(|at| self.clocks.sim_time(at)),
+                .map(|at| self.clock.sim_time(at)),
+            input_free: running.input_held_until(instant).map(|at| self.clock.sim_time(at)),
         })
     }
 }

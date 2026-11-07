@@ -48,6 +48,14 @@ half the seeds the stores are slow, as a networked one is: they hand each commit
 opening of a session's log to the driver as a job, which finishes up to 5 ms later (now and then
 50 ms), and the session waits for it.
 
+On half the seeds each node keeps time of its own: its monotonic clock runs up to 200 ppm fast or
+slow, so its timers drift against the other's, and its wall clock (SendingTime, its schedule,
+its registry's) is off by a few milliseconds or half a second, either way, and stepped now and
+then to another error, as NTP steps one. A wall clock stepped back can put a resend's
+OrigSendingTime after its SendingTime, which the receiver rejects, logging out, as the spec says;
+the resend goes again on the next connection. Each side's grace period before a cancel on
+disconnect is checked on its own clock.
+
 On a third of the seeds a process pauses now and then (a stop signal, a long pause in a host's
 runtime, a VM migrated), for between half a heartbeat interval and four, mostly longer than its
 counterparty waits before giving up: it handles nothing meanwhile, while the network goes on

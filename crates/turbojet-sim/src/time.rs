@@ -1,7 +1,7 @@
-//! Simulated time: one clock for the sessions' monotonic `Instant`s and their wall clock.
+//! Simulated time, and each node's view of it: its monotonic `Instant`s and its wall clock.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -80,6 +80,72 @@ impl Clocks {
     }
 }
 
+/// Parts per million, the unit of a clock's drift.
+const MILLION: i128 = 1_000_000;
+
+/// One node's clocks: its monotonic clock running `ppm` parts per million fast (or, negative,
+/// slow) against simulated time, and its wall clock `offset` nanoseconds off, stepped as NTP steps
+/// one. [`exact`](Self::exact) is neither.
+#[derive(Clone)]
+pub struct NodeClock {
+    clocks: Clocks,
+    ppm: i64,
+    offset: Arc<AtomicI64>,
+}
+
+impl NodeClock {
+    pub fn exact(clocks: &Clocks) -> Self {
+        Self::skewed(clocks, 0, 0)
+    }
+
+    pub fn skewed(clocks: &Clocks, ppm: i64, offset: i64) -> Self {
+        assert!(ppm.abs() < 1_000, "a drift of {ppm} ppm");
+        Self { clocks: clocks.clone(), ppm, offset: Arc::new(AtomicI64::new(offset)) }
+    }
+
+    /// `t` as the node's monotonic clock reads it.
+    pub fn instant(&self, t: SimTime) -> Instant {
+        let nanos = i128::from(t.0) * (MILLION + i128::from(self.ppm)) / MILLION;
+        self.clocks.base + Duration::from_nanos(u64::try_from(nanos).expect("simulations are short"))
+    }
+
+    /// The first simulated time at which the node's monotonic clock reads `instant` or later, so
+    /// that a deadline it computed is due when woken for it.
+    pub fn sim_time(&self, instant: Instant) -> SimTime {
+        let nanos = i128::try_from(instant.saturating_duration_since(self.clocks.base).as_nanos()).expect("short");
+        let rate = MILLION + i128::from(self.ppm);
+        SimTime(u64::try_from((nanos * MILLION + rate - 1) / rate).expect("simulations are short"))
+    }
+
+    /// When the node's monotonic clock has run `d` from `t`.
+    pub fn after(&self, t: SimTime, d: Duration) -> SimTime {
+        self.sim_time(self.instant(t) + d)
+    }
+
+    /// The node's wall clock, for `SessionConfig::clock` and its registry.
+    pub fn wall_clock(&self) -> Clock {
+        let (now, offset) = (self.clocks.now.clone(), self.offset.clone());
+        let start = wall_start();
+        Clock::from_fn(move || {
+            let nanos = i64::try_from(now.load(Ordering::Relaxed)).expect("simulations are short");
+            start + TimeDelta::nanoseconds(nanos + offset.load(Ordering::Relaxed))
+        })
+    }
+
+    /// The wall clock steps to `offset` nanoseconds off.
+    pub fn step(&self, offset: i64) {
+        self.offset.store(offset, Ordering::Relaxed);
+    }
+
+    pub fn offset(&self) -> i64 {
+        self.offset.load(Ordering::Relaxed)
+    }
+
+    pub fn ppm(&self) -> i64 {
+        self.ppm
+    }
+}
+
 impl Default for Clocks {
     fn default() -> Self {
         Self::new()
@@ -89,6 +155,34 @@ impl Default for Clocks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_drifting_clocks_deadlines_are_due_when_woken_and_never_early() {
+        let clocks = Clocks::new();
+        for ppm in [-200, -1, 0, 1, 200] {
+            let clock = NodeClock::skewed(&clocks, ppm, 0);
+            for t in [0, 1, 999_999, 1_000_001, 12_345_678_901] {
+                let t = SimTime(t);
+                let deadline = clock.instant(t) + Duration::from_nanos(7);
+                let woken = clock.sim_time(deadline);
+                assert!(clock.instant(woken) >= deadline, "{ppm} ppm at {t}: woken early");
+                assert!(woken.0 == 0 || clock.instant(SimTime(woken.0 - 1)) < deadline, "{ppm} ppm at {t}: woken late");
+                // A slow clock reads the same nanosecond at neighbouring times: the first of them.
+                assert!(clock.sim_time(clock.instant(t)) <= t, "{ppm} ppm at {t}");
+            }
+        }
+        let fast = NodeClock::skewed(&clocks, 200, 0);
+        assert_eq!(fast.after(SimTime(0), Duration::from_secs(10)), SimTime(9_998_000_400));
+    }
+
+    #[test]
+    fn a_wall_clock_steps() {
+        let clocks = Clocks::new();
+        let clock = NodeClock::skewed(&clocks, 0, 500_000_000);
+        assert_eq!(clock.wall_clock().now(), wall_start() + TimeDelta::milliseconds(500));
+        clock.step(-3_000_000);
+        assert_eq!(clock.wall_clock().now(), wall_start() - TimeDelta::milliseconds(3));
+    }
 
     #[test]
     fn the_wall_clock_follows_simulated_time() {

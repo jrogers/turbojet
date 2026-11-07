@@ -29,7 +29,7 @@ use crate::queue::Queue;
 use crate::replica::{Pair, Setup, Switching};
 use crate::rng::Rng;
 use crate::store::{Call, LedgerStorage, Stored, Trap};
-use crate::time::{Clocks, SimTime, wall_start};
+use crate::time::{Clocks, NodeClock, SimTime, wall_start};
 
 /// How a simulation runs.
 #[derive(Debug, Clone)]
@@ -311,6 +311,8 @@ enum Event {
     /// handling nothing until it resumes: the pause with this number.
     Pause,
     Unpause(Side, u64),
+    /// A node's wall clock steps to an error of its own, as NTP steps one.
+    ClockStep,
     Restart(Side),
     /// On a replicated seed: the acceptor's process crashes, and restarts as the standby, which
     /// takes over at the next epoch. One `deposed` is the second half of a [`Event::Depose`].
@@ -402,6 +404,8 @@ struct World {
     replication: Option<(Replication, Rng, Arc<std::sync::Mutex<Pair>>)>,
     /// Processes paused, from their own random stream for the same reason.
     pauses: Pauses,
+    /// Each node's clocks and their wall clocks' steps, from their own random stream likewise.
+    skew: Skew,
     /// Connects in a row that haven't logged on, as Initiator::run counts them.
     reconnect_attempt: u32,
     queue: Queue<Event>,
@@ -470,6 +474,42 @@ impl Pauses {
         let secs = Duration::from_secs;
         let every = if rng.chance(333_333) { rng.pick(&[Some(secs(30)), Some(secs(10))]) } else { None };
         Self { every, rng, held: [None, None], made: 0, resumed_deposed: 0 }
+    }
+}
+
+/// On half the seeds, each node's clocks are its own: its monotonic clock up to 200 ppm fast or
+/// slow, and its wall clock off by milliseconds or half a second, stepped now and then to an error
+/// of its own, as NTP steps one. On the rest they're exact.
+struct Skew {
+    skewed: bool,
+    clocks: [NodeClock; 2],
+    step_every: Option<Duration>,
+    rng: Rng,
+}
+
+impl Skew {
+    fn draw(seed: u64, clocks: &Clocks) -> Self {
+        let mut rng = Rng::new(seed ^ 0xc10c_5e3d);
+        let skewed = rng.chance(500_000);
+        let clock = |rng: &mut Rng| {
+            if !skewed {
+                return NodeClock::exact(clocks);
+            }
+            let ppm = i64::try_from(rng.between(0, 400)).expect("small") - 200;
+            NodeClock::skewed(clocks, ppm, Self::error(rng))
+        };
+        let clocks = [clock(&mut rng), clock(&mut rng)];
+        let secs = Duration::from_secs;
+        let step_every = if skewed { rng.pick(&[None, Some(secs(20)), Some(secs(5))]) } else { None };
+        Self { skewed, clocks, step_every, rng }
+    }
+
+    /// A wall clock's error, in nanoseconds: none, a few milliseconds or half a second, either way.
+    fn error(rng: &mut Rng) -> i64 {
+        const MS: i64 = 1_000_000;
+        let few = i64::try_from(rng.between(1, 20)).expect("small") * MS;
+        let magnitude = rng.pick(&[0, few, 500 * MS]);
+        if rng.chance(500_000) { magnitude } else { -magnitude }
     }
 }
 
@@ -695,6 +735,7 @@ fn nodes(
     roles: [Role; 2],
     storage: &[Arc<LedgerStorage>; 2],
     clocks: &Clocks,
+    node_clocks: &[NodeClock; 2],
     faults: &Faults,
     plant: Option<Plant>,
     holding: Holding,
@@ -702,8 +743,9 @@ fn nodes(
     let [initiator, acceptor] = roles;
     let node = |side: Side, role, app| {
         let store: Arc<dyn SessionStorage> = storage[side.index()].clone();
-        let registry = Arc::new(SessionRegistry::new(store).with_clock(clocks.wall_clock()));
-        let mut node = Node::new(side, role, registry, app, clocks.clone());
+        let clock = node_clocks[side.index()].clone();
+        let registry = Arc::new(SessionRegistry::new(store).with_clock(clock.wall_clock()));
+        let mut node = Node::new(side, role, registry, app, clock);
         node.resend_batch = faults.resend_batch;
         node
     };
@@ -828,15 +870,17 @@ impl World {
         let reconnect = Duration::from_millis(rng.between(100, 5_000));
         let faults = Faults::draw(&mut rng.fork(), heartbeat);
         let (schedule, busy_end) = schedule(&faults, &options);
-        let config = |sender: &str| {
+        let skew = Skew::draw(options.seed, &clocks);
+        let config = |sender: &str, clock: &NodeClock| {
             let mut config = SessionConfig::new("FIX.4.4", sender);
-            config.clock = clocks.wall_clock();
+            config.clock = clock.wall_clock();
             config.schedule.clone_from(&schedule);
             config.max_queued_sends = faults.max_queued_sends;
             config
         };
         let ids = session_ids(options.seed);
-        let (initiator, reconnect_rng) = initiator(config("CLIENT"), &ids[0], heartbeat, reconnect, options.seed);
+        let (initiator, reconnect_rng) =
+            initiator(config("CLIENT", &skew.clocks[0]), &ids[0], heartbeat, reconnect, options.seed);
         let mut commit_rng = Rng::new(options.seed ^ 0x00c0_ff17);
         let early = options.plant == Some(Plant::EarlyCommit);
         let slow = commit_rng.chance(500_000) || early;
@@ -846,13 +890,14 @@ impl World {
         if options.plant == Some(Plant::ForgetMessages) {
             storage[Side::Acceptor.index()].forget_messages_from(PLANTED_AT);
         }
-        let roles = roles(initiator, config("GATEWAY"), options.seed);
-        let nodes = nodes(roles, &storage, &clocks, &faults, options.plant, holding(options.seed));
+        let roles = roles(initiator, config("GATEWAY", &skew.clocks[1]), options.seed);
+        let nodes = nodes(roles, &storage, &clocks, &skew.clocks, &faults, options.plant, holding(options.seed));
         let net = Net::new(faults.net.clone(), rng.fork());
         let proxy = faults.hostile.map(|rate| Proxy::new(rate, rng.fork()));
         let mut world = Self {
             // Before `options` moves into the world.
-            checker: Checker::new(cancels(options.seed)),
+            checker: Checker::new(cancels(options.seed), skew.clocks.clone()),
+            skew,
             pauses: Pauses::draw(options.seed),
             options,
             faults,
@@ -961,6 +1006,16 @@ impl World {
             }
             self.replication_again(true, SimTime(0), replication.loss_every, Event::StandbyLosesStore);
             self.queue.push(SimTime(0).after(CATCH_UP_EVERY), Event::CatchUp);
+        }
+        if self.skew.skewed {
+            let [i, a] = &self.skew.clocks;
+            let (i, a) = ((i.ppm(), i.offset()), (a.ppm(), a.offset()));
+            self.record(&format!("clocks (ppm, wall ns off): initiator {i:?}, acceptor {a:?}"));
+        }
+        if let Some(every) = self.skew.step_every {
+            let mean = SimTime::from_duration(every).0;
+            let at = SimTime(self.skew.rng.between(mean / 2, mean + mean / 2));
+            self.queue.push(at, Event::ClockStep);
         }
         if let Some(every) = self.pauses.every {
             let mean = SimTime::from_duration(every).0;
@@ -1115,6 +1170,7 @@ impl World {
                 | Event::Crash
                 | Event::Pause
                 | Event::Unpause(..)
+                | Event::ClockStep
                 | Event::Failover { .. }
                 | Event::Depose
                 | Event::StandbyDown
@@ -1252,7 +1308,8 @@ impl World {
             Event::Cancels(side, at) => {
                 if self.cancels_at[side.index()] == Some(at) {
                     self.cancels_at[side.index()] = None;
-                    self.nodes[side.index()].registry.run_due_cancels(self.clocks.instant(now));
+                    let node = &self.nodes[side.index()];
+                    node.registry.run_due_cancels(node.clock().instant(now));
                 }
             }
             Event::ReleaseHolds(at) => {
@@ -1318,6 +1375,17 @@ impl World {
                 self.again(busy, now, self.faults.crash_every, Event::Crash);
             }
             Event::Pause => self.pause(busy, now),
+            Event::ClockStep => {
+                let side = if self.skew.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
+                let offset = Skew::error(&mut self.skew.rng);
+                self.skew.clocks[side.index()].step(offset);
+                self.record(&format!("{side:?}'s wall clock steps to {offset} ns off"));
+                if let (true, Some(every)) = (busy, self.skew.step_every) {
+                    let mean = SimTime::from_duration(every).0;
+                    let at = SimTime(now.0 + self.skew.rng.between(mean / 2, mean + mean / 2));
+                    self.queue.push(at, Event::ClockStep);
+                }
+            }
             Event::Unpause(side, number) => {
                 if self.pauses.held[side.index()].as_ref().is_some_and(|(n, _)| *n == number) {
                     let deposed = side == Side::Acceptor
@@ -1496,7 +1564,8 @@ impl World {
                     self.reconnect_attempt = 0;
                 }
                 let storage: Arc<dyn SessionStorage> = self.storage[side.index()].clone();
-                let registry = Arc::new(SessionRegistry::new(storage).with_clock(self.clocks.wall_clock()));
+                let wall = self.nodes[side.index()].clock().wall_clock();
+                let registry = Arc::new(SessionRegistry::new(storage).with_clock(wall));
                 self.nodes[side.index()].restart(registry);
                 if side == Side::Initiator {
                     self.connecting = true;
@@ -1758,7 +1827,8 @@ impl World {
             if self.down[side.index()] {
                 continue;
             }
-            let next = self.nodes[side.index()].registry.next_cancel_deadline().map(|d| self.clocks.sim_time(d));
+            let node = &self.nodes[side.index()];
+            let next = node.registry.next_cancel_deadline().map(|d| node.clock().sim_time(d));
             if next == self.cancels_at[side.index()] {
                 continue;
             }
