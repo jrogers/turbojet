@@ -3409,6 +3409,8 @@ dependencies = [
  "tokio",
  "tracing-subscriber",
  "turbojet",
+ "turbojet-replica",
+ "turbojet-sql",
 ]
 
 [[package]]

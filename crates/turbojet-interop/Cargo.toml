@@ -16,5 +16,10 @@ tokio.workspace = true
 tracing-subscriber.workspace = true
 turbojet = { workspace = true, features = ["tls", "pkcs12"] }
 
+[dev-dependencies]
+# The replicated soak: an active and its standby, over a lease in SQLite.
+turbojet-replica = { workspace = true, features = ["tls"] }
+turbojet-sql = { path = "../turbojet-sql", features = ["replica"] }
+
 [lints]
 workspace = true
