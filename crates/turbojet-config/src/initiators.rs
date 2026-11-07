@@ -127,11 +127,6 @@ impl Initiators {
         let running = self.running();
         let Some(running) = running.get(name) else { return Ok(()) };
         #[cfg(feature = "tls")]
-        if let (Some(tls), Some(files)) = (&running.tls, &resolved.tls) {
-            tls.set_trust(files.trust.clone()).map_err(|e| Error::at(&section, "tls", e))?;
-            tls.set_identity(files.identity.clone());
-        }
-        #[cfg(feature = "tls")]
         let config = config(resolved, running.tls.as_ref());
         #[cfg(not(feature = "tls"))]
         let config = resolved.config.clone();
@@ -159,6 +154,24 @@ impl Initiators {
                 Err(e) => error!("cannot reconfigure an initiator: {e}"),
             }
         }
+        // Files renewed in place (by cert-manager, say) leave the file's text as it was.
+        #[cfg(feature = "tls")]
+        for (name, resolved) in loaded.initiators.iter().filter(|(name, _)| !changes.start.contains(name)) {
+            if let Err(e) = self.replace_certificates(name, resolved) {
+                error!("cannot replace an initiator's certificates: {e}");
+            }
+        }
+    }
+
+    /// Gives initiator `name` the TLS files as read for `resolved`, from its next connection.
+    #[cfg(feature = "tls")]
+    fn replace_certificates(&self, name: &str, resolved: &ResolvedInitiator) -> Result<(), Error> {
+        let running = self.running();
+        if let (Some(tls), Some(files)) = (running.get(name).and_then(|running| running.tls.as_ref()), &resolved.tls) {
+            tls.set_trust(files.trust.clone()).map_err(|e| Error::at(&format!("initiator {name}"), "tls", e))?;
+            tls.set_identity(files.identity.clone());
+        }
+        Ok(())
     }
 
     fn running(&self) -> MutexGuard<'_, BTreeMap<String, Running>> {

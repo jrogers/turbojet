@@ -90,6 +90,45 @@ fn a_reload_replaces_the_certificates_but_not_whether_tls_is_served() {
 struct Nothing;
 impl turbojet::Application for Nothing {}
 
+/// Files renewed in place, as cert-manager renews a Secret's, leave the sessions file's text as it
+/// was: a reload still reads them again, for an initiator's next connection.
+#[tokio::test]
+async fn a_reload_reads_an_initiators_files_renewed_in_place() {
+    use turbojet::tls::{ClientTrust, Identity, ServerTls};
+
+    let dir = tempfile::tempdir().unwrap();
+    certificate(dir.path(), "old");
+    certificate(dir.path(), "renewed");
+    std::fs::copy(dir.path().join("old.pem"), dir.path().join("ca.pem")).unwrap();
+    let identity = Identity::from_pem_files(&dir.path().join("renewed.pem"), &dir.path().join("renewed.key")).unwrap();
+    let server = ServerTls::new(identity, ClientTrust::None).unwrap().acceptor();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let path = dir.path().join("sessions.toml");
+    std::fs::write(
+        &path,
+        format!(
+            "[initiator.LSE]\nbegin_string = \"FIX.4.4\"\nsender_comp_id = \"FIRM\"\ntarget_comp_id = \"LSE\"\n\
+             endpoints = [\"{}\"]\nreconnect = {{ initial = \"50ms\", max = \"50ms\" }}\n\
+             tls = {{ ca = \"ca.pem\", server_name = \"localhost\" }}\n",
+            listener.local_addr().unwrap()
+        ),
+    )
+    .unwrap();
+    let sessions = SessionsFile::load(&path).unwrap();
+    let initiators = sessions.initiators(Arc::new(Nothing)).unwrap();
+    let handshake = async || {
+        let (stream, _) = listener.accept().await.unwrap();
+        server.accept(stream).await.is_ok()
+    };
+    assert!(!handshake().await, "the initiator trusts only the old certificate");
+
+    std::fs::copy(dir.path().join("renewed.pem"), dir.path().join("ca.pem")).unwrap();
+    assert!(sessions.reload(None, Some(&initiators)).unwrap().is_empty(), "the file's text is the same");
+    let renewed = tokio::time::timeout(std::time::Duration::from_secs(10), async { while !handshake().await {} });
+    assert!(renewed.await.is_ok(), "the initiator trusts the renewed certificate from its next connection");
+    initiators.shutdown(None).await;
+}
+
 #[tokio::test]
 async fn an_initiators_tls_is_checked_when_the_file_loads() {
     let dir = tempfile::tempdir().unwrap();

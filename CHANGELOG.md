@@ -10,6 +10,12 @@ Notable changes to the published crates.
   runtime shuts down under it on a thread that outlives the runtime: a store's commit on a
   blocking thread, say, polling a timer as its pool waits for a connection.
 
+### `turbojet-config`
+
+- **Fixed:** `SessionsFile::reload` gives each running initiator its TLS files read again, as it
+  did the acceptor's, when the file's text is the same. Certificates and CAs renewed in place
+  (by cert-manager, say) were used only once the initiator's own section changed.
+
 ### `turbojet-dictionary`
 
 - **Added:** Orchestra files with scenarios load: each definition's scenarios as one, with every

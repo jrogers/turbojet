@@ -76,7 +76,10 @@ server.set_identity(Identity::from_pem(&new_cert_pem, &new_key_pem)?);
 `ClientTls` does the same for an initiator (`set_trust`, `set_identity`). An `Identity` is
 checked when it's built (the key must be the certificate's), so a bad renewal is refused and
 the old one kept. The example gateway reloads its certificate, key, client CAs and CRLs from
-their files on SIGHUP.
+their files on SIGHUP. With a sessions file, `SessionsFile::reload` reads every TLS file again,
+the acceptor's and each initiator's, even when the file's text is the same: a certificate renewed
+in place (a Kubernetes Secret that cert-manager renews, say) is used from the acceptor's next
+handshake and each initiator's next connection.
 
 ## PKCS#12 bundles
 
