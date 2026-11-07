@@ -299,7 +299,8 @@ fn resend(c: &mut Criterion) {
             .with(turbojet::message::tags::HEART_BT_INT, 30u64);
         let encode = |seq, body| turbojet::codec::encode(&common::with_header("CLIENT", "GATEWAY", seq, body)).unwrap();
         stream.write_all(&encode(1, logon)).await.unwrap();
-        let mut buf = Vec::new();
+        // Room to read into: a buffer with only the tail in it would read a few bytes at a time.
+        let mut buf = Vec::with_capacity(64 * 1024);
         read_messages(&mut stream, &mut buf, 1).await;
         for first in (0..RESENT).step_by(1_000) {
             let mut wire = Vec::new();
