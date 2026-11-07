@@ -198,7 +198,10 @@ fn check(session: &mut Session, now: Instant, out: &mut Outgoing, may_skip: bool
             out.next = 1;
         }
         if msg.flag(tags::POSS_DUP_FLAG) {
-            assert!(seq < out.next, "resent {seq}, but only sent up to {}: {msg}", out.next - 1);
+            // An operator's move during a resend skips the numbers below it, which a ResendRequest
+            // may ask for before the move reaches the wire: they come back as a gap fill.
+            let sent = out.operator.iter().copied().fold(out.next, u64::max);
+            assert!(seq < sent, "resent {seq}, but only sent up to {}: {msg}", sent - 1);
             continue;
         }
         if let Some(i) = out.operator.iter().position(|&n| n == seq) {
