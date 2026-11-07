@@ -20,3 +20,4 @@
 1793415352863041893 a duplicated reset Logon, answered as a new reset, set the two sides resetting each other
 1793416240997937105 an acceptor delivered messages from a connection it still held, from epochs ago, while the initiator reset at each logon (simulator bug)
 1794018289513615899 an operator resetting both sides gave up waiting for a deposed acceptor's failover, which its pause held off past the limit, leaving only the initiator reset (simulator bug)
+1794021447416106212 operator skips queued for a paused initiator, aimed from numbers the pause had held still, asked twice for the same number, which the checker expected once (simulator bug)

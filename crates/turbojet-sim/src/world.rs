@@ -1652,7 +1652,11 @@ impl World {
     /// An operator moves `side`'s next outgoing number a little ahead; the checker is told first.
     fn skip(&mut self, side: Side, now: SimTime) -> Result<(), Violation> {
         self.sync_ledger(side)?;
-        let to = self.checker.numbers(side).0 + self.rng.between(1, 50);
+        // Past any skip still under way, as the operator asked for it: one waiting on a paused
+        // process leaves the numbers where they were, and two to the same number would answer as
+        // one, the checker expecting each once.
+        let pending = self.operators.iter().filter(|o| o.side == side).map(|o| o.to).max().unwrap_or(0);
+        let to = self.checker.numbers(side).0.max(pending) + self.rng.between(1, 50);
         self.record(&format!("operator: {side:?} next outgoing to {to}"));
         self.checker.expect_skip(side, to);
         let handle = self.handle(side);
