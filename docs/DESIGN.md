@@ -920,6 +920,23 @@ invariants, and tests that look for bugs rather than confirm what already works.
   order but for repeats marked possibly handled. Twenty seconds of faults each way, on an Apple M3
   (2026-11-07): 37,640 orders through 43 faults over TCP, 34 deliveries marked after the crashes;
   14,071 through 18 over TLS, 191 marked.
+
+  Replicated (`soak_replicated_*`), the server is an active and a standby, each a runtime of its
+  own over its own `DiskStorage`, the link through proxies of its own (TLS with a client
+  certificate in the TLS test), the lease a `SqlLease` in SQLite with a two-second term, degrading
+  or not by the run's seed. Besides the faults above, either node crashes, the link takes the
+  proxy's faults, and the test, as operator, takes over by the documented sequence from an active
+  that crashed or from one a partition has cut off from the lease's database (a `Lease` wrapper
+  whose calls fail) and from the standby, while the client can still reach it; that one's
+  application must get nothing a second after the promotion. A node's crash also cuts the link
+  proxies, since the standby serves each link connection on a thread outside its runtime, which a
+  process's death would close. A takeover the standby can't make is given up and the old active
+  restarted. Sixty seconds each, on an Apple M3 (2026-11-07), no engine bug found: over TCP, not
+  degrading, 63,291 orders through 5 failovers, 2 deposings and 3 takeovers refused as the standby
+  hadn't been checked since restarting; over TLS, 27,079 through 1 failover and 3 deposings;
+  degrading, over TCP, 38,132 through 2 failovers, 1 deposing and 1 refused as out of sync. Cutting
+  a live active off from the client alone doesn't make a takeover possible, rightly: it renews its
+  lease.
 - **Concurrency tests** with [shuttle](https://github.com/awslabs/shuttle), on every push. Built
   with `--cfg shuttle`, the registry's and the holds' locks and atomics are shuttle's
   (`src/sync.rs`), as are replication's state and link waiters (`turbojet-replica`'s

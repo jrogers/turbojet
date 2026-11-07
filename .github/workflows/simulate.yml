@@ -3,7 +3,7 @@ name: Simulate
 # Runs the deterministic simulator (crates/turbojet-sim) on random seeds for a while each night,
 # FIX sessions and FIXP sessions in jobs of their own, beyond the fixed seeds every push runs; and
 # the soak (crates/turbojet-interop/tests/soak.rs), the real engine through a fault proxy, over TCP
-# and TLS. Run it by hand for a longer or shorter session.
+# and TLS, one acceptor or a replicated pair. Run it by hand for a longer or shorter session.
 on:
   schedule:
     - cron: "47 3 * * *"
@@ -65,14 +65,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Soak
-        run: cargo test -p turbojet-interop --release --test soak -- --nocapture --test-threads=1
+        run: cargo test -p turbojet-interop --release --test soak soak_over -- --nocapture --test-threads=1
+        env:
+          TURBOJET_SOAK: "600"
+
+  # The same with a replicated acceptor: an active and its standby over a real link, the active
+  # crashing or cut off and an operator promoting the standby, the link cut, stalled or slowed.
+  soak-replicated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Soak
+        run: cargo test -p turbojet-interop --release --test soak soak_replicated -- --nocapture --test-threads=1
         env:
           TURBOJET_SOAK: "600"
 
   # Opens an issue when a scheduled run fails (or comments on the open one), and closes it when one
   # passes, so a failure doesn't go unnoticed for days. Manual runs are watched by whoever ran them.
   report:
-    needs: [simulate, soak]
+    needs: [simulate, soak, soak-replicated]
     if: always() && github.event_name == 'schedule'
     runs-on: ubuntu-latest
     permissions:

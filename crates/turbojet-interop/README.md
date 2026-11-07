@@ -172,10 +172,23 @@ in order (a repeat only marked as possibly handled), and once the faults stop, w
 It runs over TCP and over TLS: the proxy can't read TLS frames, but every fault the soak uses acts
 on the link, not on single messages.
 
+The replicated tests (`soak_replicated_over_tcp`, `_tls`) make the server a pair: an active over a
+`ReplicatedStorage` and a standby serving its link, each in a runtime of its own over a store of
+its own, the link through proxies of its own (TLS with a client certificate in the TLS test), the
+lease a `SqlLease` in SQLite. The client has both nodes' addresses. Besides the soak's faults, on
+the active's connection, either node crashes and the link is cut, blackholed, stalled or slowed;
+and an operator, the test, takes over by the documented sequence (acquire the lease, read
+`in_sync` under it, `Replica::promote`, start the active over the standby's store) from an active
+that crashed, or that a partition has cut off from the lease's database and the standby while the
+client can still reach it. A deposed active's application must get nothing a second after the
+promotion. A takeover the standby can't make (out of sync, not yet checked since it restarted) is
+given up and the old active restarted, as an operator would; each run needs at least one of each
+kind done. Each run's seed picks whether the active degrades.
+
 ```sh
 TURBOJET_SOAK=60 cargo test -p turbojet-interop --release --test soak -- --nocapture --test-threads=1
 ```
 
-`TURBOJET_SOAK` is the seconds of faults each way; it goes on past them until every kind has come.
-Without it both tests pass without doing anything. The nightly simulation workflow runs ten minutes
-each way.
+`TURBOJET_SOAK` is the seconds of faults in each test; it goes on past them until every kind has
+come. Without it the tests pass without doing anything. The nightly simulation workflow runs ten
+minutes in each, the replicated ones in a job of their own.
