@@ -729,7 +729,11 @@ impl Checker {
                         format!("{side:?} got {} again (first as {seq})", delivery.id),
                     ));
                 }
-                None if delivery.seq <= received.last_seq => {
+                // One the receiver rejected for SendingTime accuracy, which a crash then made it
+                // forget, comes back with the messages after it, marked as possibly handled.
+                None if delivery.seq <= received.last_seq
+                    && !(delivery.redelivered && sender.rejected_late.contains(&delivery.seq)) =>
+                {
                     return Err(violation(
                         "4 delivery",
                         format!("{side:?} got {} as {} after {}", delivery.id, delivery.seq, received.last_seq),
