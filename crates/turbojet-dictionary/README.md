@@ -2,7 +2,7 @@
 
 FIX data dictionaries in the QuickFIX XML and FIX Orchestra formats, for
 [Turbojet](https://github.com/jrogers/turbojet): fields, components, repeating groups and
-messages, validated on load, with venue customisations (in the QuickFIX format) merged onto a
+messages, validated on load, with venue customisations (in either format) merged onto a
 base dictionary, and corrections for a dictionary's mistakes (`make_optional`, for something it
 marks required that counterparties leave out).
 

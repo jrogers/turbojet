@@ -528,8 +528,15 @@ Typed messages come from data dictionaries. `turbojet-dictionary` loads and vali
 Trading Community's official FIX Orchestra files, which give groups and enum values their official
 names (`PreAllocGrp`, `OrderCancelRequest`) and document messages, fields and values, as well as
 dictionaries in the QuickFIX XML format, the one venues ship their specs in. It merges a venue's
-QuickFIX-format additions onto either, keeping the official names and documentation where the venue
-re-lists something. `turbojet-codegen` turns a dictionary into `fix_enum!`, `fix_group!` and
+additions in either format onto either, keeping the official names and documentation where the
+venue re-lists something without its own.
+
+An Orchestra overlay (2026-11-07) refers to the base by id, as the official files do among
+themselves: fields by tag, components and groups by their Orchestra ids, which a dictionary
+loaded from Orchestra keeps for this (a QuickFIX-format base has none, so an overlay on one can
+refer to its fields only). Components are kept by name and included where used, so replacing one
+changes every message that has it; groups are expanded in place, so one the overlay redefines
+replaces every expansion of that official name, nested ones too, to the same effect. `turbojet-codegen` turns a dictionary into `fix_enum!`, `fix_group!` and
 `fix_message!` invocations (copying the dictionary's documentation into doc comments only on
 request), from an application's `build.rs` or as a command for checked-in crates.
 

@@ -26,7 +26,7 @@ Venues' own binary order-entry protocols, which we may want to support:
 
 ## 2. Dictionaries and code generation
 
-What's left is FIX Latest and the rest of Orchestra.
+What's left is FIX Latest.
 
 - **FIX Latest in `turbojet-fix`** (M). Extension packs after FIX 5.0 SP2 are in FIX Latest
   (EP312, `OrchestraFIXLatest.xml` in the orchestrations commit already pinned), which generates
@@ -37,8 +37,6 @@ What's left is FIX Latest and the rest of Orchestra.
   every version, and all eight already take 173 s and 10 GB in release, which CI's runners
   strain. An application can generate just the messages it uses meanwhile
   (`turbojet-codegen --message`). QuickFIX has no acceptance scripts for it.
-- **Venue overlays in Orchestra format** (S to M). `merge_xml` takes only QuickFIX format, so
-  a venue's Orchestra file has to be loaded whole rather than merged onto the official one.
 
 ## 3. Encoding and data types
 

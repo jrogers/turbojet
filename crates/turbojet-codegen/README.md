@@ -35,6 +35,10 @@ checking in:
 turbojet-codegen OrchestraFIX42.xml --merge venue.xml --out src/generated
 ```
 
+A `--merge` file may be in either format. An Orchestra one refers to the base's fields, components
+and groups by their ids, as the official files do, and a group it redefines changes in every
+message that uses it.
+
 Enumerated fields are typed `turbojet::fields::Code<E>`, which keeps a code the dictionary doesn't
 list as `Code::Unknown` rather than failing the parse, as QuickFIX's typed fields do.
 `--strict-enums` (or `Generator::strict_enums`) types them `E` instead, so an unknown code fails

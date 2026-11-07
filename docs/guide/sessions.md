@@ -158,7 +158,9 @@ off), except Logon, which the engine checks itself, and Logout, which always com
 dictionary's mistakes before building the session (`Dictionary::make_optional`). Validation costs
 about 0.36 µs for a FIX 4.2 NewOrderSingle.
 
-A venue's own Orchestra file loads the same way. Its scenarios (NewOrderSingle as a limit order
+A venue's own Orchestra file loads the same way, or, if it holds only the venue's changes, merges
+onto the official one with `merge_file` (as does a QuickFIX-format one), referring to its fields,
+components and groups by their ids. Its scenarios (NewOrderSingle as a limit order
 and as a market order, say) load as one message, since nothing on the wire says which scenario
 a message is: it has every scenario's fields, each required only if every scenario requires it,
 and a field takes every scenario's codes. A field a scenario forbids is left out of it, so

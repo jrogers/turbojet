@@ -1,6 +1,8 @@
 //! FIX data dictionaries in the QuickFIX XML and FIX Orchestra formats: fields, components,
-//! repeating groups and messages, validated on load, with venue customisations (in the QuickFIX
-//! format) merged onto a base dictionary.
+//! repeating groups and messages, validated on load, with venue customisations (in either format)
+//! merged onto a base dictionary. An Orchestra customisation's refs may name the base's fields by
+//! tag and, for an Orchestra base, its components and groups by id; a group it redefines changes
+//! everywhere the base uses it.
 //!
 //! ```no_run
 //! use turbojet_dictionary::Dictionary;

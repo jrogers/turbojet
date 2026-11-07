@@ -10,6 +10,9 @@ Notable changes to the published crates.
   scenario's members, each required only where every scenario requires it, and every scenario's
   codes. `forbidden` presence leaves a member out, `constant` makes it required (its value isn't
   checked) and `ignored` optional; each was an error before.
+- **Added:** `merge_xml` and `merge_file` take Orchestra-format overlays, whose refs name the
+  base's fields by tag and, for an Orchestra base, its components and groups by id. A group the
+  overlay defines replaces the base's wherever it's used.
 
 ## 0.9.2 (2026-11-04)
 
