@@ -113,6 +113,9 @@ pub struct Report {
     pub redelivered: usize,
     /// Sends the applications had refused, their queue full.
     pub refused: u64,
+    /// Processes paused, and acceptors that resumed deposed: another instance had taken the lease.
+    pub pauses: u64,
+    pub resumed_deposed: u64,
     pub trace: Vec<String>,
 }
 
@@ -304,6 +307,10 @@ enum Event {
     GiveUp(ConnId),
     /// A node's process crashes, and later restarts.
     Crash,
+    /// A node's process stops (a stop signal, a long pause in a host's runtime, a VM migrated),
+    /// handling nothing until it resumes: the pause with this number.
+    Pause,
+    Unpause(Side, u64),
     Restart(Side),
     /// On a replicated seed: the acceptor's process crashes, and restarts as the standby, which
     /// takes over at the next epoch. One `deposed` is the second half of a [`Event::Depose`].
@@ -393,6 +400,8 @@ struct World {
     reconnect_rng: Rng,
     /// A replicated seed's failovers, timed from their own random stream for the same reason.
     replication: Option<(Replication, Rng, Arc<std::sync::Mutex<Pair>>)>,
+    /// Processes paused, from their own random stream for the same reason.
+    pauses: Pauses,
     /// Connects in a row that haven't logged on, as Initiator::run counts them.
     reconnect_attempt: u32,
     queue: Queue<Event>,
@@ -444,6 +453,26 @@ struct World {
     trace: Vec<String>,
 }
 
+/// On a third of the seeds, a process pauses now and then while the workload runs: the mean time
+/// between pauses, and what each paused side's events wait for, until it resumes.
+struct Pauses {
+    every: Option<Duration>,
+    rng: Rng,
+    /// Each side's pause under way, its number and the events held back for it.
+    held: [Option<(u64, Vec<Event>)>; 2],
+    made: u64,
+    resumed_deposed: u64,
+}
+
+impl Pauses {
+    fn draw(seed: u64) -> Self {
+        let mut rng = Rng::new(seed ^ 0x9a05_e5ed);
+        let secs = Duration::from_secs;
+        let every = if rng.chance(333_333) { rng.pick(&[Some(secs(30)), Some(secs(10))]) } else { None };
+        Self { every, rng, held: [None, None], made: 0, resumed_deposed: 0 }
+    }
+}
+
 /// What the Logons with options did: the counts [`Report`] gives.
 #[derive(Default)]
 struct Logons {
@@ -466,6 +495,8 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             logon_resent: world.logons.resent,
             logon_resets: world.logons.resets,
             refused: world.refused,
+            pauses: world.pauses.made,
+            resumed_deposed: world.pauses.resumed_deposed,
             redelivered: world
                 .nodes
                 .iter()
@@ -789,6 +820,7 @@ pub(crate) fn reconnect_policy(reconnect: Duration, rng: &mut Rng) -> ReconnectP
 }
 
 impl World {
+    #[expect(clippy::too_many_lines, reason = "a field per piece of the world")]
     fn new(options: Options) -> Self {
         let clocks = Clocks::new();
         let mut rng = Rng::new(options.seed);
@@ -821,6 +853,7 @@ impl World {
         let mut world = Self {
             // Before `options` moves into the world.
             checker: Checker::new(cancels(options.seed)),
+            pauses: Pauses::draw(options.seed),
             options,
             faults,
             clocks,
@@ -928,6 +961,11 @@ impl World {
             }
             self.replication_again(true, SimTime(0), replication.loss_every, Event::StandbyLosesStore);
             self.queue.push(SimTime(0).after(CATCH_UP_EVERY), Event::CatchUp);
+        }
+        if let Some(every) = self.pauses.every {
+            let mean = SimTime::from_duration(every).0;
+            let at = SimTime(self.pauses.rng.between(mean / 2, mean + mean / 2));
+            self.queue.push(at, Event::Pause);
         }
         self.queue.push(SimTime(0), Event::Connect(0));
         self.queue.push(SimTime(0), Event::SendOrder);
@@ -1064,6 +1102,10 @@ impl World {
 
     #[expect(clippy::too_many_lines, reason = "one arm per event, each short")]
     fn dispatch(&mut self, event: Event, now: SimTime, busy_end: SimTime) -> Result<(), Violation> {
+        if let Some(side) = self.paused_for(&event) {
+            self.pauses.held[side.index()].as_mut().expect("paused").1.push(event);
+            return Ok(());
+        }
         let busy = now < busy_end;
         if matches!(
             event,
@@ -1071,6 +1113,8 @@ impl World {
                 | Event::BlackHole
                 | Event::Stall
                 | Event::Crash
+                | Event::Pause
+                | Event::Unpause(..)
                 | Event::Failover { .. }
                 | Event::Depose
                 | Event::StandbyDown
@@ -1267,19 +1311,33 @@ impl World {
             }
             Event::Crash => {
                 let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
-                if !self.down[side.index()] {
+                // A paused process isn't crashed, so that it resumes.
+                if !self.down[side.index()] && self.pauses.held[side.index()].is_none() {
                     self.crash(side, now);
                 }
                 self.again(busy, now, self.faults.crash_every, Event::Crash);
+            }
+            Event::Pause => self.pause(busy, now),
+            Event::Unpause(side, number) => {
+                if self.pauses.held[side.index()].as_ref().is_some_and(|(n, _)| *n == number) {
+                    let deposed = side == Side::Acceptor
+                        && self.replication.as_ref().is_some_and(|(_, _, pair)| pair.lock().unwrap().deposed());
+                    if deposed {
+                        self.pauses.resumed_deposed += 1;
+                        self.record("resuming deposed");
+                    }
+                    self.unpause(side, now);
+                }
             }
             Event::Failover { deposed } => {
                 let (replication, _, pair) = self.replication.as_ref().expect("a replicated seed");
                 let (every, pair) = (replication.failover_every, pair.clone());
                 let mut pair = pair.lock().unwrap();
-                // Only with the acceptor up, and a plain failover not while one deposed waits, nor
+                // Only with the acceptor up and not paused, and a plain failover not while one deposed waits, nor
                 // to a standby the lease says is out of sync (a deposed acceptor's lease was
                 // taken only from one in sync).
                 let happens = !self.down[Side::Acceptor.index()]
+                    && self.pauses.held[Side::Acceptor.index()].is_none()
                     && pair.deposed() == deposed
                     && (deposed || pair.may_fail_over());
                 if happens {
@@ -1295,24 +1353,15 @@ impl World {
                 if !deposed {
                     self.replication_again(busy, now, every, Event::Failover { deposed: false });
                 } else if !happens {
-                    // A deposed acceptor that's down fails over once it's up again.
+                    // A deposed acceptor that's down or paused fails over once it's up again.
                     self.queue.push(now.after(Duration::from_millis(100)), Event::Failover { deposed: true });
                 }
             }
             Event::Depose => {
-                let (replication, rng, pair) = self.replication.as_mut().expect("a replicated seed");
+                let (replication, rng, _) = self.replication.as_mut().expect("a replicated seed");
                 let every = replication.depose_every;
                 let failover_in = Duration::from_millis(rng.between(0, 3_000));
-                let pair = pair.clone();
-                let mut pair = pair.lock().unwrap();
-                // Another instance takes the lease only from a standby in sync.
-                if !pair.deposed() && pair.may_fail_over() {
-                    pair.depose();
-                    let describe = pair.describe();
-                    self.record(&format!("deposed: {describe}"));
-                    self.queue.push(now.after(failover_in), Event::Failover { deposed: true });
-                }
-                drop(pair);
+                self.depose(now.after(failover_in));
                 self.replication_again(busy, now, every, Event::Depose);
             }
             Event::StandbyDown => {
@@ -1394,7 +1443,7 @@ impl World {
             }
             Event::PowerLoss => {
                 let side = if self.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
-                if !self.down[side.index()] {
+                if !self.down[side.index()] && self.pauses.held[side.index()].is_none() {
                     self.crash(side, now);
                     let (kept, new_seqnums) = (self.rng.between(0, 1000), self.rng.chance(500_000));
                     self.record(&format!(
@@ -1457,7 +1506,11 @@ impl World {
             Event::GiveUp(conn) => {
                 self.net.reset(conn);
                 for side in [Side::Initiator, Side::Acceptor] {
-                    if self.nodes[side.index()].fail(conn, now) {
+                    // A paused process finds its connection failed when it resumes.
+                    if let Some((_, held)) = &mut self.pauses.held[side.index()] {
+                        self.in_flight += 1;
+                        held.push(Event::Fail { side, conn });
+                    } else if self.nodes[side.index()].fail(conn, now) {
                         self.ended(side, conn, now);
                     }
                 }
@@ -1469,6 +1522,10 @@ impl World {
     /// `side`'s process dies: its sessions go without another write, the OS resets its
     /// connections (so the other end's fail), and it restarts after a while.
     fn crash(&mut self, side: Side, now: SimTime) {
+        // A paused process dies with what it hadn't handled yet, which then finds it down.
+        if self.pauses.held[side.index()].is_some() {
+            self.unpause(side, now);
+        }
         self.last_fault = now;
         self.down[side.index()] = true;
         // The countdowns under way go with the process's registry.
@@ -1488,6 +1545,88 @@ impl World {
         }
         let after = Duration::from_nanos(self.rng.between(0, SimTime::from_duration(self.faults.restart_max).0));
         self.queue.push(now.after(after), Event::Restart(side));
+    }
+
+    /// Another instance takes the acceptor's lease while it runs on, if the standby is in sync
+    /// (the only one it takes it from), the failover to follow at `failover_at`.
+    fn depose(&mut self, failover_at: SimTime) -> bool {
+        let (_, _, pair) = self.replication.as_ref().expect("a replicated seed");
+        let pair = pair.clone();
+        let mut pair = pair.lock().unwrap();
+        if pair.deposed() || !pair.may_fail_over() {
+            return false;
+        }
+        pair.depose();
+        let describe = pair.describe();
+        drop(pair);
+        self.record(&format!("deposed: {describe}"));
+        self.queue.push(failover_at, Event::Failover { deposed: true });
+        true
+    }
+
+    /// The side whose paused process `event` waits for, if any: what reaches its connections,
+    /// its driver's wake-ups, its store's jobs finishing, its registry's and application's timers
+    /// and, for the initiator, its connects. A connect waits for both ends: as TCP would complete
+    /// it, a paused acceptor still taking its time to answer the Logon, is a ceiling of this.
+    fn paused_for(&self, event: &Event) -> Option<Side> {
+        let paused = |side: Side| self.pauses.held[side.index()].is_some();
+        let side = match event {
+            Event::Arrive { to, .. } | Event::Fin { to, .. } => *to,
+            Event::Fail { side, .. }
+            | Event::Read(side, _)
+            | Event::Commands(side, _)
+            | Event::Resume(side, _)
+            | Event::Committed(side, _)
+            | Event::Writable(side, _)
+            | Event::Timer(side, ..)
+            | Event::SendsFree(side, ..)
+            | Event::InputFree(side, ..)
+            | Event::Cancels(side, _) => *side,
+            Event::Connect(_) | Event::ConnectFailed(_) => Side::Initiator,
+            Event::ReleaseHolds(_) => Side::Acceptor,
+            Event::Established(_) => return [Side::Initiator, Side::Acceptor].into_iter().find(|s| paused(*s)),
+            _ => return None,
+        };
+        paused(side).then_some(side)
+    }
+
+    /// A process pauses for between half a heartbeat interval and four, mostly longer than its
+    /// counterparty waits before giving up on it. Half an acceptor's pauses on a replicated seed
+    /// see another instance take its lease meanwhile, the failover coming only after it resumes.
+    fn pause(&mut self, busy: bool, now: SimTime) {
+        let side = if self.pauses.rng.chance(500_000) { Side::Initiator } else { Side::Acceptor };
+        if !self.down[side.index()] && self.pauses.held[side.index()].is_none() {
+            let heartbeat = SimTime::from_duration(self.heartbeat()).0;
+            let lasts = self.pauses.rng.between(heartbeat / 2, heartbeat * 4);
+            let resume = SimTime(now.0 + lasts);
+            self.pauses.made += 1;
+            let number = self.pauses.made;
+            self.pauses.held[side.index()] = Some((number, Vec::new()));
+            self.checker.pause(side, now);
+            self.queue.push(resume, Event::Unpause(side, number));
+            self.record(&format!("paused {side:?} until {resume}"));
+            if side == Side::Acceptor && self.replication.is_some() && self.pauses.rng.chance(500_000) {
+                let failover_in = Duration::from_millis(self.pauses.rng.between(0, 3_000));
+                self.depose(resume.after(failover_in));
+            }
+        }
+        if let (true, Some(every)) = (busy, self.pauses.every) {
+            let mean = SimTime::from_duration(every).0;
+            let at = SimTime(now.0 + self.pauses.rng.between(mean / 2, mean + mean / 2));
+            let at = self.active_from(at);
+            self.queue.push(at, Event::Pause);
+        }
+    }
+
+    /// A paused process resumes (or crashes): what waited for it runs first, in the order it
+    /// came. A failover calls this through `crash` holding the pair's lock, so it mustn't lock it.
+    fn unpause(&mut self, side: Side, now: SimTime) {
+        let (_, held) = self.pauses.held[side.index()].take().expect("paused");
+        self.checker.resume(side, now);
+        self.record(&format!("resumed {side:?} with {} events held", held.len()));
+        for event in held {
+            self.queue.push_first(now, event);
+        }
     }
 
     fn pick_side(&mut self) -> Side {

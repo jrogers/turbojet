@@ -884,11 +884,13 @@ invariants, and tests that look for bugs rather than confirm what already works.
   each other in one thread from a seed, over a TCP-like network that splits, delays, stalls, resets
   and black-holes connections (on some seeds behind a middlebox that drops, duplicates, reorders and
   corrupts messages), with process crashes between events and inside store calls, store errors,
-  power loss on disk stores with and without sync, logout requests, operators skipping numbers ahead
+  power loss on disk stores with and without sync, processes paused for longer than their
+  counterparties wait (on replicated seeds, an acceptor resuming after another instance took its
+  lease), logout requests, operators skipping numbers ahead
   and resetting both sides, daily schedules, on a third of the seeds sessions with SubIDs and a
   LocationID, and initiators logging on with NextExpectedMsgSeqNum (a third of the seeds) or a
   reset (a sixth). The per-push run fails if no seed resends straight after a Logon's 789 or resets
-  at logon, since nothing else would show those paths are taken. After every event a checker holds both sides to what their stores recorded, what they
+  at logon, or no paused acceptor resumes deposed, since nothing else would show those paths are taken. After every event a checker holds both sides to what their stores recorded, what they
   wrote and what their applications received, and once the faults stop they must settle; bugs
   planted in the simulator show the checker catches what it should. 100 seeds run on every push and
   random ones nightly, and any failure replays from its seed (`scripts/sim.sh`). It found a write

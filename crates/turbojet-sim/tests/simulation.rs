@@ -25,13 +25,16 @@ fn fixed_seeds_pass_or_fail_as_known() {
     let known = listed(include_str!("../known_failures.txt"));
     let start = Instant::now();
     let mut problems = Vec::new();
-    // The paths only some Logons take: resending at once from a 789, and resetting.
-    let (mut logon_resent, mut logon_resets) = (0, 0);
+    // The paths only some Logons take: resending at once from a 789, and resetting; and pauses,
+    // an acceptor among them resuming after another instance took its lease.
+    let (mut logon_resent, mut logon_resets, mut pauses, mut resumed_deposed) = (0, 0, 0, 0);
     for seed in 0..SEEDS {
         match (run(&Options::per_push(seed)), known.get(&seed)) {
             (Ok(report), None) => {
                 logon_resent += report.logon_resent;
                 logon_resets += report.logon_resets;
+                pauses += report.pauses;
+                resumed_deposed += report.resumed_deposed;
             }
             (Err(failure), Some(why)) if why.starts_with(failure.violation.rule) => {}
             (Ok(_), Some(why)) => {
@@ -44,6 +47,9 @@ fn fixed_seeds_pass_or_fail_as_known() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     assert!(logon_resent > 0, "no seed resent from a Logon's 789");
     assert!(logon_resets > 0, "no seed reset at logon");
+    eprintln!("{pauses} pauses, {resumed_deposed} resumed deposed");
+    assert!(pauses > 0, "no seed paused a process");
+    assert!(resumed_deposed > 0, "no paused acceptor resumed deposed");
 }
 
 #[test]

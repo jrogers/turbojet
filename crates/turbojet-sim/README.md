@@ -48,6 +48,15 @@ half the seeds the stores are slow, as a networked one is: they hand each commit
 opening of a session's log to the driver as a job, which finishes up to 5 ms later (now and then
 50 ms), and the session waits for it.
 
+On a third of the seeds a process pauses now and then (a stop signal, a long pause in a host's
+runtime, a VM migrated), for between half a heartbeat interval and four, mostly longer than its
+counterparty waits before giving up: it handles nothing meanwhile, while the network goes on
+bringing it bytes, filling the send buffers towards it, and on resuming it finds everything that
+came meanwhile, in order, and its timers overdue. A paused process isn't crashed, so that it
+resumes. Half the acceptor's pauses on a replicated seed see another instance take its lease
+meanwhile, the failover following only after it resumes, so it comes back deposed, its commits
+fenced. A cancel on disconnect due during a pause comes as the process resumes.
+
 On half the seeds the acceptor's application holds orders in flight after handling them
 (`Context::hold`), as a gateway forwarding them would until a venue had stored them: every first
 to fifth order, for up to a second, so bursts reach the 256 a session hands over past a hold and

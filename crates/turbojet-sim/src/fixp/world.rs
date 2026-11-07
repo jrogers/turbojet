@@ -242,6 +242,9 @@ pub fn run(options: &Options) -> Result<Report, Failure> {
             // FIXP has no FIX Logon.
             logon_resent: 0,
             logon_resets: 0,
+            // Nor pauses, yet.
+            pauses: 0,
+            resumed_deposed: 0,
             redelivered: world
                 .nodes
                 .iter()

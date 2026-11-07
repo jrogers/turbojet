@@ -307,6 +307,8 @@ struct Cancels {
     /// An ending with no grace period: the session cancels as it ends, so the next event is the
     /// cancel.
     cancel_now: bool,
+    /// The process is paused, since then: a countdown can't end until it resumes.
+    paused: Option<SimTime>,
 }
 
 impl Cancels {
@@ -430,10 +432,26 @@ impl Checker {
             ));
         }
         match cancels.pending {
-            Some((deadline, ended)) if deadline < now => {
+            Some((deadline, ended)) if deadline < now && cancels.paused.is_none() => {
                 Err(violation("8 cancel", format!("{side:?} had no cancel for {ended:?} by {now}, due at {deadline}")))
             }
             _ => Ok(()),
+        }
+    }
+
+    /// `side`'s process pauses at `at`, handling nothing until [`resume`](Self::resume).
+    pub fn pause(&mut self, side: Side, at: SimTime) {
+        self.cancels[side.index()].paused = Some(at);
+    }
+
+    /// `side`'s process resumes at `at` (or crashes): a countdown that ended meanwhile cancels now.
+    pub fn resume(&mut self, side: Side, at: SimTime) {
+        let cancels = &mut self.cancels[side.index()];
+        cancels.paused = None;
+        if let Some((deadline, _)) = &mut cancels.pending
+            && *deadline < at
+        {
+            *deadline = at;
         }
     }
 
