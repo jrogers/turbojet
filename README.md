@@ -74,8 +74,8 @@ dependencies:
 
 ```toml
 [dependencies]
-turbojet = "0.9"
-turbojet-fix = { version = "0.9", features = ["fix42"] }
+turbojet = "0.10"
+turbojet-fix = { version = "0.10", features = ["fix42"] }
 tokio = { version = "1", features = ["full"] }
 tracing-subscriber = "0.3"
 ```

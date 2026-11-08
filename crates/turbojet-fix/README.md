@@ -8,7 +8,7 @@ per field (in `tags`). Session-level messages are in `turbojet::admin`.
 
 ```toml
 [dependencies]
-turbojet-fix = { version = "0.9", features = ["fix42"] }
+turbojet-fix = { version = "0.10", features = ["fix42"] }
 ```
 
 ```rust
