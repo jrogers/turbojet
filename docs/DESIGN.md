@@ -1260,7 +1260,11 @@ Round trips are initiator → acceptor application → initiator application, us
 discards messages (storage is measured separately), except the disk rows, where the acceptor
 stores to `DiskStorage`. Most send each order from the benchmark's task through a `SessionHandle`;
 the "replying from `on_message`" rows send the next order from the initiator's application, with
-no hop between tasks (see [Performance](guide/performance.md)). The SBE rows use B3's Binary
+no hop between tasks (see [Performance](guide/performance.md)). Replying from `on_message`, TLS
+costs 9-12 µs more than TCP on the M4 Pro (3-4 µs on an M3), against 0.2-0.7 µs for a bare
+tokio-rustls ping-pong and 1.3 µs through a `SessionHandle`: mostly the macOS scheduler waking the
+thread on another core, which TCP often avoids and TLS almost never does, not rustls or extra
+system calls. The SBE rows use B3's Binary
 Entrypoint schema; the FIXP rows carry its orders under FIXP 1.0 with recoverable flows, each end
 storing in memory. The FAST rows use the FAST specification's own incremental refresh template,
 each message following the one before. The SQL rows used PostgreSQL 18 on the same machine over
