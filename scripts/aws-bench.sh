@@ -3,7 +3,7 @@
 # another, in one cluster placement group, so orders and their acknowledgements cross a real network.
 #   scripts/aws-bench.sh         # launch, build, run, fetch the results, terminate
 #   scripts/aws-bench.sh clean   # delete what an earlier run left, should one have died
-# Needs the aws CLI logged in (aws login, or aws configure sso), jq, ssh and git. Builds HEAD as committed.
+# Needs the aws CLI logged in (aws login, or aws configure sso), jq, ssh, git and python3. Builds HEAD as committed.
 #
 # Runs, each one's output into target/aws-bench/<run>/:
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
@@ -91,7 +91,7 @@ done
 for load in $LOADS; do
     [[ $load =~ ^[0-9]+:[0-9]+$ ]] || { echo "LOADS are sessions:rate pairs, not $load" >&2; exit 2; }
 done
-for tool in aws jq ssh git; do
+for tool in aws jq ssh git python3; do
     command -v "$tool" >/dev/null || { echo "needs $tool" >&2; exit 1; }
 done
 aws sts get-caller-identity >/dev/null || { echo "the aws CLI isn't logged in: aws login (or aws configure sso)" >&2; exit 1; }
@@ -292,11 +292,26 @@ done
             echo
             cat "$OUT/network.md"
         else
-            echo "\`$CARGO_BENCH -- $BENCH_ARGS\`"
+            echo "\`$CARGO_BENCH -- $BENCH_ARGS\`: criterion's medians (its whole output in local.txt)."
             echo
-            echo '```'
-            cat "$OUT/local.txt"
-            echo '```'
+            echo '| Benchmark | Median | Rate |'
+            echo '|---|---:|---:|'
+            # Each benchmark's median from criterion's reports, with its throughput as a rate.
+            python3 -I - "$OUT/criterion" <<'EOF'
+import json, sys
+from pathlib import Path
+for estimates in sorted(Path(sys.argv[1]).glob("**/new/estimates.json")):
+    bench = json.loads((estimates.parent / "benchmark.json").read_text())
+    ns = json.loads(estimates.read_text())["median"]["point_estimate"]
+    throughput = bench.get("throughput") or {}
+    rate = ""
+    if "Elements" in throughput:
+        rate = f"{throughput['Elements'] / ns * 1e9:,.0f}/s"
+    elif "Bytes" in throughput:
+        rate = f"{throughput['Bytes'] / ns * 1e9 / 2**20:,.0f} MiB/s"
+    unit, scale = next((u, s) for u, s in (("s", 1e9), ("ms", 1e6), ("µs", 1e3), ("ns", 1)) if ns >= s or u == "ns")
+    print(f"| {bench['full_id']} | {ns / scale:.3g} {unit} | {rate} |")
+EOF
         fi
     done
 } >"$OUT/results.md"
