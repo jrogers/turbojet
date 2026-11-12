@@ -7,7 +7,7 @@ This chapter is about the choices that move latency and throughput.
 For the lowest latency, reply from `Application::on_message`. `Context::send` there is written
 with the same wake-up of the connection task, while a `SessionHandle` send from another task
 wakes the connection's task to take it: over localhost on `c9gd` (see [Results](#results)), an
-order sent and its acknowledgement received through another task took 21.7 µs, against 8.7 µs
+order sent and its acknowledgement received through another task took 20.7 µs, against 8.7 µs
 from `on_message`.
 
 Turbojet runs on a current-thread tokio runtime as well as a multi-threaded one; on a
@@ -22,7 +22,7 @@ To go lower at the cost of a core per connection, drive the session with
 read and write the non-blocking socket directly, and check the handle's commands and the timer,
 rather than waiting for tokio's reactor to wake them. Store jobs and cancel on disconnect still
 run on the tokio runtime passed in. Over localhost with both ends spinning, the round trip from
-`on_message` took 7.4 µs against 8.7 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Give each
+`on_message` took 7.7 µs against 8.7 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Give each
 spinning connection a thread, and on Linux a core, of its own. TLS isn't supported over it.
 
 ## Stores
@@ -51,6 +51,24 @@ orders borrowed (`NewOrderSingleRef`) and replies with owned messages whose text
 `CompactString` allocate nothing per order once warmed up. A test in the repository counts them
 by stage, and fails if any count changes.
 
+## The allocator on Linux
+
+On Linux, run Turbojet on jemalloc or mimalloc rather than glibc's malloc. A message sent through a
+`SessionHandle` is built on the sending thread and freed on the connection's, and glibc's malloc
+takes a lock for each message freed on another thread than the one that allocated it. On the same
+`c9gd` machine, 1,000 orders in flight over localhost went from 461,000 a second on glibc to
+727,000 on jemalloc, over TLS from 408,000 to 681,000, and 32 sessions from 2.41 million to 2.84
+million. A reply from `on_message` allocates nothing, so it gains nothing. Either preload the
+allocator, as the results below do:
+
+```sh
+sudo apt-get install libjemalloc2   # Debian and Ubuntu
+LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 ./your-gateway
+```
+
+or make it the program's global allocator, with the `tikv-jemallocator` or `mimalloc` crates. On
+macOS the system allocator doesn't have this cost.
+
 ## Interrupt moderation
 
 On Linux, a network card waits a few microseconds after a packet before it interrupts, to take
@@ -70,9 +88,10 @@ two machines.
 ### On Linux servers
 
 Two AWS machines of 8 vCPUs with local NVMe instance storage, in one cluster placement group in
-us-east-1, Linux 7.0, Rust 1.99.1, at commit `b2ddc50`, November 2026, the NICs' interrupt
-moderation off (see above), `c9gd` built with `-C target-feature=+lse,+crc`, with
-`scripts/aws-bench.sh`. One run of each.
+us-east-1, Linux 7.0, Rust 1.99.1, November 2026, on jemalloc (see [the allocator](#the-allocator-on-linux)),
+the NICs' interrupt moderation off (see [interrupt moderation](#interrupt-moderation)), `c9gd`
+built with `-C target-feature=+lse,+crc`, with `scripts/aws-bench.sh`. One run of each: the round
+trips at commit `a598624`, the benchmarks in one process at `a16adab`.
 
 The `ack` acceptor on one machine, answering each NewOrderSingle with an ExecutionReport, and
 `load` on the other, sending orders at a set rate and timing each from when it was due, 10 s
@@ -80,51 +99,51 @@ after 2 s of warm-up:
 
 | sessions × orders a second | `c9gd` p50 | p99 | p99.99 | `c8id` p50 | p99 | p99.99 |
 |---|---:|---:|---:|---:|---:|---:|
-| 1 × 1,000 | 36 µs | 40 µs | 63 µs | 126 µs | 350 µs | 600 µs |
-| 1 × 10,000 | 35 µs | 38 µs | 63 µs | 144 µs | 585 µs | 904 µs |
-| 1 × 100,000 | 36 µs | 44 µs | 101 µs | 102 µs | 157 µs | 492 µs |
-| 8 × 200,000 | 37 µs | 55 µs | 159 µs | 107 µs | 316 µs | 3.56 ms |
+| 1 × 1,000 | 35 µs | 40 µs | 57 µs | 249 µs | 438 µs | 598 µs |
+| 1 × 10,000 | 33 µs | 38 µs | 88 µs | 124 µs | 646 µs | 1.00 ms |
+| 1 × 100,000 | 36 µs | 43 µs | 114 µs | 102 µs | 215 µs | 604 µs |
+| 8 × 200,000 | 35 µs | 50 µs | 77 µs | 105 µs | 625 µs | 4.62 ms |
 
-On `c9gd` the p50 held flat across the rates in each of three runs, each on a placement of its
-own, but the placement set its level: 33 to 37 µs in two, 45 to 50 µs in the third. `c8id`'s round
-trips are about three times as long, with a longer tail.
+On `c9gd` the p50 held flat across the rates in each of six runs, each on a placement of its own,
+but the placement set its level: 32 to 37 µs in four, 39 to 42 µs and 45 to 50 µs in the others.
+`c8id`'s round trips are about three times as long, with a longer tail, on glibc as on jemalloc.
 
-On AWS c9gd.2xlarge (Graviton5), Linux 7.0: the benchmarks in one process, criterion medians,
-temporary files on the instance storage.
+On AWS c9gd.2xlarge (Graviton5), Linux 7.0, jemalloc: the benchmarks in one process, criterion
+medians, temporary files on the instance storage.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 210 ns / 186 ns | 767 / 868 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 209 ns / 189 ns | 773 / 853 MiB/s |
 | Encode ExecutionReport (209 B) | 61 ns | 3.2 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 36 ns / 57 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 1.21 µs | 830k msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 33 ns / 592 ns / 51 µs | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.7 µs | 115k/s |
-| The same, both ends spinning (`run_spinning`) | 7.4 µs | 135k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 498k msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 474k msg/s |
-| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 473k / 2.53M / 2.55M msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 6.3 µs | 1.60M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 7.9 ns / 268 ns | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 1.26 µs | 796k msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 26 ns / 603 ns / 51 µs | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.7 µs | 114k/s |
+| The same, both ends spinning (`run_spinning`) | 7.7 µs | 130k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 710k msg/s |
+| Round trip over localhost TLS, 1,000 in flight | | 602k msg/s |
+| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 521k / 2.71M / 2.84M msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 6.3 µs | 2.04M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 8.0 ns / 268 ns | |
 
 The same on c8id.2xlarge (Xeon 6975P, Granite Rapids):
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 286 ns / 266 ns | 564 / 605 MiB/s |
-| Encode ExecutionReport (209 B) | 56 ns | 3.5 GiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 284 ns / 267 ns | 567 / 604 MiB/s |
+| Encode ExecutionReport (209 B) | 57 ns | 3.4 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 42 ns / 65 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 1.43 µs | 701k msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 26 ns / 505 ns / 133 µs | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 1.41 µs | 710k msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 24 ns / 505 ns / 138 µs | |
 | Round trip over localhost TCP, one at a time, replying from `on_message` | 8.3 µs | 121k/s |
 | The same, both ends spinning (`run_spinning`) | 9.0 µs | 111k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 284k msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 271k msg/s |
-| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 380k / 1.42M / 1.44M msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 5.8 µs | 1.27M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 5.5 ns / 360 ns | |
+| Round trip over localhost TCP, 1,000 in flight | | 542k msg/s |
+| Round trip over localhost TLS, 1,000 in flight | | 528k msg/s |
+| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 396k / 1.49M / 1.52M msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 5.9 µs | 1.56M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 5.5 ns / 367 ns | |
 
-A synced commit costs what the device does: 51 µs on `c9gd`'s instance storage and 133 µs on
+A synced commit costs what the device does: 51 µs on `c9gd`'s instance storage and 138 µs on
 `c8id`'s, against about 4 ms on a laptop's SSD.
 
 ### On a Mac

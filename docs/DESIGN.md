@@ -1220,23 +1220,38 @@ the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 
 
 `scripts/aws-bench.sh` measures on two AWS machines in one cluster placement group: the `ack`
 acceptor on one and `load` on the other, then the criterion benchmarks on the second. The guide's
-performance chapter has the results. Measured 2026-11-12 at `b2ddc50`, on `c9gd.2xlarge`
-(Graviton5) and `c8id.2xlarge` (Xeon 6975P), 8 vCPUs each, one run of each but `c9gd`'s round
-trips, measured in three placements:
+performance chapter has the results, on jemalloc. Measured 2026-11-12 from `b2ddc50` to
+`a598624`, on `c9gd.2xlarge` (Graviton5) and `c8id.2xlarge` (Xeon 6975P), 8 vCPUs each, one run
+of each but `c9gd`'s round trips, measured in six placements:
 
 - Interrupt moderation, not the engine, set the round trip between machines. With ENA's defaults
   (adaptive, 20 µs receive, 64 µs send), `c9gd`'s p50 was 47 µs at 1,000 orders a second but
   220 µs at 10,000 and 345 µs at 100,000: the card waited for more packets before interrupting.
-  Off, it was flat across the rates, to 200,000 a second over 8 sessions: 33 to 37 µs in two
-  placements and 45 to 50 µs in the third, so where the machines land moves it more than the load.
+  Off, it was flat across the rates, to 200,000 a second over 8 sessions: 32 to 37 µs in four
+  placements, 39 to 42 and 45 to 50 µs in the others, so where the machines land moves it more
+  than the load.
 - `c8id`'s round trips were about three times `c9gd`'s, 102 to 144 µs p50 with moderation off,
   and its tail longer (p99.99 3.6 ms at 8 × 200,000), as turbofan's runs found on the same type.
+- glibc's malloc, not the cores, held back messages in flight. A message sent through a
+  `SessionHandle` is allocated on the sender's thread and freed on a worker's, and a profile of the
+  round trips on `c9gd` spent 5% in the locks glibc takes for that (`_lll_lock_wait_private` from
+  `free` in `apply_command`, and from `malloc` in `SessionHandle::send`, which builds each typed
+  message in a new `Message` of about 1 KB). On jemalloc, on the same machine: 1,000 in flight
+  461k to 727k msg/s, over TLS 408k to 681k, with the disk store 465k to 692k, 8 and 32 sessions
+  11% and 18% more, a resend of 100,000 over TCP 12% faster and storing a message in memory 33 ns
+  to 26 ns. Replying from `on_message` and the single-threaded rows didn't move (within 2%). On
+  `c8id` 1,000 in flight went from 284k to 542k msg/s.
+- jemalloc's tail between machines was milliseconds until the stores' indexes went into blocks:
+  growing a `VecDeque` index copies it on jemalloc, where glibc remaps it (see [the stores'
+  indexes](#storage)). jemalloc's background purging thread (`MALLOC_CONF=background_thread:true`)
+  didn't change it. With the blocks, on `c9gd`, 8 × 200,000 had p99.99 77 µs and max 254 µs on
+  jemalloc, against 743 µs and 1.1 ms on glibc on the same machines.
 - Over localhost, single-threaded work is a little slower than on the M4 Pro (order → ack wire to
-  wire 1.21 µs against 825 ns), a round trip from `on_message` a little faster (8.7 µs against
-  9.6 µs), and 1,000 in flight half the rate (498k msg/s against 1.06M): with 8 vCPUs, the
-  benchmark's two runtimes share fewer cores. Many sessions level off at 2.55M msg/s from 8
-  sessions on `c9gd`, 1.44M on `c8id`.
-- A synced commit on the local NVMe takes 51 µs on `c9gd` and 133 µs on `c8id`, against 3.9 ms on
+  wire 1.26 µs against 825 ns), a round trip from `on_message` a little faster (8.7 µs against
+  9.6 µs), and 1,000 in flight still below it (710k msg/s against 1.06M). Many sessions level off
+  at 2.84M msg/s from 8 sessions on `c9gd`, 1.52M on `c8id`: the 8 vCPUs run out, and a profile
+  of them is 70% Turbojet's own work.
+- A synced commit on the local NVMe takes 51 µs on `c9gd` and 138 µs on `c8id`, against 3.9 ms on
   the M4 Pro's SSD, so the fsync round trip is 81 µs instead of 4.4 ms.
 - Graviton's `-C target-feature=+lse,+crc` (the script's default there) is worth keeping. Built
   without it, the median benchmark was 1% slower, within the noise, but those with many messages

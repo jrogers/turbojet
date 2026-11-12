@@ -9,6 +9,13 @@ Notable changes to the published crates.
 - **Added:** the performance chapter (`turbojet::guide::performance`) has results on Linux
   servers, AWS Graviton and Intel machines, with round trips between two machines, and says what
   a network card's interrupt moderation costs a round trip.
+- **Added:** the performance chapter recommends jemalloc or mimalloc on Linux: a message sent
+  through a `SessionHandle` is freed on another thread than the one that built it, which glibc's
+  malloc serializes. On an AWS Graviton machine, 1,000 orders in flight went from 461,000 to
+  727,000 a second.
+- **Fixed:** `MemoryStorage` and `DiskStorage` keep their index of stored messages in blocks, so
+  a session that has stored millions of messages no longer pauses for milliseconds each time the
+  index grows. It showed on allocators whose `realloc` copies large blocks, such as jemalloc.
 
 ## 0.10.0 (2026-11-08)
 
