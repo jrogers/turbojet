@@ -2,6 +2,14 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`
+
+- **Added:** the performance chapter (`turbojet::guide::performance`) has results on Linux
+  servers, AWS Graviton and Intel machines, with round trips between two machines, and says what
+  a network card's interrupt moderation costs a round trip.
+
 ## 0.10.0 (2026-11-08)
 
 ### `turbojet`

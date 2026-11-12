@@ -73,7 +73,10 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - Commits are small and each says why. Performance commits give before and after numbers (criterion
   medians on an idle machine). Running benchmarks needs no permission. The maintainer uses more than
   one Mac: label numbers with `sysctl -n machdep.cpu.brand_string`, never with what a table's header
-  says. README.md's benchmark table is M4 Pro numbers only; other machines' go in DESIGN.md.
+  says. Linux numbers come from `scripts/aws-bench.sh` (two AWS machines; `NIC_COALESCE_OFF=1`
+  for latency) and go in the guide's performance chapter, under Results. README.md's benchmark
+  table is that chapter's `c9gd` rows, and the website shows them: `site/build.py` fails if the
+  two differ. DESIGN.md's current numbers are the M4 Pro's.
 - A feature ends with a commit that records it: how to use it in the guide's chapter for it
   (`docs/guide/`, for users: no measurement history or internals; its examples are doctests, run
   from `crates/turbojet/src/guide.rs`), and in README.md only if it changes the overview or the

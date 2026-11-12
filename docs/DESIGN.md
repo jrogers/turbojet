@@ -1214,11 +1214,34 @@ the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 
 1.1 ms; 100,000 a second over 4 or 16 sessions, 40 µs and p99 75 µs, with the sender within
 70 µs of schedule.
 
+### On Linux
+
+`scripts/aws-bench.sh` measures on two AWS machines in one cluster placement group: the `ack`
+acceptor on one and `load` on the other, then the criterion benchmarks on the second. The guide's
+performance chapter has the results. Measured 2026-11-12 at `b2ddc50`, on `c9gd.2xlarge`
+(Graviton5) and `c8id.2xlarge` (Xeon 6975P), 8 vCPUs each, one run of each but `c9gd`'s round
+trips, which held in three placements:
+
+- Interrupt moderation, not the engine, set the round trip between machines. With ENA's defaults
+  (adaptive, 20 µs receive, 64 µs send), `c9gd`'s p50 was 47 µs at 1,000 orders a second but
+  220 µs at 10,000 and 345 µs at 100,000: the card waited for more packets before interrupting.
+  Off, it was 33 to 37 µs at every rate, to 200,000 a second over 8 sessions.
+- `c8id`'s round trips were about three times `c9gd`'s, 102 to 144 µs p50 with moderation off,
+  and its tail longer (p99.99 3.6 ms at 8 × 200,000), as turbofan's runs found on the same type.
+- Over localhost, single-threaded work is a little slower than on the M4 Pro (order → ack wire to
+  wire 1.21 µs against 825 ns), a round trip from `on_message` a little faster (8.7 µs against
+  9.6 µs), and 1,000 in flight half the rate (498k msg/s against 1.06M): with 8 vCPUs, the
+  benchmark's two runtimes share fewer cores. Many sessions level off at 2.55M msg/s from 8
+  sessions on `c9gd`, 1.44M on `c8id`.
+- A synced commit on the local NVMe takes 51 µs on `c9gd` and 133 µs on `c8id`, against 3.9 ms on
+  the M4 Pro's SSD, so the fsync round trip is 81 µs instead of 4.4 ms.
+
 ### Current numbers
 
 Run with `cargo bench -p turbojet --all-features` (about 13 minutes); `cargo bench -p turbojet-sql
---all-features` for the SQL stores, with PostgreSQL at `TURBOJET_POSTGRES_URL`. The README shows a
-selection of these rows.
+--all-features` for the SQL stores, with PostgreSQL at `TURBOJET_POSTGRES_URL`. These are the
+M4 Pro's; the guide's performance chapter has Linux servers' (see [On Linux](#on-linux)), and the
+README a selection of those.
 
 Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; criterion medians.
 Benchmarks build with one codegen unit and fat LTO (`[profile.bench]`), so results don't shift with

@@ -6,7 +6,8 @@ Called by scripts/site.sh, which runs mdBook after it:
   made from the guide's own index, and the architecture overview (docs/ARCHITECTURE.md). A link
   to a file outside the book (DESIGN.md, say) goes to it on GitHub, at REF.
 - the landing page, OUT/index.html: site/index.html with the version, the quick start's
-  application (from examples/quickstart.rs) and the README's benchmark table filled in.
+  application (from examples/quickstart.rs) and the benchmarks, from the performance chapter's
+  Linux results, filled in.
 
 Then, with --finish, after mdBook has built the book into OUT/guide:
 
@@ -192,8 +193,9 @@ def quickstart() -> str:
 
 
 def figures() -> dict[str, str]:
-    """The landing page's headline numbers, read from the README so they move with it. A README
-    rewording that loses one fails the build rather than leaving a stale number."""
+    """The landing page's headline numbers: the scenarios from the README, the timings from the
+    performance chapter's Linux results. A rewording that loses one fails the build rather than
+    leaving a stale number."""
     readme = (ROOT / "README.md").read_text()
 
     def find(pattern: str) -> re.Match:
@@ -206,12 +208,35 @@ def figures() -> dict[str, str]:
         # The allocation table's rows: "| Decode (into one message ...) | 0 | 0 | 0 |".
         row = find(rf"(?m)^\| {stage} \([^|]*\| ([^|]+)\|")
         assert row.group(1).strip() == "0", f"the {stage} stage allocates now: update the landing page"
+    _, benchmarks = linux_table("| Benchmark")
+    _, network = linux_table("| sessions × orders a second")
     return {
-        "order_to_ack": find(r"\| Session: order → ack, wire to wire[^|]*\| ([^|]+?) \|").group(1),
-        "round_trip": find(r"\| Round trip over localhost TCP, one at a time, replying from `on_message` \| ([^|]+?) \|").group(1),
+        "order_to_ack": cell(benchmarks, "Session: order → ack, wire to wire", 1),
+        "round_trip": cell(network, "1 × 1,000", 1),
         "scenarios_passed": passed.group(1),
         "scenarios": passed.group(2),
     }
+
+
+def linux_table(header: str) -> tuple[str, list[str]]:
+    """From the performance chapter's Linux results, the table whose header starts with `header`,
+    as its lines, and the paragraph before it, which says what it was measured on."""
+    chapter = (ROOT / "docs" / "guide" / "performance.md").read_text()
+    _, found, section = chapter.partition("\n### On Linux servers\n")
+    assert found, "the performance chapter has no 'On Linux servers' section: update site/build.py"
+    section = section.split("\n### ")[0]
+    start = section.find("\n" + header)
+    assert start >= 0, f"the Linux results have no table headed {header!r}: update site/build.py"
+    intro = section[: start].rstrip().split("\n\n")[-1].replace("\n", " ")
+    lines = section[start + 1 :].split("\n\n")[0].split("\n")
+    return intro, lines
+
+
+def cell(lines: list[str], row: str, column: int) -> str:
+    """The cell in `column` of the table row starting with `row`."""
+    found = [cells(line) for line in lines if cells(line)[0].strip().startswith(row)]
+    assert found, f"the Linux results have no row {row!r}: update site/build.py"
+    return found[0][column].strip()
 
 
 RUST_KEYWORDS = {
@@ -257,23 +282,17 @@ def send() -> str:
 
 
 def benchmarks() -> str:
-    """The README's benchmark table, and the line saying what it was measured on, as HTML."""
+    """The Linux machine's benchmark table from the performance chapter, and what it was measured
+    on, as HTML. README.md shows the same rows, and the build fails if they differ."""
+    intro, rows = linux_table("| Benchmark")
     readme = (ROOT / "README.md").read_text()
-    section = readme[readme.index("## Benchmarks\n") :]
-    machine = next(line for line in section.split("\n") if line.startswith("Apple ") or "criterion medians" in line)
-    rows = []
-    for line in section.split("\n"):
-        if line.startswith("| Benchmark"):
-            rows = []
-        if line.startswith("|") and rows is not None:
-            rows.append(line)
-        elif rows:
-            break
+    for line in readme[readme.index("## Benchmarks\n") :].split("\n\n")[3].split("\n")[2:]:
+        assert line in rows, f"README.md's benchmark row isn't the performance chapter's: {line}"
     header, _, *body = rows
     cell = lambda c: inline(c.strip())
     out = ["<table>", "<thead><tr>" + "".join(f"<th>{cell(c)}</th>" for c in cells(header)) + "</tr></thead>", "<tbody>"]
     out += ["<tr>" + "".join(f"<td>{cell(c)}</td>" for c in cells(row)) + "</tr>" for row in body]
-    out += ["</tbody>", "</table>", f"<p class=\"note\">{inline(machine)}</p>"]
+    out += ["</tbody>", "</table>", f"<p class=\"note\">{inline(intro)}</p>"]
     return "\n".join(out)
 
 

@@ -196,7 +196,7 @@
 <div class="figures">
   <div class="wrap">
     <div class="figure"><strong>{{order_to_ack}}</strong><span>an order to its acknowledgement, wire to wire, through the session</span></div>
-    <div class="figure"><strong>{{round_trip}}</strong><span>a round trip over localhost TCP, one order at a time</span></div>
+    <div class="figure"><strong>{{round_trip}}</strong><span>an order and its acknowledgement between two Linux machines</span></div>
     <div class="figure"><strong>0</strong><span>allocations per order to decode, run the session and reply</span></div>
     <div class="figure"><strong>{{scenarios_passed}} / {{scenarios}}</strong><span>of QuickFIX's scripted session scenarios pass</span></div>
   </div>
@@ -262,8 +262,9 @@
 
   <section id="benchmarks">
     <h2>Benchmarks</h2>
-    <p class="sub">Criterion medians for the codec, the session, the stores and round trips over
-    localhost. The <a href="guide/performance.html">performance chapter</a> says how to get the
+    <p class="sub">Criterion medians on a Linux server for the codec, the session, the stores and
+    round trips over localhost. The <a href="guide/performance.html#results">performance
+    chapter</a> has round trips between two machines, other machines' numbers, and how to get the
     lowest latency.</p>
     <div class="table-card">
       <details>

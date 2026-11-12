@@ -38,7 +38,7 @@ bug in a FIX engine can send a duplicate order or lose a fill.
   [Tiger Style](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md).
 - **Interoperable.** CI runs sessions against QuickFIX/J and QuickFIX/n in both roles, on FIX
   4.2 to 5.0 SP2, over TLS and through a proxy that loses, garbles and delays messages.
-- **Fast.** An order to its acknowledgement takes under 1 µs wire to wire, and decoding, the
+- **Fast.** An order to its acknowledgement takes about a microsecond wire to wire, and decoding, the
   session and encoding allocate nothing ([Benchmarks](#benchmarks)).
 - **Embeddable.** A library, not a server. Every layer is public, from the codec through the
   sans-IO session to the transports, and stores, clocks and transports can be replaced.
@@ -234,21 +234,23 @@ cargo bench -p turbojet --all-features -- --quick   # fast smoke run
 cargo bench -p turbojet --bench codec               # one group: codec, session, roundtrip or fixp
 ```
 
-Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1; criterion medians.
+AWS c9gd.2xlarge (Graviton5, 8 vCPUs), Linux 7.0, Rust 1.99.1; criterion medians. The
+[performance chapter](https://github.com/jrogers/turbojet/blob/main/docs/guide/performance.md#results) has an Intel
+machine's and a Mac's, and round trips between two machines.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 136 ns | 991 / 1,185 MiB/s |
-| Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 26 ns / 41 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 825 ns | 1.21M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.4 µs / 3.9 ms | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 9.6 µs | 104k/s |
-| The same, both ends spinning (`run_spinning`) | 8.7 µs | 115k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 1.06M msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 950k msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 3.97M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 181 ns | |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 210 ns / 186 ns | 767 / 868 MiB/s |
+| Encode ExecutionReport (209 B) | 61 ns | 3.2 GiB/s |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 36 ns / 57 ns | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 1.21 µs | 830k msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 33 ns / 592 ns / 51 µs | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.7 µs | 115k/s |
+| The same, both ends spinning (`run_spinning`) | 7.4 µs | 135k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 498k msg/s |
+| Round trip over localhost TLS, 1,000 in flight | | 474k msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 6.3 µs | 1.60M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 7.9 ns / 268 ns | |
 
 Round trips go initiator → acceptor application → initiator, with a store that discards
 messages. [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#current-numbers) has every benchmark, what
