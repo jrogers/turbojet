@@ -18,7 +18,7 @@
 #
 #   AWS_PROFILE  the aws CLI's profile, as for any aws command (AWS_PROFILE=development ...)
 #   REGION       us-east-1           TYPE         c6id.2xlarge (needs local NVMe: a `d` type; x86 or Graviton)
-#   AZ           a zone that offers TYPE, should one be out of capacity (us-east-1b)
+#   AZ           the zone (us-east-1b); by default each that offers TYPE, until one has room
 #   MAX_MINUTES  180
 #   RUNS         network local, or one of them
 #   LOADS        `load`'s sessions:rate pairs, space-separated (1:1000 1:10000 1:100000 8:200000)
@@ -131,13 +131,11 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# A zone that has the type, and the default VPC's subnet there.
-AZ=${AZ:-$(aws ec2 describe-instance-type-offerings --location-type availability-zone \
-    --filters "Name=instance-type,Values=$TYPE" --query 'InstanceTypeOfferings[0].Location' --output text)}
-[[ $AZ != None ]] || { echo "$TYPE isn't offered in $AWS_REGION" >&2; exit 1; }
-SUBNET=$(aws ec2 describe-subnets --filters "Name=availability-zone,Values=$AZ" "Name=default-for-az,Values=true" \
-    --query 'Subnets[0].SubnetId' --output text)
-VPC=$(aws ec2 describe-subnets --subnet-ids "$SUBNET" --query 'Subnets[0].VpcId' --output text)
+# The zones that have the type, AZ alone if set; each tried in turn should one be out of capacity.
+ZONES=${AZ:-$(aws ec2 describe-instance-type-offerings --location-type availability-zone \
+    --filters "Name=instance-type,Values=$TYPE" --query 'InstanceTypeOfferings[].Location' --output text)}
+[[ -n $ZONES ]] || { echo "$TYPE isn't offered in $AWS_REGION" >&2; exit 1; }
+VPC=$(aws ec2 describe-vpcs --filters Name=is-default,Values=true --query 'Vpcs[0].VpcId' --output text)
 # Ubuntu for the type's architecture: x86 or Graviton.
 ARCH=$(aws ec2 describe-instance-types --instance-types "$TYPE" \
     --query 'InstanceTypes[0].ProcessorInfo.SupportedArchitectures[0]' --output text)
@@ -146,7 +144,7 @@ AMI=resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/$ARCH/
 [[ $ARCH == arm64 ]] && RUSTFLAGS=${RUSTFLAGS--C target-feature=+lse,+crc}
 RUSTFLAGS=${RUSTFLAGS:-}
 MY_IP=$(curl -fsS https://checkip.amazonaws.com)
-log "$RUN: 2 × $TYPE in $AZ, SSH from $MY_IP"
+log "$RUN: 2 × $TYPE, SSH from $MY_IP"
 
 aws ec2 create-key-pair --key-name "$RUN" --key-type ed25519 \
     --tag-specifications "ResourceType=key-pair,Tags=[{Key=$TAG,Value=$RUN}]" \
@@ -161,17 +159,26 @@ aws ec2 create-placement-group --group-name "$RUN" --strategy cluster \
     --tag-specifications "ResourceType=placement-group,Tags=[{Key=$TAG,Value=$RUN}]" >/dev/null
 PG=$RUN
 
-# One request, as a cluster placement group wants. A shutdown terminates, and each shuts itself
-# down after MAX_MINUTES.
-IDS=$(aws ec2 run-instances --count 2 --instance-type "$TYPE" --image-id "$AMI" --key-name "$RUN" \
-    --subnet-id "$SUBNET" --security-group-ids "$SG" --placement "GroupName=$PG" \
-    --associate-public-ip-address --instance-initiated-shutdown-behavior terminate \
-    --metadata-options HttpTokens=required \
-    --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=40,VolumeType=gp3,DeleteOnTermination=true}' \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=$TAG,Value=$RUN}]" "ResourceType=volume,Tags=[{Key=$TAG,Value=$RUN}]" \
-    --user-data "$(printf '#!/bin/sh\nshutdown -h +%s\n' "$MAX_MINUTES")" \
-    --query 'Instances[].InstanceId' --output text)
-log "launched $IDS"
+# One request, as a cluster placement group wants, in the first zone with room. A shutdown
+# terminates, and each shuts itself down after MAX_MINUTES.
+for AZ in $ZONES; do
+    SUBNET=$(aws ec2 describe-subnets --filters "Name=availability-zone,Values=$AZ" "Name=default-for-az,Values=true" \
+        --query 'Subnets[0].SubnetId' --output text)
+    if IDS=$(aws ec2 run-instances --count 2 --instance-type "$TYPE" --image-id "$AMI" --key-name "$RUN" \
+        --subnet-id "$SUBNET" --security-group-ids "$SG" --placement "GroupName=$PG" \
+        --associate-public-ip-address --instance-initiated-shutdown-behavior terminate \
+        --metadata-options HttpTokens=required \
+        --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=40,VolumeType=gp3,DeleteOnTermination=true}' \
+        --tag-specifications "ResourceType=instance,Tags=[{Key=$TAG,Value=$RUN}]" "ResourceType=volume,Tags=[{Key=$TAG,Value=$RUN}]" \
+        --user-data "$(printf '#!/bin/sh\nshutdown -h +%s\n' "$MAX_MINUTES")" \
+        --query 'Instances[].InstanceId' --output text 2>"$OUT/launch.err"); then
+        break
+    fi
+    grep -q InsufficientInstanceCapacity "$OUT/launch.err" || { cat "$OUT/launch.err" >&2; exit 1; }
+    log "no $TYPE capacity in $AZ"
+done
+[[ -n $IDS ]] || { echo "no zone has capacity for 2 × $TYPE" >&2; exit 1; }
+log "launched $IDS in $AZ"
 # shellcheck disable=SC2086
 aws ec2 wait instance-running --instance-ids $IDS
 # shellcheck disable=SC2086
