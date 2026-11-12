@@ -85,8 +85,9 @@ after 2 s of warm-up:
 | 1 × 100,000 | 36 µs | 44 µs | 101 µs | 102 µs | 157 µs | 492 µs |
 | 8 × 200,000 | 37 µs | 55 µs | 159 µs | 107 µs | 316 µs | 3.56 ms |
 
-On `c9gd` the p50 was 33 to 37 µs at every rate in all three runs, each on a placement of its
-own. `c8id`'s round trips are about three times as long, with a longer tail.
+On `c9gd` the p50 held flat across the rates in each of three runs, each on a placement of its
+own, but the placement set its level: 33 to 37 µs in two, 45 to 50 µs in the third. `c8id`'s round
+trips are about three times as long, with a longer tail.
 
 On AWS c9gd.2xlarge (Graviton5), Linux 7.0: the benchmarks in one process, criterion medians,
 temporary files on the instance storage.

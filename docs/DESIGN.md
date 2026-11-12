@@ -1220,12 +1220,13 @@ the same M3 over loopback (2026-10-17, load average about 3): a median of 30 to 
 acceptor on one and `load` on the other, then the criterion benchmarks on the second. The guide's
 performance chapter has the results. Measured 2026-11-12 at `b2ddc50`, on `c9gd.2xlarge`
 (Graviton5) and `c8id.2xlarge` (Xeon 6975P), 8 vCPUs each, one run of each but `c9gd`'s round
-trips, which held in three placements:
+trips, measured in three placements:
 
 - Interrupt moderation, not the engine, set the round trip between machines. With ENA's defaults
   (adaptive, 20 µs receive, 64 µs send), `c9gd`'s p50 was 47 µs at 1,000 orders a second but
   220 µs at 10,000 and 345 µs at 100,000: the card waited for more packets before interrupting.
-  Off, it was 33 to 37 µs at every rate, to 200,000 a second over 8 sessions.
+  Off, it was flat across the rates, to 200,000 a second over 8 sessions: 33 to 37 µs in two
+  placements and 45 to 50 µs in the third, so where the machines land moves it more than the load.
 - `c8id`'s round trips were about three times `c9gd`'s, 102 to 144 µs p50 with moderation off,
   and its tail longer (p99.99 3.6 ms at 8 × 200,000), as turbofan's runs found on the same type.
 - Over localhost, single-threaded work is a little slower than on the M4 Pro (order → ack wire to
@@ -1235,6 +1236,12 @@ trips, which held in three placements:
   sessions on `c9gd`, 1.44M on `c8id`.
 - A synced commit on the local NVMe takes 51 µs on `c9gd` and 133 µs on `c8id`, against 3.9 ms on
   the M4 Pro's SSD, so the fsync round trip is 81 µs instead of 4.4 ms.
+- Graviton's `-C target-feature=+lse,+crc` (the script's default there) is worth keeping. Built
+  without it, the median benchmark was 1% slower, within the noise, but those with many messages
+  in flight 5 to 10% (1,000 in flight over TLS 9.5%, 32 sessions 5.6%): LSE puts the atomics of
+  tokio's wake-ups and channels inline rather than behind a call that checks the CPU. Turbojet
+  computes no CRCs; FIX's CheckSum is a byte sum. One run of each, so a single row's change of
+  under 10% may be noise.
 
 ### Current numbers
 
