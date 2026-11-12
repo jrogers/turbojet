@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # The benchmark on AWS Linux: the `ack` acceptor on one machine and the `load` initiator on
-# another, in one cluster placement group, so orders and their acknowledgements cross a real network.
+# another, in one cluster placement group, so orders and their acknowledgements cross a real
+# network; the criterion benchmarks, measured or profiled, on the second. Without the network run,
+# only the second is launched.
 #   scripts/aws-bench.sh         # launch, build, run, fetch the results, terminate
 #   scripts/aws-bench.sh clean   # delete what an earlier run left, should one have died
 # Needs the aws CLI logged in (aws login, or aws configure sso), jq, ssh, git and python3. Builds HEAD as committed.
@@ -9,6 +11,10 @@
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
 #   local     the criterion benchmarks (`cargo bench -p turbojet --all-features`) on the initiator's
 #             machine, their temporary files on its local NVMe; criterion's reports into criterion/
+#   profile   each of those bench targets under samply, for PROFILE_SECS a benchmark (criterion's
+#             --profile-time, which skips its analysis), into profile-<target>.json.gz beside its
+#             .syms.json: `samply load` one. Built with frame pointers and line tables, as every
+#             run is when this one is asked for, so their numbers aren't for the guide's tables.
 # results.md has what it ran on, then every run's output.
 #
 # What it costs: two instances while it runs, ~$0.40/hour each for c6id.2xlarge on demand (check
@@ -20,11 +26,12 @@
 #   REGION       us-east-1           TYPE         c6id.2xlarge (needs local NVMe: a `d` type; x86 or Graviton)
 #   AZ           the zone (us-east-1b); by default each that offers TYPE, until one has room
 #   MAX_MINUTES  180
-#   RUNS         network local, or one of them
+#   RUNS         network local (the default), profile, or any of them
 #   LOADS        `load`'s sessions:rate pairs, space-separated (1:1000 1:10000 1:100000 8:200000)
 #   DURATION     10, seconds `load` measures each, after its 2 s of warm-up
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
-#   BENCH_ARGS   criterion's arguments for the local run, e.g. '--quick' or 'roundtrip'
+#   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip'
+#   PROFILE_SECS 5, seconds the profile run gives each benchmark
 #   RUSTFLAGS    the build's. On Graviton by default -C target-feature=+lse,+crc (atomics and CRC
 #                inline, not called); on x86 none. RUSTFLAGS= builds without.
 #   NIC_COALESCE_OFF  1: both machines' NICs without interrupt moderation (ethtool -C, adaptive-rx
@@ -42,6 +49,8 @@ LOADS=${LOADS:-1:1000 1:10000 1:100000 8:200000}
 DURATION=${DURATION:-10}
 BENCHES=${BENCHES:-}
 BENCH_ARGS=${BENCH_ARGS:-}
+PROFILE_SECS=${PROFILE_SECS:-5}
+SAMPLY_VERSION=0.13.1
 NIC_COALESCE_OFF=${NIC_COALESCE_OFF:-0}
 [[ $NIC_COALESCE_OFF == 0 || $NIC_COALESCE_OFF == 1 ]] || { echo "NIC_COALESCE_OFF is 0 or 1" >&2; exit 2; }
 TAG=turbojet-bench
@@ -86,8 +95,11 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 for run in $RUNS; do
-    [[ $run == network || $run == local ]] || { echo "no run $run" >&2; exit 2; }
+    [[ $run == network || $run == local || $run == profile ]] || { echo "no run $run" >&2; exit 2; }
 done
+asked() { [[ " $RUNS " == *" $1 "* ]]; }
+COUNT=1
+asked network && COUNT=2
 for load in $LOADS; do
     [[ $load =~ ^[0-9]+:[0-9]+$ ]] || { echo "LOADS are sessions:rate pairs, not $load" >&2; exit 2; }
 done
@@ -143,8 +155,10 @@ ARCH=$(aws ec2 describe-instance-types --instance-types "$TYPE" \
 AMI=resolve:ssm:/aws/service/canonical/ubuntu/server/24.04/stable/current/$ARCH/hvm/ebs-gp3/ami-id
 [[ $ARCH == arm64 ]] && RUSTFLAGS=${RUSTFLAGS--C target-feature=+lse,+crc}
 RUSTFLAGS=${RUSTFLAGS:-}
+# With the profile run, stacks samply can walk and name, for every run: cargo would rebuild otherwise.
+asked profile && RUSTFLAGS="-C force-frame-pointers=yes${RUSTFLAGS:+ $RUSTFLAGS}"
 MY_IP=$(curl -fsS https://checkip.amazonaws.com)
-log "$RUN: 2 × $TYPE, SSH from $MY_IP"
+log "$RUN: $COUNT × $TYPE, SSH from $MY_IP"
 
 aws ec2 create-key-pair --key-name "$RUN" --key-type ed25519 \
     --tag-specifications "ResourceType=key-pair,Tags=[{Key=$TAG,Value=$RUN}]" \
@@ -164,7 +178,7 @@ PG=$RUN
 for AZ in $ZONES; do
     SUBNET=$(aws ec2 describe-subnets --filters "Name=availability-zone,Values=$AZ" "Name=default-for-az,Values=true" \
         --query 'Subnets[0].SubnetId' --output text)
-    if IDS=$(aws ec2 run-instances --count 2 --instance-type "$TYPE" --image-id "$AMI" --key-name "$RUN" \
+    if IDS=$(aws ec2 run-instances --count $COUNT --instance-type "$TYPE" --image-id "$AMI" --key-name "$RUN" \
         --subnet-id "$SUBNET" --security-group-ids "$SG" --placement "GroupName=$PG" \
         --associate-public-ip-address --instance-initiated-shutdown-behavior terminate \
         --metadata-options HttpTokens=required \
@@ -177,7 +191,7 @@ for AZ in $ZONES; do
     grep -q InsufficientInstanceCapacity "$OUT/launch.err" || { cat "$OUT/launch.err" >&2; exit 1; }
     log "no $TYPE capacity in $AZ"
 done
-[[ -n $IDS ]] || { echo "no zone has capacity for 2 × $TYPE" >&2; exit 1; }
+[[ -n $IDS ]] || { echo "no zone has capacity for $COUNT × $TYPE" >&2; exit 1; }
 log "launched $IDS in $AZ"
 # shellcheck disable=SC2086
 aws ec2 wait instance-running --instance-ids $IDS
@@ -187,8 +201,8 @@ read -r -a PUBLIC <<<"$(aws ec2 describe-instances --instance-ids $IDS \
 # shellcheck disable=SC2086
 read -r -a PRIVATE <<<"$(aws ec2 describe-instances --instance-ids $IDS \
     --query 'Reservations[].Instances[].PrivateIpAddress' --output text)"
-# The first the acceptor's, the second the initiator's, which builds.
-ACCEPTOR=${PUBLIC[0]} INITIATOR=${PUBLIC[1]}
+# The last the initiator's, which builds and runs the benchmarks; with two, the first the acceptor's.
+ACCEPTOR=${PUBLIC[0]} INITIATOR=${PUBLIC[COUNT - 1]}
 
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$OUT/known_hosts"
     -o ConnectTimeout=5 -o ServerAliveInterval=15 -o BatchMode=yes)
@@ -219,18 +233,25 @@ for i in "${!PUBLIC[@]}"; do
         fi"
 done >"$OUT/nic.txt"
 
-# The initiator's machine builds both examples, and the benchmarks for the local run.
+# The initiator's machine builds both examples, and the benchmarks for the local and profile runs.
 git archive --format=tar HEAD | on "$INITIATOR" 'mkdir -p src && tar -x -C src'
 log "building $(git rev-parse --short HEAD)"
 TARGETS=''
 for bench in $BENCHES; do TARGETS+=" --bench $bench"; done
 CARGO_BENCH="cargo bench -p turbojet --all-features$TARGETS"
 ENV=${RUSTFLAGS:+"export RUSTFLAGS='$RUSTFLAGS' &&"}
+asked profile && ENV+=" export CARGO_PROFILE_BENCH_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_DEBUG=line-tables-only &&"
 on "$INITIATOR" "set -e
     sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y build-essential >/dev/null
     curl -fsS https://sh.rustup.rs | sh -s -- -y -q --profile minimal >/dev/null
-    . ~/.cargo/env && cd src && $ENV cargo build -q --release -p turbojet --example ack --example load"
-if [[ " $RUNS " == *' local '* ]]; then
+    . ~/.cargo/env"
+if asked network; then
+    on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV cargo build -q --release -p turbojet --example ack --example load"
+    # The acceptor's binary to its machine, by its private address.
+    scp -q -i "$KEY" -o UserKnownHostsFile="$OUT/known_hosts" "$KEY" "ubuntu@$INITIATOR:.ssh/id_ed25519"
+    on "$INITIATOR" "scp -q -o StrictHostKeyChecking=accept-new src/target/release/examples/ack ubuntu@${PRIVATE[0]}:ack"
+fi
+if asked local || asked profile; then
     # The instance store on /data, for the benchmarks' temporary files.
     on "$INITIATOR" 'set -e
         dev=$(lsblk -dno NAME,MODEL | awk "/Instance Storage/ {print \"/dev/\" \$1; exit}")
@@ -239,9 +260,12 @@ if [[ " $RUNS " == *' local '* ]]; then
         sudo chown ubuntu /data && mkdir -p /data/tmp'
     on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV $CARGO_BENCH --no-run -q"
 fi
-# The acceptor's binary to its machine, by its private address.
-scp -q -i "$KEY" -o UserKnownHostsFile="$OUT/known_hosts" "$KEY" "ubuntu@$INITIATOR:.ssh/id_ed25519"
-on "$INITIATOR" "scp -q -o StrictHostKeyChecking=accept-new src/target/release/examples/ack ubuntu@${PRIVATE[0]}:ack"
+if asked profile; then
+    log "building samply $SAMPLY_VERSION"
+    # Every process sampled, the kernel's stacks named, without root.
+    on "$INITIATOR" ". ~/.cargo/env && cargo install -q --locked samply@$SAMPLY_VERSION
+        sudo sysctl -q kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0"
+fi
 
 network() {
     local load sessions rate
@@ -262,8 +286,25 @@ network() {
     done
 }
 
+# Each bench target under samply, run as cargo runs it, in its package's directory. Its
+# executable is the one cargo names: `Executable benches/codec.rs (target/release/deps/codec-...)`.
+profile() {
+    on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV $CARGO_BENCH --no-run 2>&1" |
+        sed -n 's|.*Executable benches/\([a-z_]*\)\.rs (\(.*\))|\1 \2|p' >"$OUT/targets.txt"
+    [[ -s $OUT/targets.txt ]] || { echo "cargo named no bench executables" >&2; return 1; }
+    local name path
+    while read -r name path; do
+        log "run profile: $name"
+        on "$INITIATOR" ". ~/.cargo/env && cd src/crates/turbojet && $ENV TMPDIR=/data/tmp \
+            ~/.cargo/bin/samply record --save-only --unstable-presymbolicate -o ~/profile-$name.json.gz -- \
+            ../../$path --bench --profile-time $PROFILE_SECS $BENCH_ARGS" </dev/null >"$OUT/profile-$name.txt" 2>&1
+    done <"$OUT/targets.txt"
+    on "$INITIATOR" 'tar -c profile-*' | tar -x -C "$OUT"
+}
+
 for run in $RUNS; do
     case $run in
+        profile) profile ;;
         network) network | tee "$OUT/network.md" ;;
         local)
             log "run local: $CARGO_BENCH -- $BENCH_ARGS"
@@ -278,9 +319,13 @@ done
 {
     echo "# $RUN"
     echo
-    echo "turbojet $(git rev-parse --short HEAD), 2 × $TYPE in $AZ ($AWS_REGION), one cluster placement group."
+    echo "turbojet $(git rev-parse --short HEAD), $COUNT × $TYPE in $AZ ($AWS_REGION), one cluster placement group."
     [[ -n $RUSTFLAGS ]] && echo && echo "RUSTFLAGS=$RUSTFLAGS"
     [[ $NIC_COALESCE_OFF == 1 ]] && echo && echo "NIC interrupt moderation off (NIC_COALESCE_OFF=1)."
+    if asked profile; then
+        echo
+        echo "Built for the profile run, with frame pointers and line tables: not numbers for the guide."
+    fi
     on "$INITIATOR" 'echo; lscpu | grep -E "Model name|^CPU\(s\)"; echo "cache line: $(getconf LEVEL1_DCACHE_LINESIZE) bytes"
         uname -sr; . ~/.cargo/env && rustc --version'
     for run in $RUNS; do
@@ -291,6 +336,10 @@ done
             echo "\`load\` against \`ack\`, $DURATION s measured after 2 s of warm-up."
             echo
             cat "$OUT/network.md"
+        elif [[ $run == profile ]]; then
+            echo "Each bench target under samply, $PROFILE_SECS s a benchmark: \`samply load <file>\`."
+            echo
+            for profile in "$OUT"/profile-*.json.gz; do echo "- $(basename "$profile")"; done
         else
             echo "\`$CARGO_BENCH -- $BENCH_ARGS\`: criterion's medians (its whole output in local.txt)."
             echo
