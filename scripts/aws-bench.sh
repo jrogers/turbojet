@@ -33,9 +33,10 @@
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
 #   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip'
 #   PROFILE_SECS 5, seconds the profile run gives each benchmark
-#   MALLOC       glibc, jemalloc (LD_PRELOAD, Ubuntu's libjemalloc2), or both, space-separated: the
-#                local run runs once for each on the same machine, its medians a column each; the
-#                network and profile runs use the first
+#   MALLOC       glibc, jemalloc (LD_PRELOAD, Ubuntu's libjemalloc2), jemalloc-bg (the same, purging
+#                freed pages on a thread of its own: MALLOC_CONF=background_thread:true), or several,
+#                space-separated: the local and network runs run once for each on the same machines,
+#                the local run's medians a column each; the profile run uses the first
 #   RUSTFLAGS    the build's. On Graviton by default -C target-feature=+lse,+crc (atomics and CRC
 #                inline, not called); on x86 none. RUSTFLAGS= builds without.
 #   NIC_COALESCE_OFF  1: both machines' NICs without interrupt moderation (ethtool -C, adaptive-rx
@@ -56,10 +57,16 @@ BENCH_ARGS=${BENCH_ARGS:-}
 PROFILE_SECS=${PROFILE_SECS:-5}
 MALLOC=${MALLOC:-glibc}
 for malloc in $MALLOC; do
-    [[ $malloc == glibc || $malloc == jemalloc ]] || { echo "MALLOC is glibc or jemalloc, not $malloc" >&2; exit 2; }
+    [[ $malloc == glibc || $malloc == jemalloc || $malloc == jemalloc-bg ]] ||
+        { echo "MALLOC is glibc, jemalloc or jemalloc-bg, not $malloc" >&2; exit 2; }
 done
 # The environment that puts an allocator under a command, expanded on the machine running it.
-preload() { [[ $1 == jemalloc ]] && echo 'LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2'; true; }
+preload() {
+    case $1 in
+        jemalloc) echo 'LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2' ;;
+        jemalloc-bg) echo 'LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 MALLOC_CONF=background_thread:true' ;;
+    esac
+}
 FIRST_MALLOC=${MALLOC%% *}
 SAMPLY_VERSION=0.13.1
 NIC_COALESCE_OFF=${NIC_COALESCE_OFF:-0}
@@ -216,10 +223,11 @@ read -r -a PRIVATE <<<"$(aws ec2 describe-instances --instance-ids $IDS \
 ACCEPTOR=${PUBLIC[0]} INITIATOR=${PUBLIC[COUNT - 1]}
 
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$OUT/known_hosts"
-    -o ConnectTimeout=5 -o ServerAliveInterval=15 -o BatchMode=yes)
+    -o ConnectTimeout=5 -o ConnectionAttempts=6 -o ServerAliveInterval=15 -o BatchMode=yes)
 on() { local host=$1; shift; "${SSH[@]}" "ubuntu@$host" "$@"; }
 # Up once cloud-init is done and a second connection works too: until then sshd may restart, and a
-# first connection's success doesn't last.
+# first connection's success doesn't last. Even then a later one timed out once, so every
+# connection tries six times (ConnectionAttempts).
 for host in "${PUBLIC[@]}"; do
     for _ in $(seq 60); do
         on "$host" 'cloud-init status --wait >/dev/null; true' 2>/dev/null && on "$host" true 2>/dev/null && break
@@ -243,7 +251,7 @@ for i in "${!PUBLIC[@]}"; do
             sudo ethtool -c \$dev | grep -E 'Adaptive|rx-usecs:|tx-usecs:'
         fi"
 done >"$OUT/nic.txt"
-if [[ " $MALLOC " == *' jemalloc '* ]]; then
+if [[ " $MALLOC " == *' jemalloc'* ]]; then
     for host in "${PUBLIC[@]}"; do
         on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y libjemalloc2 >/dev/null
             test -f /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2'
@@ -285,17 +293,17 @@ if asked profile; then
 fi
 
 network() {
-    local load sessions rate
+    local malloc=$1 load sessions rate
     for load in $LOADS; do
         sessions=${load%:*} rate=${load#*:}
-        on "$ACCEPTOR" "$(preload "$FIRST_MALLOC") nohup ./ack --listen 0.0.0.0:$PORT >ack.log 2>&1 </dev/null &
+        on "$ACCEPTOR" "$(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT >ack.log 2>&1 </dev/null &
             for _ in \$(seq 50); do ss -Hltn sport = :$PORT | grep -q . && exit 0; sleep 0.1; done
             cat ack.log >&2; exit 1"
-        log "run network: $sessions sessions, $rate orders/s"
-        echo "### $sessions sessions, $rate orders/s"
+        log "run network ($malloc): $sessions sessions, $rate orders/s"
+        echo "### $malloc: $sessions sessions, $rate orders/s"
         echo
         echo '```'
-        on "$INITIATOR" "$(preload "$FIRST_MALLOC") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
+        on "$INITIATOR" "$(preload "$malloc") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
             --sessions $sessions --rate $rate --duration $DURATION"
         echo '```'
         echo
@@ -322,7 +330,7 @@ profile() {
 for run in $RUNS; do
     case $run in
         profile) profile ;;
-        network) network | tee "$OUT/network.md" ;;
+        network) for malloc in $MALLOC; do network "$malloc"; done | tee "$OUT/network.md" ;;
         local)
             for malloc in $MALLOC; do
                 log "run local ($malloc): $CARGO_BENCH -- $BENCH_ARGS"
