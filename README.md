@@ -264,10 +264,10 @@ changes (`cargo test -p turbojet --test allocations -- --nocapture`):
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
 | Application (typed parse and ack) | 0 | 0 | 0 |
-| Store: memory / disk | 1 / 0 | 0.004 | 278 / 46 |
-| Engine (all but the application): memory / disk | 1 / 0 | 0.004 | 278 / 46 |
+| Store: memory / disk | 1 / 0 | 0 | 216 / 0 |
+| Engine (all but the application): memory / disk | 1 / 0 | 0 | 216 / 0 |
 
-The memory store copies each message it keeps; the reallocs are the stores' indexes growing.
+The memory store copies each message it keeps.
 
 ## Limitations
 

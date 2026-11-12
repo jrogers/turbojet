@@ -266,19 +266,21 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   built-in stores keep each session's newest messages up to a byte budget (gap-filling older ones
   on a resend): the disk store in segments, deleting the oldest, and the memory store a capped
   number of sessions.
-- **The stores' indexes.** Both built-in stores find the messages they keep by MsgSeqNum in a ring
-  buffer (`VecDeque`) in sequence order, not a `BTreeMap`. The numbers stored only increase, so a
-  message goes on the back and eviction takes from the front, and a resend finds its range by
-  binary search. A `BTreeMap` allocated a node every six messages or so, and its insert was most
+- **The stores' indexes.** Both built-in stores find the messages they keep by MsgSeqNum in ring
+  buffers (`VecDeque`) in sequence order, not a `BTreeMap`: blocks of 4,096 entries, each
+  allocated once at its full size, in a ring buffer of blocks. The numbers stored only increase,
+  so a message goes on the back and eviction takes from the front, and a resend finds its range by
+  binary search over the blocks and then within one. A `BTreeMap` allocated a node every six messages or so, and its insert was most
   of a memory store's: storing a message took 48 ns, now 14 ns (Apple M3, 2026-10-25, criterion
   medians of two interleaved rounds each), and 70 ns to 40 ns in the disk store at 100 per
-  commit; an order → ack through the session with the memory store 813 ns to 784 ns. The cost is
-  growth: the buffer doubles when full, and once eviction has wrapped it around, growing moves
-  part of it in one go: 0.7 ms at a million messages kept and 2.7 ms at four million, against
-  0.04 ms at worst for a `BTreeMap` insert. That happens only when a full store keeps more
-  messages than it ever has, such as when they get smaller under a byte budget. Growing one
-  that hasn't wrapped is cheap (0.1 ms at five million), since `realloc` of a large block remaps
-  its pages.
+  commit; an order → ack through the session with the memory store 813 ns to 784 ns. In blocks
+  because one ring buffer doubles when full and copies everything it holds, tens of megabytes
+  with a few million messages kept: glibc's and macOS's `realloc` remap a block that large, but
+  jemalloc's copies it, and between two `c9gd` machines on jemalloc (`ack` and `load`, each
+  keeping every message in a `MemoryStorage`) that stalled a session 4 ms at 1.2 million messages
+  and 8 to 10 ms at 2.4 million over 8 sessions, against at most 0.4 ms on glibc. A block's
+  growth moves nothing already stored; only the ring of blocks, 32 bytes for each 4,096
+  messages, ever doubles.
 - **SQL storage** (`turbojet-sql`), in SQLite or PostgreSQL through sqlx: one transaction per
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was
@@ -1314,12 +1316,13 @@ cargo test -p turbojet --test allocations -- --nocapture   # prints the table
 | Decode (into one message reused per connection) | 0 | 0 | 0 |
 | Session (including encoding the ack) | 0 | 0 | 0 |
 | Application (typed parse and ack) | 0 | 0 | 0 |
-| Store: memory / disk | 1 / 0 | 0.004 | 278 / 46 |
-| Engine (all but the application): memory / disk | 1 / 0 | 0.004 | 278 / 46 |
+| Store: memory / disk | 1 / 0 | 0 | 216 / 0 |
+| Engine (all but the application): memory / disk | 1 / 0 | 0 | 216 / 0 |
 
 Means of 1,000 orders after 100 warm-up, with each store (the disk store without fsync). The
-memory store's allocation is its copy of each message it keeps; the reallocs are the stores'
-indexes doubling as they grow, 4 in 1,000 orders. Debug and release builds count the same. The
+memory store's allocation is its copy of each message it keeps. The stores' indexes add a block
+every 4,096 messages, which these 1,100 orders don't reach: 32 bytes a message on average in
+memory and 24 on disk. Debug and release builds count the same. The
 application parses the order borrowed, without allocating, and copies the strings it needs into
 its owned ExecutionReport, whose `CompactString`s keep them inline. `Context::send` writes the
 ExecutionReport into a message the session reuses, which allocates nothing once warmed up.
@@ -1331,7 +1334,7 @@ order, recoverable flows both ways, as the FIXP benchmark does:
 |---|---|---|---|
 | Session (framing, the session's own messages, encoding the answer) | 0 | 0 | 0 |
 | Application (B3 decode and answer) | 0 | 0 | 0 |
-| Store: memory / disk | 1 / 0 | 0.004 | 180 / 46 |
+| Store: memory / disk | 1 / 0 | 0 | 119 / 0 |
 
 Means of 1,000 orders after 100 warm-up. The stores cost what they do for FIX: the
 memory store copies each answer it keeps.
@@ -1437,6 +1440,11 @@ different version of PostgreSQL. When each row was last measured on the M3, and 
   runtime. Earlier that day, p50 / p99: 559 µs / 1,037 µs at 1,000 a second, 86 / 107 µs at
   10,000, 88 / 140 µs at 15,000, 117 µs / 11 ms at 20,000, and answers queued for seconds at
   30,000.
+- The stores' indexes went into blocks of 4,096 2026-11-12. Before, the allocation budget had 4
+  reallocs per 1,000 orders in the store (the ring buffer doubling), and bytes per order were
+  278 / 46 (memory / disk) for FIX and 180 / 46 for FIXP. On an Apple M3, two interleaved rounds:
+  storing a message in memory 13.4 ns to 14.0 ns, 100 per commit on disk 41.4 ns to 41.9 ns,
+  order → ack with the memory store 775 ns to 779 ns, and resends of 100,000 unchanged.
 - The stores' indexes became ring buffers 2026-10-25, measured on an Apple M3, not the
   table's M4 Pro: storing a message in memory 48.4 ns to 13.6 ns, 100 per commit on disk
   69.9 ns to 40.2 ns, and order → ack with the memory store 813 ns to 784 ns. The table's store

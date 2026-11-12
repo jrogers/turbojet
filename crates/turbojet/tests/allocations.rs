@@ -348,9 +348,9 @@ type Budget = [(Stage, u64, u64); Stage::ALL.len()];
 /// VecDeque growth), so a toolchain or dependency update can move them without a change to
 /// Turbojet.
 const MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1000, 4)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1000, 0)];
 const DISK_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 4)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 0)];
 
 #[test]
 fn order_to_ack_allocates_exactly_its_budget() {
@@ -508,9 +508,9 @@ fn fixp_order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::
 
 /// FIXP budgets with each store, exact as above: as FIX's, the stores keeping the answer.
 const FIXP_MEMORY_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1000, 4)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 1000, 0)];
 const FIXP_DISK_BUDGET: Budget =
-    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 4)];
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 0)];
 
 #[test]
 fn fixp_order_to_ack_allocates_exactly_its_budget() {
