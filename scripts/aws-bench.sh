@@ -10,7 +10,8 @@
 # Runs, each one's output into target/aws-bench/<run>/:
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
 #   local     the criterion benchmarks (`cargo bench -p turbojet --all-features`) on the initiator's
-#             machine, their temporary files on its local NVMe; criterion's reports into criterion/
+#             machine, their temporary files on its local NVMe, once for each of MALLOC; criterion's
+#             reports into criterion-<malloc>/, its output into local-<malloc>.txt
 #   profile   each of those bench targets under samply, for PROFILE_SECS a benchmark (criterion's
 #             --profile-time, which skips its analysis), into profile-<target>.json.gz beside its
 #             .syms.json: `samply load` one. Built with frame pointers and line tables, as every
@@ -32,6 +33,9 @@
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
 #   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip'
 #   PROFILE_SECS 5, seconds the profile run gives each benchmark
+#   MALLOC       glibc, jemalloc (LD_PRELOAD, Ubuntu's libjemalloc2), or both, space-separated: the
+#                local run runs once for each on the same machine, its medians a column each; the
+#                network and profile runs use the first
 #   RUSTFLAGS    the build's. On Graviton by default -C target-feature=+lse,+crc (atomics and CRC
 #                inline, not called); on x86 none. RUSTFLAGS= builds without.
 #   NIC_COALESCE_OFF  1: both machines' NICs without interrupt moderation (ethtool -C, adaptive-rx
@@ -50,6 +54,13 @@ DURATION=${DURATION:-10}
 BENCHES=${BENCHES:-}
 BENCH_ARGS=${BENCH_ARGS:-}
 PROFILE_SECS=${PROFILE_SECS:-5}
+MALLOC=${MALLOC:-glibc}
+for malloc in $MALLOC; do
+    [[ $malloc == glibc || $malloc == jemalloc ]] || { echo "MALLOC is glibc or jemalloc, not $malloc" >&2; exit 2; }
+done
+# The environment that puts an allocator under a command, expanded on the machine running it.
+preload() { [[ $1 == jemalloc ]] && echo 'LD_PRELOAD=/usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2'; true; }
+FIRST_MALLOC=${MALLOC%% *}
 SAMPLY_VERSION=0.13.1
 NIC_COALESCE_OFF=${NIC_COALESCE_OFF:-0}
 [[ $NIC_COALESCE_OFF == 0 || $NIC_COALESCE_OFF == 1 ]] || { echo "NIC_COALESCE_OFF is 0 or 1" >&2; exit 2; }
@@ -232,6 +243,12 @@ for i in "${!PUBLIC[@]}"; do
             sudo ethtool -c \$dev | grep -E 'Adaptive|rx-usecs:|tx-usecs:'
         fi"
 done >"$OUT/nic.txt"
+if [[ " $MALLOC " == *' jemalloc '* ]]; then
+    for host in "${PUBLIC[@]}"; do
+        on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y libjemalloc2 >/dev/null
+            test -f /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2'
+    done
+fi
 
 # The initiator's machine builds both examples, and the benchmarks for the local and profile runs.
 git archive --format=tar HEAD | on "$INITIATOR" 'mkdir -p src && tar -x -C src'
@@ -271,14 +288,14 @@ network() {
     local load sessions rate
     for load in $LOADS; do
         sessions=${load%:*} rate=${load#*:}
-        on "$ACCEPTOR" "nohup ./ack --listen 0.0.0.0:$PORT >ack.log 2>&1 </dev/null &
+        on "$ACCEPTOR" "$(preload "$FIRST_MALLOC") nohup ./ack --listen 0.0.0.0:$PORT >ack.log 2>&1 </dev/null &
             for _ in \$(seq 50); do ss -Hltn sport = :$PORT | grep -q . && exit 0; sleep 0.1; done
             cat ack.log >&2; exit 1"
         log "run network: $sessions sessions, $rate orders/s"
         echo "### $sessions sessions, $rate orders/s"
         echo
         echo '```'
-        on "$INITIATOR" "src/target/release/examples/load ${PRIVATE[0]}:$PORT \
+        on "$INITIATOR" "$(preload "$FIRST_MALLOC") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
             --sessions $sessions --rate $rate --duration $DURATION"
         echo '```'
         echo
@@ -295,7 +312,7 @@ profile() {
     local name path
     while read -r name path; do
         log "run profile: $name"
-        on "$INITIATOR" ". ~/.cargo/env && cd src/crates/turbojet && $ENV TMPDIR=/data/tmp \
+        on "$INITIATOR" ". ~/.cargo/env && cd src/crates/turbojet && $ENV TMPDIR=/data/tmp $(preload "$FIRST_MALLOC") \
             ~/.cargo/bin/samply record --save-only --unstable-presymbolicate -o ~/profile-$name.json.gz -- \
             ../../$path --bench --profile-time $PROFILE_SECS $BENCH_ARGS" </dev/null >"$OUT/profile-$name.txt" 2>&1
     done <"$OUT/targets.txt"
@@ -307,10 +324,14 @@ for run in $RUNS; do
         profile) profile ;;
         network) network | tee "$OUT/network.md" ;;
         local)
-            log "run local: $CARGO_BENCH -- $BENCH_ARGS"
-            on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV TMPDIR=/data/tmp \
-                $CARGO_BENCH -- $BENCH_ARGS" | tee "$OUT/local.txt"
-            on "$INITIATOR" 'tar -c -C src/target criterion' | tar -x -C "$OUT"
+            for malloc in $MALLOC; do
+                log "run local ($malloc): $CARGO_BENCH -- $BENCH_ARGS"
+                # Each allocator's reports apart: criterion would compare one with the other's.
+                on "$INITIATOR" ". ~/.cargo/env && cd src && rm -rf target/criterion && $ENV TMPDIR=/data/tmp \
+                    $(preload "$malloc") $CARGO_BENCH -- $BENCH_ARGS" | tee "$OUT/local-$malloc.txt"
+                on "$INITIATOR" "mv src/target/criterion criterion-$malloc && tar -c criterion-$malloc && rm -rf criterion-$malloc" |
+                    tar -x -C "$OUT"
+            done
             ;;
     esac
 done
@@ -322,6 +343,7 @@ done
     echo "turbojet $(git rev-parse --short HEAD), $COUNT × $TYPE in $AZ ($AWS_REGION), one cluster placement group."
     [[ -n $RUSTFLAGS ]] && echo && echo "RUSTFLAGS=$RUSTFLAGS"
     [[ $NIC_COALESCE_OFF == 1 ]] && echo && echo "NIC interrupt moderation off (NIC_COALESCE_OFF=1)."
+    echo && echo "Allocators: $MALLOC."
     if asked profile; then
         echo
         echo "Built for the profile run, with frame pointers and line tables: not numbers for the guide."
@@ -341,25 +363,35 @@ done
             echo
             for profile in "$OUT"/profile-*.json.gz; do echo "- $(basename "$profile")"; done
         else
-            echo "\`$CARGO_BENCH -- $BENCH_ARGS\`: criterion's medians (its whole output in local.txt)."
+            echo "\`$CARGO_BENCH -- $BENCH_ARGS\`: criterion's medians, a median and a rate for each allocator (the whole output in local-<malloc>.txt)."
             echo
-            echo '| Benchmark | Median | Rate |'
-            echo '|---|---:|---:|'
             # Each benchmark's median from criterion's reports, with its throughput as a rate.
-            python3 -I - "$OUT/criterion" <<'EOF'
+            # shellcheck disable=SC2046 # one directory a word
+            python3 -I - $(for malloc in $MALLOC; do echo "$OUT/criterion-$malloc"; done) <<'EOF'
 import json, sys
 from pathlib import Path
-for estimates in sorted(Path(sys.argv[1]).glob("**/new/estimates.json")):
-    bench = json.loads((estimates.parent / "benchmark.json").read_text())
-    ns = json.loads(estimates.read_text())["median"]["point_estimate"]
-    throughput = bench.get("throughput") or {}
-    rate = ""
-    if "Elements" in throughput:
-        rate = f"{throughput['Elements'] / ns * 1e9:,.0f}/s"
-    elif "Bytes" in throughput:
-        rate = f"{throughput['Bytes'] / ns * 1e9 / 2**20:,.0f} MiB/s"
-    unit, scale = next((u, s) for u, s in (("s", 1e9), ("ms", 1e6), ("µs", 1e3), ("ns", 1)) if ns >= s or u == "ns")
-    print(f"| {bench['full_id']} | {ns / scale:.3g} {unit} | {rate} |")
+
+def medians(directory):
+    out = {}
+    for estimates in sorted(Path(directory).glob("**/new/estimates.json")):
+        bench = json.loads((estimates.parent / "benchmark.json").read_text())
+        ns = json.loads(estimates.read_text())["median"]["point_estimate"]
+        throughput = bench.get("throughput") or {}
+        rate = ""
+        if "Elements" in throughput:
+            rate = f"{throughput['Elements'] / ns * 1e9:,.0f}/s"
+        elif "Bytes" in throughput:
+            rate = f"{throughput['Bytes'] / ns * 1e9 / 2**20:,.0f} MiB/s"
+        unit, scale = next((u, s) for u, s in (("s", 1e9), ("ms", 1e6), ("µs", 1e3), ("ns", 1)) if ns >= s or u == "ns")
+        out[bench["full_id"]] = f"{ns / scale:.3g} {unit} | {rate}"
+    return out
+
+columns = [medians(d) for d in sys.argv[1:]]
+names = [Path(d).name.removeprefix("criterion-") for d in sys.argv[1:]]
+print("| Benchmark | " + " | ".join(f"{n} median | {n} rate" for n in names) + " |")
+print("|---|" + "---:|---:|" * len(names))
+for bench in sorted(set().union(*columns)):
+    print(f"| {bench} | " + " | ".join(c.get(bench, " | ") for c in columns) + " |")
 EOF
         fi
     done
