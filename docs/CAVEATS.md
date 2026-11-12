@@ -109,6 +109,11 @@ and worth revisiting.
   address, not the counterparty's.
 - A process that shuts down fires its cancel-on-disconnect countdowns at once, as does
   replacing an initiator during a grace period.
+- `turbojet-sql`'s SQLite is the copy sqlx bundles, before SQLite 3.54.0, which can return
+  uninitialized memory from queries on a database whose `-wal` file someone crafted with another
+  page size (RUSTSEC-2026-0459). sqlx doesn't yet allow the patched bundle. Keep a SQLite store's
+  directory writable only by the gateway: whoever can write its files can rewrite the sessions'
+  state anyway.
 - A `SqlStorage` lease must outlast the longest heartbeat interval, since heartbeats are the
   commits that renew it while a session is idle. A log closed without a tokio runtime to give
   its lease up on leaves it to expire.

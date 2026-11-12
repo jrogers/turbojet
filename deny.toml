@@ -9,7 +9,14 @@ all-features = true
 # direct dependencies, where there's something to do about it.
 unmaintained = "workspace"
 yanked = "deny"
-ignore = []
+ignore = [
+    # The SQLite that libsqlite3-sys bundles (turbojet-sql, through sqlx's `sqlite`) returns
+    # uninitialized page-cache memory when it opens a database with a crafted `-wal` file of another
+    # page size. The fix is libsqlite3-sys 0.39, which neither sqlx 0.8 nor 0.9 allows (<0.38).
+    # Exploiting it means writing the store's files, which already means rewriting session state;
+    # CAVEATS.md says so. Drop this once sqlx takes libsqlite3-sys 0.39.
+    { id = "RUSTSEC-2026-0459", reason = "no fix reachable through sqlx yet; needs write access to the store's files" },
+]
 
 [licenses]
 # Turbojet is Apache-2.0, so dependencies must be compatible with it. An expression with OR passes
