@@ -5,7 +5,8 @@
 # only the second is launched.
 #   scripts/aws-bench.sh         # launch, build, run, fetch the results, terminate
 #   scripts/aws-bench.sh clean   # delete what an earlier run left, should one have died
-# Needs the aws CLI logged in (aws login, or aws configure sso), jq, ssh, git and python3. Builds HEAD as committed.
+# Needs the aws CLI logged in (aws login, or aws configure sso), jq, ssh, git and python3. Builds HEAD as committed,
+# or each of REVS.
 #
 # Runs, each one's output into target/aws-bench/<run>/:
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
@@ -32,6 +33,10 @@
 #   DURATION     10, seconds `load` measures each, after its 2 s of warm-up
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
 #   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip'
+#   REVS         commits the local run measures in turn on the one machine, HEAD by default: an A/B
+#                (REVS='main pad main pad'), a column each in results.md, numbered in order, since a
+#                commit may be listed more than once to interleave rounds. The network and profile
+#                runs use the first.
 #   PROFILE_SECS 5, seconds the profile run gives each benchmark
 #   MALLOC       glibc, jemalloc (LD_PRELOAD, Ubuntu's libjemalloc2), jemalloc-bg (the same, purging
 #                freed pages on a thread of its own: MALLOC_CONF=background_thread:true), or several,
@@ -56,6 +61,8 @@ BENCHES=${BENCHES:-}
 BENCH_ARGS=${BENCH_ARGS:-}
 PROFILE_SECS=${PROFILE_SECS:-5}
 MALLOC=${MALLOC:-glibc}
+SHAS=()
+for rev in ${REVS:-HEAD}; do SHAS+=("$(git rev-parse --short "$rev^{commit}")"); done
 for malloc in $MALLOC; do
     [[ $malloc == glibc || $malloc == jemalloc || $malloc == jemalloc-bg ]] ||
         { echo "MALLOC is glibc, jemalloc or jemalloc-bg, not $malloc" >&2; exit 2; }
@@ -259,8 +266,11 @@ if [[ " $MALLOC " == *' jemalloc'* ]]; then
 fi
 
 # The initiator's machine builds both examples, and the benchmarks for the local and profile runs.
-git archive --format=tar HEAD | on "$INITIATOR" 'mkdir -p src && tar -x -C src'
-log "building $(git rev-parse --short HEAD)"
+# Each commit in a directory of its own, src the first's.
+UNIQUE=$(printf '%s\n' "${SHAS[@]}" | awk '!seen[$0]++')
+for sha in $UNIQUE; do git archive --format=tar "$sha" | on "$INITIATOR" "mkdir -p src-$sha && tar -x -C src-$sha"; done
+on "$INITIATOR" "ln -sfn src-${SHAS[0]} src"
+log "building" $UNIQUE
 TARGETS=''
 for bench in $BENCHES; do TARGETS+=" --bench $bench"; done
 CARGO_BENCH="cargo bench -p turbojet --all-features$TARGETS"
@@ -283,7 +293,7 @@ if asked local || asked profile; then
         [ -n "$dev" ] || { echo "no instance store: a d type is needed" >&2; exit 1; }
         sudo mkfs.ext4 -q -F "$dev" && sudo mkdir -p /data && sudo mount "$dev" /data
         sudo chown ubuntu /data && mkdir -p /data/tmp'
-    on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV $CARGO_BENCH --no-run -q"
+    for sha in $UNIQUE; do on "$INITIATOR" ". ~/.cargo/env && cd src-$sha && $ENV $CARGO_BENCH --no-run -q"; done
 fi
 if asked profile; then
     log "building samply $SAMPLY_VERSION"
@@ -327,18 +337,25 @@ profile() {
     on "$INITIATOR" 'tar -c profile-*' | tar -x -C "$OUT"
 }
 
+NAMES=()
 for run in $RUNS; do
     case $run in
         profile) profile ;;
         network) for malloc in $MALLOC; do network "$malloc"; done | tee "$OUT/network.md" ;;
         local)
-            for malloc in $MALLOC; do
-                log "run local ($malloc): $CARGO_BENCH -- $BENCH_ARGS"
-                # Each allocator's reports apart: criterion would compare one with the other's.
-                on "$INITIATOR" ". ~/.cargo/env && cd src && rm -rf target/criterion && $ENV TMPDIR=/data/tmp \
-                    $(preload "$malloc") $CARGO_BENCH -- $BENCH_ARGS" | tee "$OUT/local-$malloc.txt"
-                on "$INITIATOR" "mv src/target/criterion criterion-$malloc && tar -c criterion-$malloc && rm -rf criterion-$malloc" |
-                    tar -x -C "$OUT"
+            for i in "${!SHAS[@]}"; do
+                sha=${SHAS[i]}
+                for malloc in $MALLOC; do
+                    name=$malloc
+                    [[ ${#SHAS[@]} -gt 1 ]] && name=$((i + 1))-$sha-$malloc
+                    NAMES+=("$name")
+                    log "run local ($name): $CARGO_BENCH -- $BENCH_ARGS"
+                    # Each run's reports apart: criterion would compare one with another's.
+                    on "$INITIATOR" ". ~/.cargo/env && cd src-$sha && rm -rf target/criterion && $ENV TMPDIR=/data/tmp \
+                        $(preload "$malloc") $CARGO_BENCH -- $BENCH_ARGS" | tee "$OUT/local-$name.txt"
+                    on "$INITIATOR" "mv src-$sha/target/criterion criterion-$name && tar -c criterion-$name && rm -rf criterion-$name" |
+                        tar -x -C "$OUT"
+                done
             done
             ;;
     esac
@@ -348,7 +365,7 @@ done
 {
     echo "# $RUN"
     echo
-    echo "turbojet $(git rev-parse --short HEAD), $COUNT × $TYPE in $AZ ($AWS_REGION), one cluster placement group."
+    echo "turbojet ${SHAS[*]}, $COUNT × $TYPE in $AZ ($AWS_REGION), one cluster placement group."
     [[ -n $RUSTFLAGS ]] && echo && echo "RUSTFLAGS=$RUSTFLAGS"
     [[ $NIC_COALESCE_OFF == 1 ]] && echo && echo "NIC interrupt moderation off (NIC_COALESCE_OFF=1)."
     echo && echo "Allocators: $MALLOC."
@@ -371,11 +388,11 @@ done
             echo
             for profile in "$OUT"/profile-*.json.gz; do echo "- $(basename "$profile")"; done
         else
-            echo "\`$CARGO_BENCH -- $BENCH_ARGS\`: criterion's medians, a median and a rate for each allocator (the whole output in local-<malloc>.txt)."
+            echo "\`$CARGO_BENCH -- $BENCH_ARGS\`: criterion's medians, a median and a rate for each run (the whole output in local-<run>.txt)."
             echo
             # Each benchmark's median from criterion's reports, with its throughput as a rate.
             # shellcheck disable=SC2046 # one directory a word
-            python3 -I - $(for malloc in $MALLOC; do echo "$OUT/criterion-$malloc"; done) <<'EOF'
+            python3 -I - $(for name in "${NAMES[@]}"; do echo "$OUT/criterion-$name"; done) <<'EOF'
 import json, sys
 from pathlib import Path
 
