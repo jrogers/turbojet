@@ -309,6 +309,7 @@ mod proxy;
 mod proxy_header;
 mod reconnect;
 pub mod registry;
+mod rx_timestamps;
 pub mod sbe;
 pub mod schedule;
 mod session;

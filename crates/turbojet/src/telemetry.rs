@@ -43,6 +43,7 @@
 //! | `turbojet_inbound_message_seconds` | histogram, opt-in | `session` |
 //! | `turbojet_commit_seconds` | histogram, opt-in | `session` |
 //! | `turbojet_read_to_write_seconds` | histogram, opt-in | `session` |
+//! | `turbojet_wire_to_read_seconds` | histogram, opt-in, Linux | `session` |
 //!
 //! `session` is the session ID, e.g. `FIX.4.2:GATEWAY->CLIENT1`.
 //!
@@ -83,6 +84,12 @@
 //!   already read that waits for a resend, or for an inbound [`Delay`](crate::InboundLimit::Delay)
 //!   limit, counts its wait, as the counterparty sees it; input the limit leaves unread isn't timed
 //!   until it's read. Writing to the transport isn't included.
+//! - `turbojet_wire_to_read_seconds`: from the latest packet of a read arriving to the read, on
+//!   Linux, for a spinning connection whose stream has receive timestamps
+//!   ([`SpinningStream::with_receive_timestamps`](crate::connection::SpinningStream)): the time in
+//!   the network card, the kernel and the socket's queue, before the session sees it. It's
+//!   measured with the wall clock, from the card's stamp if it timestamps packets, else the
+//!   kernel's. One sample per read that has a stamp.
 //!
 //! Exporters choose how samples are aggregated: the Prometheus exporter makes summaries by
 //! default, or histograms with the buckets it's given.
@@ -170,6 +177,11 @@ mod imp {
             Unit::Seconds,
             "From reading input to what it caused being committed and ready to write (opt-in)"
         );
+        describe_histogram!(
+            "turbojet_wire_to_read_seconds",
+            Unit::Seconds,
+            "From a read's latest packet arriving to its read, on a spinning stream with receive timestamps (opt-in)"
+        );
     }
 
     pub(crate) fn garbled_message() {
@@ -223,6 +235,7 @@ mod imp {
         inbound_message: Histogram,
         commit: Histogram,
         read_to_write: Histogram,
+        wire_to_read: Histogram,
     }
 
     impl LatencyMetrics {
@@ -236,6 +249,10 @@ mod imp {
 
         pub(crate) fn read_to_write(&self, took: Duration) {
             self.read_to_write.record(took);
+        }
+
+        pub(crate) fn wire_to_read(&self, took: Duration) {
+            self.wire_to_read.record(took);
         }
     }
 
@@ -252,6 +269,7 @@ mod imp {
                 inbound_message: histogram("turbojet_inbound_message_seconds"),
                 commit: histogram("turbojet_commit_seconds"),
                 read_to_write: histogram("turbojet_read_to_write_seconds"),
+                wire_to_read: histogram("turbojet_wire_to_read_seconds"),
             });
             Self {
                 messages_received: counter("turbojet_messages_received_total"),
@@ -393,6 +411,9 @@ mod imp {
             match *self {}
         }
         pub(crate) fn read_to_write(&self, _took: Duration) {
+            match *self {}
+        }
+        pub(crate) fn wire_to_read(&self, _took: Duration) {
             match *self {}
         }
     }

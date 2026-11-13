@@ -959,6 +959,11 @@ impl Timings {
         if session.times_latency() {
             self.read_at.get_or_insert(now);
         }
+        if let Some(latency) = session.latency_metrics()
+            && let Some(took) = crate::rx_timestamps::take_wire_to_read()
+        {
+            latency.wire_to_read(took);
+        }
     }
 
     /// A commit job has started, covering the input read so far. Input left `deferred` waits for a
@@ -1100,6 +1105,9 @@ pub struct SpinningStream {
     /// Reads land here, then are copied into the caller's buffer: tokio hands the reader
     /// uninitialized space, which safe code would otherwise zero on every poll.
     scratch: Box<[u8]>,
+    /// With receive timestamps, where each read's control message lands.
+    #[cfg(target_os = "linux")]
+    control: Option<Box<[u8]>>,
 }
 
 impl SpinningStream {
@@ -1112,7 +1120,43 @@ impl SpinningStream {
     pub fn new(socket: std::net::TcpStream) -> io::Result<Self> {
         socket.set_nonblocking(true)?;
         socket.set_nodelay(true)?;
-        Ok(Self { socket, scratch: vec![0; READ_BUFFER_SIZE].into_boxed_slice() })
+        Ok(Self {
+            socket,
+            scratch: vec![0; READ_BUFFER_SIZE].into_boxed_slice(),
+            #[cfg(target_os = "linux")]
+            control: None,
+        })
+    }
+
+    /// Asks the kernel to timestamp each packet the socket receives, by the network card if it
+    /// timestamps packets and otherwise on receiving it, and records how long before each read its
+    /// latest packet was stamped, as `turbojet_wire_to_read_seconds`, for a session with latency
+    /// metrics (`SessionConfig::latency_metrics`, feature `metrics`). Each read is then a
+    /// `recvmsg`.
+    ///
+    /// The card's stamps need it to timestamp received packets (`ethtool -T` lists
+    /// `hardware-receive`), turned on for the interface, which takes privileges (`hwstamp_ctl -r
+    /// 1`, or `ethtool --set-hwtimestamp-cfg`), and the system clock synced to the card's (chrony's
+    /// `refclock PHC`), since a stamp is compared with the wall clock. Without them the kernel's
+    /// stamps are used, which leave out the time from the card to the kernel.
+    ///
+    /// # Errors
+    ///
+    /// The operating system's, if it refuses the socket option.
+    #[cfg(target_os = "linux")]
+    pub fn with_receive_timestamps(mut self) -> io::Result<Self> {
+        crate::rx_timestamps::enable(&self.socket)?;
+        self.control = Some(crate::rx_timestamps::control_buffer());
+        Ok(self)
+    }
+
+    /// Reads up to `len` bytes into the scratch buffer.
+    fn read_scratch(&mut self, len: usize) -> io::Result<usize> {
+        #[cfg(target_os = "linux")]
+        if let Some(control) = &mut self.control {
+            return crate::rx_timestamps::read(&self.socket, &mut self.scratch[..len], control);
+        }
+        io::Read::read(&mut self.socket, &mut self.scratch[..len])
     }
 }
 
@@ -1128,7 +1172,7 @@ impl AsyncRead for SpinningStream {
     fn poll_read(self: Pin<&mut Self>, _: &mut TaskContext<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         let len = buf.remaining().min(this.scratch.len());
-        let read = std::task::ready!(would_block(io::Read::read(&mut this.socket, &mut this.scratch[..len])))?;
+        let read = std::task::ready!(would_block(this.read_scratch(len)))?;
         buf.put_slice(&this.scratch[..read]);
         Poll::Ready(Ok(()))
     }
