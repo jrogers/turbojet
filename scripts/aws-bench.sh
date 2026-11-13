@@ -18,8 +18,9 @@
 #             datagrams one at a time for DURATION s, over a second network interface each machine
 #             gets for it, bound to vfio-pci (no IOMMU) and polled from the last CPU
 #   DPDK_WC      1 (the default): the dpdk run's vfio-pci rebuilt from the running kernel's source
-#                to map prefetchable BARs write-combined, as ENA's low-latency queue needs (the
-#                change AWS's amzn-drivers enav2-vfio-patch makes); 0: the stock module, uncached
+#                to map prefetchable BARs write-combined, as ENA's low-latency queue needs
+#                (scripts/vfio-wc.py, the change AWS's amzn-drivers enav2-vfio-patch makes);
+#                0: the stock module, uncached
 #   local     the criterion benchmarks (`cargo bench -p turbojet --all-features`) on the initiator's
 #             machine, their temporary files on its local NVMe, once for each of MALLOC; criterion's
 #             reports into criterion-<malloc>/, its output into local-<malloc>.txt
@@ -361,6 +362,7 @@ fi
 if asked dpdk; then
     for i in "${!PUBLIC[@]}"; do
         on "${PUBLIC[i]}" "cat >dpdk-pingpong.c" <scripts/dpdk-pingpong.c
+        on "${PUBLIC[i]}" "cat >vfio-wc.py" <scripts/vfio-wc.py
         on "${PUBLIC[i]}" "set -e
             sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
                 build-essential pkg-config dpdk libdpdk-dev >/dev/null
@@ -378,13 +380,7 @@ if asked dpdk; then
                 sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev linux-headers-\$(uname -r) >/dev/null
                 mkdir -p ksrc && cd ksrc && apt-get -qq source linux-image-unsigned-\$(uname -r) >/dev/null 2>&1
                 cd \$(find . -maxdepth 1 -mindepth 1 -type d | head -1)/drivers/vfio
-                python3 -c \"
-import pathlib
-p = pathlib.Path('pci/vfio_pci_core.c'); s = p.read_text()
-old = '\tvma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);\n'
-assert s.count(old) == 1, 'vfio_pci_core.c changed: no single pgprot_noncached mmap line'
-p.write_text(s.replace(old, '\tif (pci_resource_flags(pdev, index) & IORESOURCE_PREFETCH)\n\t\tvma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);\n\telse\n\t\tvma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);\n'))
-\"
+                python3 -I ~/vfio-wc.py
                 make -s -C /lib/modules/\$(uname -r)/build M=\$PWD modules >build.log 2>&1 || { tail -20 build.log >&2; exit 1; }
                 sudo modprobe vfio-pci   # the stock modules' dependencies, then the stock ones out
                 sudo rmmod vfio_pci vfio_pci_core vfio_iommu_type1 vfio 2>/dev/null || true
