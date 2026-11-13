@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs the per-push CI checks (.github/workflows/ci.yml) locally, stopping at the first failure:
-# formatting, clippy and tests for each feature combination CI uses, rustdoc with warnings as
-# errors, the fuzz crate's lints and regression inputs, and generated crates matching the
-# generator. Flags add the slower jobs:
+# formatting, dependencies' licences, advisories and sources (cargo-deny, deny.toml), clippy and
+# tests for each feature combination CI uses, rustdoc with warnings as errors, the fuzz crate's
+# lints and regression inputs, and generated crates matching the generator. Flags add the slower
+# jobs:
 #   scripts/check.sh            # what most changes need
 #   scripts/check.sh --interop  # also the interop tests (needs a JDK 21+ and .NET 10)
 #   scripts/check.sh --msrv     # also the tests on the minimum supported Rust (rustup toolchain 1.89)
@@ -13,7 +14,7 @@
 #   scripts/check.sh --semver   # also each published crate's API against its last release on
 #                               # crates.io (cargo-semver-checks), before releasing: fails if the
 #                               # version doesn't say what changed (a 0.x API break needs 0.x+1)
-# cargo-deny and benchmark compilation are left to CI.
+# Benchmark compilation is left to CI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -42,6 +43,14 @@ common=$(cd "$(git rev-parse --git-common-dir)" && pwd)
 step fmt
 cargo fmt --all --check
 cargo fmt --manifest-path crates/turbojet/fuzz/Cargo.toml --check
+
+step deny
+# Errors only: deny.toml warns of duplicate versions, which would bury the rest.
+if ! command -v cargo-deny >/dev/null; then
+    echo "cargo-deny isn't installed: cargo install --locked cargo-deny" >&2
+    exit 2
+fi
+cargo deny --log-level error check
 
 # Keep in step with the test matrix in ci.yml. The simulator's seeds run the same whatever the
 # engine's features, so they run once, with all of them.

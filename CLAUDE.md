@@ -8,7 +8,7 @@ is the overview of how the pieces fit, [DESIGN.md](docs/DESIGN.md) says how it's
 
 ## Checking a change
 
-`scripts/check.sh` runs the per-push CI checks (fmt, clippy and tests for each feature combination,
+`scripts/check.sh` runs the per-push CI checks (fmt, cargo-deny, clippy and tests for each feature combination,
 rustdoc with `-D warnings`, the fuzz crate's lints and regression inputs, the codegen diff). Run it before calling work
 done or committing it; it takes about 3 minutes warm. `--interop` adds the QuickFIX/J and QuickFIX/n tests and
 `--msrv` the 1.89 tests. Read its exit status before acting on it. A timing assertion has to hold on a
