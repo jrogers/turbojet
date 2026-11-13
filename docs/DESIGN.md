@@ -1297,11 +1297,17 @@ TCP ping-pong between the same machines.
   two ends add 1 to 3 µs. tokio's driver adds 11 µs on top: the worker's wake-up on each side.
 - With the kernel busy-polling (busy_read 50 µs), sockperf fell to 16.3 µs, since its blocking
   `recv` polls the NIC itself instead of sleeping until the interrupt. The spinning driver gained
-  1 to 2 µs at most from the same setting: its non-blocking read polls the NIC once per call, and
-  probably (not checked) the interrupt on CPU 0 still takes most packets first. The 6 µs between it and busy-polled
-  sockperf is what `SO_PREFER_BUSY_POLL` with `napi_defer_hard_irqs` might win back (keeping the
-  interrupt off while a thread polls); not tried, since it needs a socket option Turbojet doesn't
-  set. tokio's driver gained 6 or 7 µs p50 at 100,000 a second (epoll busy-polls when it would
+  1 to 2 µs at most from the same setting (its non-blocking read polls the NIC once per call).
+  Keeping the interrupt off while it polls didn't close the rest: `SO_PREFER_BUSY_POLL` on both
+  ends' sockets, with the NICs' `napi_defer_hard_irqs` 2 and `gro_flush_timeout` 200 µs, measured
+  in two more placements (from a `--prefer-busy-poll` flag on the examples, parked on branch
+  `prefer-busy-poll`), was within the noise of busy polling alone: p50 21.1 to 24.8 µs against
+  21.2 to 24.4, p99 24.7 to 29.4 against 25.5 to 29.2, sockperf's busy-polled floor 16.3 to
+  16.5 µs in both. So the 5 to 8 µs between the spinning driver and sockperf isn't interrupt
+  delivery but the kernel's TCP path and Turbojet's own work. The socket option needs
+  `CAP_NET_ADMIN` (EPERM otherwise), and the NIC settings without busy polling are much worse:
+  the interrupt stays off waiting for a poller, and packets wait for the 200 µs timer (p50 235 to
+  267 µs at 10,000 and 100,000 a second, in both placements). tokio's driver gained 6 or 7 µs p50 at 100,000 a second (epoll busy-polls when it would
   sleep) and nothing at the lower rates, where a 50 µs poll rarely catches the next packet.
 - Pinning set the tail, not the median. Unpinned, the spinning driver's p99 was 55 to 76 µs and
   tokio's 66 to 91 µs, alike in both placements, and sockperf's own 47 µs: the kernel alone shows

@@ -98,7 +98,10 @@ Taking the spinning threads' CPUs from the scheduler and the timer tick as well 
 `nohz_full` and `rcu_nocbs` on the kernel command line) made no difference that showed. Nor did
 the kernel's busy polling (`net.core.busy_poll` and `net.core.busy_read`) for spinning
 connections, which already poll: it took 1 to 2 µs off at best. It helped tokio's driver only at
-high rates: at 100,000 orders a second, the p50 went from 36 to 29 µs.
+high rates: at 100,000 orders a second, the p50 went from 36 to 29 µs. Keeping the card's
+interrupt off while a thread busy-polls (`SO_PREFER_BUSY_POLL`, which needs `CAP_NET_ADMIN`, with
+the device's `napi_defer_hard_irqs` and `gro_flush_timeout`) gained nothing that showed over busy
+polling alone, and those device settings without busy polling took the p50 to over 230 µs.
 
 ## Results
 
