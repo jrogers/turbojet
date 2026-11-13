@@ -217,6 +217,18 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   then, so a batch costs one write and, with fsync, one fsync: 100 orders in flight over a disk
   store with fsync take 11 ms rather than 1.6 s. Receipts and operator replies wait for the
   commit.
+- **Syncing on macOS.** There `fsync` only hands a file's writes to the drive, which may keep
+  them in its cache through a power loss; `F_FULLFSYNC` (std's `sync_data`) also asks the drive
+  to flush its cache, all of it ("flush all buffered data to the permanent storage device", the
+  `fcntl` man page), and takes about 4 ms on an Apple M3 whoever issues it, concurrent ones
+  barely overlapping. So a `DiskStorage` commit there `fsync`s its own file, then waits for a
+  full flush that started after its `fsync` returned, issuing it on its own file if none is
+  running (`store/drive_flush.rs`): one flush covers every commit waiting, whichever file it's
+  issued on. Commits are grouped by drive (device number), so a flush never stands in for
+  another drive's. Elsewhere a commit `fdatasync`s its file, since Linux's journal already
+  merges concurrent ones. The calls are rustix's, a dependency on Apple targets only, so
+  Turbojet has no `unsafe`. A reset's write, a new segment's directory and the creation and
+  marks files, written rarely, still sync alone.
 - **At-least-once delivery.** An inbound message counts as received only once the application has
   handled it, and the messages that may have been in flight at a crash (a window of up to 256,
   committed before the first is handed over) are marked as possibly handled when they're resent
@@ -474,7 +486,11 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     53.2 µs and 53.5 µs, since the standby committed each batch in turn. With its commits held
     and run at once, replicated took 59.8 µs, 33.5 µs and 28.2 µs (two rounds each, interleaved,
     the second within 1.5%); memory unchanged. On the Apple M3, 8 sessions went from 7.3 and 6.3
-    ms to 4.6 and 4.7 ms, 64 from 6.7 and 6.2 ms to 5.0 and 4.4 ms.
+    ms to 4.6 and 4.7 ms, 64 from 6.7 and 6.2 ms to 5.0 and 4.4 ms. With a drive flush shared by
+    the commits waiting at once (Apple M3, 2026-11-13, two rounds each), `DiskStorage` alone went
+    from 4.02 and 4.19 ms to 4.02 and 4.02 ms for 1 session, 2.44 and 2.31 ms to 1.09 and 1.06 ms
+    for 8, 3.24 and 2.92 ms to 406 and 442 µs for 64; replicated, 7.24 and 7.99 ms to 7.26 and
+    7.63 ms, 4.48 and 4.29 ms to 2.16 and 2.25 ms, 4.22 and 4.10 ms to 390 and 373 µs.
     The link then wrote each frame with a system call of its own, both ways: the active each batch
     as it was queued, the standby each answer before taking the next frame, however many were
     already read. Now the active's writer takes everything queued into one write, and the standby

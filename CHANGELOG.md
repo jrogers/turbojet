@@ -21,6 +21,10 @@ Notable changes to the published crates.
   status, `MemoryStorage`'s state for it) has a 128-byte cache line to itself, so sessions on
   different cores no longer slow each other: 1 to 2% more orders a second on AWS Graviton and
   Intel machines, for a few hundred bytes a session.
+- **Changed:** on macOS, `DiskStorage` commits waiting at once share one drive flush
+  (`F_FULLFSYNC`), each having first `fsync`ed its own file, rather than each flushing the drive:
+  64 sessions committing together on an Apple M3 took 0.4 ms a commit rather than 3 ms, and one
+  session alone is unchanged at 4 ms. Other platforms are unchanged.
 - **Fixed:** `MemoryStorage` and `DiskStorage` keep their index of stored messages in blocks, so
   a session that has stored millions of messages no longer pauses for milliseconds each time the
   index grows. It showed on allocators whose `realloc` copies large blocks, such as jemalloc.
