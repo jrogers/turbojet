@@ -19,11 +19,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
 use tokio::sync::mpsc;
+use turbojet::connection::SpinningStream;
 use turbojet::fields::UtcTimestamp;
 use turbojet::message::tags;
 use turbojet::{
-    Application, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message, MessageReject, MsgType,
-    SessionConfig, SessionHandle,
+    Application, ConnectionInfo, Context, Disconnect, Initiator, InitiatorConfig, MemoryStorage, Message,
+    MessageReject, MsgType, SessionConfig, SessionHandle,
 };
 
 const USAGE: &str = "\
@@ -37,7 +38,9 @@ latency of their ExecutionReports, from when each order was due.
   --duration S        seconds of measured load (default 10)
   --warmup S          seconds of load before that, not measured (default 2)
   --target ID         the acceptor's CompID (default GATEWAY)
-  --begin-string V    the FIX version (default FIX.4.2)";
+  --begin-string V    the FIX version (default FIX.4.2)
+  --spin              drive each session on a thread of its own, named spin-N, that polls its
+                      socket without waiting (run_spinning), rather than on the tokio runtime";
 
 /// The most latencies kept, 160 MB of them: a run that would measure more is refused.
 const SAMPLES_MAX: u64 = 20_000_000;
@@ -58,6 +61,7 @@ struct Args {
     warmup: Duration,
     target: String,
     begin_string: String,
+    spin: bool,
 }
 
 impl Default for Args {
@@ -70,6 +74,7 @@ impl Default for Args {
             warmup: Duration::from_secs(2),
             target: "GATEWAY".into(),
             begin_string: "FIX.4.2".into(),
+            spin: false,
         }
     }
 }
@@ -88,6 +93,7 @@ impl Args {
                 "--warmup" => parsed.warmup = Duration::from_secs(value()?.parse()?),
                 "--target" => parsed.target = value()?,
                 "--begin-string" => parsed.begin_string = value()?,
+                "--spin" => parsed.spin = true,
                 "-h" | "--help" => return Ok(None),
                 other if !other.starts_with('-') && addr.is_none() => addr = Some(other.to_owned()),
                 other => return Err(format!("unknown argument '{other}'").into()),
@@ -204,8 +210,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let run = app.run.clone();
     let handles = sessions.clone();
     let measured = args.warmup_orders()..total;
-    let sender = tokio::task::spawn_blocking(move || send_all(&handles, schedule, measured, &run));
-    let (lag_max, unsent) = sender.await?;
+    // A thread named for scripts that pin it: it spins until each order is due.
+    let sender =
+        std::thread::Builder::new().name("send".into()).spawn(move || send_all(&handles, schedule, measured, &run))?;
+    let (lag_max, unsent) =
+        tokio::task::spawn_blocking(move || sender.join()).await?.map_err(|_| "the sender panicked")?;
 
     let waited_from = Instant::now();
     while app.answered.load(Ordering::Relaxed) < total - unsent && waited_from.elapsed() < ANSWER_WAIT {
@@ -231,11 +240,23 @@ fn connect(args: &Args, app: &Arc<LoadApp>) -> Result<Vec<SessionHandle>, Box<dy
         config.reset_on_logon = true;
         let initiator = Initiator::new(config.with_endpoint(args.addr.clone()), storage.clone(), app.clone())?;
         sessions.push(initiator.handle());
-        tokio::spawn(async move {
-            if let Err(e) = initiator.connect_once().await {
-                eprintln!("connection ended: {e}");
-            }
-        });
+        if args.spin {
+            let (addr, runtime) = (args.addr.clone(), tokio::runtime::Handle::current());
+            std::thread::Builder::new().name(format!("spin-{i}")).spawn(move || {
+                let result = std::net::TcpStream::connect(addr)
+                    .and_then(SpinningStream::new)
+                    .and_then(|socket| initiator.run_spinning(socket, ConnectionInfo::default(), &runtime));
+                if let Err(e) = result {
+                    eprintln!("connection ended: {e}");
+                }
+            })?;
+        } else {
+            tokio::spawn(async move {
+                if let Err(e) = initiator.connect_once().await {
+                    eprintln!("connection ended: {e}");
+                }
+            });
+        }
     }
     Ok(sessions)
 }
@@ -353,8 +374,8 @@ mod tests {
     fn a_run_too_long_to_measure_is_refused() {
         let args = |list: &[&str]| Args::parse(list.iter().map(|s| (*s).to_owned()));
         assert!(args(&["--rate", "1000000", "--duration", "60"]).is_err());
-        let parsed = args(&["10.0.0.1:9876", "--rate", "5000", "--sessions", "4"]).unwrap().unwrap();
-        assert_eq!((parsed.addr.as_str(), parsed.rate, parsed.sessions), ("10.0.0.1:9876", 5000, 4));
+        let parsed = args(&["10.0.0.1:9876", "--rate", "5000", "--sessions", "4", "--spin"]).unwrap().unwrap();
+        assert_eq!((parsed.addr.as_str(), parsed.rate, parsed.sessions, parsed.spin), ("10.0.0.1:9876", 5000, 4, true));
         assert_eq!(parsed.warmup_orders(), 10_000);
     }
 }
