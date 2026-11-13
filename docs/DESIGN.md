@@ -1179,7 +1179,25 @@ Padding is worth 2 to 4% from 4 sessions up, the gap between the padded build an
 alone. The inline lock's gain at 2 sessions doesn't hold from 4. The allocator is worth more than
 either, 9% at 4 sessions and 14% at 16 to 32, and it's the application's choice
 (`#[global_allocator]`), not the library's. Runs vary by up to 4% between rounds, so the
-differences at 1 and 2 sessions are within the noise. The padding hasn't been adopted.
+differences at 1 and 2 sessions are within the noise.
+
+On Linux, where `std::sync::Mutex` is inline already, the padding was measured alone, at 128 bytes
+and at 64, the line size of both machines below (2026-11-13, `scripts/aws-bench.sh` with `REVS`:
+the builds in turn on one machine, three rounds each, jemalloc). Means, millions of orders a
+second, unpadded, padded to 128 and to 64:
+
+| Sessions | 1 | 2 | 4 | 8 | 16 | 32 |
+|---|---|---|---|---|---|---|
+| c9gd.4xlarge (Neoverse V3, 16 cores) | 0.512 / 0.520 / 0.514 | 1.03 / 1.04 / 1.03 | 2.02 / 2.05 / 2.03 | 4.00 / 4.06 / 4.02 | 4.99 / 5.00 / 4.99 | 5.21 / 5.24 / 5.22 |
+| c9gd.2xlarge (Neoverse V3, 8 cores) | 0.512 / 0.519 / 0.513 | 1.03 / 1.04 / 1.03 | 2.01 / 2.05 / 2.02 | 2.70 / 2.74 / 2.72 | 2.77 / 2.81 / 2.78 | 2.83 / 2.86 / 2.83 |
+| c8id.2xlarge (Xeon 6975P-C, 8 cores) | 0.395 / 0.404 / 0.404 | 0.731 / 0.741 / 0.744 | 1.24 / 1.25 / 1.25 | 1.48 / 1.49 / 1.50 | 1.51 / 1.53 / 1.53 | 1.52 / 1.54 / 1.55 |
+
+128 bytes gains 1 to 2% on both, against round-to-round spreads of 0.2 to 1.5% (4% once, on the
+8-core Graviton at 4 sessions). 64 bytes gains as much on Intel but under 0.7% on Graviton: its
+cores fetch lines in pairs, as Intel's do, so a neighbour 64 bytes away still collides. The gain
+from 1 session up is between the initiator's and acceptor's sides, which share the process and
+the store. So the padding is 128 bytes on every target (`sync::CachePadded`, and `LiveStatus`
+aligned the same), a few hundred bytes a session.
 
 One run of the inline-lock-only build hung at 16 sessions: every thread idle, all 64 connections
 open with nothing unread, a sender waiting for acknowledgements that never came. Some of its
