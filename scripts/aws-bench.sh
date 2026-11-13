@@ -48,6 +48,10 @@
 #   RUNS         network local (the default), profile, or any of them
 #   LOADS        `load`'s sessions:rate pairs, space-separated (1:1000 1:10000 1:100000 8:200000)
 #   DURATION     10, seconds `load` measures each, after its 2 s of warm-up
+#   ACK_ARGS     more arguments for `ack` in the network and trace runs. With --metrics-listen ADDR
+#                (on its own machine, 127.0.0.1:9090 say), `ack` is built with the metrics feature
+#                and its turbojet_*_seconds summaries are recorded after each run: with --spin, its
+#                latency histograms time each message's handling in place
 #   PACKAGE      the crate whose benchmarks the local and profile runs run, turbojet by default
 #                (turbojet-replica for `replica`, the stores committing alone and replicated)
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
@@ -90,6 +94,9 @@ MAX_MINUTES=${MAX_MINUTES:-180}
 RUNS=${RUNS:-network local}
 LOADS=${LOADS:-1:1000 1:10000 1:100000 8:200000}
 DURATION=${DURATION:-10}
+ACK_ARGS=${ACK_ARGS:-}
+METRICS_ADDR=''
+[[ $ACK_ARGS =~ --metrics-listen\ ([^ ]+) ]] && METRICS_ADDR=${BASH_REMATCH[1]}
 PACKAGE=${PACKAGE:-turbojet}
 BENCHES=${BENCHES:-}
 BENCH_ARGS=${BENCH_ARGS:-}
@@ -437,7 +444,7 @@ if asked network || asked trace; then
     # the one running, so it's still `ack` to pkill and bpftrace.
     scp -q -i "$KEY" -o UserKnownHostsFile="$OUT/known_hosts" "$KEY" "ubuntu@$INITIATOR:.ssh/id_ed25519"
     for sha in $UNIQUE; do
-        on "$INITIATOR" ". ~/.cargo/env && cd src-$sha && $ENV cargo build -q --release -p turbojet --example ack --example load"
+        on "$INITIATOR" ". ~/.cargo/env && cd src-$sha && $ENV cargo build -q --release -p turbojet${METRICS_ADDR:+ --features metrics} --example ack --example load"
         on "$INITIATOR" "scp -q -o StrictHostKeyChecking=accept-new src-$sha/target/release/examples/ack ubuntu@${PRIVATE[0]}:ack-$sha"
     done
 fi
@@ -486,7 +493,7 @@ network() {
     for load in $LOADS; do
         sessions=${load%:*} rate=${load#*:}
         [[ $driver == spin ]] && spinning=$sessions
-        on "$ACCEPTOR" "ln -sfn ack-$sha ack; $(pinned "$spinning" ack) $(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT $spin >ack.log 2>&1 </dev/null &
+        on "$ACCEPTOR" "ln -sfn ack-$sha ack; $(pinned "$spinning" ack) $(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT $spin $ACK_ARGS >ack.log 2>&1 </dev/null &
             for _ in \$(seq 50); do ss -Hltn sport = :$PORT | grep -q . && exit 0; sleep 0.1; done
             cat ack.log >&2; exit 1"
         log "run network ($rev$malloc, $driver, busy poll $us µs): $sessions sessions, $rate orders/s"
@@ -498,6 +505,10 @@ network() {
         if [[ $PIN == 1 ]]; then
             on "$INITIATOR" 'cat pins.txt'
             on "$ACCEPTOR" 'cat pins.txt'
+        fi
+        if [[ -n $METRICS_ADDR ]]; then
+            echo "ack's latency summaries:"
+            on "$ACCEPTOR" "curl -fsS http://$METRICS_ADDR/metrics | grep -E '^turbojet_[a-z_]*_seconds(\\{|_sum|_count)' || true"
         fi
         echo '```'
         echo
