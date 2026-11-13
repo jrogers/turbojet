@@ -497,9 +497,10 @@ floor() {
 # The ping-pong over DPDK: the server on the acceptor's machine, the client on the initiator's,
 # each on its last CPU, with the drivers' messages (whether ENA's low-latency queue is on, say).
 dpdk() {
-    local eal='-l $(($(nproc --all) - 1)) -a $(cat dpdk-pci) --log-level=pmd.net.ena:info'
+    # The ENA driver's set-up at debug: whether its low-latency queue (LLQ) is on.
+    local eal='-l $(($(nproc --all) - 1)) -a $(cat dpdk-pci) --log-level=pmd.net.ena.init:debug --log-level=pmd.net.ena.driver:debug'
     on "$ACCEPTOR" "sudo nohup ./dpdk-pingpong $eal -- server >dpdk-server.log 2>&1 </dev/null &
-        for _ in \$(seq 100); do grep -q 'link up' dpdk-server.log && exit 0; sleep 0.1; done
+        for _ in \$(seq 100); do grep -qs 'link up' dpdk-server.log && exit 0; sleep 0.1; done
         cat dpdk-server.log >&2; exit 1"
     log "run dpdk"
     echo "### DPDK UDP ping-pong, 200-byte datagrams"
