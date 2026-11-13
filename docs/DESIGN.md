@@ -1333,32 +1333,54 @@ TCP ping-pong between the same machines.
   create a stack on ENA (Xilinx-CNS/onload#337, ENA 2.17.2, Onload master of July 2026: every socket
   falls back to the kernel), and EC2 has no Solarflare cards.
 
-Then the floor without the kernel (issue #46), 2026-11-13 at `f45e99c` to `5adef50` on
-`c9gd.2xlarge`, pinned, moderation off, five placements. `RUNS=dpdk` gives each machine a second
-ENA interface, binds it to `vfio-pci` without an IOMMU (EC2 exposes none) and runs
-`scripts/dpdk-pingpong.c`, a UDP ping-pong of 200-byte datagrams polled from one core on each
-side, from Ubuntu's DPDK packages. ENA's low-latency transmit queue was on (`Placement policy: Low
-latency`, logged in two runs; the first didn't log it). In µs:
+Then the floor without the kernel (issue #46), 2026-11-13 at `f45e99c` to `c86928a`, pinned,
+moderation off. `RUNS=dpdk` gives each machine a second ENA interface, binds it to `vfio-pci`
+without an IOMMU (EC2 exposes none) and runs `scripts/dpdk-pingpong.c`, a UDP ping-pong of
+200-byte datagrams polled from one core on each side, on Ubuntu's DPDK packages. ENA's
+low-latency transmit queue was on in every run that logged it (`Placement policy: Low latency`).
+
+First, sockperf on the kernel, on `c9gd.2xlarge` in five placements (µs):
 
 | | Placements | Range of p50 | Range of p99 |
 |---|---:|---:|---:|
-| sockperf TCP, blocking | 5 | 20.9 to 21.9 | 25.0 to 26.1 |
-| sockperf TCP, blocking, busy poll 50 µs | 5 | 15.9 to 16.7 | 19.9 to 21.0 |
-| sockperf TCP, non-blocking loop | 2 | 17.8 to 18.2 | 21.7 to 22.3 |
-| sockperf TCP, non-blocking loop, busy poll 50 µs | 2 | 16.2 to 16.3 | 20.3 to 21.0 |
-| sockperf UDP, blocking | 5 | 20.4 to 21.6 | 23.5 to 24.7 |
-| sockperf UDP, blocking, busy poll 50 µs | 5 | 15.6 to 16.4 | 18.3 to 19.2 |
-| DPDK UDP | 3 | 13.2 to 14.7 | 17.0 to 18.6 |
+| TCP, blocking | 5 | 20.9 to 21.9 | 25.0 to 26.1 |
+| TCP, blocking, busy poll 50 µs | 5 | 15.9 to 16.7 | 19.9 to 21.0 |
+| TCP, non-blocking loop | 2 | 17.8 to 18.2 | 21.7 to 22.3 |
+| TCP, non-blocking loop, busy poll 50 µs | 2 | 16.2 to 16.3 | 20.3 to 21.0 |
+| UDP, blocking | 5 | 20.4 to 21.6 | 23.5 to 24.7 |
+| UDP, blocking, busy poll 50 µs | 5 | 15.6 to 16.4 | 18.3 to 19.2 |
 
-- The network is most of it. DPDK's fastest round trips were 12.3 to 13.6 µs: wire, switches and
-  the two cards, which no software on the machines removes.
-- Bypassing the kernel saves 1.5 to 3 µs over a busy-polled kernel socket (16.2 µs TCP, 15.6 to
-  16.4 UDP), less whatever a user-space TCP stack costs back; TCP itself costs the kernel about
-  0.3 µs over UDP. Issue #46 said to stop at this step unless DPDK was well below sockperf, so a
-  DPDK transport isn't built. Turbojet's own 5 to 7 µs above a spinning kernel socket is the
-  larger part of the round trip that software can still reach.
 - A spinning reader gets all of busy polling's gain: non-blocking sockperf went from 18 to 16 µs,
   like blocking sockperf's 21 to 16. The spinning driver's 1 to 2 µs from it is the same gain.
+- TCP costs the kernel about 0.3 µs over UDP.
+
+Then DPDK against the busy-polled kernel UDP socket in the same placement, since placements
+differ by more than the drivers do (one `c9gd` placement's kernel round trip was 27.9 µs, one
+`c8id` placement's 18.6 µs, others' 31 to 32). DPDK's p50 less the kernel's, µs, and DPDK's p50:
+
+| | Placements | DPDK less the kernel | DPDK p50 |
+|---|---:|---:|---:|
+| `c9gd`, stock `vfio-pci` | 3 | -1.7, -3.0, -1.5 | 14.7, 13.2, 14.4 |
+| `c9gd`, write-combined | 3 | -3.4, -3.0, -3.8 | 12.7, 12.7, 24.1 |
+| `c8id`, stock `vfio-pci` | 2 | +3.2, +2.7 | 35.3, 33.5 |
+| `c8id`, write-combined in the user's mapping only | 3 | +3.6, +3.2, +1.8 | 28.5, 34.4, 31.9 |
+| `c8id`, write-combined in both | 2 | -4.0, -4.5 | 14.6, 27.4 |
+
+- Write-combining decides it. ENA's low-latency queue writes each descriptor into device memory,
+  which the stock `vfio-pci` maps uncached; the kernel's own ENA driver maps it write-combined.
+  `DPDK_WC=1` (the default) rebuilds `vfio-pci` from the running kernel's source with
+  `scripts/vfio-wc.py`, the change AWS's amzn-drivers enav2-vfio-patch makes, by pattern since
+  its patches stop at kernel 6.8. On x86 both of `vfio-pci`'s mappings of the BAR must change:
+  PAT gives a later mapping of memory the type of the first, so with only the user's mapping
+  changed, the BAR stayed out of `/sys/kernel/debug/x86/pat_memtype_list`'s write-combining
+  ranges and DPDK stayed slower than the kernel. Arm64 has no PAT, so on `c9gd` the user's
+  mapping alone was enough (the first write-combined run changed only that).
+- Write-combined, bypassing the kernel saves 3.0 to 3.8 µs on `c9gd` and 4.0 to 4.5 µs on
+  `c8id` over a busy-polled kernel socket, before a user-space TCP stack costs any of it back:
+  about a fifth of `c9gd`'s best round trip. DPDK's fastest round trips on `c9gd` were 11.3 to
+  11.6 µs, the network's own share, which no software on the machines removes.
+- Turbojet's own 5 to 7 µs above a spinning kernel socket (above) is still the larger part, and
+  the cheaper one to work on; no DPDK transport is built yet.
 
 ### Current numbers
 

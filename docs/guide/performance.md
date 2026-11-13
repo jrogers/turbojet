@@ -151,8 +151,11 @@ The same between two `c9gd` machines at commit `93eec91`, one session, pinned as
 
 In other placements, the kernel's TCP round trip was 18 µs p50 with sockperf polling
 non-blocking sockets (`--nonblocked`), as spinning connections do, and 16 µs with the kernel's busy
-polling as well. Bypassing the kernel, a UDP ping-pong over DPDK between the same machines took 13
-to 15 µs (`scripts/dpdk-pingpong.c`).
+polling as well. Bypassing the kernel, a UDP ping-pong over DPDK between the same machines was 3
+to 4 µs faster than the busy-polled kernel socket, 12.7 µs at best (`scripts/dpdk-pingpong.c`), and
+4 to 4.5 µs faster on `c8id`, once the device memory DPDK writes through was mapped
+write-combined; mapped uncached, as the stock `vfio-pci` does, it was slower than the kernel on
+`c8id`.
 
 On AWS c9gd.2xlarge (Graviton5), Linux 7.0, jemalloc: the benchmarks in one process, criterion
 medians, temporary files on the instance storage.
