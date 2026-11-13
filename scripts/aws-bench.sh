@@ -539,6 +539,14 @@ dpdk() {
     on "$INITIATOR" "sudo ./dpdk-pingpong $eal -- client ${DPDK_MAC[0]} ${DPDK_IP[1]} ${DPDK_IP[0]} $DURATION 200 2>&1"
     echo '```'
     echo
+    # On x86, how the server's mapping of the device's memory is typed: write-combining or not.
+    echo "The server's memory types (x86 PAT, write-combining only):"
+    echo
+    echo '```'
+    on "$ACCEPTOR" 'f=/sys/kernel/debug/x86/pat_memtype_list
+        if sudo test -r $f; then sudo grep -i write-combining $f || echo none; else echo "no $f"; fi'
+    echo '```'
+    echo
     echo "The server's start:"
     echo
     echo '```'
