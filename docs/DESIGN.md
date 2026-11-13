@@ -382,7 +382,12 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     connection has a thread with a runtime of its own, doing its handshake and its I/O: the
     thread that applies a batch is the one its arrival wakes. Serving it on a blocking thread of
     the caller's runtime instead (`Handle::block_on`) cost 2.8 µs a commit, another thread
-    driving its I/O and waking it.
+    driving its I/O and waking it. While more frames are already read, the standby holds each
+    batch's commit back (`Replica::on_frame_held`), then runs those held at once, a thread each,
+    before writing their answers (`Replica::flush`), so different sessions' syncs overlap as they
+    do on the active. A session's next batch, any other frame, or 64 held run what was held
+    first, so a session's commits stay in order; a lost connection or a promotion drops what was
+    held, and its answers are never sent.
   - Asynchronously (`asynchronous(n)`), a session's log queues each batch it sends, with the
     highest outgoing number it covers, and keeps `drained_through`, the highest number covered by
     a batch some commit has waited for. A commit's job waits for the oldest batches, in order,
@@ -463,8 +468,13 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
     8, 3.09 µs for 64 synchronously, and 2.05 µs, 2.09 µs and 2.36 µs asynchronously, 64 behind:
     the link's per-batch cost (a frame, a write and an answer each, applied in turn) capped it
     near 450,000 commits a second. With fsync, replicated, 6.9 ms, 7.3 ms and 6.1 ms; `DiskStorage`
-    alone, 4.03 ms, 2.36 ms and 3.43 ms, since concurrent `F_FULLFSYNC`s barely overlap. Not
-    measured on Linux, where `fdatasync` is per file and journals merge concurrent ones.
+    alone, 4.03 ms, 2.36 ms and 3.43 ms, since concurrent `F_FULLFSYNC`s barely overlap. On
+    Linux (AWS c9gd.2xlarge, ext4 on local NVMe, 2026-11-13) the journal merges concurrent
+    `fdatasync`s: `DiskStorage` alone took 49.2 µs, 15.3 µs and 12.5 µs, but replicated 59.4 µs,
+    53.2 µs and 53.5 µs, since the standby committed each batch in turn. With its commits held
+    and run at once, replicated took 59.8 µs, 33.5 µs and 28.2 µs (two rounds each, interleaved,
+    the second within 1.5%); memory unchanged. On the Apple M3, 8 sessions went from 7.3 and 6.3
+    ms to 4.6 and 4.7 ms, 64 from 6.7 and 6.2 ms to 5.0 and 4.4 ms.
     The link then wrote each frame with a system call of its own, both ways: the active each batch
     as it was queued, the standby each answer before taking the next frame, however many were
     already read. Now the active's writer takes everything queued into one write, and the standby

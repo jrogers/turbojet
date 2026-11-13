@@ -25,6 +25,13 @@ Notable changes to the published crates.
   a session that has stored millions of messages no longer pauses for milliseconds each time the
   index grows. It showed on allocators whose `realloc` copies large blocks, such as jemalloc.
 
+### `turbojet-replica`
+
+- **Changed:** a standby commits batches for different sessions at once rather than one after
+  another, so their syncs overlap: replicated over `DiskStorage` with fsync on Linux (AWS
+  Graviton, local NVMe), 64 sessions committing together took 28 µs a commit rather than 54 µs.
+  `Replica::on_frame_held` and `Replica::flush` do it for a standby's own network driver.
+
 ### Python bindings (`crates/turbojet-python`, not published)
 
 - **Added:** `turbojet.log_to_python()` logs the engine's events into Python's `logging`, under
