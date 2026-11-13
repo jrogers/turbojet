@@ -1458,8 +1458,12 @@ building the order):
 - Sending costs `load` more than receiving: 1.3 µs from a built order to its `sendto`, against
   0.8 µs from a report's `recvfrom` to `on_message`. The spinning thread mostly writes an order
   before the sender's `send()` has returned.
+- Taking in a report costs the session 531 ns on the same machine, warm (`session/report to
+  on_message, wire to wire`, criterion, at `a5ae24d`; issue #49), against 1.32 µs for `order to
+  ack, wire to wire` in the same run. So the driver adds about 0.3 µs a message receiving, and
+  most of `ack`'s 0.7 to 0.9 µs is in sending: staging the output, the write, the `sendto`.
 - No stage alone is most of it. What's left to cut is spread over the driver's loop around the
-  session (about 0.8 µs a message on each side), the send path (about 1 µs), and the benchmark's
+  session (0.7 to 0.9 µs a message on `ack`, mostly in sending; about 0.3 µs receiving), the send path (about 1 µs), and the benchmark's
   untyped order (0.4 to 0.6 µs), which a real application building typed messages pays in its
   own way.
 
@@ -1544,6 +1548,9 @@ memory and 24 on disk. Debug and release builds count the same. The
 application parses the order borrowed, without allocating, and copies the strings it needs into
 its owned ExecutionReport, whose `CompactString`s keep them inline. `Context::send` writes the
 ExecutionReport into a message the session reuses, which allocates nothing once warmed up.
+
+The same test also counts an initiator taking in ExecutionReports (decode, session, an application
+that does nothing) against its own budget: none at any stage, with either store.
 
 The same test counts a FIXP server (`turbojet::fixp`) answering each B3 NewOrderSingle with an
 order, recoverable flows both ways, as the FIXP benchmark does:
