@@ -1168,7 +1168,15 @@ rustix has neither the option nor the message. Only the spinning driver: tokio's
 no `recvmsg`, and its wake-up (about 11 µs between two `c9gd` machines) would dominate. On AWS the
 card's stamps need a `precision-time` placement group and AWS's own ENA driver (probed
 2026-11-13 on `c9gd`, issue #21's table); the kernel's ENA driver gives the PTP clock but not
-packet stamps.
+packet stamps. Measured 2026-11-13 between two `c9gd.2xlarge` in a `precision-time` group (amzn-drivers
+ENA 2.17.4g with `phc_enable=1`, chrony on `/dev/ptp0` at 1.1 µs RMS offset, interrupt moderation
+off, `ack --spin --rx-timestamps` against `load` at 10,000 orders a second for 12 s): the kernel's
+stamps gave p50 1.23 µs, p90 1.73 µs, p99 4.84 µs over 119,993 reads; after `hwstamp_ctl -r 1`
+(the card's `rx_filter` was 0 until then), the card's gave 2.08 µs, 3.32 µs and 4.82 µs over
+114,506 reads, its minimum 0. A Python `recvmsg` check then found both stamps on every one of 200
+TCP reads. So about 0.9 µs is the card to the kernel, of a round trip of 31 µs p50 either way;
+the 5% fewer samples fit reads whose card stamp was ahead of a clock synced within about 1 µs,
+which aren't recorded, though fewer, larger reads would do the same.
 
 An order sent after a lull is much slower, but a warm-up that runs the send path without sending
 would win back little, so there isn't one. Measured 2026-10-09 on an M3, medians, order to

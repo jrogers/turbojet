@@ -149,6 +149,13 @@ three things:
 A read takes what has arrived, and its sample is the latest packet's time, so a read that takes
 several packets times the last of them.
 
+Between two `c9gd` machines in a `precision-time` placement group, with interrupt moderation off
+and chrony on the card's clock (within about 1 µs), a spinning acceptor taking 10,000 orders a
+second read each order 1.2 µs after the kernel stamped it (p50; p99 4.8 µs) and 2.1 µs after the
+card did (p99 4.8 µs): about 0.9 µs from the card to the kernel, of a 31 µs round trip. With the
+card's stamps about 5% fewer reads were recorded, which a clock behind by a microsecond would
+explain.
+
 ## Results
 
 Measure with your own load: these are for comparing machines and configurations. The benchmarks
