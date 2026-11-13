@@ -10,9 +10,12 @@
 #
 # Runs, each one's output into target/aws-bench/<run>/:
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
-#   floor     the network's floor without Turbojet: sockperf's TCP ping-pong between the same two
-#             machines, 200-byte messages one at a time for DURATION s, under each of BUSY_POLL,
-#             on the last CPU of each with PIN=1. sockperf reports half the round trip.
+#   floor     the network's floor without Turbojet: sockperf's TCP and UDP ping-pongs between the
+#             same two machines, 200-byte messages one at a time for DURATION s, under each of
+#             BUSY_POLL, on the last CPU of each with PIN=1, as full round trips (--full-rtt)
+#   dpdk      the floor without the kernel: scripts/dpdk-pingpong.c's UDP ping-pong, 200-byte
+#             datagrams one at a time for DURATION s, over a second network interface each machine
+#             gets for it, bound to vfio-pci (no IOMMU) and polled from the last CPU
 #   local     the criterion benchmarks (`cargo bench -p turbojet --all-features`) on the initiator's
 #             machine, their temporary files on its local NVMe, once for each of MALLOC; criterion's
 #             reports into criterion-<malloc>/, its output into local-<malloc>.txt
@@ -112,6 +115,16 @@ PORT=9876
 log() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 
 # Everything tagged by any run: instances first, which the rest can't be deleted under.
+# The detached network interfaces `$1` filters, which would keep their security group in use.
+delete_enis() {
+    local eni
+    for eni in $(aws ec2 describe-network-interfaces --filters "$1" Name=status,Values=available \
+        --query 'NetworkInterfaces[].NetworkInterfaceId' --output text); do
+        log "deleting network interface $eni"
+        aws ec2 delete-network-interface --network-interface-id "$eni" || true
+    done
+}
+
 clean() {
     local filter="Name=tag-key,Values=$TAG"
     local ids
@@ -125,6 +138,7 @@ clean() {
         # shellcheck disable=SC2086
         aws ec2 wait instance-terminated --instance-ids $ids
     fi
+    delete_enis "$filter"
     for sg in $(aws ec2 describe-security-groups --filters "$filter" --query 'SecurityGroups[].GroupId' --output text); do
         log "deleting security group $sg"
         aws ec2 delete-security-group --group-id "$sg" >/dev/null
@@ -148,11 +162,11 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 for run in $RUNS; do
-    [[ $run == network || $run == floor || $run == local || $run == profile ]] || { echo "no run $run" >&2; exit 2; }
+    [[ $run =~ ^(network|floor|dpdk|local|profile)$ ]] || { echo "no run $run" >&2; exit 2; }
 done
 asked() { [[ " $RUNS " == *" $1 "* ]]; }
 COUNT=1
-{ asked network || asked floor; } && COUNT=2
+{ asked network || asked floor || asked dpdk; } && COUNT=2
 for load in $LOADS; do
     [[ $load =~ ^[0-9]+:[0-9]+$ ]] || { echo "LOADS are sessions:rate pairs, not $load" >&2; exit 2; }
 done
@@ -181,6 +195,7 @@ cleanup() {
         # shellcheck disable=SC2086
         aws ec2 wait instance-terminated --instance-ids $IDS || true
     fi
+    delete_enis "Name=tag:$TAG,Values=$RUN"
     [[ -n $SG ]] && { aws ec2 delete-security-group --group-id "$SG" >/dev/null || true; }
     [[ -n $PG ]] && { aws ec2 delete-placement-group --group-name "$PG" || true; }
     aws ec2 delete-key-pair --key-name "$RUN" >/dev/null 2>&1 || true
@@ -248,6 +263,26 @@ done
 log "launched $IDS in $AZ"
 # shellcheck disable=SC2086
 aws ec2 wait instance-running --instance-ids $IDS
+# For the dpdk run, a second network interface on each, in the same subnet, gone with the instance:
+# DPDK takes it from the kernel, which keeps the first for SSH. Its MAC and address in the order
+# of PUBLIC and PRIVATE below (the same query's).
+DPDK_MAC=() DPDK_IP=()
+if asked dpdk; then
+    # shellcheck disable=SC2086
+    for id in $(aws ec2 describe-instances --instance-ids $IDS --query 'Reservations[].Instances[].InstanceId' --output text); do
+        eni=$(aws ec2 create-network-interface --subnet-id "$SUBNET" --groups "$SG" \
+            --tag-specifications "ResourceType=network-interface,Tags=[{Key=$TAG,Value=$RUN}]" \
+            --query NetworkInterface.NetworkInterfaceId --output text)
+        attachment=$(aws ec2 attach-network-interface --network-interface-id "$eni" --instance-id "$id" \
+            --device-index 1 --query AttachmentId --output text)
+        aws ec2 modify-network-interface-attribute --network-interface-id "$eni" \
+            --attachment "AttachmentId=$attachment,DeleteOnTermination=true"
+        read -r mac ip <<<"$(aws ec2 describe-network-interfaces --network-interface-ids "$eni" \
+            --query 'NetworkInterfaces[0].[MacAddress,PrivateIpAddress]' --output text)"
+        DPDK_MAC+=("$mac") DPDK_IP+=("$ip")
+    done
+    log "DPDK interfaces: ${DPDK_MAC[*]} (${DPDK_IP[*]})"
+fi
 # shellcheck disable=SC2086
 read -r -a PUBLIC <<<"$(aws ec2 describe-instances --instance-ids $IDS \
     --query 'Reservations[].Instances[].PublicIpAddress' --output text)"
@@ -313,6 +348,29 @@ if [[ $PIN == 1 ]]; then
     for host in "${PUBLIC[@]}"; do
         on "$host" 'sudo systemctl stop irqbalance 2>/dev/null || true
             for irq in /proc/irq/[0-9]*; do echo 0 | sudo tee $irq/smp_affinity_list >/dev/null 2>&1 || true; done'
+    done
+fi
+# DPDK from Ubuntu's packages, hugepages, the second interface bound to vfio-pci without an IOMMU
+# (EC2 exposes none), its PCI address in ~/dpdk-pci, and the ping-pong built.
+if asked dpdk; then
+    for i in "${!PUBLIC[@]}"; do
+        on "${PUBLIC[i]}" "cat >dpdk-pingpong.c" <scripts/dpdk-pingpong.c
+        on "${PUBLIC[i]}" "set -e
+            sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
+                build-essential pkg-config dpdk libdpdk-dev >/dev/null
+            echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages >/dev/null
+            for _ in \$(seq 60); do
+                dev=\$(grep -lx '${DPDK_MAC[i]}' /sys/class/net/*/address | head -1 | cut -d/ -f5) && [ -n \"\$dev\" ] && break
+                sleep 1
+            done
+            [ -n \"\$dev\" ] || { echo 'no interface with MAC ${DPDK_MAC[i]}' >&2; exit 1; }
+            basename \$(readlink /sys/class/net/\$dev/device) >dpdk-pci
+            sudo ip link set \$dev down
+            sudo modprobe vfio enable_unsafe_noiommu_mode=1
+            echo 1 | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode >/dev/null
+            sudo modprobe vfio-pci
+            sudo dpdk-devbind.py -b vfio-pci \$(cat dpdk-pci)
+            cc -O2 -Wall -o dpdk-pingpong dpdk-pingpong.c \$(pkg-config --cflags --libs libdpdk)"
     done
 fi
 if asked floor; then
@@ -414,21 +472,48 @@ network() {
 floor() {
     local us cpu=''
     [[ $PIN == 1 ]] && cpu='taskset -c $(($(nproc --all) - 1))'
+    local proto flag listening
     for us in $BUSY_POLL; do
         for host in "${PUBLIC[@]}"; do on "$host" "sudo sysctl -q net.core.busy_poll=$us net.core.busy_read=$us"; done
-        on "$ACCEPTOR" "$cpu nohup sockperf server --tcp -i 0.0.0.0 -p $((PORT + 1)) >sockperf.log 2>&1 </dev/null &
-            for _ in \$(seq 50); do ss -Hltn sport = :$((PORT + 1)) | grep -q . && exit 0; sleep 0.1; done
-            cat sockperf.log >&2; exit 1"
-        log "run floor: busy poll $us µs"
-        echo "### sockperf ping-pong, busy poll $us µs"
-        echo
-        echo '```'
-        on "$INITIATOR" "$cpu sockperf ping-pong --tcp -i ${PRIVATE[0]} -p $((PORT + 1)) -m 200 -t $DURATION --full-rtt 2>&1 |
-            grep -E 'Summary|percentile|MAX|MIN|avg-|rror|nvalid|nknown'"
-        echo '```'
-        echo
-        on "$ACCEPTOR" 'pkill -TERM -x sockperf || true; while pgrep -x sockperf >/dev/null; do sleep 0.1; done'
+        for proto in tcp udp; do
+            flag='' listening="ss -Hlun sport = :$((PORT + 1))"
+            [[ $proto == tcp ]] && flag=--tcp listening="ss -Hltn sport = :$((PORT + 1))"
+            on "$ACCEPTOR" "$cpu nohup sockperf server $flag -i 0.0.0.0 -p $((PORT + 1)) >sockperf.log 2>&1 </dev/null &
+                for _ in \$(seq 50); do $listening | grep -q . && exit 0; sleep 0.1; done
+                cat sockperf.log >&2; exit 1"
+            log "run floor: $proto, busy poll $us µs"
+            echo "### sockperf ping-pong, $proto, busy poll $us µs"
+            echo
+            echo '```'
+            on "$INITIATOR" "$cpu sockperf ping-pong $flag -i ${PRIVATE[0]} -p $((PORT + 1)) -m 200 -t $DURATION --full-rtt 2>&1 |
+                grep -E 'Summary|percentile|MAX|MIN|avg-|rror|nvalid|nknown'"
+            echo '```'
+            echo
+            on "$ACCEPTOR" 'pkill -TERM -x sockperf || true; while pgrep -x sockperf >/dev/null; do sleep 0.1; done'
+        done
     done
+}
+
+# The ping-pong over DPDK: the server on the acceptor's machine, the client on the initiator's,
+# each on its last CPU, with the drivers' messages (whether ENA's low-latency queue is on, say).
+dpdk() {
+    local eal='-l $(($(nproc --all) - 1)) -a $(cat dpdk-pci) --log-level=pmd.net.ena:info'
+    on "$ACCEPTOR" "sudo nohup ./dpdk-pingpong $eal -- server >dpdk-server.log 2>&1 </dev/null &
+        for _ in \$(seq 100); do grep -q 'link up' dpdk-server.log && exit 0; sleep 0.1; done
+        cat dpdk-server.log >&2; exit 1"
+    log "run dpdk"
+    echo "### DPDK UDP ping-pong, 200-byte datagrams"
+    echo
+    echo '```'
+    on "$INITIATOR" "sudo ./dpdk-pingpong $eal -- client ${DPDK_MAC[0]} ${DPDK_IP[1]} ${DPDK_IP[0]} $DURATION 200 2>&1"
+    echo '```'
+    echo
+    echo "The server's start:"
+    echo
+    echo '```'
+    on "$ACCEPTOR" 'sudo pkill -TERM -x dpdk-pingpong || true; while pgrep -x dpdk-pingpong >/dev/null; do sleep 0.1; done
+        cat dpdk-server.log'
+    echo '```'
 }
 
 # Each bench target under samply, run as cargo runs it, in its package's directory. Its
@@ -452,6 +537,7 @@ for run in $RUNS; do
     case $run in
         profile) profile ;;
         floor) floor | tee "$OUT/floor.md" ;;
+        dpdk) dpdk | tee "$OUT/dpdk.md" ;;
         network)
             for malloc in $MALLOC; do
                 for driver in $DRIVERS; do for us in $BUSY_POLL; do network "$malloc" "$driver" "$us"; done; done
@@ -497,9 +583,13 @@ done
         echo "## $run"
         echo
         if [[ $run == floor ]]; then
-            echo "sockperf's TCP ping-pong, $DURATION s, 200-byte messages, full round trips (--full-rtt)."
+            echo "sockperf's TCP and UDP ping-pongs, $DURATION s, 200-byte messages, full round trips (--full-rtt)."
             echo
             cat "$OUT/floor.md"
+        elif [[ $run == dpdk ]]; then
+            echo "scripts/dpdk-pingpong.c, $DURATION s after 1 s of warm-up, over a second interface bound to vfio-pci."
+            echo
+            cat "$OUT/dpdk.md"
         elif [[ $run == network ]]; then
             echo "\`load\` against \`ack\`, $DURATION s measured after 2 s of warm-up."
             echo
