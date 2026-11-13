@@ -12,7 +12,8 @@
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
 #   floor     the network's floor without Turbojet: sockperf's TCP and UDP ping-pongs between the
 #             same two machines, 200-byte messages one at a time for DURATION s, under each of
-#             BUSY_POLL, on the last CPU of each with PIN=1, as full round trips (--full-rtt)
+#             BUSY_POLL, on the last CPU of each with PIN=1, as full round trips (--full-rtt); and
+#             TCP on non-blocking sockets (--nonblocked), read in a loop as the spinning driver does
 #   dpdk      the floor without the kernel: scripts/dpdk-pingpong.c's UDP ping-pong, 200-byte
 #             datagrams one at a time for DURATION s, over a second network interface each machine
 #             gets for it, bound to vfio-pci (no IOMMU) and polled from the last CPU
@@ -475,9 +476,10 @@ floor() {
     local proto flag listening
     for us in $BUSY_POLL; do
         for host in "${PUBLIC[@]}"; do on "$host" "sudo sysctl -q net.core.busy_poll=$us net.core.busy_read=$us"; done
-        for proto in tcp udp; do
-            flag='' listening="ss -Hlun sport = :$((PORT + 1))"
-            [[ $proto == tcp ]] && flag=--tcp listening="ss -Hltn sport = :$((PORT + 1))"
+        for proto in tcp udp tcp-nonblocked; do
+            flag='--tcp' listening="ss -Hltn sport = :$((PORT + 1))"
+            [[ $proto == udp ]] && flag='' listening="ss -Hlun sport = :$((PORT + 1))"
+            [[ $proto == tcp-nonblocked ]] && flag='--tcp --nonblocked'
             on "$ACCEPTOR" "$cpu nohup sockperf server $flag -i 0.0.0.0 -p $((PORT + 1)) >sockperf.log 2>&1 </dev/null &
                 for _ in \$(seq 50); do $listening | grep -q . && exit 0; sleep 0.1; done
                 cat sockperf.log >&2; exit 1"
