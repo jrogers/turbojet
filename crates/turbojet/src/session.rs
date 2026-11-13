@@ -260,7 +260,8 @@ pub struct SessionConfig {
     #[cfg(feature = "validation")]
     pub validator: Option<Arc<crate::validation::Validator>>,
     /// Records the latency histograms (feature `metrics`): the time to handle each inbound message,
-    /// to commit, and from reading input to its replies being ready to write; see
+    /// to commit, and from reading input to its replies being ready to write, and on Linux, over a
+    /// spinning stream with receive timestamps, from the wire to the read; see
     /// [`telemetry`](crate::telemetry#latency-histograms). Off by default: they cost a clock read
     /// per inbound message, and a few per batch.
     #[cfg(feature = "metrics")]
