@@ -1462,10 +1462,34 @@ building the order):
   on_message, wire to wire`, criterion, at `a5ae24d`; issue #49), against 1.32 µs for `order to
   ack, wire to wire` in the same run. So the driver adds about 0.3 µs a message receiving, and
   most of `ack`'s 0.7 to 0.9 µs is in sending: staging the output, the write, the `sendto`.
-- No stage alone is most of it. What's left to cut is spread over the driver's loop around the
-  session (0.7 to 0.9 µs a message on `ack`, mostly in sending; about 0.3 µs receiving), the send path (about 1 µs), and the benchmark's
-  untyped order (0.4 to 0.6 µs), which a real application building typed messages pays in its
-  own way.
+- No stage alone is most of it.
+
+Then the driver's share (issue #48), 2026-11-13 at `743f531`, the same set-up, with `ack`'s latency
+histograms on (`ACK_ARGS='--metrics-listen 127.0.0.1:9090'`, which builds `ack` with the `metrics`
+feature and records its summaries after each run), p50, µs:
+
+| `ack` | 1,000/s | 20,000/s |
+|---|---:|---:|
+| Criterion, `order to ack, wire to wire`, warm | 1.31 | |
+| Handling the order in place (`turbojet_inbound_message_seconds`) | 1.65 | 1.51 |
+| From the read to ready to write (`turbojet_read_to_write_seconds`) | 1.85 | 1.70 |
+| From the order's `recvfrom` to the report's `sendto`, traced | 2.4 | 2.2 |
+
+- The session's own work is 0.2 to 0.35 µs slower in place than in criterion's loop. Cold
+  caches are about 0.1 µs of it: criterion's `order to ack, wire to wire` with 30 to 3,000
+  empty socket reads between orders, as the spinning loop makes, went from 1.31 to 1.39 to
+  1.44 µs on `c9gd` (1.00 to 1.04 µs on an M3).
+- Committing and the driver's bookkeeping after it take about 0.2 µs; copying into the outbox,
+  the write through tokio's split, the kernel's exit and entry and the trace's own probe 0.4 to
+  0.5 µs more.
+- `SessionHandle::send` alone takes 70 ns warm on an M3, with nothing else touching the queue;
+  in `load` it took 0.3 to 0.4 µs, its queue's cache lines fetched back from the spinning
+  thread's core each time. The spinning thread mostly has the order before `send()` returns,
+  so most of that is off the round trip.
+- What the driver adds is spread over pieces of 0.05 to 0.15 µs each: a send's registry lookup
+  (its lock, hash and sender clone), the outbox copy, three or four clock reads a message.
+  Trimming them all might save 0.2 to 0.3 µs of a 23 µs round trip, so they're left as they
+  are; the session's own 1.3 µs a message is the larger part.
 
 ### Current numbers
 
