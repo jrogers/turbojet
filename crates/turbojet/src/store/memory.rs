@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use super::seq_index::SeqIndex;
@@ -9,10 +10,31 @@ use super::{Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::fields::UtcTimestamp;
 use crate::sync::CachePadded;
 
+/// A session's state: the sequence numbers apart, as atomics, since the session reads them several
+/// times a message and a lock each time cost about 10% of handling an order on Graviton; the rest
+/// behind the lock.
 #[derive(Debug)]
+struct Shared {
+    next_outgoing: AtomicU64,
+    next_incoming: AtomicU64,
+    /// The message in flight, 0 for none: sequence numbers start at 1.
+    in_flight: AtomicU64,
+    state: Mutex<State>,
+}
+
+impl Default for Shared {
+    fn default() -> Self {
+        Self {
+            next_outgoing: AtomicU64::new(1),
+            next_incoming: AtomicU64::new(1),
+            in_flight: AtomicU64::new(0),
+            state: Mutex::default(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
 struct State {
-    next_outgoing: u64,
-    next_incoming: u64,
     /// The newest messages sent since a sequence reset, at most `max_session_bytes` of them.
     sent: SeqIndex<Vec<u8>>,
     /// The total length of `sent`.
@@ -20,23 +42,7 @@ struct State {
     /// The highest sequence number evicted from `sent`.
     evicted_through: Option<u64>,
     created_at: Option<UtcTimestamp>,
-    in_flight: Option<u64>,
     marks: Marks,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            next_outgoing: 1,
-            next_incoming: 1,
-            sent: SeqIndex::default(),
-            bytes: 0,
-            evicted_through: None,
-            created_at: None,
-            in_flight: None,
-            marks: Marks::default(),
-        }
-    }
 }
 
 impl State {
@@ -82,7 +88,7 @@ impl State {
 pub struct MemoryStorage {
     /// One per session opened, never removed, at most `max_sessions`. An acceptor opens one for
     /// each CompID that [`Application::verify_logon`](crate::Application::verify_logon) accepts.
-    sessions: Mutex<HashMap<SessionId, Arc<CachePadded<Mutex<State>>>>>,
+    sessions: Mutex<HashMap<SessionId, Arc<CachePadded<Shared>>>>,
     max_sessions: usize,
     max_session_bytes: u64,
 }
@@ -151,11 +157,11 @@ impl SessionStorage for MemoryStorage {
                 format!("memory storage holds its maximum of {} sessions", self.max_sessions),
             ));
         }
-        let state = sessions.entry(id.clone()).or_default().clone();
+        let shared = sessions.entry(id.clone()).or_default().clone();
         debug_assert!(sessions.len() <= self.max_sessions);
         // More than the address space holds is no limit at all.
         let max_bytes = usize::try_from(self.max_session_bytes).unwrap_or(usize::MAX);
-        Ok(Box::new(MemoryLog { state, max_bytes }))
+        Ok(Box::new(MemoryLog { shared, max_bytes }))
     }
 
     fn is_durable(&self) -> bool {
@@ -167,7 +173,7 @@ impl SessionStorage for MemoryStorage {
         let sessions = self.sessions.lock().expect("memory storage lock poisoned");
         let marked = sessions
             .iter()
-            .map(|(id, state)| (id.clone(), state.lock().expect("memory storage lock poisoned").marks))
+            .map(|(id, shared)| (id.clone(), shared.state.lock().expect("memory storage lock poisoned").marks))
             .filter(|(_, marks)| !marks.is_empty())
             .collect();
         Job::blocking(move || Ok(marked))
@@ -181,40 +187,40 @@ impl SessionStorage for MemoryStorage {
 }
 
 struct MemoryLog {
-    state: Arc<CachePadded<Mutex<State>>>,
+    shared: Arc<CachePadded<Shared>>,
     max_bytes: usize,
 }
 
 impl MemoryLog {
     fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().expect("memory storage lock poisoned")
+        self.shared.state.lock().expect("memory storage lock poisoned")
     }
 }
 
 impl StoredSession for MemoryLog {
+    // The sequence numbers are Relaxed: one session uses its log at a time, and the log passes
+    // between threads only through what orders their accesses (a task's wake-up, a reconnect).
     fn next_outgoing(&self) -> u64 {
-        self.state().next_outgoing
+        self.shared.next_outgoing.load(Ordering::Relaxed)
     }
 
     fn next_incoming(&self) -> u64 {
-        self.state().next_incoming
+        self.shared.next_incoming.load(Ordering::Relaxed)
     }
 
     fn set_next_incoming(&mut self, seq: u64) -> io::Result<()> {
         debug_assert!(seq >= 1, "sequence numbers start at 1");
-        let mut state = self.state();
-        state.next_incoming = seq;
-        state.in_flight = None;
+        self.shared.next_incoming.store(seq, Ordering::Relaxed);
+        self.shared.in_flight.store(0, Ordering::Relaxed);
         Ok(())
     }
 
     fn record_outgoing(&mut self, seq: u64, msg: Option<&[u8]>) -> io::Result<()> {
-        let mut state = self.state();
-        super::debug_check_record(seq, state.next_outgoing, msg);
+        super::debug_check_record(seq, self.next_outgoing(), msg);
         if let Some(msg) = msg {
-            state.store(seq, msg, self.max_bytes);
+            self.state().store(seq, msg, self.max_bytes);
         }
-        state.next_outgoing = seq + 1;
+        self.shared.next_outgoing.store(seq + 1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -231,6 +237,9 @@ impl StoredSession for MemoryLog {
         let marks = state.marks;
         *state = State::default();
         state.marks = marks;
+        self.shared.next_outgoing.store(1, Ordering::Relaxed);
+        self.shared.next_incoming.store(1, Ordering::Relaxed);
+        self.shared.in_flight.store(0, Ordering::Relaxed);
         Ok(())
     }
 
@@ -243,19 +252,19 @@ impl StoredSession for MemoryLog {
     }
 
     fn in_flight(&self) -> Option<u64> {
-        self.state().in_flight
+        Some(self.shared.in_flight.load(Ordering::Relaxed)).filter(|&seq| seq != 0)
     }
 
     fn set_in_flight(&mut self, seq: u64) -> io::Result<()> {
-        self.state().in_flight = Some(seq);
+        debug_assert!(seq >= 1, "sequence numbers start at 1");
+        self.shared.in_flight.store(seq, Ordering::Relaxed);
         Ok(())
     }
 
     fn set_next_incoming_in_flight(&mut self, seq: u64, in_flight: u64) -> io::Result<()> {
-        debug_assert!(seq >= 1, "sequence numbers start at 1");
-        let mut state = self.state();
-        state.next_incoming = seq;
-        state.in_flight = Some(in_flight);
+        debug_assert!(seq >= 1 && in_flight >= 1, "sequence numbers start at 1");
+        self.shared.next_incoming.store(seq, Ordering::Relaxed);
+        self.shared.in_flight.store(in_flight, Ordering::Relaxed);
         Ok(())
     }
 

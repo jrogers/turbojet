@@ -293,6 +293,14 @@ chosen by alias, since nothing in a sessions file would name it. It's a feature 
   and 8 to 10 ms at 2.4 million over 8 sessions, against at most 0.4 ms on glibc. A block's
   growth moves nothing already stored; only the ring of blocks, 32 bytes for each 4,096
   messages, ever doubles.
+- **The memory store's sequence numbers** (next outgoing, next incoming, the message in flight)
+  are atomics beside its per-session lock, which keeps the stored messages. The session reads them
+  several times a message, and each read took the lock: about 10% of an order → ack on AWS
+  Graviton, in a profile. Without it, on `c9gd.2xlarge` (criterion medians of two interleaved
+  rounds each, 2026-11-13): an order → ack with the memory store 1.01 to 1.04 µs before and 919
+  to 943 ns after, wire to wire 1.23 µs to 1.15 µs, and an initiator taking in a report 530 ns to
+  456 ns; the disk store unchanged at 1.65 to 1.68 µs. Relaxed loads and stores: one session uses
+  its log at a time, and it passes between threads only through what orders their accesses.
 - **SQL storage** (`turbojet-sql`), in SQLite or PostgreSQL through sqlx: one transaction per
   commit, the same byte budget, and a lease per session, taken on opening and renewed by each
   commit, so gateways sharing a database can't run one session at once and one whose lease was

@@ -29,6 +29,10 @@ Notable changes to the published crates.
   (`F_FULLFSYNC`), each having first `fsync`ed its own file, rather than each flushing the drive:
   64 sessions committing together on an Apple M3 took 0.4 ms a commit rather than 3 ms, and one
   session alone is unchanged at 4 ms. Other platforms are unchanged.
+- **Changed:** `MemoryStorage` keeps each session's sequence numbers as atomics, not behind the
+  lock that guards its stored messages, which the session took several times a message: on an
+  AWS Graviton machine an order → ack with the memory store took 930 ns rather than 1.03 µs, and
+  an initiator taking in a report 456 ns rather than 530 ns.
 - **Fixed:** `MemoryStorage` and `DiskStorage` keep their index of stored messages in blocks, so
   a session that has stored millions of messages no longer pauses for milliseconds each time the
   index grows. It showed on allocators whose `realloc` copies large blocks, such as jemalloc.
