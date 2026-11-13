@@ -17,6 +17,9 @@
 #   dpdk      the floor without the kernel: scripts/dpdk-pingpong.c's UDP ping-pong, 200-byte
 #             datagrams one at a time for DURATION s, over a second network interface each machine
 #             gets for it, bound to vfio-pci (no IOMMU) and polled from the last CPU
+#   DPDK_WC      1 (the default): the dpdk run's vfio-pci rebuilt from the running kernel's source
+#                to map prefetchable BARs write-combined, as ENA's low-latency queue needs (the
+#                change AWS's amzn-drivers enav2-vfio-patch makes); 0: the stock module, uncached
 #   local     the criterion benchmarks (`cargo bench -p turbojet --all-features`) on the initiator's
 #             machine, their temporary files on its local NVMe, once for each of MALLOC; criterion's
 #             reports into criterion-<malloc>/, its output into local-<malloc>.txt
@@ -110,6 +113,8 @@ for us in $BUSY_POLL; do [[ $us =~ ^[0-9]+$ ]] || { echo "BUSY_POLL is in µs, n
 PIN=${PIN:-0} ISOLCPUS=${ISOLCPUS:-0}
 [[ $PIN == 0 || $PIN == 1 ]] || { echo "PIN is 0 or 1" >&2; exit 2; }
 [[ $ISOLCPUS == 0 || $ISOLCPUS == 1 ]] || { echo "ISOLCPUS is 0 or 1" >&2; exit 2; }
+DPDK_WC=${DPDK_WC:-1}
+[[ $DPDK_WC == 0 || $DPDK_WC == 1 ]] || { echo "DPDK_WC is 0 or 1" >&2; exit 2; }
 TAG=turbojet-bench
 PORT=9876
 
@@ -367,9 +372,32 @@ if asked dpdk; then
             [ -n \"\$dev\" ] || { echo 'no interface with MAC ${DPDK_MAC[i]}' >&2; exit 1; }
             basename \$(readlink /sys/class/net/\$dev/device) >dpdk-pci
             sudo ip link set \$dev down
-            sudo modprobe vfio enable_unsafe_noiommu_mode=1
-            echo 1 | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode >/dev/null
-            sudo modprobe vfio-pci
+            if [ $DPDK_WC = 1 ]; then
+                sudo sed -i 's/^Types: deb\$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
+                sudo apt-get -qq update
+                sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dpkg-dev linux-headers-\$(uname -r) >/dev/null
+                mkdir -p ksrc && cd ksrc && apt-get -qq source linux-image-unsigned-\$(uname -r) >/dev/null 2>&1
+                cd \$(find . -maxdepth 1 -mindepth 1 -type d | head -1)/drivers/vfio
+                python3 -c \"
+import pathlib
+p = pathlib.Path('pci/vfio_pci_core.c'); s = p.read_text()
+old = '\tvma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);\n'
+assert s.count(old) == 1, 'vfio_pci_core.c changed: no single pgprot_noncached mmap line'
+p.write_text(s.replace(old, '\tif (pci_resource_flags(pdev, index) & IORESOURCE_PREFETCH)\n\t\tvma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);\n\telse\n\t\tvma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);\n'))
+\"
+                make -s -C /lib/modules/\$(uname -r)/build M=\$PWD modules >build.log 2>&1 || { tail -20 build.log >&2; exit 1; }
+                sudo modprobe vfio-pci   # the stock modules' dependencies, then the stock ones out
+                sudo rmmod vfio_pci vfio_pci_core vfio_iommu_type1 vfio 2>/dev/null || true
+                sudo insmod vfio.ko enable_unsafe_noiommu_mode=1
+                sudo insmod pci/vfio-pci-core.ko
+                sudo insmod pci/vfio-pci.ko
+                cd ~
+                echo 'vfio-pci rebuilt with write-combining' >&2
+            else
+                sudo modprobe vfio enable_unsafe_noiommu_mode=1
+                echo 1 | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode >/dev/null
+                sudo modprobe vfio-pci
+            fi
             sudo dpdk-devbind.py -b vfio-pci \$(cat dpdk-pci)
             cc -O2 -Wall -o dpdk-pingpong dpdk-pingpong.c \$(pkg-config --cflags --libs libdpdk)"
     done
@@ -590,7 +618,7 @@ done
             echo
             cat "$OUT/floor.md"
         elif [[ $run == dpdk ]]; then
-            echo "scripts/dpdk-pingpong.c, $DURATION s after 1 s of warm-up, over a second interface bound to vfio-pci."
+            echo "scripts/dpdk-pingpong.c, $DURATION s after 1 s of warm-up, over a second interface bound to vfio-pci$([[ $DPDK_WC == 1 ]] && echo ', rebuilt to map the BARs write-combined' || echo ', stock: uncached')."
             echo
             cat "$OUT/dpdk.md"
         elif [[ $run == network ]]; then
