@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
 use std::io;
 
-use turbojet::store::{Fetched, MaybeHandled, Opened, SessionStorage, StoredSession};
+use turbojet::store::{Commit, Fetched, MaybeHandled, Opened, SessionStorage, StoredSession};
 
 use crate::frame::{Batch, Frame, NackReason, Op, Part, Summary, VERSION};
 
@@ -12,6 +12,10 @@ use crate::frame::{Batch, Frame, NackReason, Op, Part, Summary, VERSION};
 /// times `DiskStorage`'s default budget for a session. A session past it is refused, ending the
 /// connection, so the standby's memory is bounded by its connection's sessions, one at a time.
 const MAX_WHOLE_SESSION_BYTES: usize = 4 << 30;
+
+/// The most commits a standby holds back for [`Replica::flush`], each run on a thread of its
+/// own there: enough for a gateway's busy sessions to share their syncs, few enough threads.
+const MAX_HELD_COMMITS: usize = 64;
 
 /// A standby's copy of an active instance's session state: each batch the active commits is
 /// applied to `S` and committed there before it's acknowledged, so `S` holds what the active
@@ -36,6 +40,9 @@ pub struct Replica<S> {
     /// An active has compared every session it holds with this run's copy, and sent whole those
     /// that differed: only then may it take over.
     checked: bool,
+    /// Commits of batches applied by [`on_frame_held`](Self::on_frame_held), not yet run, with
+    /// the handles they're for: at most one a handle, so a session's commits run in order.
+    held: Vec<(u32, Commit)>,
 }
 
 impl<S> std::fmt::Debug for Replica<S> {
@@ -69,6 +76,7 @@ impl<S: SessionStorage> Replica<S> {
             max_lag: 0,
             incarnation: new_incarnation(),
             checked: false,
+            held: Vec::new(),
         }
     }
 
@@ -116,6 +124,55 @@ impl<S: SessionStorage> Replica<S> {
     /// bound, an unknown version, application records this standby wasn't told of): the
     /// connection must end, failing the active's commits under way.
     pub fn on_frame(&mut self, frame: Frame) -> io::Result<Option<Frame>> {
+        let answer = self.on_frame_held(frame)?;
+        self.flush(self.connections)?;
+        Ok(answer)
+    }
+
+    /// Handles a frame as [`on_frame`](Self::on_frame) does, but holds back the commit of a
+    /// batch it applies: its answer may be sent only once [`flush`](Self::flush) has run the
+    /// commit. A network driver holds them while more frames are already read, so batches for
+    /// different sessions sync at once rather than one after another. A frame other than a batch,
+    /// a second batch for a session, or more than 64 held flush what was held first.
+    ///
+    /// # Errors
+    ///
+    /// As for [`on_frame`](Self::on_frame), a held commit's failure included.
+    pub fn on_frame_held(&mut self, frame: Frame) -> io::Result<Option<Frame>> {
+        let flush_first = match &frame {
+            Frame::Batch(batch) => {
+                self.held.len() >= MAX_HELD_COMMITS || self.held.iter().any(|(handle, _)| *handle == batch.handle)
+            }
+            _ => !self.held.is_empty(),
+        };
+        if flush_first {
+            self.flush(self.connections)?;
+        }
+        self.answer(frame)
+    }
+
+    /// Runs the commits held back for connection `connection`, at once, each but one on a
+    /// thread of its own: once it returns, the answers to the frames they're for may be sent.
+    ///
+    /// # Errors
+    ///
+    /// A commit's failure, or [`io::ErrorKind::ConnectionAborted`] if `connection` isn't the
+    /// current one or this standby has taken over: its commits were dropped with its sessions,
+    /// and the answers held for them mustn't be sent.
+    pub fn flush(&mut self, connection: u64) -> io::Result<()> {
+        if connection != self.connections || self.promoted {
+            return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "the connection's commits were dropped"));
+        }
+        let mut commits = std::mem::take(&mut self.held).into_iter().map(|(_, commit)| commit);
+        let Some(first) = commits.next() else { return Ok(()) };
+        std::thread::scope(|scope| {
+            let others: Vec<_> = commits.map(|commit| scope.spawn(|| commit.run())).collect();
+            let first = first.run();
+            others.into_iter().map(|other| other.join().expect("a commit panicked")).fold(first, Result::and)
+        })
+    }
+
+    fn answer(&mut self, frame: Frame) -> io::Result<Option<Frame>> {
         if self.promoted {
             return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "this standby has taken over"));
         }
@@ -133,7 +190,7 @@ impl<S: SessionStorage> Replica<S> {
                 if epoch < self.epoch {
                     return Ok(Some(Frame::Welcome { epoch: self.epoch, incarnation: self.incarnation }));
                 }
-                self.bound.clear();
+                self.disconnected();
                 self.connections += 1;
                 self.epoch = epoch;
                 Ok(Some(Frame::Welcome { epoch, incarnation: self.incarnation }))
@@ -261,6 +318,8 @@ impl<S: SessionStorage> Replica<S> {
     /// The current connection has ended: its handles go, and the logs they held are closed.
     pub fn disconnected(&mut self) {
         self.bound.clear();
+        // Not run: their answers are never sent, and their sessions' logs are closed.
+        self.held.clear();
     }
 
     fn on_batch(&mut self, batch: Batch) -> io::Result<Frame> {
@@ -301,7 +360,7 @@ impl<S: SessionStorage> Replica<S> {
             apply(bound.log.as_mut(), op)?;
         }
         if let Some(commit) = bound.log.commit()? {
-            commit.run()?;
+            self.held.push((handle, commit));
         }
         bound.commit_no = commit_no;
         Ok(Frame::Ack { handle, commit_no })
@@ -530,6 +589,49 @@ mod tests {
             app_record_kinds: Vec::new(),
         });
         assert!(matches!(welcome, Ok(Some(Frame::Welcome { epoch: 2, incarnation })) if incarnation != 0));
+    }
+
+    /// A held commit runs only at a flush, or when the next frame for its session would need it
+    /// run first; one dropped by a lost connection never runs, and its answer mustn't be sent.
+    #[test]
+    fn held_commits_run_at_a_flush() {
+        let dir = tempfile::tempdir().unwrap();
+        let disk = || turbojet::DiskStorage::new(dir.path()).unwrap();
+        let hello = || Frame::Hello { version: VERSION, epoch: 1, node: "a".into(), app_record_kinds: Vec::new() };
+        let bind = |handle, name| Frame::Bind { handle, epoch: 1, max_lag: 0, session: conformance::id(name) };
+        let batch = |handle, commit_no, ops| {
+            Frame::Batch(Batch { handle, epoch: 1, commit_no, part: Part::Commit, ops, app_records: Vec::new() })
+        };
+        let next_outgoing = |name| disk().open(&conformance::id(name)).unwrap().next_outgoing();
+
+        let mut replica = Replica::new(disk());
+        replica.on_frame(hello()).unwrap();
+        replica.on_frame(bind(1, "A")).unwrap();
+        replica.on_frame(bind(2, "B")).unwrap();
+        let ack = replica.on_frame_held(batch(1, 1, records(1..=3))).unwrap();
+        assert_eq!(ack, Some(Frame::Ack { handle: 1, commit_no: 1 }));
+        replica.on_frame_held(batch(2, 1, records(1..=2))).unwrap();
+        assert_eq!(replica.held.len(), 2, "different sessions' commits are held together");
+        replica.on_frame_held(batch(1, 2, records(4..=4))).unwrap();
+        assert_eq!(replica.held.len(), 1, "a session's next batch runs what was held first");
+        assert_eq!(replica.flush(replica.connection() + 1).unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
+        replica.flush(replica.connection()).unwrap();
+        replica.disconnected();
+        assert_eq!((next_outgoing("A"), next_outgoing("B")), (5, 3));
+
+        let mut replica = Replica::new(disk());
+        replica.on_frame(hello()).unwrap();
+        replica.on_frame(bind(1, "A")).unwrap();
+        replica.on_frame_held(batch(1, 1, records(5..=6))).unwrap();
+        replica.disconnected();
+        assert_eq!(next_outgoing("A"), 5, "a commit dropped with its connection never runs");
+
+        // Another connection's hello runs what the last held, but the last's answers stay unsent.
+        replica.on_frame(bind(1, "A")).unwrap();
+        replica.on_frame_held(batch(1, 1, records(5..=6))).unwrap();
+        let connection = replica.connection();
+        replica.on_frame(hello()).unwrap();
+        assert_eq!(replica.flush(connection).unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
     }
 
     #[test]

@@ -116,8 +116,14 @@ where
     let mut connection = None;
     let mut out = Vec::new();
     let result = loop {
-        // Answers wait while more frames are already here, and go together: one write, not one each.
+        // Answers wait while more frames are already here, and go together: one write, not one
+        // each, once the commits they answer for have run, together too.
         if !out.is_empty() && !frames.buffered() {
+            if let Some(connection) = connection
+                && let Err(e) = replica.lock().unwrap_or_else(PoisonError::into_inner).flush(connection)
+            {
+                break Err(e);
+            }
             if let Err(e) = frames.inner.write_all(&out).await {
                 break Err(e);
             }
@@ -131,7 +137,7 @@ where
         let answer = {
             let mut replica = replica.lock().unwrap_or_else(PoisonError::into_inner);
             let before = replica.connection();
-            let answer = replica.on_frame(frame);
+            let answer = replica.on_frame_held(frame);
             if replica.connection() != before {
                 connection = Some(replica.connection());
             }
