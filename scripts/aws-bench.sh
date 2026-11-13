@@ -51,11 +51,12 @@
 #   PACKAGE      the crate whose benchmarks the local and profile runs run, turbojet by default
 #                (turbojet-replica for `replica`, the stores committing alone and replicated)
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
-#   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip'
-#   REVS         commits the local run measures in turn on the one machine, HEAD by default: an A/B
-#                (REVS='main pad main pad'), a column each in results.md, numbered in order, since a
-#                commit may be listed more than once to interleave rounds. The network and profile
-#                runs use the first.
+#   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip',
+#                split at spaces: a filter matches one with '.' ('roundtrip.tcp/')
+#   REVS         commits the local and network runs measure in turn on the same machines, HEAD by
+#                default: an A/B (REVS='main pad main pad'), a column each in results.md and a
+#                section each in network.md, numbered in order, since a commit may be listed more
+#                than once to interleave rounds. The trace and profile runs use the first.
 #   PROFILE_SECS 5, seconds the profile run gives each benchmark
 #   MALLOC       glibc, jemalloc (LD_PRELOAD, Ubuntu's libjemalloc2), jemalloc-bg (the same, purging
 #                freed pages on a thread of its own: MALLOC_CONF=background_thread:true), or several,
@@ -432,10 +433,13 @@ on "$INITIATOR" "set -e
     curl -fsS https://sh.rustup.rs | sh -s -- -y -q --profile minimal >/dev/null
     . ~/.cargo/env"
 if asked network || asked trace; then
-    on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV cargo build -q --release -p turbojet --example ack --example load"
-    # The acceptor's binary to its machine, by its private address.
+    # The acceptor's binaries to its machine, by its private address, as ack-<sha>; `ack` links to
+    # the one running, so it's still `ack` to pkill and bpftrace.
     scp -q -i "$KEY" -o UserKnownHostsFile="$OUT/known_hosts" "$KEY" "ubuntu@$INITIATOR:.ssh/id_ed25519"
-    on "$INITIATOR" "scp -q -o StrictHostKeyChecking=accept-new src/target/release/examples/ack ubuntu@${PRIVATE[0]}:ack"
+    for sha in $UNIQUE; do
+        on "$INITIATOR" ". ~/.cargo/env && cd src-$sha && $ENV cargo build -q --release -p turbojet --example ack --example load"
+        on "$INITIATOR" "scp -q -o StrictHostKeyChecking=accept-new src-$sha/target/release/examples/ack ubuntu@${PRIVATE[0]}:ack-$sha"
+    done
 fi
 if asked local || asked profile; then
     # The instance store on /data, for the benchmarks' temporary files.
@@ -475,20 +479,21 @@ pinned() {
 }
 
 network() {
-    local malloc=$1 driver=$2 us=$3 load sessions rate spin='' spinning=0
+    local malloc=$1 driver=$2 us=$3 sha=${4:-${SHAS[0]}} load sessions rate spin='' spinning=0 rev=''
+    [[ ${#SHAS[@]} -gt 1 ]] && rev="$sha, "
     for host in "${PUBLIC[@]}"; do on "$host" "sudo sysctl -q net.core.busy_poll=$us net.core.busy_read=$us"; done
     [[ $driver == spin ]] && spin=--spin
     for load in $LOADS; do
         sessions=${load%:*} rate=${load#*:}
         [[ $driver == spin ]] && spinning=$sessions
-        on "$ACCEPTOR" "$(pinned "$spinning" ack) $(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT $spin >ack.log 2>&1 </dev/null &
+        on "$ACCEPTOR" "ln -sfn ack-$sha ack; $(pinned "$spinning" ack) $(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT $spin >ack.log 2>&1 </dev/null &
             for _ in \$(seq 50); do ss -Hltn sport = :$PORT | grep -q . && exit 0; sleep 0.1; done
             cat ack.log >&2; exit 1"
-        log "run network ($malloc, $driver, busy poll $us µs): $sessions sessions, $rate orders/s"
-        echo "### $malloc, $driver driver, busy poll $us µs: $sessions sessions, $rate orders/s"
+        log "run network ($rev$malloc, $driver, busy poll $us µs): $sessions sessions, $rate orders/s"
+        echo "### $rev$malloc, $driver driver, busy poll $us µs: $sessions sessions, $rate orders/s"
         echo
         echo '```'
-        on "$INITIATOR" "$(pinned $((spinning + 1)) load) $(preload "$malloc") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
+        on "$INITIATOR" "$(pinned $((spinning + 1)) load) $(preload "$malloc") src-$sha/target/release/examples/load ${PRIVATE[0]}:$PORT \
             --sessions $sessions --rate $rate --duration $DURATION $spin ${LOAD_ARGS:-}"
         if [[ $PIN == 1 ]]; then
             on "$INITIATOR" 'cat pins.txt'
@@ -627,9 +632,9 @@ for run in $RUNS; do
         trace) trace | tee "$OUT/trace.md" ;;
         dpdk) dpdk | tee "$OUT/dpdk.md" ;;
         network)
-            for malloc in $MALLOC; do
-                for driver in $DRIVERS; do for us in $BUSY_POLL; do network "$malloc" "$driver" "$us"; done; done
-            done | tee "$OUT/network.md"
+            for i in "${!SHAS[@]}"; do for malloc in $MALLOC; do
+                for driver in $DRIVERS; do for us in $BUSY_POLL; do network "$malloc" "$driver" "$us" "${SHAS[i]}"; done; done
+            done; done | tee "$OUT/network.md"
             ;;
         local)
             for i in "${!SHAS[@]}"; do
