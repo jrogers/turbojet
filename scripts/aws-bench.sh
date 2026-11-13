@@ -34,6 +34,8 @@
 #   RUNS         network local (the default), profile, or any of them
 #   LOADS        `load`'s sessions:rate pairs, space-separated (1:1000 1:10000 1:100000 8:200000)
 #   DURATION     10, seconds `load` measures each, after its 2 s of warm-up
+#   PACKAGE      the crate whose benchmarks the local and profile runs run, turbojet by default
+#                (turbojet-replica for `replica`, the stores committing alone and replicated)
 #   BENCHES      the local run's bench targets (codec session roundtrip sessions fixp fast); all by default
 #   BENCH_ARGS   criterion's arguments for the local and profile runs, e.g. '--quick' or 'roundtrip'
 #   REVS         commits the local run measures in turn on the one machine, HEAD by default: an A/B
@@ -73,6 +75,7 @@ MAX_MINUTES=${MAX_MINUTES:-180}
 RUNS=${RUNS:-network local}
 LOADS=${LOADS:-1:1000 1:10000 1:100000 8:200000}
 DURATION=${DURATION:-10}
+PACKAGE=${PACKAGE:-turbojet}
 BENCHES=${BENCHES:-}
 BENCH_ARGS=${BENCH_ARGS:-}
 PROFILE_SECS=${PROFILE_SECS:-5}
@@ -288,12 +291,14 @@ if [[ $ISOLCPUS == 1 ]]; then
     log "rebooted with CPUs isolated"
 fi
 
-# Each machine's NIC interrupt moderation, recorded, and with NIC_COALESCE_OFF turned off: the
+# Each machine's NIC driver, packet timestamping and interrupt moderation, recorded, and with NIC_COALESCE_OFF turned off: the
 # default route's, its one NIC.
 for i in "${!PUBLIC[@]}"; do
     on "${PUBLIC[i]}" "set -e
         dev=\$(ip -o route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if (\$i == \"dev\") print \$(i + 1)}')
         echo \"machine $i: \$dev, \$(ethtool -i \$dev | awk '/^driver/ {print \$2}')\"
+        modinfo -F version ena 2>/dev/null | sed 's/^/ena driver /' || true
+        sudo ethtool -T \$dev || true; ls /dev/ptp* 2>/dev/null || echo 'no /dev/ptp*'
         sudo ethtool -c \$dev | grep -E 'Adaptive|rx-usecs:|tx-usecs:'
         if [ $NIC_COALESCE_OFF = 1 ]; then
             sudo ethtool -C \$dev adaptive-rx off 2>/dev/null || true
@@ -330,7 +335,7 @@ on "$INITIATOR" "ln -sfn src-${SHAS[0]} src"
 log "building" $UNIQUE
 TARGETS=''
 for bench in $BENCHES; do TARGETS+=" --bench $bench"; done
-CARGO_BENCH="cargo bench -p turbojet --all-features$TARGETS"
+CARGO_BENCH="cargo bench -p $PACKAGE --all-features$TARGETS"
 ENV=${RUSTFLAGS:+"export RUSTFLAGS='$RUSTFLAGS' &&"}
 asked profile && ENV+=" export CARGO_PROFILE_BENCH_DEBUG=line-tables-only CARGO_PROFILE_RELEASE_DEBUG=line-tables-only &&"
 on "$INITIATOR" "set -e
