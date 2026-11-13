@@ -1,6 +1,7 @@
 //! Python bindings for Turbojet: FIX initiators loaded from a sessions file, driven from asyncio.
 
 mod engine;
+mod log;
 mod message;
 
 use std::sync::OnceLock;
@@ -23,25 +24,30 @@ fn log_to_stderr(filter: &str) -> PyResult<()> {
 }
 
 /// Logs the engine's events to Python's `logging`, under loggers named for their module
-/// (`turbojet.session`), at debug and above. Levels are read once per logger and cached: call
-/// again after changing them. Takes the GIL for each event logged, so a busy session is slower
-/// than with `log_to_stderr`, and the two don't mix: `Error` once the other is on.
+/// (`turbojet.session`), at debug and above. Each record has the session's ID as
+/// `record.session`, and a connection attempt's endpoint as `record.addr` and `record.role`
+/// (`primary` or `backup`). Levels are read once per logger and cached: call again after changing
+/// them. Takes the GIL for each event logged, so a busy session is slower than with
+/// `log_to_stderr`, and the two don't mix: `Error` once the other is on.
 #[pyfunction]
 fn log_to_python() -> PyResult<()> {
-    if let Some(handle) = PYTHON_LOG.get() {
-        handle.reset();
+    use tracing_subscriber::layer::{Layer as _, SubscriberExt as _};
+    use tracing_subscriber::util::SubscriberInitExt as _;
+
+    if PYTHON_LOG.get().is_some() {
+        log::reset();
         return Ok(());
     }
-    // tracing forwards events to `log` only while it has no subscriber of its own.
     if tracing::dispatcher::has_been_set() {
         return Err(engine::Error::new_err("log_to_stderr is already on"));
     }
-    let handle = pyo3_log::try_init().map_err(|e| engine::Error::new_err(e.to_string()))?;
-    let _ = PYTHON_LOG.set(handle);
+    let layer = log::PythonLayer.with_filter(tracing_subscriber::filter::LevelFilter::DEBUG);
+    tracing_subscriber::registry().with(layer).try_init().map_err(|e| engine::Error::new_err(e.to_string()))?;
+    let _ = PYTHON_LOG.set(());
     Ok(())
 }
 
-static PYTHON_LOG: OnceLock<pyo3_log::ResetHandle> = OnceLock::new();
+static PYTHON_LOG: OnceLock<()> = OnceLock::new();
 
 /// The `turbojet._turbojet` extension module, re-exported by the `turbojet` package.
 #[pymodule]

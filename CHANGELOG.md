@@ -43,7 +43,7 @@ Notable changes to the published crates.
 ### Python bindings (`crates/turbojet-python`, not published)
 
 - **Added:** `turbojet.log_to_python()` logs the engine's events into Python's `logging`, under
-  `turbojet.<module>` loggers.
+  `turbojet.<module>` loggers, each record carrying its session's ID as `record.session`.
 
 ## 0.10.0 (2026-11-08)
 

@@ -58,7 +58,8 @@ turbojet.log_to_python()                               # the engine's logs, into
 ```
 
 The engine logs into `logging` under `turbojet.<module>` (`turbojet.session`), at debug and
-above. Each logger's level is read once: call `log_to_python()` again after changing one.
+above, each record carrying the session's ID as `record.session` (a format can show it with
+`%(session)s`; records not from a session lack it). Each logger's level is read once: call `log_to_python()` again after changing one.
 `turbojet.log_to_stderr("info")` writes to stderr instead, without taking the GIL for each event;
 a process uses one or the other.
 

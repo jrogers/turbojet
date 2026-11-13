@@ -814,12 +814,13 @@ example (`scripts/python.sh`).
 - **Untyped messages.** The generated types are per FIX version and large, so Python gets
   `Message`. A repeating group is read with its member tags, as there's no version to find its
   spec by; `turbojet.tags` is generated from FIX 5.0 SP2's by `scripts/codegen.sh`.
-- **Logging.** `log_to_python` installs `pyo3-log` as the `log` crate's logger, and the bindings
-  turn on `tracing`'s `log` feature, which forwards events to `log` while there's no tracing
-  subscriber. That's events only: spans, and their fields, don't reach Python. `pyo3-log` caches
-  each logger and its level, so an event a level filters out costs no GIL; one logged takes it on
-  the session's task. `log_to_stderr` sets a subscriber, which stops the forwarding, so each
-  refuses once the other is on.
+- **Logging.** `log_to_python` sets a tracing subscriber whose layer makes each event a
+  `logging` record, adding the enclosing spans' fields as attributes (`session`, from the
+  initiator's span or the connection's `id`; `addr` and `role` from an endpoint's), never over
+  one of the record's own. `log` records from dependencies come through tracing-log. The layer
+  caches each logger and its level, so an event a level filters out costs no GIL; one logged takes
+  it on the session's task. Each span's fields are kept as text, formatted when it's made or
+  recorded. `log_to_stderr` sets a subscriber too, so each refuses once the other is on.
 
 Measured 2026-10-17 on an Apple M3, not idle (load average about 3): one session, open loop
 against the release `ack` example, NewOrderSingle to ExecutionReport, latency from each order's

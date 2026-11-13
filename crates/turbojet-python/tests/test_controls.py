@@ -57,7 +57,10 @@ async def main():
         await expect(engine.events(), turbojet.Logon)
 
 asyncio.run(main())
-assert any(r.name == "turbojet.session" and r.getMessage().startswith("logged on") for r in records), records
+logon = [r for r in records if r.name == "turbojet.session" and r.getMessage().startswith("logged on")]
+assert logon, records
+# The session that logged it, from the spans it was logged in.
+assert "CLIENT1" in logon[0].session and "GATEWAY" in logon[0].session, vars(logon[0])
 assert not any(r.levelno < logging.INFO for r in records)
 try:
     turbojet.log_to_stderr("info")

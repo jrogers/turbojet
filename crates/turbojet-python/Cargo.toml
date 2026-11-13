@@ -19,9 +19,9 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.30", features = ["abi3-py310"] }
 pyo3-async-runtimes = { version = "0.30", features = ["tokio-runtime"] }
-pyo3-log = "0.13"
 tokio = { version = "1", features = ["sync", "macros"] }
-tracing = { version = "0.1", features = ["log"] }
+tracing = "0.1"
+tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 turbojet = { path = "../turbojet" }
 turbojet-config = { path = "../turbojet-config" }
