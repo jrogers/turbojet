@@ -48,6 +48,19 @@
 #                off, rx-usecs 0, tx-usecs 0; ENA's defaults are adaptive, 20 and 64 µs), the
 #                settings before and after in nic.txt. In turbofan's runs on c9gd this took a
 #                round trip from 130 µs to 71 µs.
+#   DRIVERS      the network run's drivers, tokio (the default), spin (`ack --spin` and `load --spin`:
+#                each session on a thread of its own, polling its socket), or both: a run for each
+#   BUSY_POLL    µs the kernel busy-polls the NIC for a socket with nothing to read
+#                (net.core.busy_poll for epoll, as tokio waits; net.core.busy_read for a read, as
+#                the spinning driver does), on both machines; several, space-separated, a run for
+#                each. 0 (the default) is the kernel's: no busy polling.
+#   PIN          1: on both machines the interrupts on CPU 0 (irqbalance stopped); the threads that
+#                spin, `load`'s sender and each spin-N, on a CPU of their own from the last down,
+#                in the upper half (wrapping round within it should there be more); every other
+#                thread on the lower half from CPU 1. Where each went is in the results.
+#   ISOLCPUS     1: the upper half of the CPUs kept from the scheduler and from timer ticks
+#                (isolcpus, nohz_full, rcu_nocbs on the kernel command line, which takes a
+#                reboot), so with PIN=1 the spinning threads have their cores to themselves
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -78,6 +91,15 @@ FIRST_MALLOC=${MALLOC%% *}
 SAMPLY_VERSION=0.13.1
 NIC_COALESCE_OFF=${NIC_COALESCE_OFF:-0}
 [[ $NIC_COALESCE_OFF == 0 || $NIC_COALESCE_OFF == 1 ]] || { echo "NIC_COALESCE_OFF is 0 or 1" >&2; exit 2; }
+DRIVERS=${DRIVERS:-tokio}
+for driver in $DRIVERS; do
+    [[ $driver == tokio || $driver == spin ]] || { echo "DRIVERS are tokio or spin, not $driver" >&2; exit 2; }
+done
+BUSY_POLL=${BUSY_POLL:-0}
+for us in $BUSY_POLL; do [[ $us =~ ^[0-9]+$ ]] || { echo "BUSY_POLL is in µs, not $us" >&2; exit 2; }; done
+PIN=${PIN:-0} ISOLCPUS=${ISOLCPUS:-0}
+[[ $PIN == 0 || $PIN == 1 ]] || { echo "PIN is 0 or 1" >&2; exit 2; }
+[[ $ISOLCPUS == 0 || $ISOLCPUS == 1 ]] || { echo "ISOLCPUS is 0 or 1" >&2; exit 2; }
 TAG=turbojet-bench
 PORT=9876
 
@@ -244,6 +266,25 @@ for host in "${PUBLIC[@]}"; do
 done
 log "SSH up"
 
+# The upper half of the CPUs isolated, which takes a reboot: before the NIC's settings and the instance store's
+# mount, which a reboot undoes. The shutdown user data set runs on the first boot only, so again.
+if [[ $ISOLCPUS == 1 ]]; then
+    for host in "${PUBLIC[@]}"; do
+        on "$host" 'set -e
+            cpus=$(($(nproc) / 2))-$(($(nproc) - 1))
+            echo "GRUB_CMDLINE_LINUX_DEFAULT=\"\$GRUB_CMDLINE_LINUX_DEFAULT isolcpus=nohz,domain,$cpus nohz_full=$cpus rcu_nocbs=$cpus\"" |
+                sudo tee /etc/default/grub.d/99-turbojet-isolcpus.cfg >/dev/null
+            sudo update-grub 2>/dev/null
+            (sleep 1; sudo reboot) >/dev/null 2>&1 &'
+    done
+    sleep 20
+    for host in "${PUBLIC[@]}"; do
+        for _ in $(seq 60); do on "$host" true 2>/dev/null && break; sleep 5; done
+        on "$host" "grep -q isolcpus /proc/cmdline && sudo shutdown -h +$MAX_MINUTES 2>/dev/null"
+    done
+    log "rebooted with CPUs isolated"
+fi
+
 # Each machine's NIC interrupt moderation, recorded, and with NIC_COALESCE_OFF turned off: the
 # default route's, its one NIC.
 for i in "${!PUBLIC[@]}"; do
@@ -258,6 +299,14 @@ for i in "${!PUBLIC[@]}"; do
             sudo ethtool -c \$dev | grep -E 'Adaptive|rx-usecs:|tx-usecs:'
         fi"
 done >"$OUT/nic.txt"
+# Interrupts on CPU 0, the default route's NIC's among them, and irqbalance stopped so that they
+# stay there. An interrupt that can't move (a per-CPU timer's) keeps its place.
+if [[ $PIN == 1 ]]; then
+    for host in "${PUBLIC[@]}"; do
+        on "$host" 'sudo systemctl stop irqbalance 2>/dev/null || true
+            for irq in /proc/irq/[0-9]*; do echo 0 | sudo tee $irq/smp_affinity_list >/dev/null 2>&1 || true; done'
+    done
+fi
 if [[ " $MALLOC " == *' jemalloc'* ]]; then
     for host in "${PUBLIC[@]}"; do
         on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y libjemalloc2 >/dev/null
@@ -302,19 +351,44 @@ if asked profile; then
         sudo sysctl -q kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0"
 fi
 
+# With PIN=1, the shell that starts process `$2` on the lower half of the CPUs from 1, and in the
+# background, once `$1` threads of it that spin (spin-N and send) are running, puts each on a CPU
+# of its own from the last down, recording where every thread went in pins.txt.
+pinned() {
+    [[ $PIN == 1 ]] || return 0
+    echo "half=\$((\$(nproc) / 2)); taskset -pc 1-\$((half - 1)) \$\$ >/dev/null
+        (for _ in \$(seq 200); do
+            pid=\$(pgrep -x $2) && [ \$(grep -cE '^(spin-|send)' /proc/\$pid/task/*/comm | grep -c ':1') -ge $1 ] && break
+            sleep 0.05
+        done
+        cpu=0
+        for task in /proc/\$pid/task/*; do
+            grep -qE '^(spin-|send)' \$task/comm || continue
+            taskset -pc \$((\$(nproc) - 1 - cpu % half)) \${task##*/} >/dev/null; cpu=\$((cpu + 1))
+        done
+        for task in /proc/\$pid/task/*; do echo \"$2 \$(cat \$task/comm): \$(taskset -pc \${task##*/} | sed 's/.*: //')\"; done >pins.txt) &"
+}
+
 network() {
-    local malloc=$1 load sessions rate
+    local malloc=$1 driver=$2 us=$3 load sessions rate spin='' spinning=0
+    for host in "${PUBLIC[@]}"; do on "$host" "sudo sysctl -q net.core.busy_poll=$us net.core.busy_read=$us"; done
+    [[ $driver == spin ]] && spin=--spin
     for load in $LOADS; do
         sessions=${load%:*} rate=${load#*:}
-        on "$ACCEPTOR" "$(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT >ack.log 2>&1 </dev/null &
+        [[ $driver == spin ]] && spinning=$sessions
+        on "$ACCEPTOR" "$(pinned "$spinning" ack) $(preload "$malloc") nohup ./ack --listen 0.0.0.0:$PORT $spin >ack.log 2>&1 </dev/null &
             for _ in \$(seq 50); do ss -Hltn sport = :$PORT | grep -q . && exit 0; sleep 0.1; done
             cat ack.log >&2; exit 1"
-        log "run network ($malloc): $sessions sessions, $rate orders/s"
-        echo "### $malloc: $sessions sessions, $rate orders/s"
+        log "run network ($malloc, $driver, busy poll $us µs): $sessions sessions, $rate orders/s"
+        echo "### $malloc, $driver driver, busy poll $us µs: $sessions sessions, $rate orders/s"
         echo
         echo '```'
-        on "$INITIATOR" "$(preload "$malloc") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
-            --sessions $sessions --rate $rate --duration $DURATION"
+        on "$INITIATOR" "$(pinned $((spinning + 1)) load) $(preload "$malloc") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
+            --sessions $sessions --rate $rate --duration $DURATION $spin"
+        if [[ $PIN == 1 ]]; then
+            on "$INITIATOR" 'cat pins.txt'
+            on "$ACCEPTOR" 'cat pins.txt'
+        fi
         echo '```'
         echo
         on "$ACCEPTOR" 'pkill -TERM -x ack || true; while pgrep -x ack >/dev/null; do sleep 0.1; done'
@@ -341,7 +415,11 @@ NAMES=()
 for run in $RUNS; do
     case $run in
         profile) profile ;;
-        network) for malloc in $MALLOC; do network "$malloc"; done | tee "$OUT/network.md" ;;
+        network)
+            for malloc in $MALLOC; do
+                for driver in $DRIVERS; do for us in $BUSY_POLL; do network "$malloc" "$driver" "$us"; done; done
+            done | tee "$OUT/network.md"
+            ;;
         local)
             for i in "${!SHAS[@]}"; do
                 sha=${SHAS[i]}
@@ -369,6 +447,8 @@ done
     [[ -n $RUSTFLAGS ]] && echo && echo "RUSTFLAGS=$RUSTFLAGS"
     [[ $NIC_COALESCE_OFF == 1 ]] && echo && echo "NIC interrupt moderation off (NIC_COALESCE_OFF=1)."
     echo && echo "Allocators: $MALLOC."
+    [[ $PIN == 1 ]] && echo && echo "Interrupts on CPU 0; the spinning threads on a CPU each in the upper half, the rest in the lower half from 1 (PIN=1)."
+    [[ $ISOLCPUS == 1 ]] && echo && echo "The upper half of the CPUs isolated: isolcpus, nohz_full, rcu_nocbs (ISOLCPUS=1)."
     if asked profile; then
         echo
         echo "Built for the profile run, with frame pointers and line tables: not numbers for the guide."
