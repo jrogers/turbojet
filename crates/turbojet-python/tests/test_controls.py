@@ -1,3 +1,7 @@
+import subprocess
+import sys
+from pathlib import Path
+
 import turbojet
 from turbojet import Logon, Logout, Message, SequenceNumbers
 
@@ -33,3 +37,32 @@ async def test_reload(gateway, tmp_path):
 
 def test_log_to_stderr():
     turbojet.log_to_stderr("warn")
+
+
+def test_log_to_python(gateway, tmp_path):
+    # Its own process: logging is set once per process, and test_log_to_stderr sets it here.
+    script = f"""
+import asyncio, logging, turbojet
+from conftest import expect
+
+records = []
+handler = logging.Handler()
+handler.emit = records.append
+logging.getLogger("turbojet").addHandler(handler)
+logging.getLogger("turbojet").setLevel(logging.INFO)
+turbojet.log_to_python()
+
+async def main():
+    async with turbojet.load({str(sessions_file(tmp_path, gateway))!r}) as engine:
+        await expect(engine.events(), turbojet.Logon)
+
+asyncio.run(main())
+assert any(r.name == "turbojet.session" and r.getMessage().startswith("logged on") for r in records), records
+assert not any(r.levelno < logging.INFO for r in records)
+try:
+    turbojet.log_to_stderr("info")
+    raise AssertionError("log_to_stderr after log_to_python")
+except turbojet.Error:
+    pass
+"""
+    subprocess.run([sys.executable, "-c", script], cwd=Path(__file__).parent, check=True)

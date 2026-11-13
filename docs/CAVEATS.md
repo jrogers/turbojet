@@ -19,7 +19,8 @@ and worth revisiting.
 - Python bindings: an `AppMessage` that's never `done()` stays held, even once Python drops it
   (which warns, with a `RuntimeWarning`), so its session stops reading 256 messages later. The hooks given to `turbojet.load` run with
   the GIL on the session's task, so a slow one, or Python busy elsewhere, holds the session up.
-  Initiators only: no acceptor and no FIXP sessions. `log_to_stderr` writes to stderr, not to Python's `logging`.
+  Initiators only: no acceptor and no FIXP sessions. `log_to_python` takes the GIL on the session's task for each
+  event logged and drops span fields (the session's ID among them), and reads each logger's level once, until it's called again.
 - A typed message's borrowed form (`NewOrderSingleRef`) converts a field when it's read, so a
   malformed value fails the read, not the parse, and is found only if the application reads it:
   parse the owned form to check every value up front. Each read converts again.

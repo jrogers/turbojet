@@ -54,7 +54,12 @@ turbojet.load(
     to_admin=add_credentials,                          # changes outbound session messages
     should_resend=lambda session, msg: True,           # False gap-fills it
 )
-turbojet.log_to_stderr("info")                         # the engine's logs
+turbojet.log_to_python()                               # the engine's logs, into `logging`
 ```
+
+The engine logs into `logging` under `turbojet.<module>` (`turbojet.session`), at debug and
+above. Each logger's level is read once: call `log_to_python()` again after changing one.
+`turbojet.log_to_stderr("info")` writes to stderr instead, without taking the GIL for each event;
+a process uses one or the other.
 
 Acceptors and FIXP sessions aren't available from Python.

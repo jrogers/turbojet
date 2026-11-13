@@ -25,6 +25,11 @@ Notable changes to the published crates.
   a session that has stored millions of messages no longer pauses for milliseconds each time the
   index grows. It showed on allocators whose `realloc` copies large blocks, such as jemalloc.
 
+### Python bindings (`crates/turbojet-python`, not published)
+
+- **Added:** `turbojet.log_to_python()` logs the engine's events into Python's `logging`, under
+  `turbojet.<module>` loggers.
+
 ## 0.10.0 (2026-11-08)
 
 ### `turbojet`
