@@ -10,6 +10,9 @@
 #
 # Runs, each one's output into target/aws-bench/<run>/:
 #   network   `load` against `ack` at each of LOADS, a fresh `ack` for each
+#   floor     the network's floor without Turbojet: sockperf's TCP ping-pong between the same two
+#             machines, 200-byte messages one at a time for DURATION s, under each of BUSY_POLL,
+#             on the last CPU of each with PIN=1. sockperf reports half the round trip.
 #   local     the criterion benchmarks (`cargo bench -p turbojet --all-features`) on the initiator's
 #             machine, their temporary files on its local NVMe, once for each of MALLOC; criterion's
 #             reports into criterion-<malloc>/, its output into local-<malloc>.txt
@@ -142,11 +145,11 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 for run in $RUNS; do
-    [[ $run == network || $run == local || $run == profile ]] || { echo "no run $run" >&2; exit 2; }
+    [[ $run == network || $run == floor || $run == local || $run == profile ]] || { echo "no run $run" >&2; exit 2; }
 done
 asked() { [[ " $RUNS " == *" $1 "* ]]; }
 COUNT=1
-asked network && COUNT=2
+{ asked network || asked floor; } && COUNT=2
 for load in $LOADS; do
     [[ $load =~ ^[0-9]+:[0-9]+$ ]] || { echo "LOADS are sessions:rate pairs, not $load" >&2; exit 2; }
 done
@@ -307,6 +310,11 @@ if [[ $PIN == 1 ]]; then
             for irq in /proc/irq/[0-9]*; do echo 0 | sudo tee $irq/smp_affinity_list >/dev/null 2>&1 || true; done'
     done
 fi
+if asked floor; then
+    for host in "${PUBLIC[@]}"; do
+        on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y sockperf >/dev/null'
+    done
+fi
 if [[ " $MALLOC " == *' jemalloc'* ]]; then
     for host in "${PUBLIC[@]}"; do
         on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y libjemalloc2 >/dev/null
@@ -356,17 +364,20 @@ fi
 # of its own from the last down, recording where every thread went in pins.txt.
 pinned() {
     [[ $PIN == 1 ]] || return 0
-    echo "half=\$((\$(nproc) / 2)); taskset -pc 1-\$((half - 1)) \$\$ >/dev/null
-        (for _ in \$(seq 200); do
+    # nproc --all: plain nproc counts only the CPUs this shell may use. The background part's
+    # output away from ssh's, which would otherwise wait for it.
+    echo "half=\$((\$(nproc --all) / 2)); taskset -pc 1-\$((half - 1)) \$\$ >/dev/null
+        (for _ in \$(seq 600); do
             pid=\$(pgrep -x $2) && [ \$(grep -cE '^(spin-|send)' /proc/\$pid/task/*/comm | grep -c ':1') -ge $1 ] && break
             sleep 0.05
         done
         cpu=0
         for task in /proc/\$pid/task/*; do
             grep -qE '^(spin-|send)' \$task/comm || continue
-            taskset -pc \$((\$(nproc) - 1 - cpu % half)) \${task##*/} >/dev/null; cpu=\$((cpu + 1))
+            taskset -pc \$((\$(nproc --all) - 1 - cpu % half)) \${task##*/} >/dev/null; cpu=\$((cpu + 1))
         done
-        for task in /proc/\$pid/task/*; do echo \"$2 \$(cat \$task/comm): \$(taskset -pc \${task##*/} | sed 's/.*: //')\"; done >pins.txt) &"
+        for task in /proc/\$pid/task/*; do echo \"$2 \$(cat \$task/comm): \$(taskset -pc \${task##*/} | sed 's/.*: //')\"; done >pins.txt
+        ) </dev/null >/dev/null 2>&1 &"
 }
 
 network() {
@@ -395,6 +406,26 @@ network() {
     done
 }
 
+floor() {
+    local us cpu=''
+    [[ $PIN == 1 ]] && cpu='taskset -c $(($(nproc --all) - 1))'
+    for us in $BUSY_POLL; do
+        for host in "${PUBLIC[@]}"; do on "$host" "sudo sysctl -q net.core.busy_poll=$us net.core.busy_read=$us"; done
+        on "$ACCEPTOR" "$cpu nohup sockperf server --tcp -i 0.0.0.0 -p $((PORT + 1)) >sockperf.log 2>&1 </dev/null &
+            for _ in \$(seq 50); do ss -Hltn sport = :$((PORT + 1)) | grep -q . && exit 0; sleep 0.1; done
+            cat sockperf.log >&2; exit 1"
+        log "run floor: busy poll $us µs"
+        echo "### sockperf ping-pong, busy poll $us µs"
+        echo
+        echo '```'
+        on "$INITIATOR" "$cpu sockperf ping-pong --tcp -i ${PRIVATE[0]} -p $((PORT + 1)) -m 200 -t $DURATION --full-rtt 2>&1 |
+            grep -E 'Summary|percentile|MAX|MIN|avg-|rror|nvalid|nknown'"
+        echo '```'
+        echo
+        on "$ACCEPTOR" 'pkill -TERM -x sockperf || true; while pgrep -x sockperf >/dev/null; do sleep 0.1; done'
+    done
+}
+
 # Each bench target under samply, run as cargo runs it, in its package's directory. Its
 # executable is the one cargo names: `Executable benches/codec.rs (target/release/deps/codec-...)`.
 profile() {
@@ -415,6 +446,7 @@ NAMES=()
 for run in $RUNS; do
     case $run in
         profile) profile ;;
+        floor) floor | tee "$OUT/floor.md" ;;
         network)
             for malloc in $MALLOC; do
                 for driver in $DRIVERS; do for us in $BUSY_POLL; do network "$malloc" "$driver" "$us"; done; done
@@ -459,7 +491,11 @@ done
         echo
         echo "## $run"
         echo
-        if [[ $run == network ]]; then
+        if [[ $run == floor ]]; then
+            echo "sockperf's TCP ping-pong, $DURATION s, 200-byte messages, full round trips (--full-rtt)."
+            echo
+            cat "$OUT/floor.md"
+        elif [[ $run == network ]]; then
             echo "\`load\` against \`ack\`, $DURATION s measured after 2 s of warm-up."
             echo
             cat "$OUT/network.md"
