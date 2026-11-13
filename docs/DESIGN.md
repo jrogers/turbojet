@@ -1302,9 +1302,12 @@ session on a thread named `spin-N`; the script's `PIN=1` puts interrupts on CPU 
 spin (`spin-N`, `load`'s `send`) on CPUs 7 and 6, and the rest on 1 to 3. `RUNS=floor` is sockperf's
 TCP ping-pong between the same machines.
 
-- What's left after spinning is the kernel and the network. sockperf's round trip was 21.3 to
-  22.0 µs p50 in the three runs that had it, and the spinning driver's 22.7 to 25.2 µs: Turbojet's
-  two ends add 1 to 3 µs. tokio's driver adds 11 µs on top: the worker's wake-up on each side.
+- sockperf's round trip with blocking reads was 21.3 to 22.0 µs p50 in the three runs that had it,
+  and the spinning driver's 22.7 to 25.2 µs. That isn't like for like: a blocking read pays a
+  wake-up each way, which spinning doesn't. Read as the spinning driver reads, from non-blocking
+  sockets in a loop (`--nonblocked`), sockperf took 17.8 to 18.2 µs (two later placements, see
+  issue #46 below), so Turbojet and its benchmark add 5 to 7 µs. tokio's driver adds 11 µs on top
+  of the spinning driver: the worker's wake-up on each side.
 - With the kernel busy-polling (busy_read 50 µs), sockperf fell to 16.3 µs, since its blocking
   `recv` polls the NIC itself instead of sleeping until the interrupt. The spinning driver gained
   1 to 2 µs at most from the same setting (its non-blocking read polls the NIC once per call).
@@ -1314,7 +1317,8 @@ TCP ping-pong between the same machines.
   `prefer-busy-poll`), was within the noise of busy polling alone: p50 21.1 to 24.8 µs against
   21.2 to 24.4, p99 24.7 to 29.4 against 25.5 to 29.2, sockperf's busy-polled floor 16.3 to
   16.5 µs in both. So the 5 to 8 µs between the spinning driver and sockperf isn't interrupt
-  delivery but the kernel's TCP path and Turbojet's own work. The socket option needs
+  delivery; non-blocking sockperf (below) shows it isn't the way of reading either, so it's
+  Turbojet's own. The socket option needs
   `CAP_NET_ADMIN` (EPERM otherwise), and the NIC settings without busy polling are much worse:
   the interrupt stays off waiting for a poller, and packets wait for the 200 µs timer (p50 235 to
   267 µs at 10,000 and 100,000 a second, in both placements). tokio's driver gained 6 or 7 µs p50 at 100,000 a second (epoll busy-polls when it would
@@ -1328,9 +1332,33 @@ TCP ping-pong between the same machines.
 - OpenOnload wasn't measured: its AF_XDP mode, the only one for non-Solarflare cards, fails to
   create a stack on ENA (Xilinx-CNS/onload#337, ENA 2.17.2, Onload master of July 2026: every socket
   falls back to the kernel), and EC2 has no Solarflare cards.
-- Kernel bypass could at most remove the kernel's share of the 22 µs, which these runs don't
-  separate from the network's; busy-polled sockperf at 16.3 µs bounds the network and the
-  driver's minimum from above.
+
+Then the floor without the kernel (issue #46), 2026-11-13 at `f45e99c` to `5adef50` on
+`c9gd.2xlarge`, pinned, moderation off, five placements. `RUNS=dpdk` gives each machine a second
+ENA interface, binds it to `vfio-pci` without an IOMMU (EC2 exposes none) and runs
+`scripts/dpdk-pingpong.c`, a UDP ping-pong of 200-byte datagrams polled from one core on each
+side, from Ubuntu's DPDK packages. ENA's low-latency transmit queue was on (`Placement policy: Low
+latency`, logged in two runs; the first didn't log it). In µs:
+
+| | Placements | Range of p50 | Range of p99 |
+|---|---:|---:|---:|
+| sockperf TCP, blocking | 5 | 20.9 to 21.9 | 25.0 to 26.1 |
+| sockperf TCP, blocking, busy poll 50 µs | 5 | 15.9 to 16.7 | 19.9 to 21.0 |
+| sockperf TCP, non-blocking loop | 2 | 17.8 to 18.2 | 21.7 to 22.3 |
+| sockperf TCP, non-blocking loop, busy poll 50 µs | 2 | 16.2 to 16.3 | 20.3 to 21.0 |
+| sockperf UDP, blocking | 5 | 20.4 to 21.6 | 23.5 to 24.7 |
+| sockperf UDP, blocking, busy poll 50 µs | 5 | 15.6 to 16.4 | 18.3 to 19.2 |
+| DPDK UDP | 3 | 13.2 to 14.7 | 17.0 to 18.6 |
+
+- The network is most of it. DPDK's fastest round trips were 12.3 to 13.6 µs: wire, switches and
+  the two cards, which no software on the machines removes.
+- Bypassing the kernel saves 1.5 to 3 µs over a busy-polled kernel socket (16.2 µs TCP, 15.6 to
+  16.4 UDP), less whatever a user-space TCP stack costs back; TCP itself costs the kernel about
+  0.3 µs over UDP. Issue #46 said to stop at this step unless DPDK was well below sockperf, so a
+  DPDK transport isn't built. Turbojet's own 5 to 7 µs above a spinning kernel socket is the
+  larger part of the round trip that software can still reach.
+- A spinning reader gets all of busy polling's gain: non-blocking sockperf went from 18 to 16 µs,
+  like blocking sockperf's 21 to 16. The spinning driver's 1 to 2 µs from it is the same gain.
 
 ### Current numbers
 

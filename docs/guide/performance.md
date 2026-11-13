@@ -23,8 +23,9 @@ read and write the non-blocking socket directly, and check the handle's commands
 rather than waiting for tokio's reactor to wake them. Store jobs and cancel on disconnect still
 run on the tokio runtime passed in. Over localhost with both ends spinning, the round trip from
 `on_message` took 7.7 µs against 8.7 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Between
-two `c9gd` machines it took an order's round trip from 34 to 36 µs down to 23 to 25 µs, within 1 to
-3 µs of the kernel's own TCP round trip between them. Give each spinning connection a thread, and on
+two `c9gd` machines it took an order's round trip from 34 to 36 µs down to 23 to 25 µs, against 18 µs
+for the kernel's own TCP round trip between them read the same way, polling non-blocking sockets.
+Give each spinning connection a thread, and on
 Linux a core, of its own (see [pinning](#pinning-on-linux)). TLS isn't supported over it.
 
 ## Stores
@@ -140,13 +141,18 @@ The same between two `c9gd` machines at commit `93eec91`, one session, pinned as
 
 | one session, pinned | p50 | p99 | p99.99 |
 |---|---:|---:|---:|
-| sockperf, TCP ping-pong | 22.0 µs | 31 µs | 56 µs |
+| sockperf, TCP ping-pong, blocking reads | 22.0 µs | 31 µs | 56 µs |
 | tokio's driver, 1,000 orders a second | 36 µs | 43 µs | 61 µs |
 | tokio's driver, 10,000 | 34 µs | 43 µs | 74 µs |
 | tokio's driver, 100,000 | 36 µs | 47 µs | 99 µs |
 | spinning, 1,000 orders a second | 25 µs | 33 µs | 51 µs |
 | spinning, 10,000 | 23 µs | 33 µs | 81 µs |
 | spinning, 100,000 | 25 µs | 35 µs | 71 µs |
+
+In other placements, the kernel's TCP round trip was 18 µs p50 with sockperf polling
+non-blocking sockets (`--nonblocked`), as spinning connections do, and 16 µs with the kernel's busy
+polling as well. Bypassing the kernel, a UDP ping-pong over DPDK between the same machines took 13
+to 15 µs (`scripts/dpdk-pingpong.c`).
 
 On AWS c9gd.2xlarge (Graviton5), Linux 7.0, jemalloc: the benchmarks in one process, criterion
 medians, temporary files on the instance storage.
