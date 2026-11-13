@@ -1278,6 +1278,38 @@ of each but `c9gd`'s round trips, measured in six placements:
   computes no CRCs; FIX's CheckSum is a byte sum. One run of each, so a single row's change of
   under 10% may be noise.
 
+Measured 2026-11-13 at `fbb73f6` and `93eec91` (issue #19; the same engine and examples, the later
+script pinning correctly), `c9gd.2xlarge`, jemalloc, moderation off, one
+session at 1,000, 10,000 and 100,000 orders a second, in four runs on four placements: two
+unpinned, one pinned, one pinned with isolated cores. `ack --spin` and `load --spin` put each
+session on a thread named `spin-N`; the script's `PIN=1` puts interrupts on CPU 0, the threads that
+spin (`spin-N`, `load`'s `send`) on CPUs 7 and 6, and the rest on 1 to 3. `RUNS=floor` is sockperf's
+TCP ping-pong between the same machines.
+
+- What's left after spinning is the kernel and the network. sockperf's round trip was 21.3 to
+  22.0 µs p50 in the three runs that had it, and the spinning driver's 22.7 to 25.2 µs: Turbojet's
+  two ends add 1 to 3 µs. tokio's driver adds 11 µs on top: the worker's wake-up on each side.
+- With the kernel busy-polling (busy_read 50 µs), sockperf fell to 16.3 µs, since its blocking
+  `recv` polls the NIC itself instead of sleeping until the interrupt. The spinning driver gained
+  1 to 2 µs at most from the same setting: its non-blocking read polls the NIC once per call, and
+  probably (not checked) the interrupt on CPU 0 still takes most packets first. The 6 µs between it and busy-polled
+  sockperf is what `SO_PREFER_BUSY_POLL` with `napi_defer_hard_irqs` might win back (keeping the
+  interrupt off while a thread polls); not tried, since it needs a socket option Turbojet doesn't
+  set. tokio's driver gained 6 or 7 µs p50 at 100,000 a second (epoll busy-polls when it would
+  sleep) and nothing at the lower rates, where a 50 µs poll rarely catches the next packet.
+- Pinning set the tail, not the median. Unpinned, the spinning driver's p99 was 55 to 76 µs and
+  tokio's 66 to 91 µs, alike in both placements, and sockperf's own 47 µs: the kernel alone shows
+  it. Pinned, 31 to 35 µs and 42 to 47 µs, and sockperf 31 µs. The guide's earlier rows (tokio,
+  unpinned, at `a598624`) had p99 38 to 43 µs; why today's unpinned runs were longer isn't known.
+- Isolating CPUs 4 to 7 (`isolcpus=nohz,domain`, `nohz_full`, `rcu_nocbs`) on top of pinning
+  changed nothing beyond the noise, in p50, p99 or p99.9.
+- OpenOnload wasn't measured: its AF_XDP mode, the only one for non-Solarflare cards, fails to
+  create a stack on ENA (Xilinx-CNS/onload#337, ENA 2.17.2, Onload master of July 2026: every socket
+  falls back to the kernel), and EC2 has no Solarflare cards.
+- Kernel bypass could at most remove the kernel's share of the 22 µs, which these runs don't
+  separate from the network's; busy-polled sockperf at 16.3 µs bounds the network and the
+  driver's minimum from above.
+
 ### Current numbers
 
 Run with `cargo bench -p turbojet --all-features` (about 13 minutes); `cargo bench -p turbojet-sql

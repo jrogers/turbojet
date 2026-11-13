@@ -6,6 +6,10 @@ Notable changes to the published crates.
 
 ### `turbojet`
 
+- **Added:** the performance chapter says how to pin threads and interrupts on Linux, which halved
+  the p99 of a round trip between two AWS Graviton machines, and gives spinning connections'
+  round trips between them: 23 to 25 µs p50 against tokio's driver's 34 to 36 µs. The `ack` and
+  `load` examples take `--spin`.
 - **Added:** the performance chapter (`turbojet::guide::performance`) has results on Linux
   servers, AWS Graviton and Intel machines, with round trips between two machines, and says what
   a network card's interrupt moderation costs a round trip.

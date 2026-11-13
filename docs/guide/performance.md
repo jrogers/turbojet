@@ -22,8 +22,10 @@ To go lower at the cost of a core per connection, drive the session with
 read and write the non-blocking socket directly, and check the handle's commands and the timer,
 rather than waiting for tokio's reactor to wake them. Store jobs and cancel on disconnect still
 run on the tokio runtime passed in. Over localhost with both ends spinning, the round trip from
-`on_message` took 7.7 µs against 8.7 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Give each
-spinning connection a thread, and on Linux a core, of its own. TLS isn't supported over it.
+`on_message` took 7.7 µs against 8.7 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Between
+two `c9gd` machines it took an order's round trip from 34 to 36 µs down to 23 to 25 µs, within 1 to
+3 µs of the kernel's own TCP round trip between them. Give each spinning connection a thread, and on
+Linux a core, of its own (see [pinning](#pinning-on-linux)). TLS isn't supported over it.
 
 ## Stores
 
@@ -78,6 +80,26 @@ took an order's round trip from 37 µs to 220 µs at 10,000 orders a second, and
 100,000. Turning it off (`ethtool -C <dev> adaptive-rx off rx-usecs 0 tx-usecs 0`) costs CPU
 time in interrupts: measure it with your load.
 
+## Pinning on Linux
+
+Where the scheduler puts threads, and where the network card's interrupts land, sets the tail of
+the round trip. Between two `c9gd` machines with interrupt moderation off, pinning took the p99
+from 56 to 76 µs down to 31 to 35 µs with spinning connections, and from 66 to 91 µs down to 42 to
+47 µs with tokio's driver; the p50 stayed where it was. The layout measured:
+
+- the card's interrupts on CPU 0, with `irqbalance` stopped so that they stay there (write `0` to
+  each `/proc/irq/*/smp_affinity_list`);
+- each spinning connection's thread, and any other thread that spins, on a CPU of its own
+  (`taskset -pc <cpu> <tid>`: name the threads, as `std::thread::Builder::name` does, to find
+  them in `/proc/<pid>/task/*/comm`);
+- everything else, tokio's workers among it, on the remaining CPUs, away from both.
+
+Taking the spinning threads' CPUs from the scheduler and the timer tick as well (`isolcpus`,
+`nohz_full` and `rcu_nocbs` on the kernel command line) made no difference that showed. Nor did
+the kernel's busy polling (`net.core.busy_poll` and `net.core.busy_read`) for spinning
+connections, which already poll: it took 1 to 2 µs off at best. It helped tokio's driver only at
+high rates: at 100,000 orders a second, the p50 went from 36 to 29 µs.
+
 ## Results
 
 Measure with your own load: these are for comparing machines and configurations. The benchmarks
@@ -107,6 +129,21 @@ after 2 s of warm-up:
 On `c9gd` the p50 held flat across the rates in each of six runs, each on a placement of its own,
 but the placement set its level: 32 to 37 µs in four, 39 to 42 µs and 45 to 50 µs in the others.
 `c8id`'s round trips are about three times as long, with a longer tail, on glibc as on jemalloc.
+
+The same between two `c9gd` machines at commit `93eec91`, one session, pinned as in
+[pinning](#pinning-on-linux), with tokio's driver and with spinning connections (`ack --spin`,
+`load --spin`). The first row is the kernel's own TCP round trip between them, without Turbojet:
+`sockperf ping-pong --tcp -m 200`, one 200-byte message at a time.
+
+| one session, pinned | p50 | p99 | p99.99 |
+|---|---:|---:|---:|
+| sockperf, TCP ping-pong | 22.0 µs | 31 µs | 56 µs |
+| tokio's driver, 1,000 orders a second | 36 µs | 43 µs | 61 µs |
+| tokio's driver, 10,000 | 34 µs | 43 µs | 74 µs |
+| tokio's driver, 100,000 | 36 µs | 47 µs | 99 µs |
+| spinning, 1,000 orders a second | 25 µs | 33 µs | 51 µs |
+| spinning, 10,000 | 23 µs | 33 µs | 81 µs |
+| spinning, 100,000 | 25 µs | 35 µs | 71 µs |
 
 On AWS c9gd.2xlarge (Graviton5), Linux 7.0, jemalloc: the benchmarks in one process, criterion
 medians, temporary files on the instance storage.
