@@ -5,6 +5,7 @@ mod by_counterparty;
 #[cfg(any(test, feature = "conformance"))]
 pub mod conformance;
 pub(crate) mod disk;
+mod drive_flush;
 mod memory;
 mod seq_index;
 

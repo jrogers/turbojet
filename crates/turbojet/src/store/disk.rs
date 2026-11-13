@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use tracing::warn;
 
+use super::drive_flush::DriveFlush;
 use super::seq_index::SeqIndex;
 use super::{Commit, Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::codec::{Decoded, frame_stored};
@@ -77,6 +78,7 @@ use crate::fixp::framing::{self, Framed};
 pub struct DiskStorage {
     dir: PathBuf,
     sync: bool,
+    flush: DriveFlush,
     sizes: Sizes,
 }
 
@@ -108,7 +110,8 @@ impl DiskStorage {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
         let sizes = Sizes { segment: Self::DEFAULT_SEGMENT_BYTES, max: Self::DEFAULT_MAX_SESSION_BYTES };
-        Ok(Self { dir, sync: true, sizes })
+        let flush = DriveFlush::for_dir(&dir)?;
+        Ok(Self { dir, sync: true, flush, sizes })
     }
 
     /// Follows every commit with `fsync` (the default) or not. Without it, commits take less
@@ -153,7 +156,7 @@ impl DiskStorage {
 
 impl SessionStorage for DiskStorage {
     fn open(&self, id: &SessionId) -> io::Result<Box<dyn StoredSession>> {
-        Ok(Box::new(DiskLog::open(&self.dir, id, self.sync, self.sizes)?))
+        Ok(Box::new(DiskLog::open(&self.dir, id, self.sync, self.flush.clone(), self.sizes)?))
     }
 
     fn is_durable(&self) -> bool {
@@ -266,10 +269,12 @@ struct DiskLog {
     marks_path: PathBuf,
     marks: Marks,
     sync: bool,
+    /// How a commit syncs its file, when `sync`.
+    flush: DriveFlush,
 }
 
 impl DiskLog {
-    fn open(dir: &Path, id: &SessionId, sync: bool, sizes: Sizes) -> io::Result<Self> {
+    fn open(dir: &Path, id: &SessionId, sync: bool, flush: DriveFlush, sizes: Sizes) -> io::Result<Self> {
         let stem = file_stem(id);
         let created_path = dir.join(format!("{stem}.created"));
         let seqnums_path = dir.join(format!("{stem}.seqnums"));
@@ -319,6 +324,7 @@ impl DiskLog {
             marks_path,
             marks,
             sync,
+            flush,
         })
     }
 
@@ -355,10 +361,10 @@ impl DiskLog {
             write_record(&self.seqnums, &record, offset)?;
             return Ok(None);
         }
-        let seqnums = self.seqnums.clone();
+        let (seqnums, flush) = (self.seqnums.clone(), self.flush.clone());
         Ok(Some(Commit::blocking(move || {
             write_record(&seqnums, &record, offset)?;
-            seqnums.sync_data()
+            flush.sync_data(&seqnums)
         })))
     }
 
@@ -486,12 +492,12 @@ impl StoredSession for DiskLog {
             self.pending = bytes;
             return remove_files(&removed).map(|()| None);
         }
-        let dir = self.dir.clone();
+        let (dir, flush) = (self.dir.clone(), self.flush.clone());
         Ok(Some(Commit::blocking(move || {
             // The messages, then the record that covers them, in one write: a crash keeps a
             // prefix of it, so never a record without its messages (see `open`).
             (&*file).write_all(&bytes)?;
-            file.sync_data()?;
+            flush.sync_data(&file)?;
             if created {
                 // The new segment's name, so it survives a power loss too.
                 sync_dir(&dir)?;

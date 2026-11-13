@@ -3338,6 +3338,7 @@ dependencies = [
  "rcgen",
  "roxmltree",
  "rust_decimal",
+ "rustix",
  "shuttle",
  "tempfile",
  "tokio",
