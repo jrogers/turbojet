@@ -13,7 +13,10 @@ use turbojet::fields::{Decimal, format_compact};
 use turbojet::message::{FieldError, Message, tags};
 use turbojet::registry::CommandReceiver;
 use turbojet::store::{SessionStorage, StoredSession};
-use turbojet::{Application, Context, Hold, MessageReject, Session, SessionConfig, SessionId, SessionRegistry, admin};
+use turbojet::{
+    Application, Context, Hold, InitiatorConfig, MessageReject, Session, SessionConfig, SessionId, SessionRegistry,
+    admin,
+};
 use turbojet_fix::fix42::{
     ExecTransType, ExecType, ExecutionReport, ExecutionReportRequired, HandlInst, NewOrderSingle, NewOrderSingleRef,
     NewOrderSingleRequired, OrdStatus, OrdType, Side, TimeInForce,
@@ -123,9 +126,51 @@ pub fn logged_on_with_commands(
     (session, commands)
 }
 
+/// A logged-on FIX 4.2 initiator session, CLIENT to GATEWAY, with `storage` and `app`: its Logon
+/// sent and answered, the counterparty's next MsgSeqNum 2, and its output cleared.
+pub fn initiator_logged_on(storage: Arc<dyn SessionStorage>, app: Arc<dyn Application>) -> Session {
+    let config = InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "GATEWAY");
+    let registry = Arc::new(SessionRegistry::new(storage));
+    let (mut session, _commands) = Session::initiator(&config, registry, app, Instant::now()).unwrap();
+    session.on_connect(Instant::now());
+    session.commit_blocking(Instant::now());
+    session.clear_output();
+    let logon = admin::Logon {
+        encrypt_method: EncryptMethod::None,
+        heart_bt_int: 30,
+        reset_seq_num_flag: None,
+        next_expected_msg_seq_num: None,
+        username: None,
+        password: None,
+        default_appl_ver_id: None,
+    };
+    session.on_message(&with_header("GATEWAY", "CLIENT", 1, logon.into()), Instant::now());
+    session.commit_blocking(Instant::now());
+    assert!(session.is_logged_on());
+    session.clear_output();
+    session
+}
+
 /// `count` orders from CLIENT, MsgSeqNum 2 onwards.
 pub fn orders(count: u64) -> Vec<Message> {
     (0..count).map(|i| with_header("CLIENT", "GATEWAY", i + 2, new_order_single(i).into())).collect()
+}
+
+/// `count` ExecutionReports from GATEWAY to CLIENT, MsgSeqNum 2 onwards: the acknowledgements of
+/// [`orders`].
+pub fn reports(count: u64) -> Vec<Message> {
+    (0..count).map(|i| with_header("GATEWAY", "CLIENT", i + 2, ack_of(i).into())).collect()
+}
+
+/// Takes every message and does nothing with it: what the session costs an initiator's
+/// application before it does its own work.
+#[derive(Default)]
+pub struct Taker;
+
+impl Application for Taker {
+    fn on_message(&self, _ctx: &mut Context<'_>, _msg: &Message) -> Result<(), MessageReject> {
+        Ok(())
+    }
 }
 
 /// Acknowledges every NewOrderSingle with an ExecutionReport: parses the borrowed typed order and

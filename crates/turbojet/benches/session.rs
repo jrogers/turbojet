@@ -207,6 +207,34 @@ fn session(c: &mut Criterion) {
             )
         })
     });
+
+    // The other end: an initiator taking in each order's ExecutionReport, decoded from bytes, and
+    // handing it to an application that does nothing with it. No reply, so nothing is encoded.
+    group.bench_function("report to on_message, wire to wire (memory store)", |b| {
+        b.iter_custom(|iters| {
+            chunked(
+                iters,
+                |n| {
+                    let wire: Vec<Vec<u8>> = common::reports(n).iter().map(|report| encode(report).unwrap()).collect();
+                    (common::initiator_logged_on(Arc::new(MemoryStorage::new()), Arc::new(common::Taker)), wire)
+                },
+                |(mut session, wire)| {
+                    let now = Instant::now();
+                    let mut msg = Message::default();
+                    let data = DataFields::standard();
+                    for bytes in wire {
+                        let DecodedInto::Message(_) = decode_into(&bytes, &data, &mut msg) else {
+                            panic!("bad report")
+                        };
+                        session.on_message(&msg, now);
+                        session.commit_blocking(now);
+                        black_box(session.output());
+                        session.clear_output();
+                    }
+                },
+            )
+        })
+    });
     group.finish();
 }
 

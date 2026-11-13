@@ -1,7 +1,7 @@
 //! Heap allocations per order → ack, wire to wire (decode into one reused message, as the
 //! connection does, then the session, application and store; the session encodes the ack), with
 //! the memory store and the disk store (without fsync), each against an exact budget; the same
-//! for a FIXP server answering B3 orders; typed parsing alone, borrowed and owned; and reading a
+//! for a FIXP server answering B3 orders, and for an initiator taking in ExecutionReports; typed parsing alone, borrowed and owned; and reading a
 //! message's type.
 //! `cargo test -p turbojet --test allocations -- --nocapture` prints a per-stage table for each
 //! store and a per-parse table.
@@ -310,14 +310,14 @@ fn order_to_ack(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.l
     counting::take()
 }
 
-/// A table of per-order counts by stage with `store`, with the engine's share (all but the
+/// A table of per-message counts by stage for `run`, with the engine's share (all but the
 /// application) and the total.
-fn report(store: &str, counts: &[Counts; Stage::ALL.len()]) -> String {
+fn report(run: &str, counts: &[Counts; Stage::ALL.len()]) -> String {
     let per = |n: u64| n as f64 / COUNTED as f64;
     let mut engine = Counts::ZERO;
     let mut total = Counts::ZERO;
     let mut table = format!(
-        "Allocations per order → ack, {store} store ({} build, mean of {COUNTED} after {WARM_UP} warm-up)\n\n{:<12} {:>8} {:>8} {:>8}\n",
+        "Allocations per message, {run} ({} build, mean of {COUNTED} after {WARM_UP} warm-up)\n\n{:<12} {:>8} {:>8} {:>8}\n",
         if cfg!(debug_assertions) { "debug" } else { "release" },
         "stage",
         "allocs",
@@ -357,8 +357,8 @@ fn order_to_ack_allocates_exactly_its_budget() {
     let dir = tempfile::tempdir().unwrap();
     let disk = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     check_budgets([
-        ("memory", order_to_ack(MemoryStorage::new()), MEMORY_BUDGET),
-        ("disk", order_to_ack(disk), DISK_BUDGET),
+        ("order → ack, memory store", order_to_ack(MemoryStorage::new()), MEMORY_BUDGET),
+        ("order → ack, disk store", order_to_ack(disk), DISK_BUDGET),
     ]);
 }
 
@@ -366,8 +366,8 @@ fn order_to_ack_allocates_exactly_its_budget() {
 fn check_budgets(runs: [(&str, [Counts; Stage::ALL.len()], Budget); 2]) {
     let mut tables = Vec::new();
     let mut problems = Vec::new();
-    for (store, counts, budget) in runs {
-        let table = report(store, &counts);
+    for (run, counts, budget) in runs {
+        let table = report(run, &counts);
         println!("{table}");
         tables.push(table);
         for (stage, allocs, reallocs) in budget {
@@ -375,18 +375,79 @@ fn check_budgets(runs: [(&str, [Counts; Stage::ALL.len()], Budget); 2]) {
             for (what, actual, budget) in [("allocations", c.allocs, allocs), ("reallocs", c.reallocs, reallocs)] {
                 let stage = stage.name();
                 if actual > budget {
-                    problems.push(format!(
-                        "{store} store, {stage}: {actual} {what} over {COUNTED} orders, budget {budget}"
-                    ));
+                    problems.push(format!("{run}, {stage}: {actual} {what} over {COUNTED} messages, budget {budget}"));
                 } else if actual < budget {
                     problems.push(format!(
-                        "{store} store, {stage}: {actual} {what} over {COUNTED} orders, fewer than the budget of {budget}: lower it"
+                        "{run}, {stage}: {actual} {what} over {COUNTED} messages, fewer than the budget of {budget}: lower it"
                     ));
                 }
             }
         }
     }
     assert!(problems.is_empty(), "{}\n\n{}", problems.join("\n"), tables.join("\n"));
+}
+
+/// The benchmarks' initiator application, counting the reports it's handed, its allocations
+/// attributed to the application stage.
+#[derive(Default)]
+struct StagedTaker(std::sync::atomic::AtomicU64);
+
+impl Application for StagedTaker {
+    fn on_message(&self, ctx: &mut Context<'_>, msg: &Message) -> Result<(), MessageReject> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        counting::in_stage(Stage::Application, || common::Taker.on_message(ctx, msg))
+    }
+}
+
+/// Per-stage counts over COUNTED ExecutionReports taken in by a logged-on initiator session with
+/// `storage`, as `order_to_ack` counts orders: each decoded into one reused message, processed and
+/// handed to an application that does nothing with it. Nothing goes out.
+fn report_to_on_message(storage: impl SessionStorage + 'static) -> [Counts; Stage::ALL.len()] {
+    let storage = Arc::new(StagedStorage(storage));
+    let app = Arc::new(StagedTaker::default());
+    let mut session = common::initiator_logged_on(storage, app.clone());
+    let wire: Vec<Vec<u8>> = common::reports(WARM_UP + COUNTED).iter().map(|r| encode(r).unwrap()).collect();
+    let now = Instant::now();
+    let data = DataFields::standard();
+    let mut msg = Message::default();
+    for (i, bytes) in wire.iter().enumerate() {
+        if i as u64 == WARM_UP {
+            counting::take();
+            counting::set_counting(true);
+        }
+        counting::in_stage(Stage::Decode, || {
+            let DecodedInto::Message(_) = decode_into(bytes, &data, &mut msg) else {
+                panic!("report {i} didn't decode")
+            };
+        });
+        counting::in_stage(Stage::Session, || {
+            session.on_message(&msg, now);
+            session.commit_blocking(now);
+        });
+        assert!(session.output().is_empty(), "report {i}: the session answered it");
+    }
+    counting::set_counting(false);
+    assert_eq!(
+        app.0.load(std::sync::atomic::Ordering::Relaxed),
+        WARM_UP + COUNTED,
+        "not every report reached on_message"
+    );
+    counting::take()
+}
+
+const REPORT_MEMORY_BUDGET: Budget =
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 0)];
+const REPORT_DISK_BUDGET: Budget =
+    [(Stage::Decode, 0, 0), (Stage::Session, 0, 0), (Stage::Application, 0, 0), (Stage::Store, 0, 0)];
+
+#[test]
+fn report_to_on_message_allocates_exactly_its_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let disk = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
+    check_budgets([
+        ("report → on_message, memory store", report_to_on_message(MemoryStorage::new()), REPORT_MEMORY_BUDGET),
+        ("report → on_message, disk store", report_to_on_message(disk), REPORT_DISK_BUDGET),
+    ]);
 }
 
 /// The FIXP benchmark's B3 order (`benches/fixp.rs`).
@@ -517,8 +578,8 @@ fn fixp_order_to_ack_allocates_exactly_its_budget() {
     let dir = tempfile::tempdir().unwrap();
     let disk = DiskStorage::new(dir.path()).unwrap().with_fsync(false);
     check_budgets([
-        ("FIXP, memory", fixp_order_to_ack(MemoryStorage::new()), FIXP_MEMORY_BUDGET),
-        ("FIXP, disk", fixp_order_to_ack(disk), FIXP_DISK_BUDGET),
+        ("FIXP order → ack, memory store", fixp_order_to_ack(MemoryStorage::new()), FIXP_MEMORY_BUDGET),
+        ("FIXP order → ack, disk store", fixp_order_to_ack(disk), FIXP_DISK_BUDGET),
     ]);
 }
 
