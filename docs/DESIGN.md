@@ -1420,6 +1420,48 @@ differ by more than the drivers do (one `c9gd` placement's kernel round trip was
 - Turbojet's own 5 to 7 µs above a spinning kernel socket (above) is still the larger part, and
   the cheaper one to work on; no DPDK transport is built yet.
 
+Then where those 5 to 7 µs go (issue #47), 2026-11-13 at `f0d41f4` with `e2e1bac`'s trace run, on `c9gd.2xlarge`, pinned,
+moderation off, jemalloc, one session. `RUNS=trace` runs `ack --spin` and `load --spin` under
+bpftrace on both machines, timing the spinning threads' `recvfrom` calls that return bytes and
+their `sendto` calls, while `load --stamps` writes when each order was due, built, handed to its
+session and answered. `scripts/trace-stages.py` sets the two side by side. Two things got in the
+way:
+
+- `Instant` and bpftrace's `nsecs` differed by a steady 3 to 5 µs, on `CLOCK_MONOTONIC` and
+  `CLOCK_BOOTTIME` alike, so the stamps are placed by a `getpid` call the trace also sees. Of 100
+  calls, the one with its two `Instant` readings closest (about 0.26 µs apart; the first calls
+  took 8 µs) places them to within 0.13 µs.
+- A probe that prints costs about 1 µs. A read's time is kept and printed at the next write, so
+  that the time from a read to what follows it carries no printing. The round trip still grows by
+  about 3 µs under the trace, but in the socket's share, not in the stages below.
+
+Each stage's p50, µs, in one placement (two more agreed to within 0.2 µs on `ack` and 0.4 µs on
+building the order):
+
+| Stage | 1,000/s | 20,000/s |
+|---|---:|---:|
+| `load` builds the order, an untyped `Message` with `format!` and a timestamp | 0.6 | 0.4 |
+| `load`'s sender hands it over, `SessionHandle::send` | 0.3 | 0.4 |
+| from built to its `sendto`: the hand-over, the spinning thread taking it, the session stamping and encoding it | 1.3 | 1.3 |
+| `ack`, from the order's `recvfrom` to the report's `sendto` | 2.2 | 2.0 |
+| `load`, from the report's `recvfrom` to `on_message` | 0.8 | 0.8 |
+| Turbojet and the benchmark, together | 4.9 | 4.5 |
+| Untraced round trip; sockperf's non-blocking TCP loop 18.4 to 18.8 in the same placements | 23.9 to 24.6 | 22.6 to 23.0 |
+
+- The gap is Turbojet's and the benchmark's own time, about 4.5 to 5 µs, and at 1,000/s about
+  0.5 µs more in the kernel and network, which sockperf's back-to-back messages keep warm. At
+  20,000/s the socket's share matches sockperf's.
+- `ack`'s 2.0 to 2.2 µs in place is 0.7 to 0.9 µs over the session's own 1.3 µs on the same
+  machine (`session/order to ack, wire to wire`, criterion): the driver's work around each
+  message, its two system calls' entry and exit, and caches not kept warm by a tight loop.
+- Sending costs `load` more than receiving: 1.3 µs from a built order to its `sendto`, against
+  0.8 µs from a report's `recvfrom` to `on_message`. The spinning thread mostly writes an order
+  before the sender's `send()` has returned.
+- No stage alone is most of it. What's left to cut is spread over the driver's loop around the
+  session (about 0.8 µs a message on each side), the send path (about 1 µs), and the benchmark's
+  untyped order (0.4 to 0.6 µs), which a real application building typed messages pays in its
+  own way.
+
 ### Current numbers
 
 Run with `cargo bench -p turbojet --all-features` (about 13 minutes); `cargo bench -p turbojet-sql
