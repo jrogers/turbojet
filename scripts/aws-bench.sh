@@ -14,6 +14,12 @@
 #             same two machines, 200-byte messages one at a time for DURATION s, under each of
 #             BUSY_POLL, on the last CPU of each with PIN=1, as full round trips (--full-rtt); and
 #             TCP on non-blocking sockets (--nonblocked), read in a loop as the spinning driver does
+#   trace     the network run with the spin driver, each of LOADS, under bpftrace on both machines:
+#             the spinning threads' socket calls timed and `load --stamps`, so that each order's
+#             round trip splits into its stages (scripts/trace-stages.py): building the order,
+#             handing it over and writing it, the socket's round trip, `ack`'s time from reading
+#             the order to writing its report, and `load`'s from reading the report to
+#             on_message. The traces and stamps into trace-<sessions>-<rate>/
 #   dpdk      the floor without the kernel: scripts/dpdk-pingpong.c's UDP ping-pong, 200-byte
 #             datagrams one at a time for DURATION s, over a second network interface each machine
 #             gets for it, bound to vfio-pci (no IOMMU) and polled from the last CPU
@@ -169,11 +175,11 @@ elif [[ $# -gt 0 ]]; then
 fi
 
 for run in $RUNS; do
-    [[ $run =~ ^(network|floor|dpdk|local|profile)$ ]] || { echo "no run $run" >&2; exit 2; }
+    [[ $run =~ ^(network|floor|trace|dpdk|local|profile)$ ]] || { echo "no run $run" >&2; exit 2; }
 done
 asked() { [[ " $RUNS " == *" $1 "* ]]; }
 COUNT=1
-{ asked network || asked floor || asked dpdk; } && COUNT=2
+{ asked network || asked floor || asked trace || asked dpdk; } && COUNT=2
 for load in $LOADS; do
     [[ $load =~ ^[0-9]+:[0-9]+$ ]] || { echo "LOADS are sessions:rate pairs, not $load" >&2; exit 2; }
 done
@@ -398,9 +404,9 @@ if asked dpdk; then
             cc -O2 -Wall -o dpdk-pingpong dpdk-pingpong.c \$(pkg-config --cflags --libs libdpdk)"
     done
 fi
-if asked floor; then
+if asked floor || asked trace; then
     for host in "${PUBLIC[@]}"; do
-        on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y sockperf >/dev/null'
+        on "$host" 'sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y sockperf bpftrace >/dev/null'
     done
 fi
 if [[ " $MALLOC " == *' jemalloc'* ]]; then
@@ -425,7 +431,7 @@ on "$INITIATOR" "set -e
     sudo apt-get -qq update && sudo NEEDRESTART_SUSPEND=1 DEBIAN_FRONTEND=noninteractive apt-get -qq install -y build-essential >/dev/null
     curl -fsS https://sh.rustup.rs | sh -s -- -y -q --profile minimal >/dev/null
     . ~/.cargo/env"
-if asked network; then
+if asked network || asked trace; then
     on "$INITIATOR" ". ~/.cargo/env && cd src && $ENV cargo build -q --release -p turbojet --example ack --example load"
     # The acceptor's binary to its machine, by its private address.
     scp -q -i "$KEY" -o UserKnownHostsFile="$OUT/known_hosts" "$KEY" "ubuntu@$INITIATOR:.ssh/id_ed25519"
@@ -483,7 +489,7 @@ network() {
         echo
         echo '```'
         on "$INITIATOR" "$(pinned $((spinning + 1)) load) $(preload "$malloc") src/target/release/examples/load ${PRIVATE[0]}:$PORT \
-            --sessions $sessions --rate $rate --duration $DURATION $spin"
+            --sessions $sessions --rate $rate --duration $DURATION $spin ${LOAD_ARGS:-}"
         if [[ $PIN == 1 ]]; then
             on "$INITIATOR" 'cat pins.txt'
             on "$ACCEPTOR" 'cat pins.txt'
@@ -511,12 +517,58 @@ floor() {
             echo "### sockperf ping-pong, $proto, busy poll $us µs"
             echo
             echo '```'
-            on "$INITIATOR" "$cpu sockperf ping-pong $flag -i ${PRIVATE[0]} -p $((PORT + 1)) -m 200 -t $DURATION --full-rtt 2>&1 |
-                grep -E 'Summary|percentile|MAX|MIN|avg-|rror|nvalid|nknown'"
+            on "$INITIATOR" "$cpu sockperf ping-pong $flag -i ${PRIVATE[0]} -p $((PORT + 1)) -m 200 -t $DURATION --full-rtt >sockperf-client.log 2>&1
+                grep -E 'Summary|percentile|MAX|MIN|avg-|rror|nvalid|nknown' sockperf-client.log || tail -5 sockperf-client.log"
             echo '```'
             echo
             on "$ACCEPTOR" 'pkill -TERM -x sockperf || true; while pgrep -x sockperf >/dev/null; do sleep 0.1; done'
         done
+    done
+}
+
+# The spinning threads' socket calls, timed in the kernel, on any machine: for each thread named
+# spin-N, when a read (recv is recvfrom) last returned bytes, and when each write (send is sendto)
+# began; and when `load`'s main thread called getpid, as --stamps does to set its times beside
+# these. A read's time is printed at the next write, so that printing (about 1 µs on c9gd) falls
+# outside the time from the read to the write, and to whatever `load` does once it has read.
+# Every read that finds nothing runs its probe too: it does no more than it must.
+# A stream with receive timestamps (ack --rx-timestamps) reads with recvmsg, which this misses.
+TRACE='tracepoint:syscalls:sys_exit_recvfrom /args.ret > 0 && strncmp(comm, "spin-", 5) == 0/ { @read[tid] = nsecs; }
+tracepoint:syscalls:sys_enter_sendto /strncmp(comm, "spin-", 5) == 0/ {
+    $now = nsecs;
+    if (@read[tid]) { printf("r %lld\n", @read[tid]); delete(@read[tid]); }
+    printf("w %lld\n", $now);
+}
+tracepoint:syscalls:sys_enter_getpid /comm == "load"/ { printf("p %lld\n", nsecs); }
+END { clear(@read); }'
+
+# The network run with the spin driver under the trace on both machines, a trace for each of LOADS,
+# `load` writing its orders' times (--stamps) to set beside its machine's: each order's round trip
+# split into its stages, by scripts/trace-stages.py.
+trace() {
+    local host load malloc=$FIRST_MALLOC us=${BUSY_POLL%% *} dir
+    for load in $LOADS; do
+        for host in "${PUBLIC[@]}"; do
+            on "$host" "cat >trace.bt" <<<"$TRACE"
+            on "$host" 'sudo nohup bpftrace trace.bt >trace.txt 2>trace.err </dev/null &
+                for _ in $(seq 600); do grep -q Attaching trace.txt trace.err 2>/dev/null && exit 0; sleep 0.1; done
+                echo "bpftrace not attached after 60 s" >&2; cat trace.err >&2; exit 1'
+        done
+        LOADS=$load LOAD_ARGS='--stamps stamps.txt' network "$malloc" spin "$us"
+        for host in "${PUBLIC[@]}"; do
+            on "$host" 'sudo pkill -INT -x bpftrace; while pgrep -x bpftrace >/dev/null; do sleep 0.1; done'
+        done
+        dir=$OUT/trace-${load/:/-}
+        mkdir -p "$dir"
+        on "$ACCEPTOR" 'cat trace.txt' >"$dir/ack-trace.txt"
+        on "$INITIATOR" 'cat trace.txt' >"$dir/load-trace.txt"
+        on "$INITIATOR" 'cat stamps.txt' >"$dir/stamps.txt"
+        echo "Its stages, from the trace and \`load\`'s stamps:"
+        echo
+        echo '```'
+        python3 -I scripts/trace-stages.py "$dir"
+        echo '```'
+        echo
     done
 }
 
@@ -572,6 +624,7 @@ for run in $RUNS; do
     case $run in
         profile) profile ;;
         floor) floor | tee "$OUT/floor.md" ;;
+        trace) trace | tee "$OUT/trace.md" ;;
         dpdk) dpdk | tee "$OUT/dpdk.md" ;;
         network)
             for malloc in $MALLOC; do
@@ -621,6 +674,10 @@ done
             echo "sockperf's TCP and UDP ping-pongs, $DURATION s, 200-byte messages, full round trips (--full-rtt)."
             echo
             cat "$OUT/floor.md"
+        elif [[ $run == trace ]]; then
+            echo "The spin driver's network run under bpftrace, its socket calls timed, and each order's round trip in stages. Tracing lengthens the round trip, in the socket's stage."
+            echo
+            cat "$OUT/trace.md"
         elif [[ $run == dpdk ]]; then
             echo "scripts/dpdk-pingpong.c, $DURATION s after 1 s of warm-up, over a second interface bound to vfio-pci$([[ $DPDK_WC == 1 ]] && echo ', rebuilt to map the BARs write-combined' || echo ', stock: uncached')."
             echo

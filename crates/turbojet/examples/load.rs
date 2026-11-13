@@ -13,6 +13,7 @@
 //! sending the next hides it ("coordinated omission").
 
 use std::error::Error;
+use std::hint::black_box;
 use std::ops::Range;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -40,7 +41,12 @@ latency of their ExecutionReports, from when each order was due.
   --target ID         the acceptor's CompID (default GATEWAY)
   --begin-string V    the FIX version (default FIX.4.2)
   --spin              drive each session on a thread of its own, named spin-N, that polls its
-                      socket without waiting (run_spinning), rather than on the tokio runtime";
+                      socket without waiting (run_spinning), rather than on the tokio runtime
+  --stamps FILE       write each measured order's times to FILE, a line each: its number, when
+                      it was due, built, handed to its session and answered, in nanoseconds
+                      from one of 100 getpid calls it makes once the run is over (the main
+                      thread's last, the first line says which), to set beside a trace of the
+                      system calls";
 
 /// The most latencies kept, 160 MB of them: a run that would measure more is refused.
 const SAMPLES_MAX: u64 = 20_000_000;
@@ -48,6 +54,8 @@ const SAMPLES_MAX: u64 = 20_000_000;
 const ANSWER_WAIT: Duration = Duration::from_secs(5);
 /// How long to wait for every session to log on.
 const LOGON_WAIT: Duration = Duration::from_secs(10);
+/// How many getpid calls --stamps makes to place its times on a trace's clock.
+const ANCHOR_CALLS: u32 = 100;
 /// The sender sleeps until an order is this close to due, then spins: a sleep can overshoot by
 /// about a millisecond.
 const SPIN_FROM: Duration = Duration::from_millis(2);
@@ -62,6 +70,7 @@ struct Args {
     target: String,
     begin_string: String,
     spin: bool,
+    stamps: Option<String>,
 }
 
 impl Default for Args {
@@ -75,6 +84,7 @@ impl Default for Args {
             target: "GATEWAY".into(),
             begin_string: "FIX.4.2".into(),
             spin: false,
+            stamps: None,
         }
     }
 }
@@ -94,6 +104,7 @@ impl Args {
                 "--target" => parsed.target = value()?,
                 "--begin-string" => parsed.begin_string = value()?,
                 "--spin" => parsed.spin = true,
+                "--stamps" => parsed.stamps = Some(value()?),
                 "-h" | "--help" => return Ok(None),
                 other if !other.starts_with('-') && addr.is_none() => addr = Some(other.to_owned()),
                 other => return Err(format!("unknown argument '{other}'").into()),
@@ -149,6 +160,8 @@ struct LoadApp {
     warmup_orders: u64,
     // ponytail: one lock across all sessions' reports; per-session vectors if it shows up at high rates.
     latencies: Mutex<Vec<u64>>,
+    /// With --stamps, when each measured order was answered, by its number.
+    answered_at: Option<Mutex<Vec<(u64, Instant)>>>,
     answered: AtomicU64,
     logons: mpsc::UnboundedSender<()>,
 }
@@ -176,6 +189,9 @@ impl Application for LoadApp {
             let latency = now.saturating_duration_since(schedule.due(k));
             let nanos = u64::try_from(latency.as_nanos()).unwrap_or(u64::MAX);
             self.latencies.lock().expect("latencies lock poisoned").push(nanos);
+            if let Some(answered_at) = &self.answered_at {
+                answered_at.lock().expect("answers lock poisoned").push((k, now));
+            }
         }
         Ok(())
     }
@@ -196,6 +212,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         latencies: Mutex::new(Vec::with_capacity(usize::try_from(args.measured())?)),
         answered: AtomicU64::new(0),
         logons,
+        answered_at: args.stamps.as_ref().map(|_| Mutex::new(Vec::new())),
     });
     let sessions = connect(&args, &app)?;
     for _ in 0..args.sessions {
@@ -211,9 +228,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let handles = sessions.clone();
     let measured = args.warmup_orders()..total;
     // A thread named for scripts that pin it: it spins until each order is due.
-    let sender =
-        std::thread::Builder::new().name("send".into()).spawn(move || send_all(&handles, schedule, measured, &run))?;
-    let (lag_max, unsent) =
+    let stamping = args.stamps.is_some();
+    let sender = std::thread::Builder::new()
+        .name("send".into())
+        .spawn(move || send_all(&handles, schedule, measured, &run, stamping))?;
+    let (lag_max, unsent, sent_at) =
         tokio::task::spawn_blocking(move || sender.join()).await?.map_err(|_| "the sender panicked")?;
 
     let waited_from = Instant::now();
@@ -226,6 +245,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let _ = session.logout(None);
     }
     report(&args, total, unsent, app.answered.load(Ordering::Relaxed), elapsed, lag_max, &mut latencies);
+    if let (Some(path), Some(answered_at)) = (&args.stamps, &app.answered_at) {
+        let answered_at = std::mem::take(&mut *answered_at.lock().expect("answers lock poisoned"));
+        write_stamps(path, schedule, args.warmup_orders(), &sent_at, &answered_at)?;
+    }
     tokio::time::sleep(Duration::from_millis(200)).await;
     Ok(())
 }
@@ -261,12 +284,22 @@ fn connect(args: &Args, app: &Arc<LoadApp>) -> Result<Vec<SessionHandle>, Box<dy
     Ok(sessions)
 }
 
+/// When a measured order was built and when it was handed to its session.
+type Sent = (Instant, Instant);
+
 /// Sends each order when it's due, round the sessions, on this thread. Returns how far behind
 /// schedule the sender fell at worst after the warm-up (the first sleep can overshoot by a few
-/// milliseconds), and how many orders couldn't be sent (a session's queue full, or the session
-/// gone).
-fn send_all(sessions: &[SessionHandle], schedule: Schedule, orders: Range<u64>, run: &str) -> (Duration, u64) {
+/// milliseconds), how many orders couldn't be sent (a session's queue full, or the session
+/// gone), and with `stamping` when each measured order was built and sent.
+fn send_all(
+    sessions: &[SessionHandle],
+    schedule: Schedule,
+    orders: Range<u64>,
+    run: &str,
+    stamping: bool,
+) -> (Duration, u64, Vec<Sent>) {
     let (mut lag_max, mut unsent) = (Duration::ZERO, 0);
+    let mut sent_at = Vec::with_capacity(if stamping { orders.clone().count() } else { 0 });
     let mut session = sessions.iter().cycle();
     for k in 0..orders.end {
         let due = schedule.due(k);
@@ -283,11 +316,54 @@ fn send_all(sessions: &[SessionHandle], schedule: Schedule, orders: Range<u64>, 
             .with(38, "100")
             .with(40, "2")
             .with(44, "150.25");
+        let built = Instant::now();
         if session.next().expect("cycles for ever").send(order).is_err() {
             unsent += 1;
         }
+        if stamping && orders.contains(&k) {
+            sent_at.push((built, Instant::now()));
+        }
     }
-    (lag_max, unsent)
+    (lag_max, unsent, sent_at)
+}
+
+/// Writes --stamps: for each measured order answered, its number, then when it was due, built,
+/// sent and answered, in nanoseconds from one of ANCHOR_CALLS getpid calls made now: a trace that
+/// sees them puts the times on its clock. The first line, a comment, says which call, and how far
+/// apart the readings around it were.
+fn write_stamps(
+    path: &str,
+    schedule: Schedule,
+    first: u64,
+    sent_at: &[Sent],
+    answered_at: &[(u64, Instant)],
+) -> std::io::Result<()> {
+    use std::io::Write;
+    // Instant doesn't say its value, and on c9gd it differed from bpftrace's nsecs by 3-5 µs
+    // whether that was CLOCK_MONOTONIC or CLOCK_BOOTTIME: a system call between two readings
+    // places it to within half the time between them. The first calls take microseconds: of
+    // ANCHOR_CALLS, the one with its readings closest, which the first line names.
+    let (call, before, after) = (0..ANCHOR_CALLS)
+        .map(|call| {
+            let before = Instant::now();
+            black_box(std::process::id());
+            (call, before, Instant::now())
+        })
+        .min_by_key(|&(_, before, after)| after - before)
+        .expect("ANCHOR_CALLS is above 0");
+    let anchor = before + (after - before) / 2;
+    let ns = |at: Instant| {
+        let since = i128::try_from(anchor.saturating_duration_since(at).as_nanos()).unwrap_or(i128::MAX);
+        let until = i128::try_from(at.saturating_duration_since(anchor).as_nanos()).unwrap_or(i128::MAX);
+        until - since
+    };
+    let mut out = std::io::BufWriter::new(std::fs::File::create(path)?);
+    writeln!(out, "# getpid call {call} of {ANCHOR_CALLS}, between readings {} ns apart", (after - before).as_nanos())?;
+    for &(k, answered) in answered_at {
+        let Some(&(built, sent)) = usize::try_from(k - first).ok().and_then(|i| sent_at.get(i)) else { continue };
+        writeln!(out, "{k} {} {} {} {}", ns(schedule.due(k)), ns(built), ns(sent), ns(answered))?;
+    }
+    out.flush()
 }
 
 fn wait_until(due: Instant) {
