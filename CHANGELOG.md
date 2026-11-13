@@ -21,6 +21,10 @@ Notable changes to the published crates.
   status, `MemoryStorage`'s state for it) has a 128-byte cache line to itself, so sessions on
   different cores no longer slow each other: 1 to 2% more orders a second on AWS Graviton and
   Intel machines, for a few hundred bytes a session.
+- **Added:** on Linux, `SpinningStream::with_receive_timestamps` asks the kernel to timestamp
+  each received packet, by the network card if it can, and a session with latency metrics then
+  records `turbojet_wire_to_read_seconds`: how long each read's bytes were in the host before
+  Turbojet read them. Adds a dependency on `nix` on Linux.
 - **Changed:** on macOS, `DiskStorage` commits waiting at once share one drive flush
   (`F_FULLFSYNC`), each having first `fsync`ed its own file, rather than each flushing the drive:
   64 sessions committing together on an Apple M3 took 0.4 ms a commit rather than 3 ms, and one

@@ -1156,6 +1156,20 @@ it was no faster than the default.
 Spinning takes out the reactor: with both ends spinning, the no-hop round trip fell from 16.45 µs
 to 10.34 µs; raw sockets with both ends spinning take 6.8 µs. What's left is mostly the kernel.
 
+That share can be measured on Linux, per read: a spinning stream with receive timestamps
+(`SpinningStream::with_receive_timestamps`) asks the kernel to stamp each packet (`SO_TIMESTAMPING`,
+by the card if it can, else the kernel's own) and reads with `recvmsg`, so the wall clock at the
+read less the latest packet's stamp is the time before Turbojet saw it, as
+`turbojet_wire_to_read_seconds`. The stream reaches the driver only as an `AsyncRead` behind tokio's
+`split`, so it leaves the time in a thread-local, which the spinning driver, running the connection
+on that one thread, takes after each read. The control-message buffer is made once per stream,
+so a read allocates nothing. The calls are the `nix` crate's, a dependency on Linux only, as
+rustix has neither the option nor the message. Only the spinning driver: tokio's `TcpStream` has
+no `recvmsg`, and its wake-up (about 11 µs between two `c9gd` machines) would dominate. On AWS the
+card's stamps need a `precision-time` placement group and AWS's own ENA driver (probed
+2026-11-13 on `c9gd`, issue #21's table); the kernel's ENA driver gives the PTP clock but not
+packet stamps.
+
 An order sent after a lull is much slower, but a warm-up that runs the send path without sending
 would win back little, so there isn't one. Measured 2026-10-09 on an M3, medians, order to
 acknowledgement over localhost, split into stages by a message log:

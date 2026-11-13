@@ -104,6 +104,51 @@ interrupt off while a thread busy-polls (`SO_PREFER_BUSY_POLL`, which needs `CAP
 the device's `napi_defer_hard_irqs` and `gro_flush_timeout`) gained nothing that showed over busy
 polling alone, and those device settings without busy polling took the p50 to over 230 µs.
 
+## Receive timestamps on Linux
+
+A spinning connection can measure how long each read's bytes were in the host before it read
+them: in the network card, the kernel and the socket's queue. Ask for receive timestamps on its
+stream, and turn the session's latency metrics on (feature `metrics`); each read with a stamp is
+then a sample of `turbojet_wire_to_read_seconds`:
+
+```rust,no_run
+# #[cfg(target_os = "linux")]
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+# use std::sync::Arc;
+# use turbojet::*;
+# use turbojet::connection::SpinningStream;
+# struct App;
+# impl Application for App {
+#     fn on_message(&self, _: &mut Context<'_>, _: &Message) -> Result<(), MessageReject> { Ok(()) }
+# }
+# let runtime = tokio::runtime::Runtime::new()?;
+let mut config = SessionConfig::new("FIX.4.4", "GATEWAY");
+config.latency_metrics = true;
+let acceptor = Acceptor::new(config, Arc::new(MemoryStorage::new()), Arc::new(App))?;
+let listener = std::net::TcpListener::bind("0.0.0.0:9876")?;
+let socket = SpinningStream::new(listener.accept()?.0)?.with_receive_timestamps()?;
+acceptor.accept_spinning(socket, ConnectionInfo::default(), runtime.handle())?;
+# Ok(())
+# }
+# #[cfg(not(target_os = "linux"))]
+# fn main() {}
+```
+
+Each packet is stamped by the network card if it timestamps packets, and otherwise by the kernel
+on receiving it, which leaves out the time from the card to the kernel. The card's stamps take
+three things:
+
+- a card that stamps received packets (`ethtool -T <dev>` lists `hardware-receive`): on AWS, an
+  instance type with the Amazon Time Sync PTP hardware clock, launched in a `precision-time`
+  placement group, with AWS's own ENA driver (amzn-drivers, built with `ENA_PHC_INCLUDE=1` and
+  loaded with `phc_enable=1`); the kernel's own ENA driver gives the clock but not packet stamps;
+- stamping turned on for the interface, which takes `CAP_NET_ADMIN` (`hwstamp_ctl -i <dev> -r 1`);
+- the system clock synced to the card's (chrony's `refclock PHC`), since a stamp is compared
+  with the wall clock at the read. A read whose stamp is later than the wall clock isn't recorded.
+
+A read takes what has arrived, and its sample is the latest packet's time, so a read that takes
+several packets times the last of them.
+
 ## Results
 
 Measure with your own load: these are for comparing machines and configurations. The benchmarks

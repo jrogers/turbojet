@@ -9,6 +9,10 @@ and worth revisiting.
   validation rejects them as repeated tags and typed parsing keeps the first: News and Email's
   RelatdSym(46), which may repeat, and Allocation's delivery instructions, BrokerOfCredit(92) and
   DlvyInst(86) repeated NoDlvyInst(85) times inside each NoAllocs entry.
+- `turbojet_wire_to_read_seconds` (Linux, a spinning stream with receive timestamps) compares a
+  packet's stamp with the wall clock: with the network card's stamps it's only as good as the
+  system clock's sync to the card's, and a read whose stamp is later than the clock isn't
+  recorded. A read that takes several packets is timed from the last.
 - FAST (`turbojet::fast`): reportable errors are always reported, so an encoder that writes an
   overlong integer or presence map is refused rather than read; a delta string's part is read as
   the specification has it, not nullable, so an encoder that writes it nullable, as `fastlib` does
