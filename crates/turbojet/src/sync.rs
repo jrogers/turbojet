@@ -12,3 +12,17 @@ pub(crate) use shuttle::sync::{Mutex, MutexGuard};
 pub(crate) use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 #[cfg(not(shuttle))]
 pub(crate) use std::sync::{Mutex, MutexGuard};
+
+/// A value alone on its cache lines, so another session's writes nearby don't invalidate it.
+/// 128 bytes everywhere: Apple silicon's lines are 128, and x86 and Neoverse cores fetch 64-byte
+/// lines in pairs, so 64 left Graviton as slow as no padding (DESIGN.md, Many sessions).
+#[derive(Debug, Default)]
+#[repr(align(128))]
+pub(crate) struct CachePadded<T>(pub(crate) T);
+
+impl<T> std::ops::Deref for CachePadded<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}

@@ -17,7 +17,7 @@ use crate::message::Message;
 use crate::peer::ConnectionInfo;
 use crate::schedule::Clock;
 use crate::store::{Marks, MemoryStorage, Opened, SessionId, SessionStorage, StoredSession};
-use crate::sync::{AtomicBool, AtomicU8, AtomicU64, Mutex, MutexGuard, Ordering};
+use crate::sync::{AtomicBool, AtomicU8, AtomicU64, CachePadded, Mutex, MutexGuard, Ordering};
 
 /// A request to a session's connection task. `T` is what it sends: a FIX [`Message`], or for a
 /// FIXP session an encoded SBE message.
@@ -327,7 +327,7 @@ pub(crate) struct CommandSender<T = Message> {
     sends: mpsc::Sender<(T, ReceiptSender)>,
     control: mpsc::Sender<Control>,
     /// Sends queued so far, for a Logout to wait behind.
-    queued: Arc<AtomicU64>,
+    queued: Arc<CachePadded<AtomicU64>>,
 }
 
 impl<T> Clone for CommandSender<T> {
@@ -538,8 +538,10 @@ pub(crate) struct Binding {
 }
 
 /// What a FIX session updates as it runs, for [`SessionStatus::activity`]: plain atomic stores
-/// on the paths that already change these, so reading it never waits on the session.
+/// on the paths that already change these, so reading it never waits on the session. Aligned as
+/// [`CachePadded`] is, since it's written per message.
 #[derive(Debug)]
+#[repr(align(128))]
 pub(crate) struct LiveStatus {
     /// When the session bound, as an `Instant`, which the times below count from.
     origin: Instant,

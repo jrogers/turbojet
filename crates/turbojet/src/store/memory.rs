@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use super::seq_index::SeqIndex;
 use super::{Job, Marks, SessionId, SessionStorage, StoredSession};
 use crate::fields::UtcTimestamp;
+use crate::sync::CachePadded;
 
 #[derive(Debug)]
 struct State {
@@ -81,7 +82,7 @@ impl State {
 pub struct MemoryStorage {
     /// One per session opened, never removed, at most `max_sessions`. An acceptor opens one for
     /// each CompID that [`Application::verify_logon`](crate::Application::verify_logon) accepts.
-    sessions: Mutex<HashMap<SessionId, Arc<Mutex<State>>>>,
+    sessions: Mutex<HashMap<SessionId, Arc<CachePadded<Mutex<State>>>>>,
     max_sessions: usize,
     max_session_bytes: u64,
 }
@@ -180,7 +181,7 @@ impl SessionStorage for MemoryStorage {
 }
 
 struct MemoryLog {
-    state: Arc<Mutex<State>>,
+    state: Arc<CachePadded<Mutex<State>>>,
     max_bytes: usize,
 }
 
