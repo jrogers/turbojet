@@ -234,24 +234,29 @@ cargo bench -p turbojet --all-features -- --quick   # fast smoke run
 cargo bench -p turbojet --bench codec               # one group: codec, session, roundtrip or fixp
 ```
 
-AWS c9gd.2xlarge (Graviton5, 8 vCPUs), Linux 7.0, Rust 1.99.1, jemalloc; criterion medians. The
-[performance chapter](https://github.com/jrogers/turbojet/blob/main/docs/guide/performance.md#results) has an Intel
-machine's and a Mac's, and round trips between two machines.
+Between two AWS c9gd.2xlarge machines (Graviton5, 8 vCPUs), Linux 7.0, Rust 1.100.0, jemalloc,
+pinned: an order and its ExecutionReport, one session, against the kernel's own TCP round trip
+between the same machines.
+
+| one session, pinned | p50 | p99 | p99.99 |
+|---|---:|---:|---:|
+| sockperf, TCP ping-pong, blocking reads | 21.9 µs | 28 µs | 45 µs |
+| tokio's driver, 1,000 orders a second | 36 µs | 43 µs | 60 µs |
+| spinning, 1,000 orders a second | 24 µs | 29 µs | 46 µs |
+
+In one process on one of them, criterion medians:
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 209 ns / 189 ns | 773 / 853 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 208 ns / 187 ns | 777 / 860 MiB/s |
 | Encode ExecutionReport (209 B) | 61 ns | 3.2 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 36 ns / 57 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 1.26 µs | 796k msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 26 ns / 603 ns / 51 µs | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.7 µs | 114k/s |
-| The same, both ends spinning (`run_spinning`) | 7.7 µs | 130k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 710k msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 602k msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 6.3 µs | 2.04M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 8.0 ns / 268 ns | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 1.17 µs | 858k msg/s |
+| Session: an initiator taking in an ExecutionReport, wire to `on_message` | 457 ns | 2.19M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 26 ns / 602 ns / 49 µs | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.8 µs | 114k/s |
 
+The [performance chapter](https://github.com/jrogers/turbojet/blob/main/docs/guide/performance.md#results) has the
+rest: more rates and sessions, throughput, TLS, FIXP, an Intel machine's numbers and a Mac's.
 Round trips go initiator → acceptor application → initiator, with a store that discards
 messages. [DESIGN.md](https://github.com/jrogers/turbojet/blob/main/docs/DESIGN.md#current-numbers) has every benchmark, what
 each measures, and their history.

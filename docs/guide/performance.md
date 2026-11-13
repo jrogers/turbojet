@@ -7,7 +7,7 @@ This chapter is about the choices that move latency and throughput.
 For the lowest latency, reply from `Application::on_message`. `Context::send` there is written
 with the same wake-up of the connection task, while a `SessionHandle` send from another task
 wakes the connection's task to take it: over localhost on `c9gd` (see [Results](#results)), an
-order sent and its acknowledgement received through another task took 20.7 µs, against 8.7 µs
+order sent and its acknowledgement received through another task took 19.5 µs, against 8.8 µs
 from `on_message`.
 
 Turbojet runs on a current-thread tokio runtime as well as a multi-threaded one; on a
@@ -22,7 +22,7 @@ To go lower at the cost of a core per connection, drive the session with
 read and write the non-blocking socket directly, and check the handle's commands and the timer,
 rather than waiting for tokio's reactor to wake them. Store jobs and cancel on disconnect still
 run on the tokio runtime passed in. Over localhost with both ends spinning, the round trip from
-`on_message` took 7.7 µs against 8.7 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Between
+`on_message` took 7.5 µs against 8.8 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Between
 two `c9gd` machines it took an order's round trip from 34 to 36 µs down to 23 to 25 µs, against 18 µs
 for the kernel's own TCP round trip between them read the same way, polling non-blocking sockets.
 Give each spinning connection a thread, and on
@@ -166,44 +166,49 @@ two machines.
 ### On Linux servers
 
 Two AWS machines of 8 vCPUs with local NVMe instance storage, in one cluster placement group in
-us-east-1, Linux 7.0, Rust 1.99.1, November 2026, on jemalloc (see [the allocator](#the-allocator-on-linux)),
+us-east-1, Linux 7.0, Rust 1.100.0, November 2026, on jemalloc (see [the allocator](#the-allocator-on-linux)),
 the NICs' interrupt moderation off (see [interrupt moderation](#interrupt-moderation)), `c9gd`
-built with `-C target-feature=+lse,+crc`, with `scripts/aws-bench.sh`. One run of each: the round
-trips at commit `a598624`, the benchmarks in one process at `a16adab`.
+built with `-C target-feature=+lse,+crc`, with `scripts/aws-bench.sh`, all at commit `df3e6eb`.
 
-The `ack` acceptor on one machine, answering each NewOrderSingle with an ExecutionReport, and
-`load` on the other, sending orders at a set rate and timing each from when it was due, 10 s
-after 2 s of warm-up:
-
-| sessions × orders a second | `c9gd` p50 | p99 | p99.99 | `c8id` p50 | p99 | p99.99 |
-|---|---:|---:|---:|---:|---:|---:|
-| 1 × 1,000 | 35 µs | 40 µs | 57 µs | 249 µs | 438 µs | 598 µs |
-| 1 × 10,000 | 33 µs | 38 µs | 88 µs | 124 µs | 646 µs | 1.00 ms |
-| 1 × 100,000 | 36 µs | 43 µs | 114 µs | 102 µs | 215 µs | 604 µs |
-| 8 × 200,000 | 35 µs | 50 µs | 77 µs | 105 µs | 625 µs | 4.62 ms |
-
-On `c9gd` the p50 held flat across the rates in each of six runs, each on a placement of its own,
-but the placement set its level: 32 to 37 µs in four, 39 to 42 µs and 45 to 50 µs in the others.
-`c8id`'s round trips are about three times as long, with a longer tail, on glibc as on jemalloc.
-
-The same between two `c9gd` machines at commit `93eec91`, one session, pinned as in
+Between two `c9gd` machines, one session: the `ack` acceptor on one, answering each
+NewOrderSingle with an ExecutionReport, and `load` on the other, sending orders at a set rate and
+timing each from when it was due, 10 s after 2 s of warm-up. Both pinned as in
 [pinning](#pinning-on-linux), with tokio's driver and with spinning connections (`ack --spin`,
-`load --spin`). The first row is the kernel's own TCP round trip between them, without Turbojet:
-`sockperf ping-pong --tcp -m 200`, one 200-byte message at a time.
+`load --spin`). The first two rows are the kernel's own TCP round trip between the same two
+machines, without Turbojet: `sockperf ping-pong --tcp -m 200`, one 200-byte message at a time,
+read blocking as tokio's driver waits, and polling non-blocking sockets as spinning connections do.
 
 | one session, pinned | p50 | p99 | p99.99 |
 |---|---:|---:|---:|
-| sockperf, TCP ping-pong, blocking reads | 22.0 µs | 31 µs | 56 µs |
-| tokio's driver, 1,000 orders a second | 36 µs | 43 µs | 61 µs |
-| tokio's driver, 10,000 | 34 µs | 43 µs | 74 µs |
-| tokio's driver, 100,000 | 36 µs | 47 µs | 99 µs |
-| spinning, 1,000 orders a second | 25 µs | 33 µs | 51 µs |
-| spinning, 10,000 | 23 µs | 33 µs | 81 µs |
+| sockperf, TCP ping-pong, blocking reads | 21.9 µs | 28 µs | 45 µs |
+| sockperf, TCP ping-pong, non-blocking sockets polled | 18.5 µs | 25 µs | 40 µs |
+| tokio's driver, 1,000 orders a second | 36 µs | 43 µs | 60 µs |
+| tokio's driver, 10,000 | 33 µs | 38 µs | 74 µs |
+| tokio's driver, 100,000 | 36 µs | 45 µs | 116 µs |
+| spinning, 1,000 orders a second | 24 µs | 29 µs | 46 µs |
+| spinning, 10,000 | 23 µs | 29 µs | 70 µs |
 | spinning, 100,000 | 25 µs | 35 µs | 71 µs |
 
-In other placements, the kernel's TCP round trip was 18 µs p50 with sockperf polling
-non-blocking sockets (`--nonblocked`), as spinning connections do, and 16 µs with the kernel's busy
-polling as well. Bypassing the kernel, a UDP ping-pong over DPDK between the same machines was 3
+So Turbojet adds about 14 µs to the kernel's round trip with tokio's driver, and about 5 µs
+spinning. The placement sets the kernel's round trip, and with it every row: in another placement
+sockperf's was 33 µs, tokio's driver 47 µs and spinning 35 µs, Turbojet's share the same.
+
+Without pinning, at more sessions, and on `c8id` (Xeon 6975P) as well, tokio's driver:
+
+| sessions × orders a second | `c9gd` p50 | p99 | p99.99 | `c8id` p50 | p99 | p99.99 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 × 1,000 | 36 µs | 42 µs | 74 µs | 101 µs | 328 µs | 688 µs |
+| 1 × 10,000 | 32 µs | 40 µs | 82 µs | 123 µs | 564 µs | 962 µs |
+| 1 × 100,000 | 36 µs | 48 µs | 161 µs | 99 µs | 358 µs | 736 µs |
+| 8 × 200,000 | 36 µs | 54 µs | 92 µs | 105 µs | 517 µs | 2.83 ms |
+
+On `c9gd` the p50 held flat across the rates in each of six earlier runs, each on a placement of
+its own, but the placement set its level: 32 to 37 µs in four, 39 to 42 µs and 45 to 50 µs in the
+others. `c8id`'s round trips are about three times as long, with a longer tail, on glibc as on
+jemalloc.
+
+With the kernel's busy polling as well, sockperf's round trip on non-blocking sockets was 16 µs
+in another placement. Bypassing the kernel, a UDP ping-pong over DPDK between the same machines was 3
 to 4 µs faster than the busy-polled kernel socket, 12.7 µs at best (`scripts/dpdk-pingpong.c`), and
 4 to 4.5 µs faster on `c8id`, once the device memory DPDK writes through was mapped
 write-combined; mapped uncached, as the stock `vfio-pci` does, it was slower than the kernel on
@@ -214,37 +219,35 @@ medians, temporary files on the instance storage.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 209 ns / 189 ns | 773 / 853 MiB/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 208 ns / 187 ns | 777 / 860 MiB/s |
 | Encode ExecutionReport (209 B) | 61 ns | 3.2 GiB/s |
 | Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 36 ns / 57 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 1.26 µs | 796k msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 26 ns / 603 ns / 51 µs | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.7 µs | 114k/s |
-| The same, both ends spinning (`run_spinning`) | 7.7 µs | 130k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 710k msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 602k msg/s |
-| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 521k / 2.71M / 2.84M msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 6.3 µs | 2.04M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 8.0 ns / 268 ns | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 1.17 µs | 858k msg/s |
+| Session: an initiator taking in an ExecutionReport, wire to `on_message` | 457 ns | 2.19M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 26 ns / 602 ns / 49 µs | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.8 µs | 114k/s |
+| The same, both ends spinning (`run_spinning`) | 7.5 µs | 134k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 682k msg/s |
+| Round trip over localhost TLS, 1,000 in flight | | 647k msg/s |
+| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 543k / 2.90M / 3.02M msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 6.1 µs | 2.31M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 8.0 ns / 265 ns | |
 
 The same on c8id.2xlarge (Xeon 6975P, Granite Rapids):
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 284 ns / 267 ns | 567 / 604 MiB/s |
-| Encode ExecutionReport (209 B) | 57 ns | 3.4 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 42 ns / 65 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 1.41 µs | 710k msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 24 ns / 505 ns / 138 µs | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.3 µs | 121k/s |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 284 ns / 268 ns | 568 / 602 MiB/s |
+| Encode ExecutionReport (209 B) | 59 ns | 3.3 GiB/s |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 1.35 µs | 739k msg/s |
+| Session: an initiator taking in an ExecutionReport, wire to `on_message` | 594 ns | 1.68M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 23 ns / 508 ns / 160 µs | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 8.5 µs | 118k/s |
 | The same, both ends spinning (`run_spinning`) | 9.0 µs | 111k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 542k msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 528k msg/s |
-| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 396k / 1.49M / 1.52M msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 5.9 µs | 1.56M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 5.5 ns / 367 ns | |
+| Round trip over localhost TCP, 1,000 in flight | | 523k msg/s |
+| Many sessions over localhost TCP, 1,000 in flight each: 1 / 8 / 32 sessions | | 398k / 1.54M / 1.57M msg/s |
 
-A synced commit costs what the device does: 51 µs on `c9gd`'s instance storage and 138 µs on
+A synced commit costs what the device does: 49 µs on `c9gd`'s instance storage and 160 µs on
 `c8id`'s, against about 4 ms on a laptop's SSD.
 
 ### On a Mac

@@ -221,15 +221,20 @@ def figures() -> dict[str, str]:
 def linux_table(header: str) -> tuple[str, list[str]]:
     """From the performance chapter's Linux results, the table whose header starts with `header`,
     as its lines, and the paragraph before it, which says what it was measured on."""
-    chapter = (ROOT / "docs" / "guide" / "performance.md").read_text()
-    _, found, section = chapter.partition("\n### On Linux servers\n")
-    assert found, "the performance chapter has no 'On Linux servers' section: update site/build.py"
-    section = section.split("\n### ")[0]
+    section = linux_section()
     start = section.find("\n" + header)
     assert start >= 0, f"the Linux results have no table headed {header!r}: update site/build.py"
     intro = section[: start].rstrip().split("\n\n")[-1].replace("\n", " ")
     lines = section[start + 1 :].split("\n\n")[0].split("\n")
     return intro, lines
+
+
+def linux_section() -> str:
+    """The performance chapter's 'On Linux servers' section."""
+    chapter = (ROOT / "docs" / "guide" / "performance.md").read_text()
+    _, found, section = chapter.partition("\n### On Linux servers\n")
+    assert found, "the performance chapter has no 'On Linux servers' section: update site/build.py"
+    return section.split("\n### ")[0]
 
 
 def cell(lines: list[str], row: str, column: int) -> str:
@@ -286,8 +291,12 @@ def benchmarks() -> str:
     on, as HTML. README.md shows the same rows, and the build fails if they differ."""
     intro, rows = linux_table("| Benchmark")
     readme = (ROOT / "README.md").read_text()
-    for line in readme[readme.index("## Benchmarks\n") :].split("\n\n")[3].split("\n")[2:]:
-        assert line in rows, f"README.md's benchmark row isn't the performance chapter's: {line}"
+    # README.md's tables from Benchmarks up to the allocation counts, each line the chapter's.
+    section = readme[readme.index("## Benchmarks\n") :].split("\n| Stage")[0]
+    linux = linux_section().split("\n")
+    for line in section.split("\n"):
+        if line.startswith("|"):
+            assert line in linux, f"README.md's benchmark row isn't the performance chapter's: {line}"
     header, _, *body = rows
     cell = lambda c: inline(c.strip())
     out = ["<table>", "<thead><tr>" + "".join(f"<th>{cell(c)}</th>" for c in cells(header)) + "</tr></thead>", "<tbody>"]
