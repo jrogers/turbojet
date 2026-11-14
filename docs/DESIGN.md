@@ -1613,8 +1613,14 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
 same machine, on `main` at 12059cc, the SQL rows against PostgreSQL 18.7. The round trips are
 medians of five runs, and the TCP round trip replying from `on_message` of nine. That one varied
 more than before, 9.6 to 13.0 µs, against 9.9 to 11.0 µs for c0f3dcc run alternately with it the
-same evening (and 9.2 to 10.0 µs on 2026-10-31), so it may be about 1 µs slower than it was, or
-the machine may be; the spinning round trip, run alongside it, took 8.8 µs at both commits. On
+same evening (and 9.2 to 10.0 µs on 2026-10-31); the spinning round trip, run alongside it, took
+8.8 µs at both commits. The code isn't the cause (issue #50). A bisect had blamed padding
+`CommandSender`'s count of queued sends, but only `SessionHandle::send` writes that count, here
+once per chain of orders, so its padding moves allocations, not cache traffic per message. Run
+round-robin on 2026-11-14, 24 runs each, 114f63c took 10.1 µs (9.5 to 11.8), the same with the
+count unpadded 10.4 µs (9.3 to 11.3), and unpadded with an unused padded allocation in its place
+10.0 µs (9.4 to 11.7): each run landed near 9.5 or 11 µs whatever the build, as the macOS
+scheduler wakes a thread on one core or another (as with TLS, above). On
 2026-10-31, in the table's order: decoding 163 / 136 ns, encoding 40 and 45 ns, typed parsing
 26 / 41 ns borrowed and 113 / 175 ns owned, nested groups 85 / 560 / 470 ns, building 137 ns,
 timestamps 9.0 / 27 ns; the session 675 ns and 825 ns wire to wire; storing 12 ns / 1.4 µs /
