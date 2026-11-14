@@ -1103,7 +1103,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "chrono",
  "compact_str",
@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-config"
-version = "0.10.0"
+version = "0.10.1"
 dependencies = [
  "serde",
  "tokio",
