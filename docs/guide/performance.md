@@ -22,7 +22,7 @@ To go lower at the cost of a core per connection, drive the session with
 read and write the non-blocking socket directly, and check the handle's commands and the timer,
 rather than waiting for tokio's reactor to wake them. Store jobs and cancel on disconnect still
 run on the tokio runtime passed in. Over localhost with both ends spinning, the round trip from
-`on_message` took 7.5 µs against 8.8 µs on `c9gd`, and 8.7 µs against 9.6 µs on a Mac. Between
+`on_message` took 7.5 µs against 8.8 µs on `c9gd`, and 8.8 µs against 11.6 µs on a Mac. Between
 two `c9gd` machines it took an order's round trip from 34 to 36 µs down to 23 to 25 µs, against 18 µs
 for the kernel's own TCP round trip between them read the same way, polling non-blocking sockets.
 Give each spinning connection a thread, and on
@@ -253,21 +253,22 @@ A synced commit costs what the device does: 49 µs on `c9gd`'s instance storage 
 ### On a Mac
 
 Apple M4 Pro (8 performance and 4 efficiency cores), macOS 27, Rust 1.98.1, criterion medians,
-October 2026. Over localhost only.
+November 2026. Over localhost only.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 136 ns | 991 / 1,185 MiB/s |
-| Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 26 ns / 41 ns | |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 825 ns | 1.21M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.4 µs / 3.9 ms | |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 9.6 µs | 104k/s |
-| The same, both ends spinning (`run_spinning`) | 8.7 µs | 115k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 1.06M msg/s |
-| Round trip over localhost TLS, 1,000 in flight | | 950k msg/s |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 3.97M msg/s |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 181 ns | |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 160 ns / 133 ns | 1,006 / 1,215 MiB/s |
+| Encode ExecutionReport (209 B) | 46 ns | 4.2 GiB/s |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 25 ns / 41 ns | |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 782 ns | 1.28M msg/s |
+| Session: an initiator taking in an ExecutionReport, wire to `on_message` | 317 ns | 3.15M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.5 µs / 3.9 ms | |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 11.6 µs | 86k/s |
+| The same, both ends spinning (`run_spinning`) | 8.8 µs | 113k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 1.07M msg/s |
+| Round trip over localhost TLS, 1,000 in flight | | 968k msg/s |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 4.33M msg/s |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 176 ns | |
 
 [messages]: messages.md
 [storage]: storage.md

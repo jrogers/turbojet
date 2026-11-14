@@ -1512,35 +1512,36 @@ how the compiler happens to partition the crate.
 
 | Benchmark | Time | Rate |
 |---|---|---|
-| Decode NewOrderSingle (169 B): into a new message / a reused one | 163 ns / 136 ns | 991 / 1,185 MiB/s |
-| Encode NewOrderSingle (169 B) | 40 ns | 4.0 GiB/s |
-| Encode ExecutionReport (209 B) | 45 ns | 4.3 GiB/s |
-| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 26 ns / 41 ns | |
-| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 113 ns / 175 ns | |
-| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 85 ns / 560 ns / 470 ns | |
-| Typed build ExecutionReport | 137 ns | |
+| Decode NewOrderSingle (169 B): into a new message / a reused one | 160 ns / 133 ns | 1,006 / 1,215 MiB/s |
+| Encode NewOrderSingle (169 B) | 40 ns | 3.9 GiB/s |
+| Encode ExecutionReport (209 B) | 46 ns | 4.2 GiB/s |
+| Typed parse NewOrderSingle, borrowed (no groups / with 3 allocations) | 25 ns / 41 ns | |
+| Typed parse NewOrderSingle, owned (no groups / with 3 allocations) | 112 ns / 176 ns | |
+| Typed parse FIX 4.4 NewOrderSingle with nested groups (363 B): borrowed / reading every entry / owned | 85 ns / 557 ns / 470 ns | |
+| Typed build ExecutionReport | 142 ns | |
 | Format a timestamp (same second / new second) | 9.0 ns / 27 ns | |
-| Session: order → ack, no I/O, encoded reply (memory store) | 675 ns | 1.48M msg/s |
-| Session: order → ack, wire to wire (decode + session, which encodes) | 825 ns | 1.21M msg/s |
-| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.4 µs / 3.9 ms | |
-| Store a sent message, 100 per commit: disk / disk + fsync | 37 ns / 40 µs | |
-| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.0 ms / 140 µs | |
-| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 49 µs / 7.1 µs | |
-| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.6 µs / 179 µs / 146 µs | |
-| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 6.7 ns / 30 ns | |
-| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 181 ns | |
-| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 197 ns / 1.34 µs / 6.43 µs | |
-| FAST: encode the same refreshes | 278 ns / 1.88 µs / 8.21 µs | |
-| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 3.97M msg/s |
-| Round trip over localhost TCP, one at a time | 30.8 µs | 32.5k/s |
-| Round trip over localhost TCP, one at a time, replying from `on_message` | 9.6 µs | 104k/s |
-| The same, both ends spinning (`run_spinning`) | 8.7 µs | 115k/s |
-| Round trip over localhost TCP, 1,000 in flight | | 1.06M msg/s |
-| Round trip over localhost TLS, one at a time | 31.3 µs | 31.9k/s |
-| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.2 µs | 47.2k/s |
-| Round trip over localhost TLS, 1,000 in flight | | 950k msg/s |
-| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.5 µs | 959k msg/s |
-| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 4.4 ms | 13.9k msg/s |
+| Session: order → ack, no I/O, encoded reply (memory store) | 628 ns | 1.59M msg/s |
+| Session: order → ack, wire to wire (decode + session, which encodes) | 782 ns | 1.28M msg/s |
+| Session: an initiator taking in an ExecutionReport, wire to `on_message` | 317 ns | 3.15M msg/s |
+| Store a sent message and commit it: memory / disk / disk + fsync | 12 ns / 1.5 µs / 3.9 ms | |
+| Store a sent message, 100 per commit: disk / disk + fsync | 37 ns / 39 µs | |
+| Store a sent message and commit it: SQLite / SQLite synced / PostgreSQL | 66 µs / 4.1 ms / 184 µs | |
+| Store a sent message, 100 per commit: SQLite / SQLite synced / PostgreSQL | 2.5 µs / 52 µs / 7.8 µs | |
+| Read a resend step of 256 back: disk / SQLite / PostgreSQL | 11.8 µs / 179 µs / 155 µs | |
+| SBE: encode a B3 NewOrderSingle (113 B) / tag=value NewOrderSingle (169 B), reused buffer | 6.6 ns / 29 ns | |
+| SBE: decode a B3 NewOrderSingle and read the order fields / tag=value, typed borrowed | 4.8 ns / 176 ns | |
+| FAST: decode a market data refresh of 1 / 10 / 50 entries into a reused message | 197 ns / 1.31 µs / 6.22 µs | |
+| FAST: encode the same refreshes | 277 ns / 1.88 µs / 8.16 µs | |
+| FIXP round trip over localhost TCP: one at a time, replying from `on_message` / 1,000 in flight | 16.1 µs | 4.33M msg/s |
+| Round trip over localhost TCP, one at a time | 30.7 µs | 32.5k/s |
+| Round trip over localhost TCP, one at a time, replying from `on_message` | 11.6 µs | 86k/s |
+| The same, both ends spinning (`run_spinning`) | 8.8 µs | 113k/s |
+| Round trip over localhost TCP, 1,000 in flight | | 1.07M msg/s |
+| Round trip over localhost TLS, one at a time | 31.4 µs | 31.9k/s |
+| Round trip over localhost TLS, one at a time, replying from `on_message` | 21.0 µs | 47.5k/s |
+| Round trip over localhost TLS, 1,000 in flight | | 968k msg/s |
+| Round trip, acceptor storing to disk: one at a time / 1,000 in flight | 33.3 µs | 964k msg/s |
+| Round trip, acceptor storing to disk + fsync: one at a time / 100 in flight | 4.3 ms | 15.0k msg/s |
 
 Round trips are initiator → acceptor application → initiator application, using a store that
 discards messages (storage is measured separately), except the disk rows, where the acceptor
@@ -1555,7 +1556,7 @@ Entrypoint schema; the FIXP rows carry its orders under FIXP 1.0 with recoverabl
 storing in memory. The FAST rows use the FAST specification's own incremental refresh template,
 each message following the one before. The SQL rows used PostgreSQL 18 on the same machine over
 TCP, and SQLite synced is `synchronous = FULL` with `fullfsync`, as `DiskStorage`'s fsync is. Rows
-were measured 2026-10-31, the SQL rows and the resend steps 2026-10-25;
+were measured 2026-11-13;
 [Measurement history](#measurement-history) says what each was before.
 
 `tests/allocations.rs` counts heap allocations per order → ack, wire to wire, by stage, and fails if any stage's
@@ -1608,7 +1609,29 @@ bytes; ClOrdID, Symbol and Account here are kept inline.
 
 ### Measurement history
 
-[Current numbers](#current-numbers) has the latest. Every row but the SQL rows and the resend steps
+[Current numbers](#current-numbers) has the latest. Every row was re-measured 2026-11-13 on the
+same machine, on `main` at 12059cc, the SQL rows against PostgreSQL 18.7. The round trips are
+medians of five runs, and the TCP round trip replying from `on_message` of nine. That one varied
+more than before, 9.6 to 13.0 µs, against 9.9 to 11.0 µs for c0f3dcc run alternately with it the
+same evening (and 9.2 to 10.0 µs on 2026-10-31), so it may be about 1 µs slower than it was, or
+the machine may be; the spinning round trip, run alongside it, took 8.8 µs at both commits. On
+2026-10-31, in the table's order: decoding 163 / 136 ns, encoding 40 and 45 ns, typed parsing
+26 / 41 ns borrowed and 113 / 175 ns owned, nested groups 85 / 560 / 470 ns, building 137 ns,
+timestamps 9.0 / 27 ns; the session 675 ns and 825 ns wire to wire; storing 12 ns / 1.4 µs /
+3.9 ms one per commit and 37 ns / 40 µs at 100; SBE 6.7 / 30 ns and 4.8 / 181 ns; FAST decoding
+197 ns / 1.34 µs / 6.43 µs and encoding 278 ns / 1.88 µs / 8.21 µs; FIXP 16.1 µs and 3.97M msg/s;
+TCP round trips 30.8 µs, 9.6 µs from `on_message`, 8.7 µs spinning and 1.06M msg/s; TLS 31.3 µs,
+21.2 µs and 950k msg/s; the disk store 33.5 µs and 959k msg/s, and with fsync 4.4 ms and
+13.9k msg/s. The SQL rows and resend steps were last measured 2026-10-25: SQLite / synced /
+PostgreSQL 66 µs / 4.0 ms / 140 µs one per commit and 2.5 / 49 / 7.1 µs at 100, resend steps
+11.6 / 179 / 146 µs. Since c0f3dcc the session's order → ack is 7% faster (5% wire to wire), and
+FIXP pipelining 9% (4.08M to 4.37M msg/s in five runs). With fsync, pipelining 100 managed 8% more
+(14.3k to 20.9k msg/s in five runs), commits waiting at once now sharing a drive flush. The
+initiator's row is new. PostgreSQL's slower commit is the server's, not Turbojet's: c0f3dcc took
+187 µs against the same server the same evening (7.1 µs at 100 per commit against 7.8 µs, one run
+each).
+
+Before that, every row but the SQL rows and the resend steps
 was re-measured 2026-10-31 on the same machine, on `main` at c0f3dcc. A round trip replying from
 `on_message` varies more from run to run than the table's other rows (9.2 to 10.0 µs over TCP in
 five runs), so it and the spinning, TLS, pipelined TCP, FIXP and disk store round trips are medians
