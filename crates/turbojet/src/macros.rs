@@ -328,11 +328,11 @@ macro_rules! fix_message {
             type Ref<'a> = $ref_name<'a>;
 
             fn from_message(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse owned '_, msg.view(), false, $( $field : $presence $ty = $tags ),+)
+                Self::__from_message::<false>(msg)
             }
 
             fn from_message_strict(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
-                $crate::fix_message!(@parse owned '_, msg.view(), true, $( $field : $presence $ty = $tags ),+)
+                Self::__from_message::<true>(msg)
             }
 
             fn to_message(&self) -> $crate::message::Message {
@@ -347,6 +347,16 @@ macro_rules! fix_message {
                 const FIELDS: usize = 1 $( + $crate::fix_message!(@one $field) )+;
                 msg.reset_with_capacity(Self::MSG_TYPE, 16 * FIELDS, FIELDS);
                 $( $crate::fix_message!(@write $presence msg, $tags, &self.$field); )+
+            }
+        }
+
+        $($cfg)*
+        #[allow(deprecated)]
+        impl $name {
+            // One body for both parses, so it's expanded and checked once; each `STRICT` still
+            // compiles to its own copy.
+            fn __from_message<const STRICT: bool>(msg: &$crate::message::Message) -> ::core::result::Result<Self, $crate::message::FieldError> {
+                $crate::fix_message!(@parse owned '_, msg.view(), STRICT, $( $field : $presence $ty = $tags ),+)
             }
         }
 
@@ -407,14 +417,7 @@ macro_rules! fix_message {
                         }
                     };
                 }
-                $(
-                    if $crate::fix_message!(@unmarked $presence, msg, parsed.$field) {
-                        return Err($crate::message::FieldError {
-                            tag: $crate::fix_message!(@key $tags),
-                            kind: $crate::message::FieldErrorKind::Missing,
-                        });
-                    }
-                )+
+                $( $crate::fix_message!(@check_unmarked $presence, msg, parsed.$field, $tags); )+
                 if let Some(tag) = undeclared {
                     return Err($crate::message::FieldError { tag, kind: $crate::message::FieldErrorKind::NotDefined });
                 }
@@ -487,11 +490,22 @@ macro_rules! fix_message {
     (@mark opt_data $ty:ty, $at:expr, $fields:ident, $index:ident, $tag:ident, $tags:tt) => {
         $crate::fix_message!(@mark data $ty, $at, $fields, $index, $tag, $tags)
     };
+    // Fails as missing a required field not marked; an optional field expands to nothing.
+    (@check_unmarked opt, $msg:ident, $at:expr, $tags:tt) => {};
+    (@check_unmarked group, $msg:ident, $at:expr, $tags:tt) => {};
+    (@check_unmarked opt_data, $msg:ident, $at:expr, $tags:tt) => {};
+    (@check_unmarked $presence:ident, $msg:ident, $at:expr, $tags:tt) => {
+        if $crate::fix_message!(@unmarked $presence, $msg, $at) {
+            return Err($crate::message::FieldError {
+                tag: $crate::fix_message!(@key $tags),
+                kind: $crate::message::FieldErrorKind::Missing,
+            });
+        }
+    };
     // Whether a field fails the borrowed form's parse as missing.
     (@unmarked req, $msg:ident, $at:expr) => { $at == $crate::message::__private::ABSENT };
     (@unmarked data, $msg:ident, $at:expr) => { $at == $crate::message::__private::ABSENT };
     (@unmarked req_group, $msg:ident, $at:expr) => { $crate::message::__private::group_missing($msg, $at) };
-    (@unmarked $presence:ident, $msg:ident, $at:expr) => { false };
     (@accessor [$($fmeta:tt)*] req $ty:ty, $field:ident, $tags:tt) => {
         $($fmeta)*
         #[inline]
@@ -574,17 +588,9 @@ macro_rules! fix_message {
             };
         }
         if let Some(error) = failed {
-            let failed_at = $crate::message::__private::declared_at(__DECLARED_TAGS, error.tag);
+            let _failed_at = $crate::message::__private::declared_at(__DECLARED_TAGS, error.tag);
             let mut _at = 0usize;
-            $(
-                if _at < failed_at && $crate::fix_message!(@missing $presence $crate::fix_message!(@place $mode __slots $field)) {
-                    return Err($crate::message::FieldError {
-                        tag: $crate::fix_message!(@key $tags),
-                        kind: $crate::message::FieldErrorKind::Missing,
-                    });
-                }
-                _at += 1;
-            )+
+            $( $crate::fix_message!(@check_missing $presence _at _failed_at, $crate::fix_message!(@place $mode __slots $field), $tags); )+
             return Err(error);
         }
         let value = Self { $( $field: $crate::fix_message!(@finish $mode $presence $ty, $crate::fix_message!(@place $mode __slots $field), $tags), )+ };
@@ -680,13 +686,23 @@ macro_rules! fix_message {
     (@take $mode:ident $lt:lifetime, opt_data $ty:ty, $slot:expr, $fields:ident, $index:ident, $tag:ident, $value:ident, $failed:ident, $declared:ident, $tags:tt) => {
         $crate::message::__private::take_data_ref(&mut $slot, &$fields, $index, $tag, $crate::fix_message!(@key $tags))
     };
-    // Whether a field fails as missing, for the error path.
+    // For the error path: fails as missing a required field declared before the failed one, at
+    // `$at` in declaration order. An optional field only counts, with no branch to expand and check.
+    (@check_missing opt $at:ident $failed_at:ident, $slot:expr, $tags:tt) => { $at += 1; };
+    (@check_missing group $at:ident $failed_at:ident, $slot:expr, $tags:tt) => { $at += 1; };
+    (@check_missing opt_data $at:ident $failed_at:ident, $slot:expr, $tags:tt) => { $at += 1; };
+    (@check_missing $presence:ident $at:ident $failed_at:ident, $slot:expr, $tags:tt) => {
+        if $at < $failed_at && $crate::fix_message!(@missing $presence $slot) {
+            return Err($crate::message::FieldError {
+                tag: $crate::fix_message!(@key $tags),
+                kind: $crate::message::FieldErrorKind::Missing,
+            });
+        }
+        $at += 1;
+    };
     (@missing req $slot:expr) => { $slot.is_none() };
-    (@missing opt $slot:expr) => { false };
-    (@missing group $slot:expr) => { false };
     (@missing req_group $slot:expr) => { $slot.as_ref().is_none_or(|entries| entries.is_empty()) };
     (@missing data $slot:expr) => { $slot.is_none() };
-    (@missing opt_data $slot:expr) => { false };
     (@finish $mode:ident req $ty:ty, $slot:expr, $tags:tt) => { $crate::message::__private::required($crate::fix_message!(@key $tags), $slot)? };
     (@finish $mode:ident opt $ty:ty, $slot:expr, $tags:tt) => { $slot };
     (@finish $mode:ident group $ty:ty, $slot:expr, $tags:tt) => { $slot.unwrap_or_default() };
