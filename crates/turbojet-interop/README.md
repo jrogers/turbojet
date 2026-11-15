@@ -23,7 +23,7 @@ tests), plus checks on the harness itself:
   and followed by a Logout; a link capped at 20 KB/s carrying hundreds of orders each way; and a
   side whose reads stall until the other's writes block, after which every order both ways
   arrives once, in order. (What arrives *during* a stall is left unchecked: on Linux, TCP may hold
-  the open direction back until it ends; see `tests/delays.rs`.)
+  the open direction back until it ends; see `tests/interop/delays.rs`.)
 
 Each engine's side is a small program that runs one session and is driven over stdin and stdout:
 Java for QuickFIX/J (`peer/`), C# for QuickFIX/n (`peer-net/`).
@@ -119,7 +119,7 @@ both checked for:
 
 ## TLS
 
-`tests/tls.rs` runs without the proxy, which can't read encrypted frames: orders over TLS with the server's
+`tests/interop/tls.rs` runs without the proxy, which can't read encrypted frames: orders over TLS with the server's
 certificate alone, and with mutual TLS through a reconnect; and handshakes that must fail, for an
 untrusted server, a client without a certificate and a client with an untrusted one. With
 `Options { tls: Some(Tls { .. }), .. }`, `src/pki.rs` makes a CA that issues both sides'
