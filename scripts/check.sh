@@ -62,8 +62,8 @@ for features in --no-default-features "--features tls" "--features metrics" "--f
     if [ "$features" = "--features tls" ]; then
         cargo clippy -p turbojet --all-targets --features tls --locked --quiet -- -D warnings
     fi
-    # turbojet turns every FIX version of turbojet-fix on in workspace builds; build it without
-    # them, and with one, as an application would.
+    # turbojet turns FIX 4.2, 4.4 and 5.0 SP2 on in workspace builds (the others build and test
+    # with --all-features); build turbojet-fix without them, and with one, as an application would.
     if [ "$features" = --no-default-features ]; then
         cargo clippy -p turbojet-fix --all-targets --no-default-features --locked --quiet -- -D warnings
         cargo test -p turbojet-fix --no-default-features --features fix42 --locked --quiet

@@ -1,10 +1,20 @@
 //! Messages built with the generated FIX version crates pass validation against the official
-//! dictionaries they were generated from. Needs the repository's dictionaries/.
-#![cfg(feature = "validation")]
+//! dictionaries they were generated from, each with its version's feature. Needs the repository's
+//! dictionaries/.
+#![cfg(any(
+    feature = "fix40",
+    feature = "fix41",
+    feature = "fix42",
+    feature = "fix43",
+    feature = "fix44",
+    feature = "fix50",
+    feature = "fix50sp1",
+    feature = "fix50sp2"
+))]
 
 use std::path::Path;
 
-use turbojet::fields::{FromFix, SessionRejectReason, UtcTimestamp};
+use turbojet::fields::{FromFix, UtcTimestamp};
 use turbojet::message::FixMessage;
 use turbojet::validation::Validator;
 use turbojet_dictionary::Dictionary;
@@ -14,11 +24,14 @@ fn dictionary(name: &str) -> Dictionary {
     Dictionary::from_file(path).unwrap_or_else(|e| panic!("{e}"))
 }
 
+// FIX 4.0's and 4.4's tests don't use it.
+#[allow(dead_code)]
 fn time() -> UtcTimestamp {
     UtcTimestamp::from_fix("20260928-12:00:00.000").unwrap()
 }
 
 #[test]
+#[cfg(feature = "fix40")]
 fn fix40_messages_pass() {
     use turbojet_fix::fix40::*;
     let validator = Validator::new(&dictionary("OrchestraFIX40.xml"));
@@ -41,6 +54,7 @@ fn fix40_messages_pass() {
 }
 
 #[test]
+#[cfg(feature = "fix41")]
 fn fix41_messages_pass() {
     use turbojet_fix::fix41::*;
     let validator = Validator::new(&dictionary("OrchestraFIX41.xml"));
@@ -74,7 +88,9 @@ fn fix41_messages_pass() {
 }
 
 #[test]
+#[cfg(feature = "fix42")]
 fn fix42_messages_pass() {
+    use turbojet::fields::SessionRejectReason;
     use turbojet_fix::fix42::*;
     let mut dict = dictionary("OrchestraFIX42.xml");
     // turbojet-fix's FIX 4.2 is generated with this correction.
@@ -137,6 +153,7 @@ fn fix42_messages_pass() {
 }
 
 #[test]
+#[cfg(feature = "fix43")]
 fn fix43_messages_pass() {
     use turbojet_fix::fix43::*;
     let validator = Validator::new(&dictionary("OrchestraFIX43.xml"));
@@ -170,6 +187,7 @@ fn fix43_messages_pass() {
 }
 
 #[test]
+#[cfg(feature = "fix50sp2")]
 fn fix50sp2_messages_pass_over_fixt() {
     use turbojet_fix::fix50sp2::*;
     let dict = dictionary("OrchestraFIX50SP2.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
@@ -188,6 +206,7 @@ fn fix50sp2_messages_pass_over_fixt() {
 }
 
 #[test]
+#[cfg(feature = "fix50")]
 fn fix50_messages_pass_over_fixt() {
     use turbojet_fix::fix50::*;
     let dict = dictionary("OrchestraFIX50.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
@@ -206,6 +225,7 @@ fn fix50_messages_pass_over_fixt() {
 }
 
 #[test]
+#[cfg(feature = "fix50sp1")]
 fn fix50sp1_messages_pass_over_fixt() {
     use turbojet_fix::fix50sp1::*;
     let dict = dictionary("OrchestraFIX50SP1.xml").with_transport(&dictionary("FIXTSession.xml")).unwrap();
@@ -224,6 +244,7 @@ fn fix50sp1_messages_pass_over_fixt() {
 }
 
 #[test]
+#[cfg(feature = "fix44")]
 fn fix44_messages_pass() {
     use turbojet_fix::fix44::*;
     let validator = Validator::new(&dictionary("OrchestraFIX44.xml"));

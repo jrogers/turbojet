@@ -3422,6 +3422,7 @@ name = "turbojet-fix"
 version = "0.10.1"
 dependencies = [
  "turbojet",
+ "turbojet-dictionary",
  "turbojet-message",
 ]
 

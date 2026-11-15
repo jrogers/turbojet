@@ -682,6 +682,13 @@ other sessions' load, and the crate's build output shrinks by about 500 MB. Line
 3 s of 94 in an earlier single run, so it's all or nothing. Backtraces through generated code still
 name the functions, without lines; applications' own builds aren't affected.
 
+The engine's tests build FIX 4.2, 4.4 and 5.0 SP2 only (2026-11-15): the other five versions were
+there for `tests/validation.rs`, which checks each generated version against its dictionary and
+now lives in `turbojet-fix`'s tests, each test behind its version's feature. After an edit to
+`turbojet-message`, rebuilding the engine's tests took 17 to 19 s rather than 35 s (two rounds,
+M3, load 10). Workspace builds without `--all-features`, four of `check.sh`'s five passes, build
+the three versions too; the other five build, lint and test in the `--all-features` pass.
+
 `turbojet-fix` depended on the whole engine, so any change to the engine rebuilt the generated
 messages before its own tests could: 36 s of the 41 s it took to rebuild the engine's tests after
 an edit, debug, on an M3. What the generated code uses (`Message`, the codec, the field types and

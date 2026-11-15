@@ -45,9 +45,9 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - **Workspace builds unify features.** `turbojet`'s dev-dependency on `turbojet-config` (for the
   gateway) turns `tls` on everywhere, so `--no-default-features` across the workspace doesn't
   build `turbojet-config` without it. Check that crate alone: `cargo test -p turbojet-config
-  --no-default-features`. Likewise `turbojet` turns on every FIX version of `turbojet-fix`, so
-  check its code for one version alone with `-p turbojet-fix --no-default-features --features
-  fix42`.
+  --no-default-features`. Likewise `turbojet` turns on FIX 4.2, 4.4 and 5.0 SP2 of `turbojet-fix`
+  (the other versions build only with `--all-features`), so check its code for one version alone
+  with `-p turbojet-fix --no-default-features --features fix42`.
 - **The allocation budget** (`crates/turbojet/tests/allocations.rs`) is exact. It fails if any
   stage's count changes, up or down. When a change moves it on purpose, update the budget and the
   tables (README.md, and DESIGN.md's current numbers), say why in the commit, and add the old
