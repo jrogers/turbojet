@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
 use std::io;
 
+use turbojet::SessionId;
 use turbojet::store::{Commit, Fetched, MaybeHandled, Opened, SessionStorage, StoredSession};
 
 use crate::frame::{Batch, Frame, NackReason, Op, Part, Summary, VERSION};
@@ -52,6 +53,7 @@ impl<S> std::fmt::Debug for Replica<S> {
 }
 
 struct Bound {
+    session: SessionId,
     log: Box<dyn StoredSession>,
     /// The last batch committed, or held: the next must follow it.
     commit_no: u64,
@@ -204,12 +206,16 @@ impl<S: SessionStorage> Replica<S> {
                 Ok(Some(Frame::Nack { handle, reason: NackReason::Lag }))
             }
             Frame::Bind { handle, max_lag, session, .. } => {
+                // Bound again, under this handle or another (to be sent whole): the log it had is
+                // closed first, as a store that locks its sessions (`DiskStorage`) opens one once.
+                // Its held commits ran before this frame was answered.
+                self.bound.retain(|&h, b| h != handle && b.session != session);
                 let mut log = match self.storage.begin_open(&session)? {
                     Opened::Ready(log) => log,
                     Opened::Pending(job) => job.run()?,
                 };
                 let summary = summary(log.as_mut(), max_lag)?;
-                self.bound.insert(handle, Bound { log, commit_no: 0, held: Vec::new(), held_bytes: 0 });
+                self.bound.insert(handle, Bound { session, log, commit_no: 0, held: Vec::new(), held_bytes: 0 });
                 Ok(Some(Frame::Bound { handle, summary }))
             }
             Frame::Batch(batch) => self.on_batch(batch).map(Some),
@@ -494,6 +500,30 @@ mod tests {
 
     fn next_outgoing(replica: &Replica<MemoryStorage>) -> u64 {
         replica.storage().open(&conformance::id("A")).unwrap().next_outgoing()
+    }
+
+    /// A session bound again, under its handle or another, as an active does to send it whole,
+    /// is opened again only once the log it had is closed: a store that locks its sessions, as
+    /// `DiskStorage` does, won't open one twice.
+    #[test]
+    fn a_session_bound_again_over_disk_opens_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut replica = Replica::new(turbojet::DiskStorage::new(dir.path()).unwrap());
+        let hello = Frame::Hello { version: VERSION, epoch: 1, node: "a".into(), app_record_kinds: Vec::new() };
+        replica.on_frame(hello).unwrap();
+        for handle in [1, 1, 2] {
+            let bind = Frame::Bind { handle, epoch: 1, max_lag: 0, session: conformance::id("A") };
+            assert!(matches!(replica.on_frame(bind), Ok(Some(Frame::Bound { .. }))), "handle {handle}");
+        }
+        let batch = Batch {
+            handle: 2,
+            epoch: 1,
+            commit_no: 1,
+            part: Part::Commit,
+            ops: records(1..=2),
+            app_records: Vec::new(),
+        };
+        assert!(matches!(replica.on_frame(Frame::Batch(batch)), Ok(Some(Frame::Ack { .. }))));
     }
 
     /// The parts of a session sent whole change nothing until the last: one cut short, by a lost

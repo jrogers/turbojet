@@ -2,6 +2,19 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet-replica`
+
+- **Fixed:** a `ReplicatedStorage` over a `DiskStorage`, its standby behind (made `degrading`,
+  with the standby down, as it is after every failover until the old active is back), failed
+  each commit with "failed to fill whole buffer": it read the session whole for the standby after
+  the store's own commit had taken what was pending, before writing it, and the failed read
+  dropped that write, so the session broke for good. It's read before the commit now.
+- **Fixed:** a `Replica` over a `DiskStorage` failed a session bound again (as an active does
+  to send it whole) because the store had it locked, still open from the first binding: that's
+  closed first now.
+
 ## 0.11.0 (2026-11-15)
 
 ### `turbojet-message`

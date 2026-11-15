@@ -709,9 +709,12 @@ impl StoredSession for ReplicatedLog {
             return self.inner.commit();
         }
         let ops = std::mem::take(&mut self.ops);
-        let local = self.inner.commit()?;
         let was_behind = self.behind();
+        // Before `S`'s own commit: behind, this reads the session whole, and a store that writes
+        // in its commit's job (`DiskStorage`) has what's pending to read only until then. A read
+        // that fails leaves that pending too, rather than drop the job with it.
         let remote = self.remote(ops)?;
+        let local = self.inner.commit()?;
         let last = self.inner.next_outgoing() - 1;
         let mut remote = if self.shared.max_lag == 0 {
             Some(remote)
@@ -1346,6 +1349,30 @@ mod tests {
         assert_eq!(standby_has(&d.standby, &closed_id), 3);
         assert!(d.active.in_sync());
         assert!(!d.lease.out_of_sync.load(Ordering::Acquire));
+    }
+
+    /// Behind, a commit reads the session whole for the standby: from a store that writes in its
+    /// commit's job, as `DiskStorage` does, that's read before its own commit takes what's
+    /// pending, so the messages are there to read, and the job isn't lost if the read fails.
+    #[test]
+    fn a_degrading_store_over_disk_commits_alone_with_the_standby_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let standby = Arc::new(Mutex::new(Replica::new(MemoryStorage::new())));
+        let link = Arc::new(Outage { link: LocalLink::connect(standby, 1, "a").unwrap(), down: AtomicBool::new(true) });
+        let lease = Arc::new(Remembering::default());
+        let disk = Arc::new(turbojet::DiskStorage::new(dir.path()).unwrap());
+        let active = ReplicatedStorage::new(disk, link, 1).with_lease(lease.clone()).degrading();
+        let id = conformance::id("A");
+        let mut log = active.open(&id).unwrap();
+        for seq in 1..=3 {
+            store_and_commit(log.as_mut(), seq).unwrap_or_else(|e| panic!("commit {seq}: {e}"));
+        }
+        assert!(lease.out_of_sync.load(Ordering::Acquire));
+        let sent = log.sent_messages(1, 3).unwrap();
+        assert_eq!(sent.iter().map(|(seq, _)| *seq).collect::<Vec<_>>(), [1, 2, 3]);
+        drop(log);
+        let reopened = turbojet::DiskStorage::new(dir.path()).unwrap().open(&id).unwrap();
+        assert_eq!(reopened.next_outgoing(), 4, "every commit written");
     }
 
     /// A manual lease can't fence a replaced active while the standby is down, so degrading with
