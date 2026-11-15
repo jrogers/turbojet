@@ -49,6 +49,7 @@ bug in a FIX engine can send a duplicate order or lose a fill.
 |---|---|
 | [`turbojet`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet) | The engine: codec, sessions, stores, acceptor and initiator, FIXP sessions, FAST (`fast` feature), message logs |
 | [`turbojet-fix`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-fix) | Every FIX 4.0 to 5.0 SP2 application message, generated from the FIX Trading Community's data, a feature per version |
+| [`turbojet-message`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-message) | `Message`, the field types, the codec and the macros typed messages are written in, re-exported by `turbojet` |
 | [`turbojet-dictionary`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-dictionary), [`turbojet-codegen`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-codegen) | Load Orchestra or QuickFIX XML with a venue's changes, and generate typed messages or SBE codecs from it |
 | [`turbojet-sql`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-sql) | Session state in SQLite or PostgreSQL, with leases so instances can share a database |
 | [`turbojet-replica`](https://github.com/jrogers/turbojet/tree/main/crates/turbojet-replica) | A hot standby that takes sessions over with no sequence gap |

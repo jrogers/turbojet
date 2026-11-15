@@ -60,7 +60,8 @@ on, so check with `--all-features` and `--no-default-features` at least.
 - **When Turbojet and a peer or a script disagree** (interop, acceptance), decide from the FIX spec
   which side is wrong. Don't just make the test pass. Fix Turbojet bugs in their own commits.
 - **Versions.** `turbojet` has its own version in `crates/turbojet/Cargo.toml`; the other crates
-  use the workspace version.
+  use the workspace version. `turbojet-message` (Message, fields, codec, the macros) is one of
+  them, so a release of `turbojet` alone can't carry changes to it.
 
 ## How work is done here
 
@@ -93,7 +94,7 @@ on, so check with `--all-features` and `--no-default-features` at least.
 ## Releasing
 
 1. Bump `[workspace.package] version`, `turbojet`'s own in `crates/turbojet/Cargo.toml`, and the
-   `turbojet`, `turbojet-dictionary` and `turbojet-replica` versions in `[workspace.dependencies]`; `cargo update -w`,
+   `turbojet`, `turbojet-dictionary`, `turbojet-message` and `turbojet-replica` versions in `[workspace.dependencies]`; `cargo update -w`,
    and `cargo update -p turbojet` in `crates/turbojet/fuzz` and `crates/turbojet-python`. On a minor
    bump, also the versions the docs tell users to depend on (README.md, `crates/turbojet-fix/README.md`,
    the crate docs and the guide's first chapter): `git grep -E 'turbojet[a-z-]* = (\{ version = )?"0\.' -- '*.md' '*.rs'`.

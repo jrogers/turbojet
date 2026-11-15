@@ -676,6 +676,31 @@ Release builds and the typed parse benchmarks didn't move beyond noise. What's l
 two parsers' match arms, one per field, which the parse needs; the derives (`Clone`, `PartialEq`,
 `Debug`) are under a tenth of a message and a sixth of a group.
 
+`turbojet-fix` depended on the whole engine, so any change to the engine rebuilt the generated
+messages before its own tests could: 36 s of the 41 s it took to rebuild the engine's tests after
+an edit, debug, on an M3. What the generated code uses (`Message`, the codec, the field types and
+the macros, about 6,300 lines with no features and no dependency but chrono) is its own crate,
+`turbojet-message` (2026-11-15), which `turbojet` re-exports where it was. `turbojet-fix`
+depends on it alone and names it `turbojet` (`extern crate turbojet_message as turbojet`), so its
+generated code is unchanged, and so is code generated for an application's own dictionary, which
+depends on `turbojet`. Rebuilding the engine's tests after an edit to it now takes 4 to 5 s.
+
+- `Reply` moved too: its impls for `Message` and for every `FixMessage` only compile in the crate
+  that defines both. A raw `Message` the send checks refuse now goes back to the spare messages,
+  as a typed one did.
+- Helpers the engine calls (framing stored messages, a message's segments, `Defect`) are public
+  and `#[doc(hidden)]`.
+- Across crates only `#[inline]` and generic functions inline without LTO. Ten small functions
+  on the send and parse paths that rustc had inlined within the one crate are now `#[inline]`
+  (`Message::clear`, `codec::push_trailer`, `codec::checksum` and the rest), found by diffing the
+  session benchmark's symbols before and after. Under the default release profile, `session/order
+  to ack (memory store)` still took 849 to 860 ns against 819 to 862 ns before, over five
+  alternating rounds, with the engine's own functions (`Session::count_arrival` among them)
+  inlined differently as the smaller crate splits into codegen units differently. Under the
+  benchmark profile (one codegen unit, fat LTO), where the crate boundary is gone: 739, 739 and
+  747 ns after against 739, 742 and 755 ns before; `build ExecutionReport` 174 to 177 ns against
+  169 to 174 ns.
+
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
 (Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 and 5.0 SP2 converted from the FIX
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then

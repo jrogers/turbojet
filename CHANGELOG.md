@@ -2,6 +2,29 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet-message`
+
+- **Added:** a new crate holding `Message`, the field types, the codec and the `fix_message!`,
+  `fix_group!` and `fix_enum!` macros, moved out of `turbojet`, which re-exports them where they
+  were (`turbojet::message`, `turbojet::fields`, `turbojet::codec`, `turbojet::fix_message!` and
+  the rest). Applications keep depending on `turbojet`.
+
+### `turbojet-fix`
+
+- **Changed:** depends on `turbojet-message` rather than `turbojet`, so a change to the engine no
+  longer rebuilds the generated messages: rebuilding the engine's tests after an edit took 4 to 5 s
+  rather than 41 s on an Apple M3.
+- **Changed:** the generated messages expand to less code, so a clean debug build of all eight
+  versions takes 73 s rather than 91 s on an Apple M3. Release builds and parsing speed are
+  unchanged.
+
+### `turbojet`
+
+- **Changed:** `Reply`, what `Context::send` takes, is defined in `turbojet-message`; it's still
+  `turbojet::Reply`, and now also `turbojet::message::Reply`.
+
 ## 0.10.1 (2026-11-14)
 
 ### `turbojet`
