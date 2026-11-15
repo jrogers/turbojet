@@ -21,6 +21,11 @@ homepage = "https://jrogers.github.io/turbojet/"
 codegen-units = 1
 lto = "fat"
 
+# The generated messages without debug info: a tenth off their debug build, and nobody steps
+# through them. Backtraces still name their functions. Only this workspace's builds use it.
+[profile.dev.package.turbojet-fix]
+debug = false
+
 # Lints behind docs/STYLE.md, for the crates that opt in with `[lints] workspace = true` (all but the
 # generated turbojet-fix* crates, whose code is macro invocations).
 [workspace.lints.rust]

@@ -676,6 +676,12 @@ Release builds and the typed parse benchmarks didn't move beyond noise. What's l
 two parsers' match arms, one per field, which the parse needs; the derives (`Clone`, `PartialEq`,
 `Debug`) are under a tenth of a message and a sixth of a group.
 
+The workspace's dev profile builds `turbojet-fix` without debug info (2026-11-15): all eight
+versions took 74 to 82 s with it and 69 to 72 s without, four alternating pairs on an M3 under
+other sessions' load, and the crate's build output shrinks by about 500 MB. Line tables alone saved
+3 s of 94 in an earlier single run, so it's all or nothing. Backtraces through generated code still
+name the functions, without lines; applications' own builds aren't affected.
+
 `turbojet-fix` depended on the whole engine, so any change to the engine rebuilt the generated
 messages before its own tests could: 36 s of the 41 s it took to rebuild the engine's tests after
 an edit, debug, on an M3. What the generated code uses (`Message`, the codec, the field types and
