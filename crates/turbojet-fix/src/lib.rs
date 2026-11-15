@@ -1,5 +1,7 @@
 // The readme's example uses FIX 4.4, so it's the crate docs only when that version is built.
 #![cfg_attr(feature = "fix44", doc = include_str!("../README.md"))]
+// The generated messages and groups parse and encode one field per line.
+#![allow(clippy::too_many_lines)]
 
 // The generated code names `turbojet::…`, as code generated for an application's own dictionary
 // does; here it's the message crate alone, so changes to the engine don't rebuild this one.

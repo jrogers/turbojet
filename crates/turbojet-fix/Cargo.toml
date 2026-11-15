@@ -42,3 +42,6 @@ turbojet-dictionary.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
+
+[lints]
+workspace = true
