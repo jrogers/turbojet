@@ -656,6 +656,26 @@ slower:
 | FIX 4.4 NewOrderSingle with nested groups | 717.2 ns | 772.0 ns |
 | FIX 4.4 NewOrderSingleRef with nested groups | 585.3 ns | 618.6 ns |
 
+What the front end checks was then cut (2026-11-15). FIX 5.0 SP2's 2.4 MB of macro calls
+expanded to 64 MB, two-thirds of it messages, and nearly half of each message was its owned parse
+twice over: `from_message` and `from_message_strict` each expanded the whole body. They now call
+one function generic over `const STRICT: bool`, checked once and still compiled to a copy for each.
+The error paths also carried a branch for each optional field that could never be taken (33,000
+in SP2), which now expand to nothing. Clean debug builds on an M3, alternating before and after:
+
+| | Before | After |
+|---|---|---|
+| FIX 5.0 SP2 (`-Z time-passes`) | 20.0 s | 16.4 s |
+| — macro expansion | 2.8 s | 2.0 s |
+| — type checking | 4.2 s | 3.3 s |
+| — MIR checking | 5.9 s | 4.6 s |
+| — codegen | 2.7 s | 2.7 s |
+| All eight versions | 91 s | 73 s |
+
+Release builds and the typed parse benchmarks didn't move beyond noise. What's left is mostly the
+two parsers' match arms, one per field, which the parse needs; the derives (`Clone`, `PartialEq`,
+`Debug`) are under a tenth of a message and a sixth of a group.
+
 The Orchestra files for FIX 4.2, 4.4 and FIXT 1.1 are vendored in `dictionaries/orchestra`
 (Apache-2.0, © FIX Protocol Limited), with FIX 4.0, 4.1, 4.3, 5.0, 5.0 SP1 and 5.0 SP2 converted from the FIX
 Unified Repository by the FIX Trading Community's own stylesheet (`convert-unified.sh`, then
