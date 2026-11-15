@@ -72,8 +72,9 @@
 //! Made [`degrading`](ReplicatedStorage::degrading), the store keeps its sessions up through a
 //! standby outage: before the first commit the standby won't have, it tells the lease the
 //! standby is out of sync ([`Lease::set_in_sync`]), then commits alone. When the standby is back,
-//! each open session sends itself whole at its next commit, and
-//! [`catch_up`](ReplicatedStorage::catch_up) sends the rest and tells the lease once the standby
+//! each open session sends itself whole at its next commit (an idle one at the next its timer
+//! makes, within a second, once [`catch_up`](ReplicatedStorage::catch_up) has found the standby
+//! lacking it), and [`catch_up`](ReplicatedStorage::catch_up) sends the rest and tells the lease once the standby
 //! is in sync. An instance about to take over acquires the lease, then
 //! reads [`Lease::in_sync`] as its holder, and takes over only if it's true: read before
 //! acquiring, it could be stale, the active still able to put the standby out of sync and commit

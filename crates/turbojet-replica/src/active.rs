@@ -111,6 +111,10 @@ struct State {
     open: HashMap<SessionId, usize>,
     /// The session the catch-up is sending, which an opening waits for.
     catching_up: Option<SessionId>,
+    /// Open sessions the catch-up found behind, with the standby reachable: each sends itself
+    /// whole at its next commit, even one with nothing to commit, as an idle session's timer
+    /// makes every second, rather than wait for something to change.
+    nudged: HashSet<SessionId>,
 }
 
 impl Replication {
@@ -153,6 +157,16 @@ impl Replication {
         let stale: Vec<SessionId> =
             state.open.keys().filter(|id| state.compared.get(*id) != Some(&incarnation)).cloned().collect();
         state.behind.extend(stale);
+        // The standby has answered, so each open session behind is nudged: an idle one would
+        // otherwise leave the standby unchecked until its next heartbeat.
+        let nudged: Vec<SessionId> = state.open.keys().filter(|id| state.behind.contains(*id)).cloned().collect();
+        state.nudged.extend(nudged);
+    }
+
+    /// Whether `session` should send itself whole at this commit, though it has nothing to
+    /// commit: once for each nudge, so a standby that can't be reached isn't sent it each second.
+    fn take_nudge(&self, session: &SessionId) -> bool {
+        self.state().nudged.remove(session)
     }
 
     /// The next closed session for the catch-up to send: behind, or not compared with the
@@ -200,6 +214,8 @@ impl Replication {
             *open -= 1;
             if *open == 0 {
                 state.open.remove(session);
+                // Closed, the catch-up sends it itself.
+                state.nudged.remove(session);
             }
         }
     }
@@ -288,7 +304,9 @@ impl<S: SessionStorage + 'static> ReplicatedStorage<S> {
     /// One pass of catching the standby up and checking it. Each session this instance holds is
     /// compared with the standby's copy in its current [incarnation](Replica::incarnation), and
     /// sent whole if they differ or the standby is behind on it: a closed one here (an opening of
-    /// it waits meanwhile), an open one at its next commit. Once every session has been, the
+    /// it waits meanwhile), an open one at its next commit, which an idle one makes within a
+    /// second of this pass, its timer's, sent whole though it has nothing to commit. Once every
+    /// session has been, the
     /// standby is told it's [checked](Replica::checked), and so may take over, and a degrading
     /// store tells the lease the standby is in sync again. The first pass also asks the lease
     /// whether an earlier run left the standby out of sync, and if so counts every session
@@ -705,7 +723,7 @@ impl StoredSession for ReplicatedLog {
     }
 
     fn commit(&mut self) -> io::Result<Option<Commit>> {
-        if self.ops.is_empty() {
+        if self.ops.is_empty() && !self.shared.take_nudge(&self.session) {
             return self.inner.commit();
         }
         let ops = std::mem::take(&mut self.ops);
@@ -1373,6 +1391,33 @@ mod tests {
         drop(log);
         let reopened = turbojet::DiskStorage::new(dir.path()).unwrap().open(&id).unwrap();
         assert_eq!(reopened.next_outgoing(), 4, "every commit written");
+    }
+
+    /// An open session that has nothing to commit once the standby is back, as an idle one, is
+    /// sent whole at its next commit all the same (the session's timer commits every second),
+    /// once the catch-up has found the standby lacking it: so the catch-up can say the standby is
+    /// in sync without waiting for the session to change.
+    #[test]
+    fn an_idle_open_session_is_sent_whole_once_the_standby_is_back() {
+        let d = degrading(Arc::default(), Arc::default(), 0);
+        let id = conformance::id("A");
+        let mut log = d.active.open(&id).unwrap();
+        store_and_commit(log.as_mut(), 1).unwrap();
+        d.link.down.store(true, Ordering::Release);
+        store_and_commit(log.as_mut(), 2).expect("committed alone");
+        assert!(!d.active.in_sync());
+
+        d.link.down.store(false, Ordering::Release);
+        // Nothing to commit, and not yet nudged: nothing sent.
+        assert!(log.commit().unwrap().is_none_or(|c| c.run().is_ok()));
+        assert_eq!(standby_has(&d.standby, &id), 2);
+        d.active.catch_up().run().unwrap();
+        assert!(!d.active.in_sync(), "the open session is still behind");
+        log.commit().unwrap().map_or(Ok(()), Commit::run).unwrap();
+        assert_eq!(standby_has(&d.standby, &id), 3, "sent whole, with nothing to commit");
+        d.active.catch_up().run().unwrap();
+        assert!(d.active.in_sync());
+        assert!(!d.lease.out_of_sync.load(Ordering::Acquire));
     }
 
     /// A manual lease can't fence a replaced active while the standby is down, so degrading with

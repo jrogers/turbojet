@@ -2,6 +2,16 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet-replica`
+
+- **Fixed:** an open session with nothing to commit, as an idle one, sends itself whole to a
+  standby that lacks it within a second of the catch-up finding it so (at the commit its timer
+  makes), rather than at its next change, which for an idle session is its next heartbeat: until
+  then the standby wasn't checked, and couldn't take over. The catch-up nudges it once each pass
+  that reaches the standby, so a standby that can't be reached isn't sent it every second.
+
 ## 0.11.1 (2026-11-15)
 
 ### `turbojet-replica`
