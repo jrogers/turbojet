@@ -4,22 +4,20 @@
 //! must read them and write the same bytes.
 
 #[allow(dead_code)]
-#[path = "sbe/car.rs"]
+#[path = "../sbe/car.rs"]
 mod car;
 
-#[allow(dead_code)]
-#[path = "sbe/b3.rs"]
-mod b3;
+use crate::b3;
 
 #[allow(dead_code)]
-#[path = "sbe/versioned.rs"]
+#[path = "../sbe/versioned.rs"]
 mod versioned;
 
 use turbojet::sbe::{Block, SbeError, pad};
 
-const CAR: &[u8] = include_bytes!("sbe/golden/car.bin");
-const NEW_ORDER_SINGLE: &[u8] = include_bytes!("sbe/golden/b3-new-order-single.bin");
-const NEGOTIATE: &[u8] = include_bytes!("sbe/golden/b3-negotiate.bin");
+const CAR: &[u8] = include_bytes!("../sbe/golden/car.bin");
+const NEW_ORDER_SINGLE: &[u8] = include_bytes!("../sbe/golden/b3-new-order-single.bin");
+const NEGOTIATE: &[u8] = include_bytes!("../sbe/golden/b3-negotiate.bin");
 
 /// The car Golden.java encodes.
 fn car_message() -> car::Car<'static> {

@@ -2,9 +2,7 @@
 //! application messages of another schema: B3 NewOrderSingles, from the codec generated from B3's
 //! schema (`sbe/b3.rs`), carried by standard FIXP session messages.
 
-#[allow(dead_code)]
-#[path = "sbe/b3.rs"]
-mod b3;
+use crate::b3;
 
 use std::sync::Arc;
 use std::time::Duration;
