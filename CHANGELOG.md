@@ -2,7 +2,7 @@
 
 Notable changes to the published crates.
 
-## Unreleased
+## 0.11.1 (2026-11-15)
 
 ### `turbojet-replica`
 
