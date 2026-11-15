@@ -1113,6 +1113,7 @@ dependencies = [
  "shuttle",
  "tokio",
  "tracing",
+ "turbojet-message",
 ]
 
 [[package]]
@@ -1124,6 +1125,15 @@ dependencies = [
  "toml",
  "tracing",
  "turbojet",
+]
+
+[[package]]
+name = "turbojet-message"
+version = "0.10.1"
+dependencies = [
+ "chrono",
+ "compact_str",
+ "rust_decimal",
 ]
 
 [[package]]

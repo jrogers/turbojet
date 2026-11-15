@@ -30,7 +30,12 @@ test = false
 bench = false
 
 [dependencies]
-turbojet.workspace = true
+turbojet-message.workspace = true
+
+# The docs' examples use the messages as users do, through `turbojet`. Path only, so publishing
+# doesn't need it on crates.io first.
+[dev-dependencies]
+turbojet = { path = "../turbojet" }
 
 [package.metadata.docs.rs]
 all-features = true

@@ -246,8 +246,15 @@
 // code (fixp's B3 session messages) say the same.
 extern crate self as turbojet;
 
+// The messages, fields, codec and macros live in turbojet-message, so the generated messages in
+// turbojet-fix don't rebuild when the engine changes; they're re-exported here as they were.
+#[doc(inline)]
+pub use turbojet_message::{codec, fields, message};
+#[doc(inline)]
+pub use turbojet_message::{fix_enum, fix_group, fix_message, impl_field_ref};
+// The engine's own messages (`admin`, fixp's) call the macros unqualified.
 #[macro_use]
-mod macros;
+extern crate turbojet_message;
 
 /// The guide's chapter links, as rustdoc resolves them: see `guide.rs`.
 #[cfg(all(
@@ -294,15 +301,12 @@ pub mod admin;
 mod allowed;
 mod application;
 mod cancel;
-pub mod codec;
 pub mod connection;
 mod counterparty;
 #[cfg(feature = "fast")]
 pub mod fast;
-pub mod fields;
 pub mod fixp;
 mod initiator;
-pub mod message;
 pub mod message_log;
 mod peer;
 mod proxy;
@@ -325,14 +329,14 @@ pub mod validation;
 
 pub use acceptor::{Acceptor, AcceptorConfig, PROXY_HEADER_TIMEOUT};
 pub use allowed::AllowedIps;
-pub use application::{Application, Context, Disconnect, Hold, MessageReject, Reply, SendRejected};
+pub use application::{Application, Context, Disconnect, Hold, MessageReject, SendRejected};
 pub use cancel::{CancelOnDisconnect, CancelTrigger, MAX_CANCEL_GRACE};
 pub use counterparty::{Counterparties, Counterparty, CounterpartyMap};
 pub use fields::{ApplVerID, MsgType};
 #[cfg(feature = "tls")]
 pub use initiator::InitiatorTls;
 pub use initiator::{Endpoint, Initiator, InitiatorConfig};
-pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message};
+pub use message::{FieldError, FixMessage, FixMessageRef, FromMessage, Message, Reply};
 pub use message_log::{FileLogOptions, FileMessageLog, FinishedHook, LogFilter, MessageLog};
 pub use peer::{ConnectionInfo, PeerCertificate};
 pub use proxy::{Proxy, ProxyKind};

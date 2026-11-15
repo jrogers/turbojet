@@ -73,6 +73,7 @@ tempfile = "3"
 pulldown-cmark = { version = "0.13", default-features = false }
 turbojet = { version = "0.10.1", path = "crates/turbojet" }
 turbojet-dictionary = { version = "0.10.1", path = "crates/turbojet-dictionary" }
+turbojet-message = { version = "0.10.1", path = "crates/turbojet-message" }
 turbojet-replica = { version = "0.10.1", path = "crates/turbojet-replica" }
 # Path only: turbojet dev-depends on them, and a version would force them onto crates.io first.
 turbojet-config = { path = "crates/turbojet-config" }

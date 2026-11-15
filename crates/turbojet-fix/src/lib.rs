@@ -1,6 +1,10 @@
 // The readme's example uses FIX 4.4, so it's the crate docs only when that version is built.
 #![cfg_attr(feature = "fix44", doc = include_str!("../README.md"))]
 
+// The generated code names `turbojet::…`, as code generated for an application's own dictionary
+// does; here it's the message crate alone, so changes to the engine don't rebuild this one.
+extern crate turbojet_message as turbojet;
+
 /// FIX 4.0 (feature `fix40`), with the FIX Unified Repository's names: NewOrderSingle(D) is
 /// `OrderSingle` and NewOrderList(E) `OrderList`, as the specification called them, and
 /// quantities such as OrderQty(38) are whole numbers (`i64`), as its `int` type was.

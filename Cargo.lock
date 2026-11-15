@@ -3371,6 +3371,7 @@ dependencies = [
  "turbojet-config",
  "turbojet-dictionary",
  "turbojet-fix",
+ "turbojet-message",
  "x509-parser",
 ]
 
@@ -3421,6 +3422,7 @@ name = "turbojet-fix"
 version = "0.10.1"
 dependencies = [
  "turbojet",
+ "turbojet-message",
 ]
 
 [[package]]
@@ -3445,6 +3447,17 @@ dependencies = [
  "tempfile",
  "turbojet",
  "turbojet-dictionary",
+]
+
+[[package]]
+name = "turbojet-message"
+version = "0.10.1"
+dependencies = [
+ "chrono",
+ "compact_str",
+ "rust_decimal",
+ "turbojet",
+ "turbojet-fix",
 ]
 
 [[package]]

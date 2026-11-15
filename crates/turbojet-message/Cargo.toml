@@ -1,0 +1,26 @@
+[package]
+name = "turbojet-message"
+description = "Turbojet's FIX messages, field types, codec and the macros generated messages are written in"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords = ["fix", "trading", "finance", "protocol"]
+categories = ["network-programming", "finance"]
+
+[dependencies]
+chrono.workspace = true
+compact_str.workspace = true
+rust_decimal.workspace = true
+
+# The docs' examples are written as users write them, through `turbojet` and `turbojet-fix`.
+[dev-dependencies]
+# Path only, so publishing doesn't need them on crates.io first.
+turbojet = { path = "../turbojet" }
+turbojet-fix = { workspace = true, features = ["fix42", "fix44"] }
+
+[lints]
+workspace = true

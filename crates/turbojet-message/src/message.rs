@@ -1,5 +1,5 @@
 //! The raw FIX message (an ordered tag/value list), typed access to its fields, and the
-//! [`FixMessage`] trait implemented by the typed messages in [`crate::admin`] and the generated
+//! [`FixMessage`] trait implemented by the typed messages in `turbojet::admin` and the generated
 //! `turbojet-fix` crate, e.g. `turbojet_fix::fix42`.
 
 use std::fmt;
@@ -307,7 +307,8 @@ struct Rare {
 /// A body field an inbound message couldn't carry, found while decoding it. The session answers
 /// the message with a Reject instead of acting on it, or refuses it if it's a Logon.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Defect {
+#[doc(hidden)]
+pub struct Defect {
     /// RefTagID(371), when the field's tag is known.
     pub tag: Option<u32>,
     pub reason: SessionRejectReason,
@@ -389,6 +390,7 @@ impl Message {
     /// a message field by field into one reused, MsgType among them. One without MsgType isn't
     /// sent; [`reset`](Self::reset) adds it, but takes a [`MsgType`] by value, which for one
     /// without a variant of its own means a copy of its code.
+    #[inline]
     pub fn clear(&mut self) {
         self.buf.clear();
         self.fields.clear();
@@ -396,7 +398,9 @@ impl Message {
     }
 
     /// The bytes the message holds allocated, used or not.
-    pub(crate) fn capacity_bytes(&self) -> usize {
+    #[doc(hidden)]
+    #[inline]
+    pub fn capacity_bytes(&self) -> usize {
         let bin = self.rare.as_ref().map_or(0, |rare| rare.bin.capacity());
         self.buf.capacity() + self.fields.capacity() * size_of::<Field>() + bin
     }
@@ -537,7 +541,8 @@ impl Message {
     }
 
     /// The defect recorded by [`Message::read_frame`], if the message had a malformed body field.
-    pub(crate) fn defect(&self) -> Option<&Defect> {
+    #[doc(hidden)]
+    pub fn defect(&self) -> Option<&Defect> {
         self.rare.as_ref()?.defect.as_ref()
     }
 
@@ -555,13 +560,14 @@ impl Message {
 
     /// The fields [`fields`](Self::fields) gives, as `(tag, value length)`: for checks that need
     /// only that, without slicing each value out of the buffer.
-    pub(crate) fn text_lens(&self) -> impl Iterator<Item = (u32, usize)> + '_ {
+    #[doc(hidden)]
+    pub fn text_lens(&self) -> impl Iterator<Item = (u32, usize)> + '_ {
         self.fields.iter().filter(|f| !f.is_binary()).map(|f| (f.tag, (f.end - f.value) as usize))
     }
 
     /// The number of fields, including binary ones.
-    #[cfg(test)]
-    pub(crate) fn field_count(&self) -> usize {
+    #[doc(hidden)]
+    pub fn field_count(&self) -> usize {
         self.fields.len()
     }
 
@@ -772,8 +778,8 @@ impl Message {
     }
 
     /// Appends `other`'s fields for which `keep` is true, copying their encoded form verbatim.
-    #[cfg(test)]
-    pub(crate) fn extend_from(&mut self, other: &Message, keep: impl Fn(u32) -> bool) {
+    #[doc(hidden)]
+    pub fn extend_from(&mut self, other: &Message, keep: impl Fn(u32) -> bool) {
         for f in other.fields.iter().filter(|f| keep(f.tag)) {
             if f.is_binary() {
                 let field = self.write_data(f.tag, other.bytes(f));
@@ -789,7 +795,8 @@ impl Message {
 
     /// Appends the wire encoding of the fields for which `keep` is true, returning the number of
     /// bytes written.
-    pub(crate) fn write_segments(&self, out: &mut Vec<u8>, keep: impl Fn(u32) -> bool) -> usize {
+    #[doc(hidden)]
+    pub fn write_segments(&self, out: &mut Vec<u8>, keep: impl Fn(u32) -> bool) -> usize {
         let before = out.len();
         let keep = &keep;
         let buf = self.buf.as_bytes();
@@ -824,7 +831,8 @@ impl Message {
     /// The first field that would be misread on the wire: a data field in `data` that doesn't
     /// directly follow its Length field, or whose length that field misstates, or another field
     /// whose value contains SOH, which would end it early.
-    pub(crate) fn invalid_data_field(&self, data: &DataFields) -> Option<u32> {
+    #[doc(hidden)]
+    pub fn invalid_data_field(&self, data: &DataFields) -> Option<u32> {
         let mut soh_in_data = 0;
         for (i, f) in self.fields.iter().enumerate() {
             if !data.is_data(f.tag) {
@@ -861,11 +869,13 @@ impl Message {
     }
 
     /// The encoded length of the fields for which `keep` is true.
-    pub(crate) fn segments_len(&self, keep: impl Fn(u32) -> bool) -> usize {
+    #[doc(hidden)]
+    pub fn segments_len(&self, keep: impl Fn(u32) -> bool) -> usize {
         self.fields.iter().filter(|f| keep(f.tag)).map(|f| self.segment_len(f)).sum()
     }
 
     /// The encoded length of `tag=value<SOH>`.
+    #[inline]
     fn segment_len(&self, f: &Field) -> usize {
         if f.is_binary() { digits(f.tag) + (f.end - f.value) as usize + 2 } else { (f.end - f.start + 1) as usize }
     }
@@ -877,6 +887,7 @@ impl Message {
     }
 
     /// The field's value as bytes.
+    #[inline]
     fn bytes(&self, field: &Field) -> &[u8] {
         let range = field.value as usize..field.end as usize;
         match &self.rare {
@@ -912,6 +923,7 @@ impl Message {
 }
 
 /// The number of decimal digits in `n`.
+#[inline]
 pub(crate) fn digits(n: u32) -> usize {
     n.checked_ilog10().map_or(1, |log| log as usize + 1)
 }
@@ -1099,6 +1111,7 @@ pub mod __private {
     }
 
     /// `tag`'s position in `tags`.
+    #[inline]
     pub fn declared_at(tags: &[u32], tag: u32) -> usize {
         tags.iter().position(|&t| t == tag).unwrap_or(usize::MAX)
     }
@@ -1337,6 +1350,7 @@ impl<'a> FieldView<'a> {
 
     /// `index` if it is visible, else the end of the hidden range containing it.
     #[doc(hidden)]
+    #[inline]
     pub fn skip_hidden(&self, index: usize) -> usize {
         self.excluded.iter().find(|(start, end)| (*start..*end).contains(&index)).map_or(index, |(_, end)| *end)
     }
@@ -1664,7 +1678,8 @@ fn is_secret(tag: u32) -> bool {
 /// Length field, just before it, says, as `data` defines them, so a value with SOH in it doesn't
 /// hide what follows. Scanning stops at the first bytes that aren't a field; a value with no SOH
 /// after it runs to the end.
-pub(crate) fn mask_secrets(frame: &mut [u8], data: &DataFields) {
+#[doc(hidden)]
+pub fn mask_secrets(frame: &mut [u8], data: &DataFields) {
     let mut at = 0;
     // The field just read, with its value if that's a length.
     let mut previous: Option<(u32, Option<usize>)> = None;
@@ -1971,6 +1986,36 @@ pub trait FixMessage: Sized + Into<Message> {
     fn write_into(&self, msg: &mut Message) {
         *msg = self.to_message();
     }
+}
+
+/// What an application sends from a session's callbacks (`turbojet::Context::send`): a
+/// [`Message`], or any typed [`FixMessage`].
+pub trait Reply: sealed::Sealed {
+    /// The message to send: this one, or a typed message written into `spare`'s, a message the
+    /// session reuses.
+    #[doc(hidden)]
+    fn __into_message(self, spare: impl FnOnce() -> Message) -> Message;
+}
+
+impl Reply for Message {
+    fn __into_message(self, _spare: impl FnOnce() -> Message) -> Message {
+        self
+    }
+}
+
+impl<T: FixMessage> Reply for T {
+    fn __into_message(self, spare: impl FnOnce() -> Message) -> Message {
+        let mut msg = spare();
+        self.write_into(&mut msg);
+        msg
+    }
+}
+
+mod sealed {
+    pub trait Sealed {}
+
+    impl Sealed for super::Message {}
+    impl<T: super::FixMessage> Sealed for T {}
 }
 
 /// A typed message's borrowed form, generated by `fix_message!` as `NameRef<'a>`: parsing finds

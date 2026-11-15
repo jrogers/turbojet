@@ -231,7 +231,8 @@ fn without_message(d: Decoded) -> DecodedInto {
 
 /// [`decode_with`] for a message Turbojet encoded and stored itself: trusted to be as long as it
 /// says, since nothing limits what an application sends.
-pub(crate) fn decode_stored(buf: &[u8], data: &DataFields) -> Decoded {
+#[doc(hidden)]
+pub fn decode_stored(buf: &[u8], data: &DataFields) -> Decoded {
     let total = match frame_stored(buf) {
         Ok(total) => total,
         Err(d) => return d,
@@ -254,7 +255,9 @@ pub(crate) fn frame(buf: &[u8]) -> Result<usize, Decoded> {
 }
 
 /// [`frame`] for a message Turbojet encoded and stored itself, whatever its BodyLength(9).
-pub(crate) fn frame_stored(buf: &[u8]) -> Result<usize, Decoded> {
+#[doc(hidden)]
+#[inline]
+pub fn frame_stored(buf: &[u8]) -> Result<usize, Decoded> {
     frame_within(buf, usize::MAX)
 }
 
@@ -337,7 +340,9 @@ pub fn encode_into(msg: &Message, out: &mut Vec<u8>) -> Result<(), FieldError> {
 }
 
 /// Appends the CheckSum(10) field for the message that starts at `out[start]`.
-pub(crate) fn push_trailer(out: &mut Vec<u8>, start: usize) {
+#[doc(hidden)]
+#[inline]
+pub fn push_trailer(out: &mut Vec<u8>, start: usize) {
     debug_assert!(start < out.len(), "a trailer follows a message");
     let sum = checksum(&out[start..]);
     out.extend_from_slice(&[b'1', b'0', b'=', b'0' + sum / 100, b'0' + sum / 10 % 10, b'0' + sum % 10, SOH]);
@@ -345,7 +350,8 @@ pub(crate) fn push_trailer(out: &mut Vec<u8>, start: usize) {
 }
 
 /// Appends the decimal digits of `n` without allocating.
-pub(crate) fn push_digits(out: &mut Vec<u8>, mut n: usize) {
+#[doc(hidden)]
+pub fn push_digits(out: &mut Vec<u8>, mut n: usize) {
     let mut digits = [0u8; 20];
     let mut start = digits.len();
     loop {
@@ -362,6 +368,7 @@ pub(crate) fn push_digits(out: &mut Vec<u8>, mut n: usize) {
 }
 
 /// The CheckSum(10) of `bytes`: their sum modulo 256.
+#[inline]
 pub fn checksum(bytes: &[u8]) -> u8 {
     bytes.iter().fold(0u8, |acc, b| acc.wrapping_add(*b))
 }
@@ -372,7 +379,8 @@ pub fn checksum(bytes: &[u8]) -> u8 {
 /// and a CheckSum field where BodyLength puts it) whatever else is wrong with it: garbled input
 /// worth logging as the message it was meant to be, as QuickFIX logs what it frames before
 /// checking it. `None` for input that doesn't frame.
-pub(crate) fn framed_len(buf: &[u8]) -> Option<usize> {
+#[doc(hidden)]
+pub fn framed_len(buf: &[u8]) -> Option<usize> {
     let (_, len_start) = header_field(buf, 0, b"8=").ok()?;
     let (len_soh, body_start) = header_field(buf, len_start, b"9=").ok()?;
     let body_len = parse_digits(&buf[len_start + 2..len_soh]).filter(|&n| n <= MAX_BODY_LENGTH)?;
@@ -418,9 +426,11 @@ fn parse_digits(bytes: &[u8]) -> Option<usize> {
 }
 
 /// `msg` framed for the wire with `raw` (e.g. `b"x5=A"`) appended as an extra body field, with
-/// correct BodyLength and CheckSum, so the decoder sees exactly those bytes.
-#[cfg(test)]
-pub(crate) fn frame_with_raw_field(msg: &Message, raw: &[u8]) -> Vec<u8> {
+/// correct BodyLength and CheckSum, so the decoder sees exactly those bytes. For tests, the
+/// engine's as well as this crate's.
+#[doc(hidden)]
+#[allow(clippy::unwrap_used, reason = "a test helper")]
+pub fn frame_with_raw_field(msg: &Message, raw: &[u8]) -> Vec<u8> {
     let wire = encode(msg).unwrap();
     // Body: after "9=<len><SOH>", up to the "10=NNN<SOH>" trailer.
     let len_start = wire.iter().position(|&b| b == SOH).unwrap() + 1;

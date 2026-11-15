@@ -33,6 +33,7 @@ p12-keystore = { workspace = true, optional = true }
 roxmltree = { workspace = true, optional = true }
 tracing.workspace = true
 turbojet-dictionary = { workspace = true, optional = true }
+turbojet-message.workspace = true
 
 [features]
 # TLS transport for Acceptor and Initiator (rustls with the ring crypto provider).

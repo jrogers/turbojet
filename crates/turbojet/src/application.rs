@@ -7,7 +7,7 @@ use std::sync::{Arc, Weak};
 use tracing::error;
 
 use crate::fields::{BusinessRejectReason, CompactString, MsgType, SessionRejectReason};
-use crate::message::{DataFields, FieldError, FixMessage, Message, tags};
+use crate::message::{DataFields, FieldError, Message, Reply, tags};
 use crate::peer::ConnectionInfo;
 use crate::registry::{CommandSender, SessionHandle, SessionRegistry};
 use crate::session::ApplVersion;
@@ -358,7 +358,13 @@ impl<'a> Context<'a> {
     /// if the session's store fails or the connection ends, and the session's end says so
     /// ([`Application::on_logout`]).
     pub fn send(&mut self, msg: impl Reply) -> Result<(), SendRejected> {
-        msg.send_to(self)
+        let msg = msg.__into_message(|| self.outbox.spare.pop().unwrap_or_default());
+        if let Err(rejected) = self.checks.check(&msg) {
+            self.outbox.recycle(msg);
+            return Err(rejected);
+        }
+        self.outbox.sent.push(msg);
+        Ok(())
     }
 }
 
@@ -587,43 +593,6 @@ impl Holds {
         shared.ended.store(true, Ordering::Release);
         // A release just before the hand-over found nothing to do: catch it up.
         AfterClose::released(shared);
-    }
-}
-
-/// What [`Context::send`] takes: a [`Message`], or any typed [`FixMessage`].
-pub trait Reply: sealed::Sealed {}
-
-impl Reply for Message {}
-impl<T: FixMessage> Reply for T {}
-
-mod sealed {
-    use super::{Context, FixMessage, Message, SendRejected};
-
-    pub trait Sealed {
-        /// Adds the message to what the application sent through `ctx`, if the session would
-        /// send it.
-        fn send_to(self, ctx: &mut Context<'_>) -> Result<(), SendRejected>;
-    }
-
-    impl Sealed for Message {
-        fn send_to(self, ctx: &mut Context<'_>) -> Result<(), SendRejected> {
-            ctx.checks.check(&self)?;
-            ctx.outbox.sent.push(self);
-            Ok(())
-        }
-    }
-
-    impl<T: FixMessage> Sealed for T {
-        fn send_to(self, ctx: &mut Context<'_>) -> Result<(), SendRejected> {
-            let mut msg = ctx.outbox.spare.pop().unwrap_or_default();
-            self.write_into(&mut msg);
-            if let Err(rejected) = ctx.checks.check(&msg) {
-                ctx.outbox.recycle(msg);
-                return Err(rejected);
-            }
-            ctx.outbox.sent.push(msg);
-            Ok(())
-        }
     }
 }
 

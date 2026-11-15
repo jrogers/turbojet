@@ -192,7 +192,7 @@ macro_rules! fix_enum {
 ///
 /// Generates the struct, [`FixMessage`](crate::message::FixMessage) and `From<Name> for Message`;
 /// and `NameRef`, [`FixMessageRef`](crate::message::FixMessageRef) and
-/// [`FromMessage`](crate::message::FromMessage), so [`Message::parse`](crate::Message::parse)
+/// [`FromMessage`](crate::message::FromMessage), so [`Message::parse`](crate::message::Message::parse)
 /// gives either.
 ///
 /// ```
