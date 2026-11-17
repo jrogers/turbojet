@@ -836,10 +836,10 @@ of its examples have typos, followed by their own binary columns (-8193 is `0x7f
 operator's section gives D6 and D7, Appendix 4 and the other operators give D5 and D6, which the
 code uses. Against `fastlib`, another Rust implementation, 20 streams of 1,000 random messages
 over templates using every operator decode alike in both, from either side's encoding. That found
-three `fastlib` bugs, which the generator avoids: it computes integer deltas in 64 bits, where a
-`uInt64`'s can need 65; its increment doesn't wrap; and for an optional field it writes a delta
-string's empty part as a nullable string (`0x00 0x80`, which reads as "\0"), where section 10.7.3
-makes only the subtraction length nullable. Fuzzing decodes arbitrary bytes and templates, and
+three `fastlib` bugs, fixed in its 0.4.1: it computed integer deltas in 64 bits, where one can
+need 65; its increment didn't wrap; and for an optional field it wrote a delta string's empty part
+as a nullable string (`0x00 0x80`, which reads as "\0"), where section 10.7.3 makes only the
+subtraction length nullable. Fuzzing decodes arbitrary bytes and templates, and
 re-encodes each decoded message to check a second decoder reads it back the same; its first
 minute found a decimal zero with a positive exponent written as "000…".
 

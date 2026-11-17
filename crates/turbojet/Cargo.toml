@@ -79,7 +79,7 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 # The gateway example's --config.
 turbojet-config = { workspace = true, features = ["tls", "tz", "metrics"] }
 # Another FAST implementation, to check turbojet::fast against (tests/fast_fastlib.rs).
-fastlib = { version = "0.3", default-features = false }
+fastlib = { version = "0.4.1", default-features = false }
 turbojet-fix = { workspace = true, features = ["fix42", "fix44", "fix50sp2"] }
 
 # Benchmarks use criterion; keep the libtest bench harness out of `cargo bench` so criterion

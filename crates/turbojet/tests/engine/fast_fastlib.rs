@@ -2,6 +2,7 @@
 //! every operator, encoded by `fastlib`, decoded by both, and compared field by field.
 #![cfg(feature = "fast")]
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use fastlib::{MessageFactory, TextMessageVisitor, Value};
@@ -39,9 +40,7 @@ const TEMPLATES: &str = r#"
       <uInt32 name="Action" id="279"><copy/></uInt32>
       <decimal name="EntryPx" id="270"><delta/></decimal>
       <int32 name="Level" id="1023" presence="optional"><default value="1"/></int32>
-      <!-- Mandatory: for an optional one, fastlib writes an empty delta string as a nullable
-           string (0x00 0x80), where section 10.7.3 makes only the subtraction length nullable. -->
-      <string name="Cond" id="276"><delta/></string>
+      <string name="Cond" id="276" presence="optional"><delta/></string>
     </sequence>
   </template>
   <template name="Status" id="2">
@@ -109,17 +108,20 @@ impl Stream {
         if r.chance(80) {
             fields.push(format!("I32={}", r.pick(&["0", "-1", "7", "2147483647", "-2147483648"])));
         }
-        // fastlib's encoder computes deltas in 64 bits and increments without wrapping, where the
-        // specification allows wider deltas and wraps (sections 6.3.6 and 6.3.7.1), so values stay
-        // where it can encode them; the unit tests cover the rest.
+        // From one end of the range to the other, a delta needs 65 bits (section 6.3.7.1).
         self.i64_value = match r.below(10) {
-            0 => i64::MAX / 4,
-            1 => i64::MIN / 4,
-            _ => self.i64_value + i64::try_from(r.below(2001)).expect("small") - 1000,
+            0 => i64::MAX,
+            1 => i64::MIN,
+            _ => self.i64_value.saturating_add(i64::try_from(r.below(2001)).expect("small") - 1000),
         };
         fields.push(format!("I64={}", self.i64_value));
         if r.chance(80) {
-            self.u32_value = if r.chance(70) { (self.u32_value + 1) % u64::from(u32::MAX) } else { r.below(1 << 31) };
+            // An increment past u32::MAX wraps to 0 (section 6.3.6).
+            self.u32_value = match r.below(10) {
+                0..7 => (self.u32_value + 1) % (u64::from(u32::MAX) + 1),
+                7 => u64::from(u32::MAX),
+                _ => r.below(1 << 31),
+            };
             fields.push(format!("U32={}", self.u32_value));
         }
         self.px += i64::try_from(r.below(21)).expect("small") - 10;
@@ -145,7 +147,9 @@ impl Stream {
                 if r.chance(50) {
                     entry.push(format!("Level={}", r.below(5)));
                 }
-                entry.push(format!("Cond={}", r.pick(&["A", "AB", "BA", "ABC", "CAB"])));
+                if r.chance(80) {
+                    entry.push(format!("Cond={}", r.pick(&["A", "AB", "BA", "ABC", "CAB", ""])));
+                }
                 format!("<{}>", entry.join("|"))
             })
             .collect();
@@ -191,9 +195,9 @@ impl MessageFactory for Fields {
         self.0.clear();
     }
     fn stop_template(&mut self) {}
-    fn set_value(&mut self, id: u32, _name: &str, value: Option<Value>) {
+    fn set_value(&mut self, id: u32, _name: &str, value: Option<Cow<'_, Value>>) {
         let Some(value) = value else { return };
-        let text = match value {
+        let text = match value.into_owned() {
             Value::UInt32(v) => v.to_string(),
             Value::Int32(v) => v.to_string(),
             Value::UInt64(v) => v.to_string(),

@@ -15,8 +15,8 @@ and worth revisiting.
   recorded. A read that takes several packets is timed from the last.
 - FAST (`turbojet::fast`): reportable errors are always reported, so an encoder that writes an
   overlong integer or presence map is refused rather than read; a delta string's part is read as
-  the specification has it, not nullable, so an encoder that writes it nullable, as `fastlib` does
-  for optional fields, gives a stray NUL character. A field without an `id` is decoded but left out
+  the specification has it, not nullable, so an encoder that writes it nullable for optional fields
+  (as `fastlib` did before 0.4.1) gives a stray NUL character. A field without an `id` is decoded but left out
   of the message. Encoding needs the message's fields
   in the template's order, and doesn't encode dynamic template references. A decoder that hits an
   error can't know the encoder's previous values any more: reset it where the feed next resets.

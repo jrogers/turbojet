@@ -814,9 +814,9 @@ dependencies = [
 
 [[package]]
 name = "fastlib"
-version = "0.3.8"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "399657504fc66cc6759916ff70accb2c0419b544845355b8d7f283060fd62951"
+checksum = "21f06ba272c1660aa11404c621fc315863e54cba70507dade8e984f72798b8e4"
 dependencies = [
  "bytes",
  "roxmltree",
