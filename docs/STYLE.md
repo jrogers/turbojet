@@ -152,7 +152,7 @@ points come before the helpers.
 - **`usize` for indexing.** Tiger Style avoids architecture-sized integers. Rust indexes with
   `usize`, so Turbojet uses it for indices and lengths, and fixed-size types for everything on the
   wire and in storage.
-- **Few dependencies, not zero.** Turbojet uses tokio for I/O, chrono for time, rustls for TLS,
+- **Few dependencies, not zero.** Turbojet uses tokio for I/O, jiff for time, rustls for TLS,
   and little else. A new dependency must justify itself in its pull request, and `cargo-deny`
   checks every dependency's licence and known advisories.
 - **Heap allocation, for now.** Tiger Style allocates everything statically at startup. Turbojet

@@ -9,6 +9,9 @@ and worth revisiting.
   validation rejects them as repeated tags and typed parsing keeps the first: News and Email's
   RelatdSym(46), which may repeat, and Allocation's delivery instructions, BrokerOfCredit(92) and
   DlvyInst(86) repeated NoDlvyInst(85) times inside each NoAllocs entry.
+- Times are jiff values, whose range ends at 9999-12-30T22:00:00Z: a UTCTimestamp later than that
+  is refused as malformed. A leap second's jiff value (`UtcTimestamp::timestamp`, the time types'
+  `time`) is second 59 with its fraction; `is_leap_second` says it was second 60.
 - `turbojet_wire_to_read_seconds` (Linux, a spinning stream with receive timestamps) compares a
   packet's stamp with the wall clock: with the network card's stamps it's only as good as the
   system clock's sync to the card's, and a read whose stamp is later than the clock isn't

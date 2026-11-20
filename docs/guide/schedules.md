@@ -22,8 +22,9 @@ config.schedule = Some("daily 08:00-17:00 mon-fri America/New_York".parse()?);
   creation times were recorded is kept and resets from the next period; custom stores that don't
   record creation times never reset on schedule (a warning says so).
 
-Times are in UTC, a fixed offset, or, with turbojet's `tz` feature, an IANA zone that follows
-daylight saving. `SessionConfig::clock` supplies wall-clock time; replace it with
+Times are in UTC, a fixed offset, or an IANA zone (`America/New_York`) that follows daylight
+saving, from the system's time zone database (or a copy built in where the platform has none, as
+on Windows). `SessionConfig::clock` supplies wall-clock time; replace it with
 `Clock::from_fn` to test schedules without waiting.
 
 ## Holidays

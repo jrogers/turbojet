@@ -68,5 +68,5 @@ let changes = sessions.reload(Some(&acceptor), Some(&initiators))?;
   the file.
 
 The crate documentation lists every key. Features: `tls` (`[acceptor.tls]`), `pkcs12` (a
-certificate from a PKCS#12 bundle), `tz` (time zones in schedules), `validation` (dictionaries),
+certificate from a PKCS#12 bundle), `tz` (does nothing now: named time zones in schedules are always available), `validation` (dictionaries),
 `metrics` (`latency_metrics`).

@@ -692,7 +692,7 @@ the three versions too; the other five build, lint and test in the `--all-featur
 `turbojet-fix` depended on the whole engine, so any change to the engine rebuilt the generated
 messages before its own tests could: 36 s of the 41 s it took to rebuild the engine's tests after
 an edit, debug, on an M3. What the generated code uses (`Message`, the codec, the field types and
-the macros, about 6,300 lines with no features and no dependency but chrono) is its own crate,
+the macros, about 6,300 lines with no features and no dependency but jiff) is its own crate,
 `turbojet-message` (2026-11-15), which `turbojet` re-exports where it was. `turbojet-fix`
 depends on it alone and names it `turbojet` (`extern crate turbojet_message as turbojet`), so its
 generated code is unchanged, and so is code generated for an application's own dictionary, which
@@ -1100,6 +1100,19 @@ the runs' noise. The allocator lock was 1.6% of busy time at 8 sessions (see Man
 there was little to win.
 
 ### Parsing and encoding
+
+Times are [jiff](https://docs.rs/jiff) values (2026-11-20; chrono's until RustSec marked chrono and
+chrono-tz unmaintained). jiff has no leap seconds, so `UtcTimestamp`, `UtcTimeOnly`, `TzTimeOnly`
+and `TzTimestamp` hold second 60 as second 59, with its fraction, and a flag that writes it back
+as 60 and sorts it after the rest of its minute: a relayed leap second comes out as it went in.
+Writing a `UtcTimestamp` still caches `YYYYMMDD-HH:MM:SS` for the last second per thread, so only
+a new second converts the instant, and jiff converts it and reads the clock faster than chrono.
+On an Apple M3, the two run back to back on a loaded machine: the same second 7.9 ns against
+10.8 ns, a new second 19.2 against 32.3 ns, parsing 12.7 against 13.2 ns, and reading the clock
+22.1 against 30.3 ns. Schedules' named zones come from the system's time zone database (jiff
+bundles one only where the platform has none), so they need no feature any more, and a start in
+a daylight-saving gap is moved to the gap's end by asking jiff for the zone's next transition, in
+place of a bisection.
 
 Profiling the decode of a FIX 4.2 NewOrderSingle into a reused message (2026-10-05) showed the
 per-field searches for SOH and `=` took about 38% of it and parsing tags about 20%; the CheckSum,

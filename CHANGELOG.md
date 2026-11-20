@@ -2,6 +2,31 @@
 
 Notable changes to the published crates.
 
+## Unreleased
+
+### `turbojet`, `turbojet-message`, `turbojet-fix`
+
+- **Changed (breaking):** times are [jiff](https://docs.rs/jiff) 1.0 values rather than chrono's,
+  as RustSec now lists chrono and chrono-tz as unmaintained. Turbojet re-exports jiff as
+  `turbojet::jiff`, so code that only builds times needs no jiff dependency of its own.
+  - `UtcTimestamp` holds a `jiff::Timestamp`: `new` and `From` take one, `datetime()` is now
+    `timestamp()`, and it adds and subtracts `jiff::SignedDuration`.
+  - `fields::NaiveDate` and `fields::NaiveTime` are now `fields::Date` and `fields::Time` (jiff's
+    civil types), and generated messages' date fields are `Date`. `UtcTimeOnly` and `TzTimeOnly`
+    take a `Time`; `TzTimestamp` takes a `jiff::civil::DateTime`, its `datetime()` is now
+    `timestamp()`, and it converts from a `&jiff::ZonedDateTime`. Offsets are `jiff::tz::Offset`.
+  - `Clock` reads a `jiff::Timestamp`, and `Period`, `SessionSchedule`, `HolidayCalendar`, the
+    message log's filter and records, and the registry's times are jiff types.
+    `ScheduleTimeZone::Fixed` holds a `jiff::tz::Offset` and `Named` a `jiff::tz::TimeZone`, so
+    `ScheduleTimeZone` is no longer `Copy`.
+- **Changed:** named time zones in schedules are always available, from the system's time zone
+  database (or a copy built in where the platform has none, as on Windows). The `tz` features of
+  `turbojet` and `turbojet-config` do nothing, and are kept so manifests that turn them on build.
+- **Added:** `is_leap_second` on `UtcTimestamp`, `UtcTimeOnly`, `TzTimeOnly` and `TzTimestamp`.
+  A leap second is still written back as it came.
+- **Changed:** a UTCTimestamp after 9999-12-30T22:00:00Z, the end of jiff's range, is refused as
+  malformed.
+
 ## 0.11.2 (2026-11-15)
 
 ### `turbojet-replica`

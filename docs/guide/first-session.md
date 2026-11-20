@@ -135,7 +135,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 The engine adds the standard header to everything sent: BeginString, CompIDs, MsgSeqNum and
-SendingTime. TransactTime and other body timestamps are chrono times (`fields::UtcTimestamp`),
+SendingTime. TransactTime and other body timestamps are jiff times (`fields::UtcTimestamp`; Turbojet
+re-exports jiff as `turbojet::jiff`),
 and prices and quantities are exact decimals (`fields::Decimal`). `MemoryStorage` keeps sequence
 numbers and sent messages only while the process runs; [Storage and recovery][storage] covers
 keeping them across restarts.
