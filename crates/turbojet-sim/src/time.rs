@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, TimeDelta, Utc};
+use jiff::{SignedDuration, Timestamp};
 use turbojet::Clock;
 
 /// Nanoseconds since the simulation started.
@@ -41,8 +41,8 @@ pub struct Clocks {
 }
 
 /// Wall time at the start of every simulation: a Monday morning.
-pub fn wall_start() -> DateTime<Utc> {
-    DateTime::from_timestamp(1_767_603_600, 0).expect("a valid time") // 2026-01-05 09:00:00 UTC
+pub fn wall_start() -> Timestamp {
+    Timestamp::from_second(1_767_603_600).expect("a valid time") // 2026-01-05 09:00:00 UTC
 }
 
 impl Clocks {
@@ -70,7 +70,7 @@ impl Clocks {
         let start = wall_start();
         Clock::from_fn(move || {
             let nanos = i64::try_from(now.load(Ordering::Relaxed)).expect("simulations are short");
-            start + TimeDelta::nanoseconds(nanos)
+            start + SignedDuration::from_nanos(nanos)
         })
     }
 
@@ -129,7 +129,7 @@ impl NodeClock {
         let start = wall_start();
         Clock::from_fn(move || {
             let nanos = i64::try_from(now.load(Ordering::Relaxed)).expect("simulations are short");
-            start + TimeDelta::nanoseconds(nanos + offset.load(Ordering::Relaxed))
+            start + SignedDuration::from_nanos(nanos + offset.load(Ordering::Relaxed))
         })
     }
 
@@ -182,9 +182,9 @@ mod tests {
     fn a_wall_clock_steps() {
         let clocks = Clocks::new();
         let clock = NodeClock::skewed(&clocks, 0, 500_000_000);
-        assert_eq!(clock.wall_clock().now(), wall_start() + TimeDelta::milliseconds(500));
+        assert_eq!(clock.wall_clock().now(), wall_start() + SignedDuration::from_millis(500));
         clock.step(-3_000_000);
-        assert_eq!(clock.wall_clock().now(), wall_start() - TimeDelta::milliseconds(3));
+        assert_eq!(clock.wall_clock().now(), wall_start() - SignedDuration::from_millis(3));
     }
 
     #[test]
@@ -193,7 +193,7 @@ mod tests {
         let wall = clocks.wall_clock();
         assert_eq!(wall.now(), wall_start());
         clocks.advance_to(SimTime::from_duration(Duration::from_millis(1500)));
-        assert_eq!(wall.now(), wall_start() + TimeDelta::milliseconds(1500));
+        assert_eq!(wall.now(), wall_start() + SignedDuration::from_millis(1500));
         assert_eq!(clocks.instant(clocks.now()) - clocks.instant(SimTime(0)), Duration::from_millis(1500));
     }
 

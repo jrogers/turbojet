@@ -12,7 +12,7 @@ keywords = ["fix", "trading", "finance", "log"]
 categories = ["command-line-utilities", "finance"]
 
 [dependencies]
-chrono = { workspace = true, features = ["std"] }
+jiff.workspace = true
 turbojet = { workspace = true, features = ["gzip"] }
 turbojet-dictionary.workspace = true
 

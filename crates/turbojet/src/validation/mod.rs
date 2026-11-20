@@ -21,8 +21,7 @@ use std::sync::Arc;
 use turbojet_dictionary::{Dictionary, Field, FieldType, Member, Protocol, Release};
 
 use crate::fields::{
-    Decimal, FromFix, MonthYear, MsgType, NaiveDate, SessionRejectReason, TzTimeOnly, TzTimestamp, UtcTimeOnly,
-    UtcTimestamp,
+    Date, Decimal, FromFix, MonthYear, MsgType, SessionRejectReason, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
 };
 use crate::message::{Message, is_header_or_trailer, tags};
 
@@ -598,7 +597,7 @@ fn in_format(ty: &FieldType, value: &str) -> bool {
         FieldType::Char => char::from_fix(value).is_ok(),
         FieldType::UtcTimestamp => UtcTimestamp::from_fix(value).is_ok(),
         FieldType::UtcTimeOnly => UtcTimeOnly::from_fix(value).is_ok(),
-        FieldType::UtcDateOnly | FieldType::UtcDate | FieldType::LocalMktDate => NaiveDate::from_fix(value).is_ok(),
+        FieldType::UtcDateOnly | FieldType::UtcDate | FieldType::LocalMktDate => Date::from_fix(value).is_ok(),
         FieldType::MonthYear => MonthYear::from_fix(value).is_ok(),
         FieldType::TzTimeOnly => TzTimeOnly::from_fix(value).is_ok(),
         FieldType::TzTimestamp => TzTimestamp::from_fix(value).is_ok(),

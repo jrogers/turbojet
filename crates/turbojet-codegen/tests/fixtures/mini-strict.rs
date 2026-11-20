@@ -195,7 +195,7 @@ pub mod messages {
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{CompactString, Decimal, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{CompactString, Date, Decimal, MonthYear, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 
 mod part0 {
     use super::*;
@@ -305,7 +305,7 @@ turbojet::fix_message! {
         /// ExecInst(18).
         exec_inst: req Vec<ExecInst> = EXEC_INST,
         /// TradeDate(75).
-        trade_date: opt NaiveDate = TRADE_DATE,
+        trade_date: opt Date = TRADE_DATE,
         /// MaturityMonthYear(200).
         maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
         /// MDEntryTime(273).

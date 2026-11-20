@@ -827,14 +827,16 @@ fn schedule(faults: &Faults, options: &Options) -> (Option<SessionSchedule>, Sim
     if !faults.scheduled {
         return (None, SimTime::from_duration(options.busy));
     }
-    let time = |h, m, s| chrono::NaiveTime::from_hms_opt(h, m, s).expect("a time");
+    let time = |h, m, s| jiff::civil::time(h, m, s, 0);
     let mut schedule = SessionSchedule::daily(time(8, 0, 0), time(9, 0, 20));
     if Rng::new(options.seed ^ 0x0401_1da7).chance(500_000) {
-        let tomorrow = wall_start().date_naive() + chrono::Days::new(1);
+        let tomorrow = jiff::tz::Offset::UTC.to_datetime(wall_start()).date().tomorrow().expect("in range");
         schedule = schedule.with_holidays(HolidayCalendar::new([tomorrow]));
     }
-    let next = schedule.next_start(wall_start() + chrono::TimeDelta::seconds(21)).expect("a later period");
-    let busy_end = SimTime::from_duration((next - wall_start()).to_std().expect("later")).after(options.busy);
+    let next = schedule.next_start(wall_start() + jiff::SignedDuration::from_secs(21)).expect("a later period");
+    let busy_end =
+        SimTime::from_duration(std::time::Duration::try_from(next.duration_since(wall_start())).expect("later"))
+            .after(options.busy);
     (Some(schedule), busy_end)
 }
 
@@ -1828,12 +1830,12 @@ impl World {
     /// `now`, or if the sessions run to a schedule and it's outside it, the next period's start.
     fn active_from(&self, now: SimTime) -> SimTime {
         let Some(schedule) = &self.schedule else { return now };
-        let wall = wall_start() + chrono::TimeDelta::from_std(now.since(SimTime(0))).expect("short");
+        let wall = wall_start() + jiff::SignedDuration::try_from(now.since(SimTime(0))).expect("short");
         if schedule.is_active(wall) {
             return now;
         }
         let next = schedule.next_start(wall).expect("a daily schedule starts again");
-        SimTime::from_duration((next - wall_start()).to_std().expect("later"))
+        SimTime::from_duration(std::time::Duration::try_from(next.duration_since(wall_start())).expect("later"))
     }
 
     /// An operator moves `side`'s next outgoing number a little ahead; the checker is told first.

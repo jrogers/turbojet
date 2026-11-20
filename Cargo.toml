@@ -49,9 +49,9 @@ cast_possible_wrap = "warn"
 cast_lossless = "warn"
 
 [workspace.dependencies]
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Times and dates. Only the core here; turbojet turns on the time zone database for schedules.
+jiff = { version = "1.0.1", default-features = false, features = ["std"] }
 compact_str = { version = "0.10", default-features = false, features = ["std"] }
-chrono-tz = "0.10"
 # Compressing finished message log files (turbojet's `gzip` feature), without C code.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }

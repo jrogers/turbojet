@@ -626,8 +626,10 @@ impl Initiator {
         let schedule = config.session.schedule.as_ref()?;
         let now = config.session.clock.now();
         let reason = schedule.closed_reason(now)?;
-        let wait =
-            schedule.next_start(now).and_then(|next| (next - now).to_std().ok()).unwrap_or(Duration::from_secs(60));
+        let wait = schedule
+            .next_start(now)
+            .and_then(|next| Duration::try_from(next.duration_since(now)).ok())
+            .unwrap_or(Duration::from_secs(60));
         Some((wait, reason))
     }
 
@@ -920,7 +922,7 @@ mod tests {
             ("begin_string", |c| c.session.begin_string = "FIX.4.4".into()),
             ("sender_comp_id", |c| c.session.sender_comp_id = "OTHER".into()),
             ("target_comp_id", |c| c.target_comp_id = "OTHER".into()),
-            ("clock", |c| c.session.clock = crate::Clock::from_fn(chrono::Utc::now)),
+            ("clock", |c| c.session.clock = crate::Clock::from_fn(jiff::Timestamp::now)),
         ];
         for (field, change) in changes {
             let mut config = same();
@@ -949,7 +951,7 @@ mod tests {
         // A registry on another clock would record operator resets by the wrong time.
         let mut config =
             InitiatorConfig::new(SessionConfig::new("FIX.4.2", "CLIENT"), "SERVER").with_endpoint("127.0.0.1:1");
-        config.session.clock = crate::Clock::from_fn(chrono::Utc::now);
+        config.session.clock = crate::Clock::from_fn(jiff::Timestamp::now);
         let err = Initiator::with_registry(config, registry, Arc::new(Nothing)).unwrap_err().to_string();
         assert!(err.contains("clock"), "{err}");
     }

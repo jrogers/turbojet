@@ -548,7 +548,7 @@ fn gateway_reads_holidays_for_its_schedule() {
     let file = dir.path().join("holidays.txt");
     std::fs::write(&file, "# 2026\n2026-12-25\n").unwrap();
     let path = file.to_str().unwrap();
-    let christmas = chrono::NaiveDate::from_ymd_opt(2026, 12, 25).unwrap();
+    let christmas = turbojet::jiff::civil::date(2026, 12, 25);
 
     let schedule = crate::parse_args(args(&["--allow-any", "--schedule", "daily 08:00-17:00", "--holidays", path]))
         .unwrap()

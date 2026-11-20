@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, TimeZone, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 use super::*;
 use crate::MemoryStorage;
@@ -88,18 +88,18 @@ impl Recorder {
 
 /// A wall clock the tests move.
 #[derive(Clone)]
-struct Wall(Arc<Mutex<DateTime<Utc>>>);
+struct Wall(Arc<Mutex<Timestamp>>);
 
 impl Wall {
     fn new() -> Self {
-        Self(Arc::new(Mutex::new(Utc.with_ymd_and_hms(2026, 10, 6, 10, 0, 0).unwrap())))
+        Self(Arc::new(Mutex::new("2026-10-06T10:00:00Z".parse().unwrap())))
     }
     fn clock(&self) -> Clock {
         let wall = self.0.clone();
         Clock::from_fn(move || *wall.lock().unwrap())
     }
     fn advance(&self, by: Duration) {
-        *self.0.lock().unwrap() += chrono::Duration::from_std(by).unwrap();
+        *self.0.lock().unwrap() += SignedDuration::try_from(by).unwrap();
     }
 }
 

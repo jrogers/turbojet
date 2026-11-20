@@ -3,7 +3,7 @@
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
+use jiff::{SignedDuration, Timestamp};
 use turbojet::message_log::{LogRecord, Replayed, replay};
 use turbojet::registry::SessionHandle;
 use turbojet::{
@@ -36,14 +36,14 @@ impl Application for Recorder {
     }
 }
 
-fn noon() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap()
+fn noon() -> Timestamp {
+    "2026-10-08T12:00:00Z".parse().unwrap()
 }
 
 /// A log being written, its clock set by each message's time.
 struct Log {
     log: FileMessageLog,
-    now: Arc<Mutex<DateTime<Utc>>>,
+    now: Arc<Mutex<Timestamp>>,
     dir: tempfile::TempDir,
 }
 
@@ -60,9 +60,9 @@ impl Log {
     /// Logs a message from THEM to US at `secs` past noon, with SendingTime then. `session` is
     /// whether it's logged with its session, as everything after the Logon is.
     fn inbound(&self, secs: i64, session: bool, seq: u64, body: &str) {
-        let at = noon() + TimeDelta::seconds(secs);
+        let at = noon() + SignedDuration::from_secs(secs);
         *self.now.lock().unwrap() = at;
-        let header = format!("49=THEM|56=US|34={seq}|52={}|", at.format("%Y%m%d-%H:%M:%S%.3f"));
+        let header = format!("49=THEM|56=US|34={seq}|52={}|", at.strftime("%Y%m%d-%H:%M:%S%.3f"));
         let id = SessionId::new("FIX.4.4", "US", "THEM");
         self.log.inbound(session.then_some(&id), &frame(&format!("{}{header}{}", &body[..5], &body[5..])));
     }

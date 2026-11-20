@@ -5,7 +5,7 @@ use std::fmt;
 use std::marker::PhantomData;
 
 use super::{
-    Code, CompactString, Decimal, FixEnum, MonthYear, MsgType, NaiveDate, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly,
+    Code, CompactString, Date, Decimal, FixEnum, MonthYear, MsgType, Secret, TzTimeOnly, TzTimestamp, UtcTimeOnly,
     UtcTimestamp, ValueError,
 };
 
@@ -40,7 +40,7 @@ impl_field_ref!(
     Decimal,
     UtcTimestamp,
     UtcTimeOnly,
-    NaiveDate,
+    Date,
     MonthYear,
     TzTimeOnly,
     TzTimestamp
@@ -373,7 +373,7 @@ mod tests {
         parses_as_owned::<Decimal>(&["150.25", "1e3"]);
         parses_as_owned::<UtcTimestamp>(&["20260930-12:00:00.123", "2026-09-30"]);
         parses_as_owned::<UtcTimeOnly>(&["12:00:00", "25:00:00"]);
-        parses_as_owned::<NaiveDate>(&["20260930", "20261330"]);
+        parses_as_owned::<Date>(&["20260930", "20261330"]);
         parses_as_owned::<MonthYear>(&["202609", "202609w2", "2026"]);
         parses_as_owned::<TzTimeOnly>(&["12:00Z", "12:00+05:30", "12"]);
         parses_as_owned::<TzTimestamp>(&["20260930-12:00:00Z", "20260930"]);

@@ -2,7 +2,7 @@
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::{Code, CompactString, Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{Code, CompactString, Date, Decimal, MonthYear, UtcTimeOnly, UtcTimestamp};
 
 mod part0 {
     use super::*;
@@ -208,7 +208,7 @@ mod part0 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// HandlInst(21).
             handl_inst: opt Code<HandlInst> = HANDL_INST,
             /// ExecInst(18).
@@ -292,7 +292,7 @@ mod part0 {
             /// EffectiveTime(168).
             effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
             /// ExpireDate(432).
-            expire_date: opt NaiveDate = EXPIRE_DATE,
+            expire_date: opt Date = EXPIRE_DATE,
             /// ExpireTime(126).
             expire_time: opt UtcTimestamp = EXPIRE_TIME,
             /// GTBookingInst(427).
@@ -312,7 +312,7 @@ mod part0 {
             /// EncodedText(355).
             encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
             /// FutSettDate2(193).
-            fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
+            fut_sett_date2: opt Date = FUT_SETT_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// OpenClose(77).
@@ -698,11 +698,11 @@ mod part1 {
             /// OrderQty(38).
             order_qty: opt Decimal = ORDER_QTY,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// OrdType(40).
             ord_type: opt Code<OrdType> = ORD_TYPE,
             /// FutSettDate2(193).
-            fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
+            fut_sett_date2: opt Date = FUT_SETT_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// ExpireTime(126).
@@ -857,7 +857,7 @@ mod part2 {
             /// MDEntrySize(271).
             md_entry_size: opt Decimal = MD_ENTRY_SIZE,
             /// MDEntryDate(272).
-            md_entry_date: opt NaiveDate = MD_ENTRY_DATE,
+            md_entry_date: opt Date = MD_ENTRY_DATE,
             /// MDEntryTime(273).
             md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
             /// TickDirection(274).
@@ -881,7 +881,7 @@ mod part2 {
             /// TimeInForce(59).
             time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
             /// ExpireDate(432).
-            expire_date: opt NaiveDate = EXPIRE_DATE,
+            expire_date: opt Date = EXPIRE_DATE,
             /// ExpireTime(126).
             expire_time: opt UtcTimestamp = EXPIRE_TIME,
             /// MinQty(110).
@@ -1014,7 +1014,7 @@ mod part2 {
             /// MDEntrySize(271).
             md_entry_size: opt Decimal = MD_ENTRY_SIZE,
             /// MDEntryDate(272).
-            md_entry_date: opt NaiveDate = MD_ENTRY_DATE,
+            md_entry_date: opt Date = MD_ENTRY_DATE,
             /// MDEntryTime(273).
             md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
             /// TickDirection(274).
@@ -1038,7 +1038,7 @@ mod part2 {
             /// TimeInForce(59).
             time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
             /// ExpireDate(432).
-            expire_date: opt NaiveDate = EXPIRE_DATE,
+            expire_date: opt Date = EXPIRE_DATE,
             /// ExpireTime(126).
             expire_time: opt UtcTimestamp = EXPIRE_TIME,
             /// MinQty(110).
@@ -1579,11 +1579,11 @@ mod part2 {
             /// TradingSessionID(336).
             trading_session_id: opt CompactString = TRADING_SESSION_ID,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// OrdType(40).
             ord_type: opt Code<OrdType> = ORD_TYPE,
             /// FutSettDate2(193).
-            fut_sett_date2: opt NaiveDate = FUT_SETT_DATE2,
+            fut_sett_date2: opt Date = FUT_SETT_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// Currency(15).
@@ -1703,7 +1703,7 @@ mod part3 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// Account(1).
             account: opt CompactString = ACCOUNT,
         }
@@ -1750,7 +1750,7 @@ mod part3 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// TradingSessionID(336).
             trading_session_id: opt CompactString = TRADING_SESSION_ID,
             /// Text(58).

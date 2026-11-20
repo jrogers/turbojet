@@ -5,7 +5,7 @@
 
 use libfuzzer_sys::fuzz_target;
 use turbojet::codec::{Decoded, decode};
-use turbojet::fields::{FromFix, MonthYear, NaiveDate, ToFix, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{Date, FromFix, MonthYear, ToFix, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 use turbojet::message::tags;
 use turbojet_fuzz::{frame, round_trip};
 
@@ -37,7 +37,7 @@ fuzz_target!(|body: &[u8]| {
     for (_, value) in msg.fields() {
         stable::<UtcTimestamp>(value);
         stable::<UtcTimeOnly>(value);
-        stable::<NaiveDate>(value);
+        stable::<Date>(value);
         stable::<MonthYear>(value);
         stable::<TzTimeOnly>(value);
         stable::<TzTimestamp>(value);

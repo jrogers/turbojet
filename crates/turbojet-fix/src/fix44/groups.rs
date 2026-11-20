@@ -2,7 +2,7 @@
 
 use super::enums::*;
 use super::tags::*;
-use turbojet::fields::{Code, CompactString, Decimal, MonthYear, NaiveDate, UtcTimeOnly, UtcTimestamp};
+use turbojet::fields::{Code, CompactString, Date, Decimal, MonthYear, UtcTimeOnly, UtcTimestamp};
 
 mod part0 {
     use super::*;
@@ -32,7 +32,7 @@ mod part0 {
             /// EventType(865).
             event_type: req Code<EventType> = EVENT_TYPE,
             /// EventDate(866).
-            event_date: opt NaiveDate = EVENT_DATE,
+            event_date: opt Date = EVENT_DATE,
             /// EventPx(867).
             event_px: opt Decimal = EVENT_PX,
             /// EventText(868).
@@ -73,13 +73,13 @@ mod part0 {
             /// UnderlyingMaturityMonthYear(313).
             underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
             /// UnderlyingMaturityDate(542).
-            underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
+            underlying_maturity_date: opt Date = UNDERLYING_MATURITY_DATE,
             /// UnderlyingPutOrCall(315).
             underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
             /// UnderlyingCouponPaymentDate(241).
-            underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
+            underlying_coupon_payment_date: opt Date = UNDERLYING_COUPON_PAYMENT_DATE,
             /// UnderlyingIssueDate(242).
-            underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
+            underlying_issue_date: opt Date = UNDERLYING_ISSUE_DATE,
             /// UnderlyingRepoCollateralSecurityType(243).
             ///
             /// Deprecated in the FIX standard.
@@ -101,7 +101,7 @@ mod part0 {
             /// UnderlyingLocaleOfIssue(594).
             underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
             /// UnderlyingRedemptionDate(247).
-            underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
+            underlying_redemption_date: opt Date = UNDERLYING_REDEMPTION_DATE,
             /// UnderlyingStrikePrice(316).
             underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
             /// UnderlyingStrikeCurrency(941).
@@ -283,11 +283,11 @@ mod part0 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -309,7 +309,7 @@ mod part0 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -339,11 +339,11 @@ mod part0 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegIOIQty(682).
             leg_ioi_qty: opt CompactString = LEG_IOI_QTY,
             /// NoLegStipulations(683).
@@ -506,11 +506,11 @@ mod part1 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -532,7 +532,7 @@ mod part1 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -562,11 +562,11 @@ mod part1 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
         }
     }
 
@@ -743,11 +743,11 @@ mod part2 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -769,7 +769,7 @@ mod part2 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -799,11 +799,11 @@ mod part2 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegQty(687).
             leg_qty: opt Decimal = LEG_QTY,
             /// LegSwapType(690).
@@ -823,7 +823,7 @@ mod part2 {
             /// LegSettlType(587).
             leg_settl_type: opt Code<LegSettlType> = LEG_SETTL_TYPE,
             /// LegSettlDate(588).
-            leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
+            leg_settl_date: opt Date = LEG_SETTL_DATE,
             /// LegLastPx(637).
             leg_last_px: opt Decimal = LEG_LAST_PX,
         }
@@ -983,13 +983,13 @@ mod part2 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -1011,7 +1011,7 @@ mod part2 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -1043,9 +1043,9 @@ mod part2 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
         }
     }
 
@@ -1193,9 +1193,9 @@ mod part3 {
             /// NoPartyIDs(453).
             party_ids: group Parties = NO_PARTY_IDS,
             /// TradeOriginationDate(229).
-            trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
+            trade_origination_date: opt Date = TRADE_ORIGINATION_DATE,
             /// TradeDate(75).
-            trade_date: opt NaiveDate = TRADE_DATE,
+            trade_date: opt Date = TRADE_DATE,
             /// Account(1).
             account: opt CompactString = ACCOUNT,
             /// AcctIDSource(660).
@@ -1215,7 +1215,7 @@ mod part3 {
             /// SettlType(63).
             settl_type: opt Code<SettlType> = SETTL_TYPE,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// CashMargin(544).
             cash_margin: opt Code<CashMargin> = CASH_MARGIN,
             /// ClearingFeeIndicator(635).
@@ -1255,13 +1255,13 @@ mod part3 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -1283,7 +1283,7 @@ mod part3 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -1315,9 +1315,9 @@ mod part3 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// NoUnderlyings(711).
             underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
             /// PrevClosePx(140).
@@ -1373,9 +1373,9 @@ mod part3 {
             /// Yield(236).
             r#yield: opt Decimal = YIELD,
             /// YieldCalcDate(701).
-            yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
+            yield_calc_date: opt Date = YIELD_CALC_DATE,
             /// YieldRedemptionDate(696).
-            yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
+            yield_redemption_date: opt Date = YIELD_REDEMPTION_DATE,
             /// YieldRedemptionPrice(697).
             yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
             /// YieldRedemptionPriceType(698).
@@ -1395,7 +1395,7 @@ mod part3 {
             /// EffectiveTime(168).
             effective_time: opt UtcTimestamp = EFFECTIVE_TIME,
             /// ExpireDate(432).
-            expire_date: opt NaiveDate = EXPIRE_DATE,
+            expire_date: opt Date = EXPIRE_DATE,
             /// ExpireTime(126).
             expire_time: opt UtcTimestamp = EXPIRE_TIME,
             /// GTBookingInst(427).
@@ -1425,7 +1425,7 @@ mod part3 {
             /// EncodedText(355).
             encoded_text: opt_data Vec<u8> = ENCODED_TEXT_LEN => ENCODED_TEXT,
             /// SettlDate2(193).
-            settl_date2: opt NaiveDate = SETTL_DATE2,
+            settl_date2: opt Date = SETTL_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// Price2(640).
@@ -2113,13 +2113,13 @@ mod part4 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -2141,7 +2141,7 @@ mod part4 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -2173,23 +2173,23 @@ mod part4 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// AgreementDesc(913).
             agreement_desc: opt CompactString = AGREEMENT_DESC,
             /// AgreementID(914).
             agreement_id: opt CompactString = AGREEMENT_ID,
             /// AgreementDate(915).
-            agreement_date: opt NaiveDate = AGREEMENT_DATE,
+            agreement_date: opt Date = AGREEMENT_DATE,
             /// AgreementCurrency(918).
             agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
             /// TerminationType(788).
             termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
             /// StartDate(916).
-            start_date: opt NaiveDate = START_DATE,
+            start_date: opt Date = START_DATE,
             /// EndDate(917).
-            end_date: opt NaiveDate = END_DATE,
+            end_date: opt Date = END_DATE,
             /// DeliveryType(919).
             delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
             /// MarginRatio(898).
@@ -2207,7 +2207,7 @@ mod part4 {
             /// TradingSessionSubID(625).
             trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
             /// TradeOriginationDate(229).
-            trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
+            trade_origination_date: opt Date = TRADE_ORIGINATION_DATE,
             /// Side(54).
             side: opt Code<Side> = SIDE,
             /// QtyType(854).
@@ -2225,9 +2225,9 @@ mod part4 {
             /// SettlType(63).
             settl_type: opt Code<SettlType> = SETTL_TYPE,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// SettlDate2(193).
-            settl_date2: opt NaiveDate = SETTL_DATE2,
+            settl_date2: opt Date = SETTL_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// Currency(15).
@@ -2281,9 +2281,9 @@ mod part4 {
             /// Yield(236).
             r#yield: opt Decimal = YIELD,
             /// YieldCalcDate(701).
-            yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
+            yield_calc_date: opt Date = YIELD_CALC_DATE,
             /// YieldRedemptionDate(696).
-            yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
+            yield_redemption_date: opt Date = YIELD_REDEMPTION_DATE,
             /// YieldRedemptionPrice(697).
             yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
             /// YieldRedemptionPriceType(698).
@@ -2425,11 +2425,11 @@ mod part4 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -2451,7 +2451,7 @@ mod part4 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -2481,11 +2481,11 @@ mod part4 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegQty(687).
             leg_qty: opt Decimal = LEG_QTY,
             /// LegSwapType(690).
@@ -2493,7 +2493,7 @@ mod part4 {
             /// LegSettlType(587).
             leg_settl_type: opt Code<LegSettlType> = LEG_SETTL_TYPE,
             /// LegSettlDate(588).
-            leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
+            leg_settl_date: opt Date = LEG_SETTL_DATE,
             /// NoLegStipulations(683).
             leg_stipulations: group LegStipulations = NO_LEG_STIPULATIONS,
             /// NoNestedPartyIDs(539).
@@ -2617,11 +2617,11 @@ mod part5 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -2643,7 +2643,7 @@ mod part5 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -2673,11 +2673,11 @@ mod part5 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegQty(687).
             leg_qty: opt Decimal = LEG_QTY,
             /// LegSwapType(690).
@@ -2685,7 +2685,7 @@ mod part5 {
             /// LegSettlType(587).
             leg_settl_type: opt Code<LegSettlType> = LEG_SETTL_TYPE,
             /// LegSettlDate(588).
-            leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
+            leg_settl_date: opt Date = LEG_SETTL_DATE,
             /// NoLegStipulations(683).
             leg_stipulations: group LegStipulations = NO_LEG_STIPULATIONS,
             /// NoNestedPartyIDs(539).
@@ -2817,13 +2817,13 @@ mod part5 {
             /// CardNumber(489).
             card_number: opt CompactString = CARD_NUMBER,
             /// CardStartDate(503).
-            card_start_date: opt NaiveDate = CARD_START_DATE,
+            card_start_date: opt Date = CARD_START_DATE,
             /// CardExpDate(490).
-            card_exp_date: opt NaiveDate = CARD_EXP_DATE,
+            card_exp_date: opt Date = CARD_EXP_DATE,
             /// CardIssNum(491).
             card_iss_num: opt CompactString = CARD_ISS_NUM,
             /// PaymentDate(504).
-            payment_date: opt NaiveDate = PAYMENT_DATE,
+            payment_date: opt Date = PAYMENT_DATE,
             /// PaymentRemitterID(505).
             payment_remitter_id: opt CompactString = PAYMENT_REMITTER_ID,
         }
@@ -2905,13 +2905,13 @@ mod part5 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -2933,7 +2933,7 @@ mod part5 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -2965,9 +2965,9 @@ mod part5 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// NoUnderlyings(711).
             underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
             /// NoLegs(555).
@@ -3040,7 +3040,7 @@ mod part5 {
             /// MDEntrySize(271).
             md_entry_size: opt Decimal = MD_ENTRY_SIZE,
             /// MDEntryDate(272).
-            md_entry_date: opt NaiveDate = MD_ENTRY_DATE,
+            md_entry_date: opt Date = MD_ENTRY_DATE,
             /// MDEntryTime(273).
             md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
             /// TickDirection(274).
@@ -3066,7 +3066,7 @@ mod part5 {
             /// TimeInForce(59).
             time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
             /// ExpireDate(432).
-            expire_date: opt NaiveDate = EXPIRE_DATE,
+            expire_date: opt Date = EXPIRE_DATE,
             /// ExpireTime(126).
             expire_time: opt UtcTimestamp = EXPIRE_TIME,
             /// MinQty(110).
@@ -3174,13 +3174,13 @@ mod part5 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -3202,7 +3202,7 @@ mod part5 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -3234,9 +3234,9 @@ mod part5 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// NoUnderlyings(711).
             underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
             /// NoLegs(555).
@@ -3252,7 +3252,7 @@ mod part5 {
             /// MDEntrySize(271).
             md_entry_size: opt Decimal = MD_ENTRY_SIZE,
             /// MDEntryDate(272).
-            md_entry_date: opt NaiveDate = MD_ENTRY_DATE,
+            md_entry_date: opt Date = MD_ENTRY_DATE,
             /// MDEntryTime(273).
             md_entry_time: opt UtcTimeOnly = MD_ENTRY_TIME,
             /// TickDirection(274).
@@ -3278,7 +3278,7 @@ mod part5 {
             /// TimeInForce(59).
             time_in_force: opt Code<TimeInForce> = TIME_IN_FORCE,
             /// ExpireDate(432).
-            expire_date: opt NaiveDate = EXPIRE_DATE,
+            expire_date: opt Date = EXPIRE_DATE,
             /// ExpireTime(126).
             expire_time: opt UtcTimestamp = EXPIRE_TIME,
             /// MinQty(110).
@@ -3445,13 +3445,13 @@ mod part5 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -3473,7 +3473,7 @@ mod part5 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -3505,23 +3505,23 @@ mod part5 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// AgreementDesc(913).
             agreement_desc: opt CompactString = AGREEMENT_DESC,
             /// AgreementID(914).
             agreement_id: opt CompactString = AGREEMENT_ID,
             /// AgreementDate(915).
-            agreement_date: opt NaiveDate = AGREEMENT_DATE,
+            agreement_date: opt Date = AGREEMENT_DATE,
             /// AgreementCurrency(918).
             agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
             /// TerminationType(788).
             termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
             /// StartDate(916).
-            start_date: opt NaiveDate = START_DATE,
+            start_date: opt Date = START_DATE,
             /// EndDate(917).
-            end_date: opt NaiveDate = END_DATE,
+            end_date: opt Date = END_DATE,
             /// DeliveryType(919).
             delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
             /// MarginRatio(898).
@@ -3626,13 +3626,13 @@ mod part6 {
             /// UnderlyingMaturityMonthYear(313).
             underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
             /// UnderlyingMaturityDate(542).
-            underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
+            underlying_maturity_date: opt Date = UNDERLYING_MATURITY_DATE,
             /// UnderlyingPutOrCall(315).
             underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
             /// UnderlyingCouponPaymentDate(241).
-            underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
+            underlying_coupon_payment_date: opt Date = UNDERLYING_COUPON_PAYMENT_DATE,
             /// UnderlyingIssueDate(242).
-            underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
+            underlying_issue_date: opt Date = UNDERLYING_ISSUE_DATE,
             /// UnderlyingRepoCollateralSecurityType(243).
             ///
             /// Deprecated in the FIX standard.
@@ -3654,7 +3654,7 @@ mod part6 {
             /// UnderlyingLocaleOfIssue(594).
             underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
             /// UnderlyingRedemptionDate(247).
-            underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
+            underlying_redemption_date: opt Date = UNDERLYING_REDEMPTION_DATE,
             /// UnderlyingStrikePrice(316).
             underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
             /// UnderlyingStrikeCurrency(941).
@@ -3791,13 +3791,13 @@ mod part6 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -3819,7 +3819,7 @@ mod part6 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -3851,9 +3851,9 @@ mod part6 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// NoLegs(555).
             legs: group InstrmtLegGrp = NO_LEGS,
             /// BidPx(132).
@@ -3889,11 +3889,11 @@ mod part6 {
             /// TradingSessionSubID(625).
             trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// OrdType(40).
             ord_type: opt Code<OrdType> = ORD_TYPE,
             /// SettlDate2(193).
-            settl_date2: opt NaiveDate = SETTL_DATE2,
+            settl_date2: opt Date = SETTL_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// BidForwardPoints2(642).
@@ -4010,13 +4010,13 @@ mod part6 {
             /// UnderlyingMaturityMonthYear(313).
             underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
             /// UnderlyingMaturityDate(542).
-            underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
+            underlying_maturity_date: opt Date = UNDERLYING_MATURITY_DATE,
             /// UnderlyingPutOrCall(315).
             underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
             /// UnderlyingCouponPaymentDate(241).
-            underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
+            underlying_coupon_payment_date: opt Date = UNDERLYING_COUPON_PAYMENT_DATE,
             /// UnderlyingIssueDate(242).
-            underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
+            underlying_issue_date: opt Date = UNDERLYING_ISSUE_DATE,
             /// UnderlyingRepoCollateralSecurityType(243).
             ///
             /// Deprecated in the FIX standard.
@@ -4038,7 +4038,7 @@ mod part6 {
             /// UnderlyingLocaleOfIssue(594).
             underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
             /// UnderlyingRedemptionDate(247).
-            underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
+            underlying_redemption_date: opt Date = UNDERLYING_REDEMPTION_DATE,
             /// UnderlyingStrikePrice(316).
             underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
             /// UnderlyingStrikeCurrency(941).
@@ -4188,13 +4188,13 @@ mod part6 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -4216,7 +4216,7 @@ mod part6 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -4248,9 +4248,9 @@ mod part6 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// NoLegs(555).
             legs: group InstrmtLegGrp = NO_LEGS,
             /// BidPx(132).
@@ -4286,11 +4286,11 @@ mod part6 {
             /// TradingSessionSubID(625).
             trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// OrdType(40).
             ord_type: opt Code<OrdType> = ORD_TYPE,
             /// SettlDate2(193).
-            settl_date2: opt NaiveDate = SETTL_DATE2,
+            settl_date2: opt Date = SETTL_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// BidForwardPoints2(642).
@@ -4443,7 +4443,7 @@ mod part6 {
             /// SettlType(63).
             settl_type: opt Code<SettlType> = SETTL_TYPE,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// Account(1).
             account: opt CompactString = ACCOUNT,
             /// AcctIDSource(660).
@@ -4498,7 +4498,7 @@ mod part6 {
             /// SettlType(63).
             settl_type: opt Code<SettlType> = SETTL_TYPE,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// TradingSessionID(336).
             trading_session_id: opt CompactString = TRADING_SESSION_ID,
             /// TradingSessionSubID(625).
@@ -4560,13 +4560,13 @@ mod part6 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -4588,7 +4588,7 @@ mod part6 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -4620,9 +4620,9 @@ mod part6 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
         }
     }
 
@@ -4706,13 +4706,13 @@ mod part7 {
             /// UnderlyingMaturityMonthYear(313).
             underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
             /// UnderlyingMaturityDate(542).
-            underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
+            underlying_maturity_date: opt Date = UNDERLYING_MATURITY_DATE,
             /// UnderlyingPutOrCall(315).
             underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
             /// UnderlyingCouponPaymentDate(241).
-            underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
+            underlying_coupon_payment_date: opt Date = UNDERLYING_COUPON_PAYMENT_DATE,
             /// UnderlyingIssueDate(242).
-            underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
+            underlying_issue_date: opt Date = UNDERLYING_ISSUE_DATE,
             /// UnderlyingRepoCollateralSecurityType(243).
             ///
             /// Deprecated in the FIX standard.
@@ -4734,7 +4734,7 @@ mod part7 {
             /// UnderlyingLocaleOfIssue(594).
             underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
             /// UnderlyingRedemptionDate(247).
-            underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
+            underlying_redemption_date: opt Date = UNDERLYING_REDEMPTION_DATE,
             /// UnderlyingStrikePrice(316).
             underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
             /// UnderlyingStrikeCurrency(941).
@@ -4883,7 +4883,7 @@ mod part7 {
             /// OwnerType(522).
             owner_type: opt Code<OwnerType> = OWNER_TYPE,
             /// DateOfBirth(486).
-            date_of_birth: opt NaiveDate = DATE_OF_BIRTH,
+            date_of_birth: opt Date = DATE_OF_BIRTH,
             /// InvestorCountryOfResidence(475).
             investor_country_of_residence: opt CompactString = INVESTOR_COUNTRY_OF_RESIDENCE,
         }
@@ -4984,9 +4984,9 @@ mod part7 {
             /// NoPartyIDs(453).
             party_ids: group Parties = NO_PARTY_IDS,
             /// TradeOriginationDate(229).
-            trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
+            trade_origination_date: opt Date = TRADE_ORIGINATION_DATE,
             /// TradeDate(75).
-            trade_date: opt NaiveDate = TRADE_DATE,
+            trade_date: opt Date = TRADE_DATE,
             /// Account(1).
             account: opt CompactString = ACCOUNT,
             /// AcctIDSource(660).
@@ -5130,9 +5130,9 @@ mod part7 {
             /// NoPartyIDs(453).
             party_ids: group Parties = NO_PARTY_IDS,
             /// TradeOriginationDate(229).
-            trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
+            trade_origination_date: opt Date = TRADE_ORIGINATION_DATE,
             /// TradeDate(75).
-            trade_date: opt NaiveDate = TRADE_DATE,
+            trade_date: opt Date = TRADE_DATE,
             /// OrderQty(38).
             order_qty: opt Decimal = ORDER_QTY,
             /// CashOrderQty(152).
@@ -5236,13 +5236,13 @@ mod part7 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -5264,7 +5264,7 @@ mod part7 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -5296,9 +5296,9 @@ mod part7 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// DeliveryForm(668).
             delivery_form: opt Code<DeliveryForm> = DELIVERY_FORM,
             /// PctAtRisk(869).
@@ -5310,15 +5310,15 @@ mod part7 {
             /// AgreementID(914).
             agreement_id: opt CompactString = AGREEMENT_ID,
             /// AgreementDate(915).
-            agreement_date: opt NaiveDate = AGREEMENT_DATE,
+            agreement_date: opt Date = AGREEMENT_DATE,
             /// AgreementCurrency(918).
             agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
             /// TerminationType(788).
             termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
             /// StartDate(916).
-            start_date: opt NaiveDate = START_DATE,
+            start_date: opt Date = START_DATE,
             /// EndDate(917).
-            end_date: opt NaiveDate = END_DATE,
+            end_date: opt Date = END_DATE,
             /// DeliveryType(919).
             delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
             /// MarginRatio(898).
@@ -5352,9 +5352,9 @@ mod part7 {
             /// Yield(236).
             r#yield: opt Decimal = YIELD,
             /// YieldCalcDate(701).
-            yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
+            yield_calc_date: opt Date = YIELD_CALC_DATE,
             /// YieldRedemptionDate(696).
-            yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
+            yield_redemption_date: opt Date = YIELD_REDEMPTION_DATE,
             /// YieldRedemptionPrice(697).
             yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
             /// YieldRedemptionPriceType(698).
@@ -5493,11 +5493,11 @@ mod part8 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -5519,7 +5519,7 @@ mod part8 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -5549,11 +5549,11 @@ mod part8 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegSwapType(690).
             leg_swap_type: opt Code<LegSwapType> = LEG_SWAP_TYPE,
             /// LegSettlType(587).
@@ -5655,13 +5655,13 @@ mod part8 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -5683,7 +5683,7 @@ mod part8 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -5715,9 +5715,9 @@ mod part8 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// Currency(15).
             currency: opt CompactString = CURRENCY,
             /// ExpirationCycle(827).
@@ -5907,11 +5907,11 @@ mod part8 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -5933,7 +5933,7 @@ mod part8 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -5963,11 +5963,11 @@ mod part8 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegQty(687).
             leg_qty: opt Decimal = LEG_QTY,
             /// LegSwapType(690).
@@ -5989,7 +5989,7 @@ mod part8 {
             /// LegSettlType(587).
             leg_settl_type: opt Code<LegSettlType> = LEG_SETTL_TYPE,
             /// LegSettlDate(588).
-            leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
+            leg_settl_date: opt Date = LEG_SETTL_DATE,
         }
     }
 
@@ -6092,7 +6092,7 @@ mod part8 {
         /// An entry of NoDates(580).
         TrdCapDtGrp / TrdCapDtGrpRef {
             /// TradeDate(75).
-            trade_date: req NaiveDate = TRADE_DATE,
+            trade_date: req Date = TRADE_DATE,
             /// TransactTime(60).
             transact_time: opt UtcTimestamp = TRANSACT_TIME,
         }
@@ -6101,7 +6101,7 @@ mod part8 {
     impl TrdCapDtGrp {
         /// With its required field; optional ones empty.
         #[allow(clippy::new_without_default)]
-        pub fn new(trade_date: NaiveDate) -> Self {
+        pub fn new(trade_date: Date) -> Self {
             Self { trade_date, transact_time: None }
         }
     }
@@ -6154,11 +6154,11 @@ mod part9 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -6180,7 +6180,7 @@ mod part9 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -6210,11 +6210,11 @@ mod part9 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegQty(687).
             leg_qty: opt Decimal = LEG_QTY,
             /// LegSwapType(690).
@@ -6234,7 +6234,7 @@ mod part9 {
             /// LegSettlType(587).
             leg_settl_type: opt Code<LegSettlType> = LEG_SETTL_TYPE,
             /// LegSettlDate(588).
-            leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
+            leg_settl_date: opt Date = LEG_SETTL_DATE,
             /// LegLastPx(637).
             leg_last_px: opt Decimal = LEG_LAST_PX,
         }
@@ -6395,7 +6395,7 @@ mod part9 {
             /// NumDaysInterest(157).
             num_days_interest: opt i64 = NUM_DAYS_INTEREST,
             /// ExDate(230).
-            ex_date: opt NaiveDate = EX_DATE,
+            ex_date: opt Date = EX_DATE,
             /// AccruedInterestRate(158).
             accrued_interest_rate: opt Decimal = ACCRUED_INTEREST_RATE,
             /// AccruedInterestAmt(159).
@@ -6586,13 +6586,13 @@ mod part9 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -6614,7 +6614,7 @@ mod part9 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -6646,23 +6646,23 @@ mod part9 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// AgreementDesc(913).
             agreement_desc: opt CompactString = AGREEMENT_DESC,
             /// AgreementID(914).
             agreement_id: opt CompactString = AGREEMENT_ID,
             /// AgreementDate(915).
-            agreement_date: opt NaiveDate = AGREEMENT_DATE,
+            agreement_date: opt Date = AGREEMENT_DATE,
             /// AgreementCurrency(918).
             agreement_currency: opt CompactString = AGREEMENT_CURRENCY,
             /// TerminationType(788).
             termination_type: opt Code<TerminationType> = TERMINATION_TYPE,
             /// StartDate(916).
-            start_date: opt NaiveDate = START_DATE,
+            start_date: opt Date = START_DATE,
             /// EndDate(917).
-            end_date: opt NaiveDate = END_DATE,
+            end_date: opt Date = END_DATE,
             /// DeliveryType(919).
             delivery_type: opt Code<DeliveryType> = DELIVERY_TYPE,
             /// MarginRatio(898).
@@ -6680,7 +6680,7 @@ mod part9 {
             /// TradingSessionSubID(625).
             trading_session_sub_id: opt CompactString = TRADING_SESSION_SUB_ID,
             /// TradeOriginationDate(229).
-            trade_origination_date: opt NaiveDate = TRADE_ORIGINATION_DATE,
+            trade_origination_date: opt Date = TRADE_ORIGINATION_DATE,
             /// Side(54).
             side: opt Code<Side> = SIDE,
             /// QtyType(854).
@@ -6698,9 +6698,9 @@ mod part9 {
             /// SettlType(63).
             settl_type: opt Code<SettlType> = SETTL_TYPE,
             /// SettlDate(64).
-            settl_date: opt NaiveDate = SETTL_DATE,
+            settl_date: opt Date = SETTL_DATE,
             /// SettlDate2(193).
-            settl_date2: opt NaiveDate = SETTL_DATE2,
+            settl_date2: opt Date = SETTL_DATE2,
             /// OrderQty2(192).
             order_qty2: opt Decimal = ORDER_QTY2,
             /// Currency(15).
@@ -6752,9 +6752,9 @@ mod part9 {
             /// Yield(236).
             r#yield: opt Decimal = YIELD,
             /// YieldCalcDate(701).
-            yield_calc_date: opt NaiveDate = YIELD_CALC_DATE,
+            yield_calc_date: opt Date = YIELD_CALC_DATE,
             /// YieldRedemptionDate(696).
-            yield_redemption_date: opt NaiveDate = YIELD_REDEMPTION_DATE,
+            yield_redemption_date: opt Date = YIELD_REDEMPTION_DATE,
             /// YieldRedemptionPrice(697).
             yield_redemption_price: opt Decimal = YIELD_REDEMPTION_PRICE,
             /// YieldRedemptionPriceType(698).
@@ -6895,13 +6895,13 @@ mod part9 {
             /// MaturityMonthYear(200).
             maturity_month_year: opt MonthYear = MATURITY_MONTH_YEAR,
             /// MaturityDate(541).
-            maturity_date: opt NaiveDate = MATURITY_DATE,
+            maturity_date: opt Date = MATURITY_DATE,
             /// PutOrCall(201).
             put_or_call: opt Code<PutOrCall> = PUT_OR_CALL,
             /// CouponPaymentDate(224).
-            coupon_payment_date: opt NaiveDate = COUPON_PAYMENT_DATE,
+            coupon_payment_date: opt Date = COUPON_PAYMENT_DATE,
             /// IssueDate(225).
-            issue_date: opt NaiveDate = ISSUE_DATE,
+            issue_date: opt Date = ISSUE_DATE,
             /// RepoCollateralSecurityType(239).
             ///
             /// Deprecated in the FIX standard.
@@ -6923,7 +6923,7 @@ mod part9 {
             /// LocaleOfIssue(472).
             locale_of_issue: opt CompactString = LOCALE_OF_ISSUE,
             /// RedemptionDate(240).
-            redemption_date: opt NaiveDate = REDEMPTION_DATE,
+            redemption_date: opt Date = REDEMPTION_DATE,
             /// StrikePrice(202).
             strike_price: opt Decimal = STRIKE_PRICE,
             /// StrikeCurrency(947).
@@ -6955,9 +6955,9 @@ mod part9 {
             /// NoEvents(864).
             events: group EvntGrp = NO_EVENTS,
             /// DatedDate(873).
-            dated_date: opt NaiveDate = DATED_DATE,
+            dated_date: opt Date = DATED_DATE,
             /// InterestAccrualDate(874).
-            interest_accrual_date: opt NaiveDate = INTEREST_ACCRUAL_DATE,
+            interest_accrual_date: opt Date = INTEREST_ACCRUAL_DATE,
             /// NoUnderlyings(711).
             underlyings: group UndInstrmtGrp = NO_UNDERLYINGS,
             /// NoLegs(555).
@@ -7057,11 +7057,11 @@ mod part9 {
             /// LegMaturityMonthYear(610).
             leg_maturity_month_year: opt MonthYear = LEG_MATURITY_MONTH_YEAR,
             /// LegMaturityDate(611).
-            leg_maturity_date: opt NaiveDate = LEG_MATURITY_DATE,
+            leg_maturity_date: opt Date = LEG_MATURITY_DATE,
             /// LegCouponPaymentDate(248).
-            leg_coupon_payment_date: opt NaiveDate = LEG_COUPON_PAYMENT_DATE,
+            leg_coupon_payment_date: opt Date = LEG_COUPON_PAYMENT_DATE,
             /// LegIssueDate(249).
-            leg_issue_date: opt NaiveDate = LEG_ISSUE_DATE,
+            leg_issue_date: opt Date = LEG_ISSUE_DATE,
             /// LegRepoCollateralSecurityType(250).
             ///
             /// Deprecated in the FIX standard.
@@ -7083,7 +7083,7 @@ mod part9 {
             /// LegLocaleOfIssue(598).
             leg_locale_of_issue: opt CompactString = LEG_LOCALE_OF_ISSUE,
             /// LegRedemptionDate(254).
-            leg_redemption_date: opt NaiveDate = LEG_REDEMPTION_DATE,
+            leg_redemption_date: opt Date = LEG_REDEMPTION_DATE,
             /// LegStrikePrice(612).
             leg_strike_price: opt Decimal = LEG_STRIKE_PRICE,
             /// LegStrikeCurrency(942).
@@ -7113,11 +7113,11 @@ mod part9 {
             /// LegPool(740).
             leg_pool: opt CompactString = LEG_POOL,
             /// LegDatedDate(739).
-            leg_dated_date: opt NaiveDate = LEG_DATED_DATE,
+            leg_dated_date: opt Date = LEG_DATED_DATE,
             /// LegContractSettlMonth(955).
             leg_contract_settl_month: opt MonthYear = LEG_CONTRACT_SETTL_MONTH,
             /// LegInterestAccrualDate(956).
-            leg_interest_accrual_date: opt NaiveDate = LEG_INTEREST_ACCRUAL_DATE,
+            leg_interest_accrual_date: opt Date = LEG_INTEREST_ACCRUAL_DATE,
             /// LegQty(687).
             leg_qty: opt Decimal = LEG_QTY,
             /// LegSwapType(690).
@@ -7125,7 +7125,7 @@ mod part9 {
             /// LegSettlType(587).
             leg_settl_type: opt Code<LegSettlType> = LEG_SETTL_TYPE,
             /// LegSettlDate(588).
-            leg_settl_date: opt NaiveDate = LEG_SETTL_DATE,
+            leg_settl_date: opt Date = LEG_SETTL_DATE,
             /// NoLegStipulations(683).
             leg_stipulations: group LegStipulations = NO_LEG_STIPULATIONS,
             /// NoNestedPartyIDs(539).
@@ -7272,13 +7272,13 @@ mod part10 {
             /// UnderlyingMaturityMonthYear(313).
             underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
             /// UnderlyingMaturityDate(542).
-            underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
+            underlying_maturity_date: opt Date = UNDERLYING_MATURITY_DATE,
             /// UnderlyingPutOrCall(315).
             underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
             /// UnderlyingCouponPaymentDate(241).
-            underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
+            underlying_coupon_payment_date: opt Date = UNDERLYING_COUPON_PAYMENT_DATE,
             /// UnderlyingIssueDate(242).
-            underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
+            underlying_issue_date: opt Date = UNDERLYING_ISSUE_DATE,
             /// UnderlyingRepoCollateralSecurityType(243).
             ///
             /// Deprecated in the FIX standard.
@@ -7300,7 +7300,7 @@ mod part10 {
             /// UnderlyingLocaleOfIssue(594).
             underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
             /// UnderlyingRedemptionDate(247).
-            underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
+            underlying_redemption_date: opt Date = UNDERLYING_REDEMPTION_DATE,
             /// UnderlyingStrikePrice(316).
             underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
             /// UnderlyingStrikeCurrency(941).
@@ -7478,13 +7478,13 @@ mod part10 {
             /// UnderlyingMaturityMonthYear(313).
             underlying_maturity_month_year: opt MonthYear = UNDERLYING_MATURITY_MONTH_YEAR,
             /// UnderlyingMaturityDate(542).
-            underlying_maturity_date: opt NaiveDate = UNDERLYING_MATURITY_DATE,
+            underlying_maturity_date: opt Date = UNDERLYING_MATURITY_DATE,
             /// UnderlyingPutOrCall(315).
             underlying_put_or_call: opt i64 = UNDERLYING_PUT_OR_CALL,
             /// UnderlyingCouponPaymentDate(241).
-            underlying_coupon_payment_date: opt NaiveDate = UNDERLYING_COUPON_PAYMENT_DATE,
+            underlying_coupon_payment_date: opt Date = UNDERLYING_COUPON_PAYMENT_DATE,
             /// UnderlyingIssueDate(242).
-            underlying_issue_date: opt NaiveDate = UNDERLYING_ISSUE_DATE,
+            underlying_issue_date: opt Date = UNDERLYING_ISSUE_DATE,
             /// UnderlyingRepoCollateralSecurityType(243).
             ///
             /// Deprecated in the FIX standard.
@@ -7506,7 +7506,7 @@ mod part10 {
             /// UnderlyingLocaleOfIssue(594).
             underlying_locale_of_issue: opt CompactString = UNDERLYING_LOCALE_OF_ISSUE,
             /// UnderlyingRedemptionDate(247).
-            underlying_redemption_date: opt NaiveDate = UNDERLYING_REDEMPTION_DATE,
+            underlying_redemption_date: opt Date = UNDERLYING_REDEMPTION_DATE,
             /// UnderlyingStrikePrice(316).
             underlying_strike_price: opt Decimal = UNDERLYING_STRIKE_PRICE,
             /// UnderlyingStrikeCurrency(941).

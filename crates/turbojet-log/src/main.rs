@@ -6,7 +6,9 @@ use std::io::{self, BufWriter, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use chrono::{DateTime, NaiveTime, Utc};
+use jiff::Timestamp;
+use jiff::civil::Time as TimeOfDay;
+use jiff::tz::Offset;
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::tags;
 use turbojet::message_log::{Direction, LogRecord};
@@ -74,8 +76,8 @@ struct Options {
     /// The conditions, with `--since` and `--until` when they're instants.
     filter: LogFilter,
     /// `--since` and `--until` when they're times of day, on each record's own day.
-    since_of_day: Option<NaiveTime>,
-    until_of_day: Option<NaiveTime>,
+    since_of_day: Option<TimeOfDay>,
+    until_of_day: Option<TimeOfDay>,
     raw: bool,
     dictionary: Option<PathBuf>,
     paths: Vec<PathBuf>,
@@ -84,18 +86,18 @@ struct Options {
 /// A bound of the time range.
 #[derive(Clone, Copy)]
 enum Time {
-    At(DateTime<Utc>),
+    At(Timestamp),
     /// A time of day, on each record's own day.
-    OfDay(NaiveTime),
+    OfDay(TimeOfDay),
 }
 
 impl Time {
     fn parse(s: &str) -> Result<Self, String> {
-        if let Ok(at) = DateTime::parse_from_rfc3339(s) {
-            return Ok(Time::At(at.with_timezone(&Utc)));
+        if let Ok(at) = s.parse::<Timestamp>() {
+            return Ok(Time::At(at));
         }
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M"))
+        TimeOfDay::strptime("%H:%M:%S", s)
+            .or_else(|_| TimeOfDay::strptime("%H:%M", s))
             .map(Time::OfDay)
             .map_err(|_| format!("{s:?} is neither RFC 3339 nor HH:MM[:SS]"))
     }
@@ -140,10 +142,11 @@ impl Options {
     }
 
     /// Whether a record at `time` is in the time range.
-    fn in_range(&self, time: DateTime<Utc>) -> bool {
+    fn in_range(&self, time: Timestamp) -> bool {
+        let of_day = Offset::UTC.to_datetime(time).time();
         self.filter.in_range(time)
-            && self.since_of_day.is_none_or(|since| time.time() >= since)
-            && self.until_of_day.is_none_or(|until| time.time() < until)
+            && self.since_of_day.is_none_or(|since| of_day >= since)
+            && self.until_of_day.is_none_or(|until| of_day < until)
     }
 }
 
@@ -245,8 +248,8 @@ fn print_record(options: &Options, names: &mut Names, record: &LogRecord, out: &
     }
 }
 
-fn stamp(time: DateTime<Utc>) -> String {
-    time.format("%Y-%m-%d %H:%M:%S%.6f").to_string()
+fn stamp(time: Timestamp) -> String {
+    time.strftime("%Y-%m-%d %H:%M:%S%.6f").to_string()
 }
 
 /// The name of an enumerated field's value, if the dictionary has one.

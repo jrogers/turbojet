@@ -26,9 +26,8 @@
 //! tokio = { version = "1", features = ["full"] }
 //! ```
 //!
-//! Timestamps are [chrono](https://docs.rs/chrono) times underneath
-//! ([`UtcTimestamp::now`](fields::UtcTimestamp::now) needs no chrono of your own); add it to build
-//! one from a chrono date or time.
+//! Timestamps are jiff times underneath, and Turbojet re-exports [`jiff`], so building one from a
+//! date or time needs no jiff of your own.
 //!
 //! ## Handling messages
 //!
@@ -175,7 +174,7 @@
 //! ```
 //!
 //! The engine adds the standard header to everything sent: BeginString, CompIDs, MsgSeqNum and
-//! SendingTime. TransactTime and other body timestamps are chrono times
+//! SendingTime. TransactTime and other body timestamps are jiff times
 //! ([`fields::UtcTimestamp`]), and prices and quantities are exact decimals ([`fields::Decimal`]).
 //!
 //! The engine reports through [tracing](https://docs.rs/tracing): install a subscriber, such as
@@ -248,6 +247,9 @@ extern crate self as turbojet;
 
 // The messages, fields, codec and macros live in turbojet-message, so the generated messages in
 // turbojet-fix don't rebuild when the engine changes; they're re-exported here as they were.
+/// The date and time library Turbojet's timestamps, dates, schedules and clocks are built on, at the
+/// version Turbojet uses.
+pub use jiff;
 #[doc(inline)]
 pub use turbojet_message::{codec, fields, message};
 #[doc(inline)]
@@ -261,7 +263,6 @@ extern crate turbojet_message;
     feature = "tls",
     feature = "pkcs12",
     feature = "metrics",
-    feature = "tz",
     feature = "validation",
     feature = "gzip",
     feature = "fast"
@@ -289,7 +290,6 @@ macro_rules! guide_links {
     feature = "tls",
     feature = "pkcs12",
     feature = "metrics",
-    feature = "tz",
     feature = "validation",
     feature = "gzip",
     feature = "fast"

@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::process::Command;
 
-use chrono::{TimeZone, Utc};
 use turbojet::{Clock, FileLogOptions, FileMessageLog, MessageLog, SessionId};
 
 /// A FIX frame of `body` (fields separated by `|`), with BodyLength and CheckSum.
@@ -19,7 +18,7 @@ fn frame(begin_string: &str, body: &str) -> Vec<u8> {
 /// Heartbeat on another, and a FIXP frame.
 fn write_log(dir: &Path) {
     let mut options = FileLogOptions::default();
-    options.clock = Clock::from_fn(|| Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap());
+    options.clock = Clock::from_fn(|| "2026-10-08T12:00:00Z".parse().unwrap());
     let log = FileMessageLog::open(dir, options).unwrap();
     let us = SessionId::new("FIX.4.4", "US", "THEM");
     let other = SessionId::new("FIX.4.2", "US", "OTHER");
@@ -83,7 +82,7 @@ fn a_file_that_cannot_be_read_fails_the_run() {
 fn garbled_messages_print_with_their_reason() {
     let dir = tempfile::tempdir().unwrap();
     let mut options = FileLogOptions::default();
-    options.clock = Clock::from_fn(|| Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap());
+    options.clock = Clock::from_fn(|| "2026-10-08T12:00:00Z".parse().unwrap());
     let log = FileMessageLog::open(dir.path(), options).unwrap();
     let us = SessionId::new("FIX.4.4", "US", "THEM");
     log.garbled(Some(&us), b"8=FIX.4.4\x019=5\x0135=0\x0110=000\x01", "CheckSum mismatch: received 0, computed 163");

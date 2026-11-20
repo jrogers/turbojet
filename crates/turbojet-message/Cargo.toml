@@ -12,8 +12,8 @@ keywords = ["fix", "trading", "finance", "protocol"]
 categories = ["network-programming", "finance"]
 
 [dependencies]
-chrono.workspace = true
 compact_str.workspace = true
+jiff.workspace = true
 rust_decimal.workspace = true
 
 # The docs' examples are written as users write them, through `turbojet` and `turbojet-fix`.

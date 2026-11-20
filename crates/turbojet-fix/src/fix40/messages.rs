@@ -3,7 +3,7 @@
 use super::enums::*;
 use super::groups::*;
 use super::tags::*;
-use turbojet::fields::{Code, CompactString, Decimal, NaiveDate, UtcTimestamp};
+use turbojet::fields::{Code, CompactString, Date, Decimal, UtcTimestamp};
 
 mod part0 {
     use super::*;
@@ -198,7 +198,7 @@ mod part0 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// Symbol(55).
             symbol: req CompactString = SYMBOL,
             /// SymbolSfx(65).
@@ -244,7 +244,7 @@ mod part0 {
             /// AvgPx(6).
             avg_px: req Decimal = AVG_PX,
             /// TradeDate(75).
-            trade_date: opt NaiveDate = TRADE_DATE,
+            trade_date: opt Date = TRADE_DATE,
             /// TransactTime(60).
             transact_time: opt UtcTimestamp = TRANSACT_TIME,
             /// ReportToExch(113).
@@ -487,7 +487,7 @@ mod part0 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// HandlInst(21).
             handl_inst: req Code<HandlInst> = HANDL_INST,
             /// ExecInst(18).
@@ -637,7 +637,7 @@ mod part0 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// HandlInst(21).
             handl_inst: req Code<HandlInst> = HANDL_INST,
             /// ExecInst(18).
@@ -887,7 +887,7 @@ mod part1 {
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// HandlInst(21).
             handl_inst: req Code<HandlInst> = HANDL_INST,
             /// ExecInst(18).
@@ -1100,13 +1100,13 @@ mod part1 {
             /// AvgPrxPrecision(74).
             avg_prx_precision: opt i64 = AVG_PRX_PRECISION,
             /// TradeDate(75).
-            trade_date: req NaiveDate = TRADE_DATE,
+            trade_date: req Date = TRADE_DATE,
             /// TransactTime(60).
             transact_time: opt UtcTimestamp = TRANSACT_TIME,
             /// SettlmntTyp(63).
             settlmnt_typ: opt Code<SettlmntTyp> = SETTLMNT_TYP,
             /// FutSettDate(64).
-            fut_sett_date: opt NaiveDate = FUT_SETT_DATE,
+            fut_sett_date: opt Date = FUT_SETT_DATE,
             /// NetMoney(118).
             net_money: opt Decimal = NET_MONEY,
             /// NoMiscFees(136).
@@ -1142,7 +1142,7 @@ mod part1 {
         /// AvgPx(6).
         pub avg_px: Decimal,
         /// TradeDate(75).
-        pub trade_date: NaiveDate,
+        pub trade_date: Date,
         /// NoAllocs(78).
         pub allocs: Vec<TrdAllocGrp>,
     }
@@ -1308,7 +1308,7 @@ mod part2 {
             /// AllocID(70).
             alloc_id: req i64 = ALLOC_ID,
             /// TradeDate(75).
-            trade_date: req NaiveDate = TRADE_DATE,
+            trade_date: req Date = TRADE_DATE,
             /// TransactTime(60).
             transact_time: opt UtcTimestamp = TRANSACT_TIME,
             /// AllocStatus(87).
@@ -1326,7 +1326,7 @@ mod part2 {
         /// AllocID(70).
         pub alloc_id: i64,
         /// TradeDate(75).
-        pub trade_date: NaiveDate,
+        pub trade_date: Date,
         /// AllocStatus(87).
         pub alloc_status: Code<AllocStatus>,
     }

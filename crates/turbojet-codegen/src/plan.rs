@@ -605,7 +605,7 @@ fn rust_type(ty: &FieldType) -> &'static str {
         | FieldType::Percentage => "Decimal",
         FieldType::UtcTimestamp => "UtcTimestamp",
         FieldType::UtcTimeOnly => "UtcTimeOnly",
-        FieldType::UtcDateOnly | FieldType::UtcDate | FieldType::LocalMktDate => "NaiveDate",
+        FieldType::UtcDateOnly | FieldType::UtcDate | FieldType::LocalMktDate => "Date",
         FieldType::MonthYear => "MonthYear",
         FieldType::TzTimeOnly => "TzTimeOnly",
         FieldType::TzTimestamp => "TzTimestamp",

@@ -6,7 +6,7 @@ use std::io;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use chrono::{DateTime, TimeDelta, Utc};
+use jiff::{SignedDuration, Timestamp};
 use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 use tracing::{info, warn};
 
@@ -529,7 +529,7 @@ struct Entry<T> {
 /// How a session's Logon bound it to its connection, as [`SessionStatus`] reports it.
 #[derive(Debug, Clone)]
 pub(crate) struct Binding {
-    pub since: DateTime<Utc>,
+    pub since: Timestamp,
     pub connection: ConnectionInfo,
     /// FIXT sessions: the application version in use on this connection.
     pub appl_ver_id: Option<ApplVerID>,
@@ -612,9 +612,10 @@ impl LiveStatus {
     }
 
     /// The values now, the times counted from `since`, the wall time at `origin`.
-    fn activity(&self, since: DateTime<Utc>) -> Activity {
+    fn activity(&self, since: Timestamp) -> Activity {
         let at = |nanos: &AtomicU64| {
-            since + TimeDelta::nanoseconds(i64::try_from(nanos.load(Ordering::Relaxed)).unwrap_or(i64::MAX))
+            let nanos = i64::try_from(nanos.load(Ordering::Relaxed)).unwrap_or(i64::MAX);
+            since.checked_add(SignedDuration::from_nanos(nanos)).unwrap_or(Timestamp::MAX)
         };
         let state = match self.state.load(Ordering::Relaxed) {
             0 => SessionState::LoggingOn,
@@ -724,9 +725,9 @@ pub struct Activity {
     /// The MsgSeqNum of the next message it sends.
     pub next_outgoing: u64,
     /// When it last received a message (or bound, if it hasn't since), by the session's clock.
-    pub last_received: DateTime<Utc>,
+    pub last_received: Timestamp,
     /// When it last sent one (or bound, if it hasn't since).
-    pub last_sent: DateTime<Utc>,
+    pub last_sent: Timestamp,
     /// How many times its sequence numbers have started again since it bound (at `since`): the
     /// counterparty's ResetSeqNumFlag(141)=Y while logged on, and a reset at logon
     /// (`reset_on_logon`, or the counterparty's flag on its Logon), which comes after the bind
@@ -767,7 +768,7 @@ pub struct SessionStatus {
     pub id: SessionId,
     /// When its Logon bound it to the connection: an acceptor's when the counterparty's Logon
     /// arrived, an initiator's when its own went out. The session's clock.
-    pub since: DateTime<Utc>,
+    pub since: Timestamp,
     /// The connection: the remote address and the peer's verified certificates.
     pub connection: ConnectionInfo,
     /// FIXT sessions: the default application version on this connection.
@@ -1980,7 +1981,7 @@ mod shuttle_tests {
     }
 
     fn binding() -> Binding {
-        Binding { since: Utc::now(), connection: ConnectionInfo::default(), appl_ver_id: None, live: None }
+        Binding { since: Timestamp::now(), connection: ConnectionInfo::default(), appl_ver_id: None, live: None }
     }
 
     /// Two connections logging on as one session at once: exactly one binds it, and once it

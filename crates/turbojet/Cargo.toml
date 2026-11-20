@@ -15,13 +15,14 @@ categories = ["network-programming", "finance"]
 # fuzz targets build only with cargo fuzz.
 exclude = ["tests/repo", "tests/sbe", "fuzz"]
 
-# Document every feature on docs.rs, so TLS, metrics and time-zone APIs appear.
+# Document every feature on docs.rs, so TLS, metrics and validation APIs appear.
 [package.metadata.docs.rs]
 all-features = true
 
 [dependencies]
-chrono.workspace = true
-chrono-tz = { workspace = true, optional = true }
+# Named time zones for session schedules: the system's tz database, or a bundled copy where the
+# platform has none (Windows).
+jiff = { workspace = true, features = ["tz-system", "tz-fat", "tzdb-zoneinfo", "tzdb-concatenated", "tzdb-bundle-platform"] }
 metrics = { workspace = true, optional = true }
 flate2 = { workspace = true, optional = true }
 compact_str.workspace = true
@@ -42,8 +43,8 @@ tls = ["dep:tokio-rustls", "dep:x509-parser"]
 pkcs12 = ["tls", "dep:p12-keystore"]
 # Per-session counters and gauges through the `metrics` facade; install a recorder to export them.
 metrics = ["dep:metrics"]
-# Named IANA time zones (e.g. America/New_York) for session schedules, with daylight saving.
-tz = ["dep:chrono-tz"]
+# Does nothing: named time zones are always available. Kept so manifests that turn it on build.
+tz = []
 # Checking inbound application messages against a data dictionary (turbojet-dictionary).
 validation = ["dep:turbojet-dictionary"]
 # The conformance suite for SessionStorage implementations (turbojet::store::conformance), for

@@ -15,9 +15,7 @@ mod borrowed;
 mod time;
 
 pub use borrowed::{CodeRef, FieldRef, List, ListIter, SecretRef};
-pub use time::{
-    DayOrWeek, MonthYear, NaiveDate, NaiveTime, Precision, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp,
-};
+pub use time::{Date, DayOrWeek, MonthYear, Precision, Time, TzTimeOnly, TzTimestamp, UtcTimeOnly, UtcTimestamp};
 
 /// Why a raw field value could not be converted to its type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

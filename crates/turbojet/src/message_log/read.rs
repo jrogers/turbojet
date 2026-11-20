@@ -6,7 +6,8 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::Timestamp;
+use jiff::civil::Date;
 
 use super::file::{FileMessageLog, is_compressed, parse_name};
 use crate::fields::{FromFix, UtcTimestamp};
@@ -26,7 +27,7 @@ pub struct LogFile {
     /// Where it is.
     pub path: PathBuf,
     /// The UTC day its records were written on.
-    pub day: NaiveDate,
+    pub day: Date,
     /// Its number within the day, from 0: a new file starts at each size limit and opening.
     pub number: u32,
     /// Whether it's compressed (`.log.gz`): see [`FileLogOptions::compress`](super::FileLogOptions::compress).
@@ -67,7 +68,7 @@ pub enum LogRecord {
     /// A message, as on the wire.
     Message {
         /// When it was logged, to the microsecond.
-        time: DateTime<Utc>,
+        time: Timestamp,
         /// Received or sent.
         direction: Direction,
         /// The session, as [`SessionId`](crate::SessionId) displays it, or `None` if it wasn't
@@ -81,7 +82,7 @@ pub enum LogRecord {
     /// [`MessageLog::garbled`](crate::MessageLog::garbled).
     Garbled {
         /// When it was logged, to the microsecond.
-        time: DateTime<Utc>,
+        time: Timestamp,
         /// The session, as for [`Message`](Self::Message).
         session: Option<String>,
         /// Its bytes, from BeginString(8) to CheckSum(10).
@@ -92,7 +93,7 @@ pub enum LogRecord {
     /// Messages dropped (for a full buffer or a failed write) before this point, not logged.
     Dropped {
         /// When the count was written.
-        time: DateTime<Utc>,
+        time: Timestamp,
         /// How many messages were dropped.
         count: u64,
     },
@@ -239,7 +240,7 @@ impl LogRecords {
             std::str::from_utf8(&self.header[..read - 1]).map_err(|_| invalid("a record header isn't text"))?;
         let mut parts = header.splitn(4, ' ');
         let (time, kind) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
-        let time = UtcTimestamp::from_fix(time).map_err(|_| invalid(&format!("bad time in {header:?}")))?.datetime();
+        let time = UtcTimestamp::from_fix(time).map_err(|_| invalid(&format!("bad time in {header:?}")))?.timestamp();
         let direction = match kind {
             "dropped" => {
                 let count = parts
@@ -296,14 +297,12 @@ fn invalid(reason: &str) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
-
     use super::*;
     use crate::message_log::{FileLogOptions, MessageLog};
     use crate::{Clock, SessionId};
 
-    fn at_noon() -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, 8, 12, 0, 0).unwrap()
+    fn at_noon() -> Timestamp {
+        "2026-10-08T12:00:00Z".parse().unwrap()
     }
 
     /// Records read back are what was logged, binary frames (with newlines in them) included.
@@ -319,7 +318,7 @@ mod tests {
 
         let files = FileMessageLog::files(dir.path()).unwrap();
         assert_eq!(files.len(), 1);
-        assert_eq!((files[0].day, files[0].number), (at_noon().date_naive(), 0));
+        assert_eq!((files[0].day, files[0].number), (jiff::civil::date(2026, 10, 8), 0));
         let records: Vec<_> = FileMessageLog::read(&files[0].path).unwrap().collect::<io::Result<_>>().unwrap();
         let expected = [
             LogRecord::Message {

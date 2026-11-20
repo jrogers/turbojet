@@ -22,8 +22,9 @@
 //! for the next period before connecting, a logged-on session logs out when its period ends, and
 //! the first logon of a new period resets sequence numbers to 1.
 //!
-//! Time zones are `UTC`, fixed offsets (`+05:30`, `-04:00`), or, with the `tz` feature, IANA names
-//! (`America/New_York`) that follow daylight saving. A local start or end time that doesn't exist
+//! Time zones are `UTC`, fixed offsets (`+05:30`, `-04:00`), or IANA names (`America/New_York`)
+//! that follow daylight saving, from the system's time zone database (or, where the platform has
+//! none, as on Windows, a copy built in). A local start or end time that doesn't exist
 //! (skipped when clocks go forward) is taken as the moment the clocks skip to, the end of the gap,
 //! however long the gap (Samoa skipped all of 2011-12-30); one that occurs twice (when clocks go
 //! back) is taken as the first occurrence. So a period that lies inside the gap doesn't happen
@@ -35,10 +36,30 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::session::ConfigError;
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc, Weekday};
+use jiff::civil::{Date, DateTime, Time, Weekday};
+use jiff::tz::{AmbiguousOffset, Offset, TimeZone};
+use jiff::{SignedDuration, Timestamp, ToSpan};
 
-const WEEK: [Weekday; 7] =
-    [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
+/// The days of the week from Monday, with the names schedules use for them.
+const WEEK: [(Weekday, &str); 7] = [
+    (Weekday::Monday, "mon"),
+    (Weekday::Tuesday, "tue"),
+    (Weekday::Wednesday, "wed"),
+    (Weekday::Thursday, "thu"),
+    (Weekday::Friday, "fri"),
+    (Weekday::Saturday, "sat"),
+    (Weekday::Sunday, "sun"),
+];
+
+/// The first `day` on or after `date`.
+fn on_or_after(date: Date, day: Weekday) -> Date {
+    date + i64::from(day.since(date.weekday())).days()
+}
+
+/// `day`'s index in [`WEEK`]: 0 for Monday.
+fn day_index(day: Weekday) -> usize {
+    usize::from(day.to_monday_zero_offset().unsigned_abs())
+}
 
 /// Most candidate periods a search looks through: over a year of daily periods (weekly schedules:
 /// over seven years of weeks), enough to cross any run of holidays, while a calendar that closes
@@ -52,36 +73,36 @@ const _: () = assert!(MAX_CANDIDATES > 366 + 2);
 ///
 /// ```
 /// use std::sync::{Arc, Mutex};
-/// use chrono::{TimeZone, Utc};
+/// use turbojet::jiff::{SignedDuration, Timestamp};
 /// use turbojet::{Clock, SessionConfig};
 ///
 /// // A clock a test moves by hand, to see a schedule's end without waiting for it.
-/// let now = Arc::new(Mutex::new(Utc.with_ymd_and_hms(2026, 10, 26, 16, 59, 0).unwrap()));
+/// let now = Arc::new(Mutex::new("2026-10-26T16:59:00Z".parse::<Timestamp>().unwrap()));
 /// let mut config = SessionConfig::new("FIX.4.2", "VENUE");
 /// config.clock = Clock::from_fn({
 ///     let now = now.clone();
 ///     move || *now.lock().unwrap()
 /// });
-/// *now.lock().unwrap() += chrono::Duration::minutes(2);
+/// *now.lock().unwrap() += SignedDuration::from_mins(2);
 /// ```
 #[derive(Clone)]
-pub struct Clock(Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>);
+pub struct Clock(Arc<dyn Fn() -> Timestamp + Send + Sync>);
 
 impl Clock {
     /// The system clock. Every call gives the same clock, so configurations and registries
     /// left on the default agree on it.
     pub fn system() -> Self {
-        static SYSTEM: std::sync::LazyLock<Clock> = std::sync::LazyLock::new(|| Clock(Arc::new(Utc::now)));
+        static SYSTEM: std::sync::LazyLock<Clock> = std::sync::LazyLock::new(|| Clock(Arc::new(Timestamp::now)));
         SYSTEM.clone()
     }
 
     /// A clock that reads the time from `now`.
-    pub fn from_fn(now: impl Fn() -> DateTime<Utc> + Send + Sync + 'static) -> Self {
+    pub fn from_fn(now: impl Fn() -> Timestamp + Send + Sync + 'static) -> Self {
         Self(Arc::new(now))
     }
 
     /// The current time.
-    pub fn now(&self) -> DateTime<Utc> {
+    pub fn now(&self) -> Timestamp {
         (self.0)()
     }
 
@@ -105,35 +126,45 @@ impl fmt::Debug for Clock {
 }
 
 /// The time zone a schedule's times are in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ScheduleTimeZone {
     /// UTC.
     Utc,
     /// A fixed offset from UTC, with no daylight saving.
-    Fixed(FixedOffset),
+    Fixed(Offset),
     /// An IANA zone, following its daylight-saving rules.
-    #[cfg(feature = "tz")]
-    Named(chrono_tz::Tz),
+    Named(TimeZone),
 }
 
 impl ScheduleTimeZone {
-    fn to_local(self, time: DateTime<Utc>) -> NaiveDateTime {
+    fn to_local(&self, time: Timestamp) -> DateTime {
         match self {
-            Self::Utc => time.naive_utc(),
-            Self::Fixed(offset) => time.with_timezone(&offset).naive_local(),
-            #[cfg(feature = "tz")]
-            Self::Named(tz) => time.with_timezone(&tz).naive_local(),
+            Self::Utc => Offset::UTC.to_datetime(time),
+            Self::Fixed(offset) => offset.to_datetime(time),
+            Self::Named(tz) => tz.to_datetime(time),
         }
     }
 
-    fn to_utc(self, local: NaiveDateTime) -> DateTime<Utc> {
+    /// Converts local time to UTC, taking the first occurrence of an ambiguous time, and for a
+    /// non-existent one the moment the clocks skip to: the first instant after the gap.
+    fn to_utc(&self, local: DateTime) -> Timestamp {
         let utc = match self {
-            Self::Utc => local.and_utc(),
-            Self::Fixed(offset) => resolve(&offset, local),
-            #[cfg(feature = "tz")]
-            Self::Named(tz) => resolve(&tz, local),
-        };
+            Self::Utc => Offset::UTC.to_timestamp(local),
+            Self::Fixed(offset) => offset.to_timestamp(local),
+            Self::Named(tz) => match tz.to_ambiguous_timestamp(local).offset() {
+                AmbiguousOffset::Unambiguous { offset } => offset.to_timestamp(local),
+                AmbiguousOffset::Fold { before, .. } => before.to_timestamp(local),
+                // Read at the later offset, `local` comes before the gap's end (clocks went
+                // forward), so the next transition is the end.
+                AmbiguousOffset::Gap { after, .. } => {
+                    let before_gap_end = after.to_timestamp(local).expect("a schedule date is within range");
+                    let end = tz.following(before_gap_end).next().expect("a gap ends").timestamp();
+                    Ok(end)
+                }
+            },
+        }
+        .expect("a schedule date is within range");
         // Back to local time, it's the time asked for, or just after the gap it falls in.
         debug_assert!(self.to_local(utc) >= local, "{local} resolves to {utc}");
         debug_assert!(!self.exists(local) || self.to_local(utc) == local, "{local} resolves to {utc}");
@@ -141,45 +172,25 @@ impl ScheduleTimeZone {
     }
 
     /// Whether `local` occurs in the zone, at least once: not in a gap where clocks go forward.
-    #[cfg_attr(not(feature = "tz"), expect(unused_variables, reason = "only named zones have gaps"))]
-    fn exists(self, local: NaiveDateTime) -> bool {
+    fn exists(&self, local: DateTime) -> bool {
         match self {
             Self::Utc | Self::Fixed(_) => true,
-            #[cfg(feature = "tz")]
-            Self::Named(tz) => !matches!(tz.from_local_datetime(&local), chrono::LocalResult::None),
+            Self::Named(tz) => !matches!(tz.to_ambiguous_timestamp(local).offset(), AmbiguousOffset::Gap { .. }),
         }
     }
-}
-
-/// Converts local time to UTC, taking the first occurrence of an ambiguous time, and for a
-/// non-existent one the moment the clocks skip to: the first local second after the gap.
-fn resolve<Tz: TimeZone>(tz: &Tz, local: NaiveDateTime) -> DateTime<Utc> {
-    let exists = |local: &NaiveDateTime| tz.from_local_datetime(local).earliest();
-    if let Some(time) = exists(&local) {
-        return time.with_timezone(&Utc);
-    }
-    // No gap is longer than a day (Samoa's was one), so one ends within two: bisect, in whole
-    // seconds after `local`, for its end.
-    let at = |seconds: i64| local + chrono::Duration::seconds(seconds);
-    let (mut skipped, mut after) = (0, 2 * 24 * 3600);
-    while after - skipped > 1 {
-        let middle = skipped + (after - skipped) / 2;
-        if exists(&at(middle)).is_some() {
-            after = middle;
-        } else {
-            skipped = middle;
-        }
-    }
-    exists(&at(after)).expect("a gap ends within two days").with_timezone(&Utc)
 }
 
 impl fmt::Display for ScheduleTimeZone {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Utc => f.write_str("UTC"),
-            Self::Fixed(offset) => write!(f, "{offset}"),
-            #[cfg(feature = "tz")]
-            Self::Named(tz) => f.write_str(tz.name()),
+            // Always with minutes, `+05:00`, as the schedule's text gives it.
+            Self::Fixed(offset) => {
+                let minutes = offset.seconds() / 60;
+                let sign = if minutes < 0 { '-' } else { '+' };
+                write!(f, "{sign}{:02}:{:02}", minutes.abs() / 60, minutes.abs() % 60)
+            }
+            Self::Named(tz) => f.write_str(tz.iana_name().unwrap_or("?")),
         }
     }
 }
@@ -201,18 +212,11 @@ fn parse_time_zone(s: &str) -> Result<ScheduleTimeZone, String> {
         let offset = parse_offset(s).ok_or_else(|| format!("invalid UTC offset '{s}' (expected e.g. +05:30)"))?;
         return Ok(ScheduleTimeZone::Fixed(offset));
     }
-    #[cfg(feature = "tz")]
-    {
-        s.parse::<chrono_tz::Tz>().map(ScheduleTimeZone::Named).map_err(|_| format!("unknown time zone '{s}'"))
-    }
-    #[cfg(not(feature = "tz"))]
-    {
-        Err(format!("named time zones like '{s}' need turbojet's `tz` feature; use UTC or an offset"))
-    }
+    TimeZone::get(s).map(ScheduleTimeZone::Named).map_err(|_| format!("unknown time zone '{s}'"))
 }
 
 /// `+HH:MM`, `-HH:MM` or `+HHMM`.
-fn parse_offset(s: &str) -> Option<FixedOffset> {
+fn parse_offset(s: &str) -> Option<Offset> {
     let sign = if s.starts_with('-') { -1 } else { 1 };
     let digits: String = s[1..].chars().filter(|c| *c != ':').collect();
     if digits.len() != 4 || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -223,21 +227,21 @@ fn parse_offset(s: &str) -> Option<FixedOffset> {
     if hours > 23 || minutes > 59 {
         return None;
     }
-    FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
+    Offset::from_seconds(sign * (hours * 3600 + minutes * 60)).ok()
 }
 
 /// One session period, in UTC. `start <= t < end` is inside it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Period {
     /// When the period begins, inclusive.
-    pub start: DateTime<Utc>,
+    pub start: Timestamp,
     /// When the period ends, exclusive.
-    pub end: DateTime<Utc>,
+    pub end: Timestamp,
 }
 
 impl Period {
     /// Whether `time` is inside the period.
-    pub fn contains(&self, time: DateTime<Utc>) -> bool {
+    pub fn contains(&self, time: Timestamp) -> bool {
         self.start <= time && time < self.end
     }
 }
@@ -251,50 +255,49 @@ impl Period {
 /// early close, with blank lines and `#` comments allowed.
 ///
 /// ```
-/// use chrono::{NaiveDate, NaiveTime};
 /// use turbojet::HolidayCalendar;
+/// use turbojet::jiff::civil::{date, time};
 ///
 /// let from_text: HolidayCalendar = "# New York\n2026-11-26\n2026-11-27 13:00\n2026-12-25\n".parse()?;
-/// let day = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
-/// let from_dates = HolidayCalendar::new([day(11, 26), day(12, 25)])
-///     .with_early_closes([(day(11, 27), NaiveTime::from_hms_opt(13, 0, 0).unwrap())]);
+/// let from_dates = HolidayCalendar::new([date(2026, 11, 26), date(2026, 12, 25)])
+///     .with_early_closes([(date(2026, 11, 27), time(13, 0, 0, 0))]);
 /// assert_eq!(from_text, from_dates);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HolidayCalendar {
-    dates: BTreeSet<NaiveDate>,
+    dates: BTreeSet<Date>,
     /// When the session closes on each of these dates, not otherwise holidays.
-    early_closes: BTreeMap<NaiveDate, NaiveTime>,
+    early_closes: BTreeMap<Date, Time>,
 }
 
 impl HolidayCalendar {
     /// A calendar of holidays on `dates`.
-    pub fn new(dates: impl IntoIterator<Item = NaiveDate>) -> Self {
+    pub fn new(dates: impl IntoIterator<Item = Date>) -> Self {
         Self { dates: dates.into_iter().collect(), early_closes: BTreeMap::new() }
     }
 
     /// Adds early closes: on each date, the session closes at that time. A date that's also a
     /// holiday stays a holiday, closed all day.
     #[must_use]
-    pub fn with_early_closes(mut self, closes: impl IntoIterator<Item = (NaiveDate, NaiveTime)>) -> Self {
+    pub fn with_early_closes(mut self, closes: impl IntoIterator<Item = (Date, Time)>) -> Self {
         self.early_closes.extend(closes);
         self.early_closes.retain(|date, _| !self.dates.contains(date));
         self
     }
 
     /// Whether `date` is a holiday, closed all day.
-    pub fn contains(&self, date: NaiveDate) -> bool {
+    pub fn contains(&self, date: Date) -> bool {
         self.dates.contains(&date)
     }
 
     /// When the session closes on `date`, if it closes early then.
-    pub fn early_close(&self, date: NaiveDate) -> Option<NaiveTime> {
+    pub fn early_close(&self, date: Date) -> Option<Time> {
         self.early_closes.get(&date).copied()
     }
 
     /// The latest holiday or early close. After it, the calendar has no effect.
-    pub fn last(&self) -> Option<NaiveDate> {
+    pub fn last(&self) -> Option<Date> {
         self.dates.last().copied().max(self.early_closes.keys().next_back().copied())
     }
 
@@ -309,8 +312,8 @@ impl HolidayCalendar {
     }
 
     /// Dates from `first` to `last` closed for all or part of the day, in order.
-    fn closed_dates(&self, first: NaiveDate, last: NaiveDate) -> impl Iterator<Item = NaiveDate> + '_ {
-        let mut dates: Vec<NaiveDate> = self
+    fn closed_dates(&self, first: Date, last: Date) -> impl Iterator<Item = Date> + '_ {
+        let mut dates: Vec<Date> = self
             .dates
             .range(first..=last)
             .chain(self.early_closes.range(first..=last).map(|(date, _)| date))
@@ -321,8 +324,8 @@ impl HolidayCalendar {
     }
 }
 
-impl FromIterator<NaiveDate> for HolidayCalendar {
-    fn from_iter<I: IntoIterator<Item = NaiveDate>>(dates: I) -> Self {
+impl FromIterator<Date> for HolidayCalendar {
+    fn from_iter<I: IntoIterator<Item = Date>>(dates: I) -> Self {
         Self::new(dates)
     }
 }
@@ -343,7 +346,7 @@ fn parse_calendar(s: &str) -> Result<HolidayCalendar, String> {
         let line = index + 1;
         let mut words = text.split_whitespace();
         let Some(day) = words.next() else { continue };
-        let date = NaiveDate::parse_from_str(day, "%Y-%m-%d")
+        let date = Date::strptime("%Y-%m-%d", day)
             .map_err(|_| format!("line {line}: invalid date '{day}' (expected YYYY-MM-DD)"))?;
         let close = words.next().map(|time| parse_time(time).map_err(|e| format!("line {line}: {e}"))).transpose()?;
         if let Some(extra) = words.next() {
@@ -367,16 +370,16 @@ fn parse_calendar(s: &str) -> Result<HolidayCalendar, String> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Kind {
     Daily {
-        start: NaiveTime,
-        end: NaiveTime,
+        start: Time,
+        end: Time,
         /// Days a period may start on, indexed from Monday.
         days: [bool; 7],
     },
     Weekly {
         start_day: Weekday,
-        start: NaiveTime,
+        start: Time,
         end_day: Weekday,
-        end: NaiveTime,
+        end: Time,
     },
 }
 
@@ -404,7 +407,7 @@ pub struct SessionSchedule {
 
 impl SessionSchedule {
     /// A period every day from `start` to `end` (the next day if `end <= start`), in UTC.
-    pub fn daily(start: NaiveTime, end: NaiveTime) -> Self {
+    pub fn daily(start: Time, end: Time) -> Self {
         Self {
             kind: Kind::Daily { start, end, days: [true; 7] },
             time_zone: ScheduleTimeZone::Utc,
@@ -413,7 +416,7 @@ impl SessionSchedule {
     }
 
     /// A period each week from `start_day start` to the next `end_day end`, in UTC.
-    pub fn weekly(start_day: Weekday, start: NaiveTime, end_day: Weekday, end: NaiveTime) -> Self {
+    pub fn weekly(start_day: Weekday, start: Time, end_day: Weekday, end: Time) -> Self {
         Self {
             kind: Kind::Weekly { start_day, start, end_day, end },
             time_zone: ScheduleTimeZone::Utc,
@@ -428,7 +431,7 @@ impl SessionSchedule {
         if let Kind::Daily { days: allowed, .. } = &mut self.kind {
             *allowed = [false; 7];
             for day in days {
-                allowed[day.num_days_from_monday() as usize] = true;
+                allowed[day_index(day)] = true;
             }
         }
         self
@@ -458,20 +461,20 @@ impl SessionSchedule {
 
     /// The period containing `time`, if any: none while a holiday or an early close closes a
     /// weekly period.
-    pub fn period_at(&self, time: DateTime<Utc>) -> Option<Period> {
+    pub fn period_at(&self, time: Timestamp) -> Option<Period> {
         let period = self.scheduled_period(time)?;
         (!self.closed_mid_period(time)).then_some(period)
     }
 
     /// The period containing `time`, even on a holiday that closes it for the day.
-    fn scheduled_period(&self, time: DateTime<Utc>) -> Option<Period> {
+    fn scheduled_period(&self, time: Timestamp) -> Option<Period> {
         self.periods_around(time).take_while(|p| p.start <= time).filter(|p| p.contains(time)).last()
     }
 
     /// Whether a weekly period under way is closed at `time`: on a holiday, or after an early
     /// close until midnight. A daily period that runs into a holiday is left alone, and one an
     /// early close ends simply ends then (see [`close_early`](Self::close_early)).
-    fn closed_mid_period(&self, time: DateTime<Utc>) -> bool {
+    fn closed_mid_period(&self, time: Timestamp) -> bool {
         if !matches!(self.kind, Kind::Weekly { .. }) {
             return false;
         }
@@ -480,11 +483,11 @@ impl SessionSchedule {
             || self
                 .holidays
                 .early_close(local.date())
-                .is_some_and(|close| self.time_zone.to_utc(local.date().and_time(close)) <= time)
+                .is_some_and(|close| self.time_zone.to_utc(local.date().to_datetime(close)) <= time)
     }
 
     /// The first early close inside a daily `period`, as its date, local time and instant.
-    fn early_close_in(&self, period: Period) -> Option<(NaiveDate, NaiveTime, DateTime<Utc>)> {
+    fn early_close_in(&self, period: Period) -> Option<(Date, Time, Timestamp)> {
         if !matches!(self.kind, Kind::Daily { .. }) {
             return None;
         }
@@ -492,7 +495,7 @@ impl SessionSchedule {
         self.holidays
             .early_closes
             .range(first..=last)
-            .map(|(date, close)| (*date, *close, self.time_zone.to_utc(date.and_time(*close))))
+            .map(|(date, close)| (*date, *close, self.time_zone.to_utc(date.to_datetime(*close))))
             .find(|(_, _, at)| period.contains(*at))
     }
 
@@ -505,14 +508,14 @@ impl SessionSchedule {
     }
 
     /// Whether `time` falls inside a period.
-    pub fn is_active(&self, time: DateTime<Utc>) -> bool {
+    pub fn is_active(&self, time: Timestamp) -> bool {
         self.period_at(time).is_some()
     }
 
     /// The first time after `time` that a session can start: a period beginning, if one begins
     /// within about 400 days (weekly schedules: weeks), or a weekly period reopening after a
     /// holiday, whichever comes first.
-    pub fn next_start(&self, time: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    pub fn next_start(&self, time: Timestamp) -> Option<Timestamp> {
         // A weekly period that an early close shuts before it starts opens at the reopening.
         let start =
             self.periods_around(time).map(|p| p.start).find(|start| *start > time && !self.closed_mid_period(*start));
@@ -524,16 +527,16 @@ impl SessionSchedule {
 
     /// The first midnight after `time`, up to `until`'s date, that ends a holiday or an early close
     /// closing a weekly period under way.
-    fn next_reopening(&self, time: DateTime<Utc>, until: Option<DateTime<Utc>>) -> Option<DateTime<Utc>> {
+    fn next_reopening(&self, time: Timestamp, until: Option<Timestamp>) -> Option<Timestamp> {
         if !matches!(self.kind, Kind::Weekly { .. }) {
             return None;
         }
         let today = self.time_zone.to_local(time).date();
-        let horizon = today + chrono::Duration::weeks(i64::try_from(MAX_CANDIDATES).expect("a small constant"));
+        let horizon = today + i64::try_from(MAX_CANDIDATES).expect("a small constant").weeks();
         let last = until.map_or(horizon, |until| self.time_zone.to_local(until).date());
         self.holidays
             .closed_dates(today, last)
-            .map(|closed| self.time_zone.to_utc((closed + chrono::Duration::days(1)).and_time(NaiveTime::MIN)))
+            .map(|closed| self.time_zone.to_utc((closed + 1.day()).to_datetime(Time::midnight())))
             .filter(|reopening| *reopening > time && !self.closed_mid_period(*reopening))
             // Not a holiday before the week's period starts (a Saturday's), or in a week skipped.
             .find(|reopening| self.scheduled_period(*reopening).is_some())
@@ -541,13 +544,16 @@ impl SessionSchedule {
 
     /// Why the schedule doesn't allow a session at `time`, naming the holiday if one is the reason;
     /// `None` inside a period.
-    pub(crate) fn closed_reason(&self, time: DateTime<Utc>) -> Option<String> {
+    pub(crate) fn closed_reason(&self, time: Timestamp) -> Option<String> {
         if self.is_active(time) {
             return None;
         }
         let holiday = self.closure_at(time).map(|closure| format!("; {closure}")).unwrap_or_default();
         Some(match self.next_start(time) {
-            Some(next) => format!("outside session time (schedule '{self}'{holiday}); next session starts {next}"),
+            Some(next) => {
+                let next = next.strftime("%Y-%m-%d %H:%M:%S UTC");
+                format!("outside session time (schedule '{self}'{holiday}); next session starts {next}")
+            }
             None => format!("outside session time (schedule '{self}'{holiday})"),
         })
     }
@@ -556,18 +562,18 @@ impl SessionSchedule {
     /// a holiday") or an early close ("2026-11-27 closes early at 13:00:00"). A holiday's date
     /// comes from the calendar, so it is the period's start date even where a start in a DST gap
     /// resolves to the next local date.
-    fn closure_at(&self, time: DateTime<Utc>) -> Option<String> {
+    fn closure_at(&self, time: Timestamp) -> Option<String> {
         let local = self.time_zone.to_local(time);
         let today = local.date();
-        let holiday = |date: NaiveDate| format!("{date} is a holiday");
-        let early = |date: NaiveDate, close: NaiveTime| format!("{date} closes early at {close}");
+        let holiday = |date: Date| format!("{date} is a holiday");
+        let early = |date: Date, close: Time| format!("{date} closes early at {close}");
         if self.closed_mid_period(time) && self.scheduled_period(time).is_some() {
             return Some(match self.holidays.early_close(today) {
                 Some(close) => early(today, close),
                 None => holiday(today),
             });
         }
-        let first = today - chrono::Duration::days(self.look_back());
+        let first = today - self.look_back().days();
         if let Some(date) = self
             .holidays
             .dates
@@ -581,7 +587,7 @@ impl SessionSchedule {
         }
         // A daily period an early close ended: one starting in the look-back that would contain
         // `time`, but for the close.
-        std::iter::successors(Some(first), |date| Some(*date + chrono::Duration::days(1)))
+        std::iter::successors(Some(first), |date| Some(*date + 1.day()))
             .take_while(|date| *date <= today)
             .filter(|date| self.starts_on(*date))
             .map(|date| self.period_starting(date))
@@ -592,9 +598,9 @@ impl SessionSchedule {
 
     /// Periods in start order, from early enough that the first can still contain `time` (a daily
     /// period lasts at most a day, a weekly one at most a week).
-    fn periods_around(&self, time: DateTime<Utc>) -> impl Iterator<Item = Period> + '_ {
+    fn periods_around(&self, time: Timestamp) -> impl Iterator<Item = Period> + '_ {
         let today = self.time_zone.to_local(time).date();
-        self.periods_from(today - chrono::Duration::days(self.look_back()))
+        self.periods_from(today - self.look_back().days())
     }
 
     /// How many days before `time`'s local date a period containing it can start: a period's own
@@ -608,13 +614,10 @@ impl SessionSchedule {
 
     /// Periods in start order, starting on `first` (a local date) or later, at most
     /// `MAX_CANDIDATES` days (weekly: weeks) of them.
-    fn periods_from(&self, first: NaiveDate) -> impl Iterator<Item = Period> + '_ {
+    fn periods_from(&self, first: Date) -> impl Iterator<Item = Period> + '_ {
         let (first, step) = match &self.kind {
-            Kind::Daily { .. } => (first, chrono::Duration::days(1)),
-            Kind::Weekly { start_day, .. } => {
-                let ahead = (7 + start_day.num_days_from_monday() - first.weekday().num_days_from_monday()) % 7;
-                (first + chrono::Duration::days(i64::from(ahead)), chrono::Duration::weeks(1))
-            }
+            Kind::Daily { .. } => (first, 1.day()),
+            Kind::Weekly { start_day, .. } => (on_or_after(first, *start_day), 1.week()),
         };
         std::iter::successors(Some(first), move |date| Some(*date + step))
             .take(MAX_CANDIDATES)
@@ -625,7 +628,7 @@ impl SessionSchedule {
             .filter(|period| period.start < period.end)
             // `period_at` stops at the first period starting after its time, and `next_start`
             // takes the first one: both rely on this order.
-            .scan(None, |previous: &mut Option<DateTime<Utc>>, period| {
+            .scan(None, |previous: &mut Option<Timestamp>, period| {
                 debug_assert!(previous.is_none_or(|start| start < period.start), "periods come in start order");
                 *previous = Some(period.start);
                 Some(period)
@@ -634,41 +637,43 @@ impl SessionSchedule {
 
     /// Whether a period starts on `date`, a local date: never on a holiday, otherwise as
     /// [`regular_start`](Self::regular_start) says.
-    fn starts_on(&self, date: NaiveDate) -> bool {
+    fn starts_on(&self, date: Date) -> bool {
         !self.holidays.contains(date) && self.regular_start(date)
     }
 
     /// Whether a period would start on `date`, a local date, ignoring holidays: for a daily
     /// schedule one of its days, for a weekly one its start day.
-    fn regular_start(&self, date: NaiveDate) -> bool {
+    fn regular_start(&self, date: Date) -> bool {
         match &self.kind {
-            Kind::Daily { days, .. } => days[date.weekday().num_days_from_monday() as usize],
+            Kind::Daily { days, .. } => days[day_index(date.weekday())],
             Kind::Weekly { start_day, .. } => date.weekday() == *start_day,
         }
     }
 
     /// The period starting on `date`, a local date the schedule starts a period on.
-    fn period_starting(&self, date: NaiveDate) -> Period {
+    fn period_starting(&self, date: Date) -> Period {
         let period = self.period_on(date);
         // `periods_around` looks back this far for a period containing a time. A period can end
         // before it starts, where its start falls in a DST gap: it's then never in session.
-        debug_assert!(period.end - period.start < chrono::Duration::days(self.look_back()), "{period:?} is too long");
+        debug_assert!(
+            period.end.duration_since(period.start) < SignedDuration::from_hours(24 * self.look_back()),
+            "{period:?} is too long"
+        );
         period
     }
 
-    fn period_on(&self, date: NaiveDate) -> Period {
-        let local = |date: NaiveDate, at: NaiveTime| self.time_zone.to_utc(date.and_time(at));
+    fn period_on(&self, date: Date) -> Period {
+        let local = |date: Date, at: Time| self.time_zone.to_utc(date.to_datetime(at));
         match &self.kind {
             Kind::Daily { start, end, .. } => {
-                let end_date = if end > start { date } else { date + chrono::Duration::days(1) };
+                let end_date = if end > start { date } else { date + 1.day() };
                 Period { start: local(date, *start), end: local(end_date, *end) }
             }
             Kind::Weekly { start_day, start, end_day, end } => {
                 debug_assert_eq!(date.weekday(), *start_day);
-                let span = (7 + end_day.num_days_from_monday() - start_day.num_days_from_monday()) % 7;
-                let mut end_date = date + chrono::Duration::days(i64::from(span));
-                if end_date.and_time(*end) <= date.and_time(*start) {
-                    end_date += chrono::Duration::weeks(1);
+                let mut end_date = on_or_after(date, *end_day);
+                if end_date.to_datetime(*end) <= date.to_datetime(*start) {
+                    end_date += 1.week();
                 }
                 Period { start: local(date, *start), end: local(end_date, *end) }
             }
@@ -678,14 +683,14 @@ impl SessionSchedule {
 
 impl fmt::Display for SessionSchedule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let time = |t: &NaiveTime| t.format("%H:%M:%S").to_string();
-        let day = |d: &Weekday| d.to_string().to_lowercase();
+        let time = |t: &Time| t.strftime("%H:%M:%S").to_string();
+        let day = |d: &Weekday| WEEK[day_index(*d)].1;
         match &self.kind {
             Kind::Daily { start, end, days } => {
                 write!(f, "daily {}-{}", time(start), time(end))?;
                 if days != &[true; 7] {
-                    let names: Vec<String> =
-                        WEEK.iter().filter(|d| days[d.num_days_from_monday() as usize]).map(day).collect();
+                    let names: Vec<&str> =
+                        WEEK.iter().filter(|(d, _)| days[day_index(*d)]).map(|(_, name)| *name).collect();
                     write!(f, " {}", names.join(","))?;
                 }
             }
@@ -746,14 +751,19 @@ fn parse_schedule(s: &str) -> Result<SessionSchedule, String> {
     }
 }
 
-fn parse_time(s: &str) -> Result<NaiveTime, String> {
-    NaiveTime::parse_from_str(s, "%H:%M:%S")
-        .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M"))
+fn parse_time(s: &str) -> Result<Time, String> {
+    Time::strptime("%H:%M:%S", s)
+        .or_else(|_| Time::strptime("%H:%M", s))
         .map_err(|_| format!("invalid time '{s}' (expected HH:MM or HH:MM:SS)"))
 }
 
 fn parse_day(s: &str) -> Result<Weekday, String> {
-    s.parse::<Weekday>().map_err(|_| format!("invalid day '{s}'"))
+    // As three letters or in full, in any case: mon, Monday, MON.
+    let lower = s.to_ascii_lowercase();
+    WEEK.iter()
+        .find(|(day, name)| lower == *name || lower == format!("{day:?}").to_ascii_lowercase())
+        .map(|(day, _)| *day)
+        .ok_or_else(|| format!("invalid day '{s}'"))
 }
 
 /// `mon-fri`, `mon,wed,fri`, `fri-mon` (wrapping), or a mix.
@@ -768,7 +778,7 @@ fn parse_days(s: &str) -> Result<Vec<Weekday>, String> {
                     if day == to {
                         break;
                     }
-                    day = day.succ();
+                    day = day.next();
                 }
             }
             None => days.push(parse_day(item)?),
@@ -791,7 +801,7 @@ mod tests {
             let readings = readings.clone();
             move || {
                 readings.fetch_add(1, Ordering::Relaxed);
-                Utc::now()
+                Timestamp::now()
             }
         });
         assert_eq!(format!("{clock:?}"), "Clock(custom)");
@@ -799,8 +809,8 @@ mod tests {
         assert_eq!(readings.load(Ordering::Relaxed), 0);
     }
 
-    fn at(s: &str) -> DateTime<Utc> {
-        NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M").unwrap().and_utc()
+    fn at(s: &str) -> Timestamp {
+        Offset::UTC.to_timestamp(DateTime::strptime("%Y-%m-%d %H:%M", s).unwrap()).unwrap()
     }
 
     fn schedule(s: &str) -> SessionSchedule {
@@ -873,7 +883,6 @@ mod tests {
         assert_eq!(s.period_at(at("2026-09-28 04:00")).unwrap().start, at("2026-09-28 03:45"));
     }
 
-    #[cfg(feature = "tz")]
     #[test]
     fn named_zones_follow_daylight_saving() {
         let s = schedule("daily 09:30-16:00 America/New_York");
@@ -893,7 +902,6 @@ mod tests {
 
     /// Samoa skipped 2011-12-30, going from UTC-10 to UTC+14 at midnight: that day's period
     /// doesn't happen, and the days either side keep their own offsets.
-    #[cfg(feature = "tz")]
     #[test]
     fn a_day_skipped_by_a_clock_change_has_no_period() {
         let s = schedule("daily 08:00-17:00 Pacific/Apia");
@@ -940,20 +948,15 @@ mod tests {
             let err = text.parse::<SessionSchedule>().unwrap_err().to_string();
             assert!(err.contains(expected), "{text}: {err}");
         }
-        #[cfg(not(feature = "tz"))]
-        assert!(schedule_err("daily 08:00-17:00 Europe/London").contains("`tz` feature"));
+        let err = "daily 08:00-17:00 Europe/Nowhere".parse::<SessionSchedule>().unwrap_err().to_string();
+        assert!(err.contains("unknown time zone 'Europe/Nowhere'"), "{err}");
     }
 
-    #[cfg(not(feature = "tz"))]
-    fn schedule_err(s: &str) -> String {
-        s.parse::<SessionSchedule>().unwrap_err()
+    fn date(s: &str) -> Date {
+        Date::strptime("%Y-%m-%d", s).unwrap()
     }
 
-    fn date(s: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
-    }
-
-    fn time(s: &str) -> NaiveTime {
+    fn time(s: &str) -> Time {
         parse_time(s).unwrap()
     }
 
@@ -1043,8 +1046,8 @@ mod tests {
                 .unwrap();
         assert!(calendar.contains(date("2026-11-26")));
         assert!(!calendar.contains(date("2026-11-27")), "an early close isn't a whole-day holiday");
-        assert_eq!(calendar.early_close(date("2026-11-27")), NaiveTime::from_hms_opt(13, 0, 0));
-        assert_eq!(calendar.early_close(date("2026-12-24")), NaiveTime::from_hms_opt(13, 0, 30));
+        assert_eq!(calendar.early_close(date("2026-11-27")), Some(jiff::civil::time(13, 0, 0, 0)));
+        assert_eq!(calendar.early_close(date("2026-12-24")), Some(jiff::civil::time(13, 0, 30, 0)));
         assert_eq!(calendar.early_close(date("2026-11-26")), None);
         assert_eq!(calendar.len(), 3, "a repeated early close collapses");
         let built = HolidayCalendar::new([date("2026-11-26")])
@@ -1136,7 +1139,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "tz")]
     #[test]
     fn early_closes_are_times_in_the_schedules_time_zone() {
         // 13:00 in New York on 2026-11-27 is 18:00 UTC.
@@ -1168,7 +1170,6 @@ mod tests {
         assert!(reason.contains("; 2026-12-23 is a holiday); next session starts 2026-12-24 00:00:00 UTC"), "{reason}");
     }
 
-    #[cfg(feature = "tz")]
     #[test]
     fn closed_reasons_name_the_start_date_of_a_period_in_a_gap_over_midnight() {
         // Nuuk springs forward from 23:00 on Saturday 2026-03-28 to 00:00 on the Sunday, so the
@@ -1181,13 +1182,12 @@ mod tests {
     #[test]
     fn a_calendar_closing_every_day_has_no_next_start() {
         let first = date("2026-12-01");
-        let every_day = (0..800).map(|d| first + chrono::Duration::days(d)).collect();
+        let every_day = (0..800).map(|d| first + d.days()).collect();
         let s = schedule("daily 08:00-17:00").with_holidays(every_day);
         assert_eq!(s.period_at(at("2026-12-02 10:00")), None);
         assert_eq!(s.next_start(at("2026-12-02 10:00")), None);
     }
 
-    #[cfg(feature = "tz")]
     #[test]
     fn holidays_are_dates_in_the_schedules_time_zone() {
         // 04:00 UTC on the 25th is 23:00 on the 24th in New York, inside the 24th's period;

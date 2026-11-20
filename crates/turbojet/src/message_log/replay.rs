@@ -5,7 +5,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
+use jiff::{SignedDuration, Timestamp};
 
 use super::{Direction, LogRecord};
 use crate::codec::{Decoded, decode};
@@ -107,7 +107,7 @@ impl Replayer {
         Self { id: id.clone(), name, config, app, storage, registry, time, open, replayed }
     }
 
-    fn inbound(&mut self, at: DateTime<Utc>, name: Option<&str>, frame: &[u8]) -> io::Result<()> {
+    fn inbound(&mut self, at: Timestamp, name: Option<&str>, frame: &[u8]) -> io::Result<()> {
         let Decoded::Message(msg, _) = decode(frame) else {
             self.replayed.skipped += 1;
             return Ok(());
@@ -227,15 +227,15 @@ fn prime(storage: &dyn SessionStorage, id: &SessionId, logon: &Message) -> io::R
 struct VirtualTime {
     start: Instant,
     /// The recorded time at `start`: the first record's, once there is one.
-    origin: Option<DateTime<Utc>>,
+    origin: Option<Timestamp>,
     now: Instant,
-    wall: Arc<Mutex<DateTime<Utc>>>,
+    wall: Arc<Mutex<Timestamp>>,
 }
 
 impl VirtualTime {
     fn new() -> Self {
         let start = Instant::now();
-        Self { start, origin: None, now: start, wall: Arc::new(Mutex::new(DateTime::UNIX_EPOCH)) }
+        Self { start, origin: None, now: start, wall: Arc::new(Mutex::new(Timestamp::UNIX_EPOCH)) }
     }
 
     fn clock(&self) -> Clock {
@@ -245,16 +245,16 @@ impl VirtualTime {
 
     /// The `Instant` of a record at `at`. A clock stepped back while logging doesn't take time
     /// backwards: the record is replayed at the time of the one before.
-    fn instant_at(&mut self, at: DateTime<Utc>) -> Instant {
+    fn instant_at(&mut self, at: Timestamp) -> Instant {
         let origin = *self.origin.get_or_insert(at);
-        (self.start + (at - origin).to_std().unwrap_or_default()).max(self.now)
+        (self.start + Duration::try_from(at.duration_since(origin)).unwrap_or_default()).max(self.now)
     }
 
     fn set(&mut self, now: Instant) {
         debug_assert!(now >= self.now, "replayed time moves forward");
         let origin = self.origin.expect("set after a record's instant_at, which fixes the origin");
         self.now = now;
-        let since_start = chrono::TimeDelta::from_std(now - self.start).expect("a log spans less than chrono's range");
+        let since_start = SignedDuration::try_from(now - self.start).expect("a log spans less than jiff's range");
         *self.wall.lock().expect("the replay's clock lock poisoned") = origin + since_start;
     }
 }

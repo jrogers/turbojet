@@ -122,11 +122,9 @@ fn the_converted_file_loads() {
     std::fs::write(&path, convert(ACCEPTOR).unwrap()).unwrap();
     let sessions = SessionsFile::load(&path).unwrap();
     assert_eq!(sessions.listen().as_deref(), Some("0.0.0.0:9880"));
-    // Named time zones need the tz feature; the initiator's schedule has one.
-    if cfg!(feature = "tz") {
-        std::fs::write(&path, convert(INITIATOR).unwrap()).unwrap();
-        assert_eq!(SessionsFile::load(&path).unwrap().initiator_names(), ["EXEC"]);
-    }
+    // The initiator's schedule has a named time zone.
+    std::fs::write(&path, convert(INITIATOR).unwrap()).unwrap();
+    assert_eq!(SessionsFile::load(&path).unwrap().initiator_names(), ["EXEC"]);
 }
 
 /// A FIXT session's application dictionaries, by version.

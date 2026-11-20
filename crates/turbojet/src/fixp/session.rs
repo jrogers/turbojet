@@ -329,7 +329,7 @@ impl FixpSession {
 
     /// Now on the wall clock, in nanoseconds since the Unix epoch, as FIXP timestamps are.
     fn timestamp(&self) -> u64 {
-        let nanos = self.config.clock.now().timestamp_nanos_opt().unwrap_or_default();
+        let nanos = self.config.clock.now().as_nanosecond();
         u64::try_from(nanos).unwrap_or_default()
     }
 
@@ -1783,8 +1783,9 @@ impl Driven for FixpSession {
 /// the client's name and the time, so the client derives the same ID again after a restart, and
 /// a new one for each new session. FNV-1a, which doesn't change between Rust versions as the
 /// standard library's hashers may.
-fn session_uuid(name: &str, created: chrono::DateTime<chrono::Utc>) -> Uuid {
-    let nanos = created.timestamp_nanos_opt().unwrap_or_default().to_le_bytes();
+fn session_uuid(name: &str, created: jiff::Timestamp) -> Uuid {
+    // As eight bytes, as they were under chrono, so an upgrade derives the same ID.
+    let nanos = i64::try_from(created.as_nanosecond()).unwrap_or_default().to_le_bytes();
     let mut uuid = [0; 16];
     for (half, seed) in uuid.chunks_mut(8).zip([0xcbf2_9ce4_8422_2325_u64, 0x6c62_272e_07bb_0142]) {
         let mut hash = seed;

@@ -10,7 +10,9 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::{fmt, mem};
 
-use chrono::{DateTime, NaiveDate, TimeDelta, Utc};
+use jiff::civil::{Date, Time};
+use jiff::tz::Offset;
+use jiff::{SignedDuration, Timestamp};
 use tracing::error;
 
 use crate::fields::{Precision, ToFix, UtcTimestamp};
@@ -167,7 +169,7 @@ impl FileMessageLog {
         }
         let retention = options
             .retention
-            .map(TimeDelta::from_std)
+            .map(SignedDuration::try_from)
             .transpose()
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "retention is too long"))?;
         let dir = dir.into();
@@ -375,7 +377,7 @@ fn mask_records(batch: &mut [u8]) {
 struct Files {
     dir: PathBuf,
     max_file_bytes: u64,
-    retention: Option<TimeDelta>,
+    retention: Option<SignedDuration>,
     current: Option<Current>,
     /// Where finished files go to be compressed and handed to the hook, if either is asked for.
     finished: Option<mpsc::Sender<PathBuf>>,
@@ -384,7 +386,7 @@ struct Files {
 struct Current {
     path: PathBuf,
     file: File,
-    day: NaiveDate,
+    day: Date,
     number: u32,
     bytes: u64,
 }
@@ -392,8 +394,11 @@ struct Current {
 impl Files {
     /// Writes `bytes` to the current file, starting a new one first if the day has changed or the
     /// file is full. After a failure, the next write starts a new file.
-    fn write(&mut self, now: DateTime<Utc>, bytes: &[u8]) -> io::Result<()> {
-        let full = self.current.as_ref().is_none_or(|c| c.day != now.date_naive() || c.bytes >= self.max_file_bytes);
+    fn write(&mut self, now: Timestamp, bytes: &[u8]) -> io::Result<()> {
+        let full = self
+            .current
+            .as_ref()
+            .is_none_or(|c| c.day != Offset::UTC.to_datetime(now).date() || c.bytes >= self.max_file_bytes);
         if full {
             self.rotate(now)?;
         }
@@ -408,20 +413,24 @@ impl Files {
     }
 
     /// Deletes files past retention and opens the next file for `now`'s day.
-    fn rotate(&mut self, now: DateTime<Utc>) -> io::Result<()> {
-        let day = now.date_naive();
+    fn rotate(&mut self, now: Timestamp) -> io::Result<()> {
+        let day = Offset::UTC.to_datetime(now).date();
         let mut number_next = match &self.current {
             Some(current) if current.day == day => current.number + 1,
             _ => 0,
         };
-        let cutoff = self.retention.map(|retention| now - retention);
+        // None, keeping everything, for a retention reaching back past jiff's range.
+        let cutoff = self.retention.and_then(|retention| now.checked_sub(retention).ok());
         for entry in fs::read_dir(&self.dir)? {
             let path = entry?.path();
             let Some((file_day, number)) = parse_name(&path) else { continue };
             if file_day == day {
                 number_next = number_next.max(number + 1);
             }
-            let ended = file_day.succ_opt().map(|next| next.and_time(chrono::NaiveTime::MIN).and_utc());
+            let ended = file_day
+                .tomorrow()
+                .ok()
+                .and_then(|next| Offset::UTC.to_timestamp(next.to_datetime(Time::midnight())).ok());
             if let (Some(cutoff), Some(ended)) = (cutoff, ended)
                 && ended <= cutoff
                 && let Err(e) = fs::remove_file(&path)
@@ -429,7 +438,7 @@ impl Files {
                 error!(error = %e, path = %path.display(), "the message log couldn't delete a file past retention");
             }
         }
-        let path = self.dir.join(format!("messages-{}-{number_next:06}.log", day.format("%Y%m%d")));
+        let path = self.dir.join(format!("messages-{}-{number_next:06}.log", day.strftime("%Y%m%d")));
         let file = OpenOptions::new().append(true).create_new(true).open(&path)?;
         self.finish_current();
         self.current = Some(Current { path, file, day, number: number_next, bytes: 0 });
@@ -511,14 +520,14 @@ fn gzip(_: &Path) -> io::Result<PathBuf> {
 
 /// The day and number in a log file's name, `messages-YYYYMMDD-NNNNNN.log` or, compressed,
 /// `.log.gz`, or `None` for any other file, which the log leaves alone.
-pub(super) fn parse_name(path: &Path) -> Option<(NaiveDate, u32)> {
+pub(super) fn parse_name(path: &Path) -> Option<(Date, u32)> {
     let name = path.file_name()?.to_str()?;
     let name = name.strip_suffix(".gz").unwrap_or(name);
     let (day, number) = name.strip_prefix("messages-")?.strip_suffix(".log")?.split_once('-')?;
     if day.len() != 8 || number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    Some((NaiveDate::parse_from_str(day, "%Y%m%d").ok()?, number.parse().ok()?))
+    Some((Date::strptime("%Y%m%d", day).ok()?, number.parse().ok()?))
 }
 
 /// Whether a log file's name says it's compressed.
@@ -530,15 +539,13 @@ pub(super) fn is_compressed(path: &Path) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use chrono::TimeZone;
-
     use super::*;
 
-    fn at(day: u32, hour: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, day, hour, 0, 0).unwrap()
+    fn at(day: i8, hour: i8) -> Timestamp {
+        Offset::UTC.to_timestamp(jiff::civil::date(2026, 10, day).at(hour, 0, 0, 0)).unwrap()
     }
 
-    fn fixed_clock(now: DateTime<Utc>) -> Clock {
+    fn fixed_clock(now: Timestamp) -> Clock {
         Clock::from_fn(move || now)
     }
 
@@ -554,7 +561,7 @@ mod tests {
     }
 
     fn files(dir: &Path, retention: Option<Duration>) -> Files {
-        let retention = retention.map(|r| TimeDelta::from_std(r).unwrap());
+        let retention = retention.map(|r| SignedDuration::try_from(r).unwrap());
         Files { dir: dir.to_owned(), max_file_bytes: 10, retention, current: None, finished: None }
     }
 

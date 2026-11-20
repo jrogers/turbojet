@@ -128,7 +128,7 @@ async fn operators_see_connected_sessions_with_their_connections() {
     .unwrap();
     let client_handle = initiator.handle();
     assert!(client_handle.status().is_none(), "not connected yet");
-    let before = chrono::Utc::now();
+    let before = jiff::Timestamp::now();
     let connection = tokio::spawn(async move { initiator.connect_once().await });
     assert!(matches!(next(&mut client).await, Event::LoggedOn));
     assert!(matches!(next(&mut server).await, Event::LoggedOn));
@@ -137,7 +137,7 @@ async fn operators_see_connected_sessions_with_their_connections() {
     assert_eq!(statuses.len(), 1);
     let status = &statuses[0];
     assert_eq!(status.id.to_string(), "FIX.4.2:SERVER->CLIENT");
-    assert!(status.since >= before && status.since <= chrono::Utc::now(), "{:?}", status.since);
+    assert!(status.since >= before && status.since <= jiff::Timestamp::now(), "{:?}", status.since);
     let client_addr = status.connection.addr.expect("the client's address");
     assert!(client_addr.ip().is_loopback());
     assert_ne!(client_addr, server_addr);

@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, TimeDelta, Utc};
+use jiff::{SignedDuration, Timestamp};
 use turbojet::codec::{Decoded, decode};
 use turbojet::message::{is_header_or_trailer, tags};
 use turbojet::registry::CommandReceiver;
@@ -144,7 +144,7 @@ impl Step {
 
 /// Replaces `<TIME>`, `<TIME+n>` and `<TIME-n>` (seconds) with UTC timestamps, as QuickFIX's
 /// runner does.
-fn timeify(text: &str, now: DateTime<Utc>) -> String {
+fn timeify(text: &str, now: Timestamp) -> String {
     let mut out = String::new();
     let mut rest = text;
     while let Some(start) = rest.find("<TIME") {
@@ -154,7 +154,7 @@ fn timeify(text: &str, now: DateTime<Utc>) -> String {
             "" => 0,
             n => n.trim_start_matches('+').parse().expect("bad <TIME> offset"),
         };
-        out.push_str(&(now + TimeDelta::seconds(offset)).format("%Y%m%d-%H:%M:%S").to_string());
+        out.push_str(&(now + SignedDuration::from_secs(offset)).strftime("%Y%m%d-%H:%M:%S").to_string());
         rest = &rest[end + 1..];
     }
     out.push_str(rest);
@@ -329,7 +329,7 @@ impl Application for Reflector {
 /// Virtual time, shared with the sessions' clock.
 struct VirtualTime {
     start: Instant,
-    start_utc: DateTime<Utc>,
+    start_utc: Timestamp,
     elapsed: Arc<Mutex<Duration>>,
 }
 
@@ -338,8 +338,8 @@ impl VirtualTime {
         self.start + *self.elapsed.lock().unwrap()
     }
 
-    fn utc(&self) -> DateTime<Utc> {
-        self.start_utc + TimeDelta::from_std(*self.elapsed.lock().unwrap()).unwrap()
+    fn utc(&self) -> Timestamp {
+        self.start_utc + SignedDuration::try_from(*self.elapsed.lock().unwrap()).unwrap()
     }
 
     fn set(&self, now: Instant) {
@@ -348,7 +348,7 @@ impl VirtualTime {
 
     fn clock(&self) -> Clock {
         let (start, elapsed) = (self.start_utc, self.elapsed.clone());
-        Clock::from_fn(move || start + TimeDelta::from_std(*elapsed.lock().unwrap()).unwrap())
+        Clock::from_fn(move || start + SignedDuration::try_from(*elapsed.lock().unwrap()).unwrap())
     }
 }
 
@@ -374,7 +374,7 @@ struct Runner {
 
 impl Runner {
     fn new(version: Version) -> Self {
-        let time = VirtualTime { start: Instant::now(), start_utc: Utc::now(), elapsed: Arc::default() };
+        let time = VirtualTime { start: Instant::now(), start_utc: Timestamp::now(), elapsed: Arc::default() };
         let mut config = version.config();
         config.clock = time.clock();
         Self {
@@ -642,7 +642,7 @@ mod tests {
 
     #[test]
     fn timeify_substitutes_offsets() {
-        let now = DateTime::parse_from_rfc3339("2026-09-29T12:00:00Z").unwrap().with_timezone(&Utc);
+        let now = "2026-09-29T12:00:00Z".parse::<Timestamp>().unwrap();
         assert_eq!(
             timeify("52=<TIME>|122=<TIME-121>|60=<TIME+10>", now),
             "52=20260929-12:00:00|122=20260929-11:57:59|60=20260929-12:00:10"

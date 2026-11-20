@@ -87,11 +87,11 @@ fn snapshot_compiles_and_round_trips() {
 #[test]
 fn dates_times_and_lists_are_typed() {
     use mini::*;
-    use turbojet::fields::{FromFix, MonthYear, NaiveDate, TzTimeOnly, TzTimestamp, UtcTimeOnly};
+    use turbojet::fields::{Date, FromFix, MonthYear, TzTimeOnly, TzTimestamp, UtcTimeOnly};
     use turbojet::message::FixMessage;
 
     let mut schedule = Schedule::new(vec![ExecInst::NotHeld.into(), ExecInst::AllOrNone.into()]);
-    schedule.trade_date = Some(NaiveDate::from_fix("20260930").unwrap());
+    schedule.trade_date = Some(Date::from_fix("20260930").unwrap());
     schedule.maturity_month_year = Some(MonthYear::from_fix("202612w3").unwrap());
     schedule.md_entry_time = Some(UtcTimeOnly::from_fix("09:30:00.123456").unwrap());
     schedule.tz_transact_time = Some(TzTimestamp::from_fix("20260930-09:30:00-05").unwrap());

@@ -4,7 +4,9 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use jiff::Timestamp;
+use jiff::civil::DateTime;
+use jiff::tz::Offset;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use turbojet::{
@@ -13,7 +15,7 @@ use turbojet::{
 };
 
 #[derive(Clone)]
-struct ManualClock(Arc<Mutex<DateTime<Utc>>>);
+struct ManualClock(Arc<Mutex<Timestamp>>);
 
 impl ManualClock {
     fn at(time: &str) -> Self {
@@ -28,8 +30,8 @@ impl ManualClock {
     }
 }
 
-fn utc(time: &str) -> DateTime<Utc> {
-    NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S").unwrap().and_utc()
+fn utc(time: &str) -> Timestamp {
+    Offset::UTC.to_timestamp(DateTime::strptime("%Y-%m-%d %H:%M:%S", time).unwrap()).unwrap()
 }
 
 #[derive(Debug, PartialEq)]

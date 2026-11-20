@@ -25,7 +25,8 @@ turbojet-dictionary = { workspace = true, optional = true }
 [features]
 # An [acceptor.tls] section: TLS with optional mutual authentication.
 tls = ["turbojet/tls"]
-# Named IANA time zones in schedules.
+# Does nothing: named time zones in schedules are always available. Kept so manifests that turn
+# it on build.
 tz = ["turbojet/tz"]
 # A dictionary key: inbound messages checked against a data dictionary.
 validation = ["turbojet/validation", "dep:turbojet-dictionary"]

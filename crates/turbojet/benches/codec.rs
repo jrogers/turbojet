@@ -8,7 +8,6 @@ mod b3;
 
 use std::hint::black_box;
 
-use chrono::Utc;
 use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use turbojet::Message;
 use turbojet::codec::{Decoded, DecodedInto, decode, decode_into, encode, encode_into};
@@ -296,12 +295,12 @@ fn timestamps(c: &mut Criterion) {
         b.iter(|| {
             seconds += 1;
             out.clear();
-            (instant + chrono::Duration::seconds(seconds)).write_fix(&mut out);
+            (instant + turbojet::jiff::SignedDuration::from_secs(seconds)).write_fix(&mut out);
         })
     });
     group
         .bench_function("UtcTimestamp::now().to_fix() (now, as a String)", |b| b.iter(|| UtcTimestamp::now().to_fix()));
-    group.bench_function("Utc::now() alone", |b| b.iter(Utc::now));
+    group.bench_function("Timestamp::now() alone", |b| b.iter(turbojet::jiff::Timestamp::now));
     group.finish();
 }
 

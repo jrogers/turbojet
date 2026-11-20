@@ -96,9 +96,9 @@ fn imports(plan: &Plan, structs: &[&Struct], groups_module: bool) -> String {
     const FIELD_TYPES: [&str; 10] = [
         "Code",
         "CompactString",
+        "Date",
         "Decimal",
         "MonthYear",
-        "NaiveDate",
         "Secret",
         "TzTimeOnly",
         "TzTimestamp",

@@ -1,7 +1,9 @@
 //! Choosing records of a [`FileMessageLog`](super::FileMessageLog) by session, direction,
 //! MsgType, field values and time.
 
-use chrono::{DateTime, NaiveDate, Utc};
+use jiff::civil::Date;
+use jiff::tz::Offset;
+use jiff::{SignedDuration, Timestamp};
 
 use super::read::{Direction, LogRecord};
 use crate::Message;
@@ -12,7 +14,8 @@ use crate::message::tags;
 /// empty (or `None`) keeps everything; the ones set must all hold. The default keeps every record.
 ///
 /// ```
-/// use chrono::{TimeZone, Utc};
+/// use turbojet::jiff::Timestamp;
+/// use turbojet::jiff::civil::date;
 /// use turbojet::LogFilter;
 /// use turbojet::message_log::Direction;
 ///
@@ -20,8 +23,8 @@ use crate::message::tags;
 /// let mut filter = LogFilter::default();
 /// filter.direction = Some(Direction::Inbound);
 /// filter.tags = vec![(11, vec!["A".into(), "B".into(), "C".into()])];
-/// filter.since = Some(Utc.with_ymd_and_hms(2026, 10, 8, 8, 0, 0).unwrap());
-/// assert!(!filter.covers_day(Utc.with_ymd_and_hms(2026, 10, 7, 0, 0, 0).unwrap().date_naive()));
+/// filter.since = Some("2026-10-08T08:00:00Z".parse::<Timestamp>().unwrap());
+/// assert!(!filter.covers_day(date(2026, 10, 7)));
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -37,9 +40,9 @@ pub struct LogFilter {
     /// messages whose ClOrdID(11) is A or B. A field in a repeating group counts.
     pub tags: Vec<(u32, Vec<String>)>,
     /// Only records logged at or after this time.
-    pub since: Option<DateTime<Utc>>,
+    pub since: Option<Timestamp>,
     /// Only records logged before this time.
-    pub until: Option<DateTime<Utc>>,
+    pub until: Option<Timestamp>,
 }
 
 impl LogFilter {
@@ -91,7 +94,7 @@ impl LogFilter {
     /// Whether `time` is in the time range: at or after [`since`](Self::since), before
     /// [`until`](Self::until).
     #[must_use]
-    pub fn in_range(&self, time: DateTime<Utc>) -> bool {
+    pub fn in_range(&self, time: Timestamp) -> bool {
         self.since.is_none_or(|since| time >= since) && self.until.is_none_or(|until| time < until)
     }
 
@@ -101,9 +104,13 @@ impl LogFilter {
     /// chosen as it's written, a moment later. So the file of day D covers D-1 00:00 up to D+1
     /// 00:00, never a later day.
     #[must_use]
-    pub fn covers_day(&self, day: NaiveDate) -> bool {
-        let end = (day + chrono::TimeDelta::days(1)).and_time(chrono::NaiveTime::MIN).and_utc();
-        let start = end - chrono::TimeDelta::days(2);
+    pub fn covers_day(&self, day: Date) -> bool {
+        let Ok(end) =
+            Offset::UTC.to_timestamp(day.tomorrow().unwrap_or(day).to_datetime(jiff::civil::Time::midnight()))
+        else {
+            return true;
+        };
+        let start = end - SignedDuration::from_hours(48);
         self.since.is_none_or(|since| since < end) && self.until.is_none_or(|until| until > start)
     }
 
@@ -130,12 +137,10 @@ impl LogFilter {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
-
     use super::*;
 
-    fn at(day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, day, hour, minute, 0).unwrap()
+    fn at(day: i8, hour: i8, minute: i8) -> Timestamp {
+        Offset::UTC.to_timestamp(jiff::civil::date(2026, 10, day).at(hour, minute, 0, 0)).unwrap()
     }
 
     fn record(direction: Direction, session: Option<&str>, frame: &[u8]) -> LogRecord {
@@ -218,9 +223,9 @@ mod tests {
         assert!(!filter.matches(&LogRecord::Dropped { time: at(8, 13, 0), count: 1 }));
     }
 
-    fn days_covered(since: Option<DateTime<Utc>>, until: Option<DateTime<Utc>>) -> Vec<u32> {
+    fn days_covered(since: Option<Timestamp>, until: Option<Timestamp>) -> Vec<i8> {
         let filter = LogFilter { since, until, ..LogFilter::default() };
-        (6..=10).filter(|&day| filter.covers_day(at(day, 0, 0).date_naive())).collect()
+        (6..=10).filter(|&day| filter.covers_day(jiff::civil::date(2026, 10, day))).collect()
     }
 
     /// The files a range may be in: the days it touches, and the day after each, whose file may

@@ -18,7 +18,7 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use tracing::{debug, error, info, warn};
 
 use crate::admin::{
@@ -752,7 +752,7 @@ pub struct Session {
     held_watch: Option<Instant>,
     /// `config.clock`'s time, read at most once per call into the session (see
     /// [`wall_clock`](Self::wall_clock)).
-    wall_clock: Cell<Option<DateTime<Utc>>>,
+    wall_clock: Cell<Option<Timestamp>>,
 }
 
 impl fmt::Debug for Session {
@@ -2114,7 +2114,7 @@ impl Session {
         let period = self.period;
         let log = &mut self.peer_mut().log;
         match (log.created_at(), period) {
-            (Some(created), Some(period)) if created.datetime() < period.start => {
+            (Some(created), Some(period)) if created.timestamp() < period.start => {
                 info!(%created, period_start = %period.start, "new session period: resetting sequence numbers");
                 log.reset()?;
                 log.set_created_at(now.into())?;
@@ -2432,7 +2432,7 @@ impl Session {
         let max = self.config.max_latency?;
         let sent: UtcTimestamp = msg.opt_field(tags::SENDING_TIME).ok()??;
         let now = self.wall_clock();
-        let off = (now - sent.datetime()).abs().to_std().unwrap_or(Duration::MAX);
+        let off = now.duration_since(sent.timestamp()).unsigned_abs();
         (off > max).then(|| format!("SendingTime accuracy problem: {}s from our clock", off.as_secs()))
     }
 
@@ -3495,7 +3495,7 @@ impl Session {
 
     /// The wall-clock time for this call into the session: `config.clock` read once, for both
     /// checking inbound SendingTime(52) and stamping outbound. A call is over in microseconds.
-    fn wall_clock(&self) -> DateTime<Utc> {
+    fn wall_clock(&self) -> Timestamp {
         if let Some(now) = self.wall_clock.get() {
             return now;
         }

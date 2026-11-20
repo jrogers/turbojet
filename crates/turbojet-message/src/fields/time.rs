@@ -1,13 +1,19 @@
 //! FIX dates and times: UTCTimestamp, UTCTimeOnly, the date types, MonthYear, TZTimeOnly and
 //! TZTimestamp. Times keep the precision they arrived with, so a relayed value is written back
 //! as it came; new ones are written in milliseconds unless given another precision.
+//!
+//! They're [jiff](https://docs.rs/jiff) values underneath. jiff has no leap seconds, so a time
+//! with second 60 is held as second 59, with its fraction, and a flag that writes it back as 60.
 
 use std::cell::Cell;
+use std::cmp::Ordering;
 use std::fmt::{self, Write as _};
 use std::ops::{Add, Sub};
 
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDateTime, TimeDelta, Timelike, Utc};
-pub use chrono::{NaiveDate, NaiveTime};
+use jiff::civil::DateTime;
+pub use jiff::civil::{Date, Time};
+use jiff::tz::Offset;
+use jiff::{SignedDuration, Timestamp};
 
 use super::{FromFix, ToFix, ValueError};
 
@@ -50,9 +56,13 @@ impl Precision {
 
 /// UTCTimestamp: an instant, and the precision it's written with.
 ///
-/// It dereferences to chrono's [`DateTime<Utc>`], so chrono's methods work on it. Parsed values
-/// keep the precision they arrived with (`.5` and `.500` are both milliseconds); new ones are
-/// milliseconds. Two timestamps are equal when they're the same instant, whatever their precision.
+/// The instant is a [`jiff::Timestamp`]. Parsed values keep the precision they arrived with (`.5`
+/// and `.500` are both milliseconds); new ones are milliseconds. Two timestamps are equal when
+/// they're the same instant, whatever their precision.
+///
+/// A leap second (`23:59:60.5`) is kept: it's written back as it came, and sorts after every
+/// other time in its minute. Its [`timestamp`](Self::timestamp) is second 59 with the same
+/// fraction, since jiff has no leap seconds.
 ///
 /// ```
 /// use turbojet::fields::{FromFix, Precision, ToFix, UtcTimestamp};
@@ -64,25 +74,26 @@ impl Precision {
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct UtcTimestamp {
-    time: DateTime<Utc>,
+    time: Timestamp,
     precision: Precision,
+    leap_second: bool,
 }
 
 impl UtcTimestamp {
     /// `time`, written with `precision`.
-    pub const fn new(time: DateTime<Utc>, precision: Precision) -> Self {
-        Self { time, precision }
+    pub const fn new(time: Timestamp, precision: Precision) -> Self {
+        Self { time, precision, leap_second: false }
     }
 
     /// The current time, in milliseconds.
     pub fn now() -> Self {
-        Utc::now().into()
+        Timestamp::now().into()
     }
 
     /// The instant `seconds` and `nanos` after the Unix epoch, in milliseconds; `None` if out of
     /// range.
     pub fn from_timestamp(seconds: i64, nanos: u32) -> Option<Self> {
-        DateTime::from_timestamp(seconds, nanos).map(Self::from)
+        Timestamp::new(seconds, i32::try_from(nanos).ok()?).ok().map(Self::from)
     }
 
     /// The same instant, written with `precision`.
@@ -96,20 +107,39 @@ impl UtcTimestamp {
         self.precision
     }
 
-    /// The instant.
-    pub const fn datetime(self) -> DateTime<Utc> {
+    /// The instant. For a leap second, second 59 with its fraction.
+    pub const fn timestamp(self) -> Timestamp {
         self.time
+    }
+
+    /// Whether it's a leap second: second 60.
+    pub const fn is_leap_second(self) -> bool {
+        self.leap_second
+    }
+
+    /// What it's compared, hashed and cached by: the second (rounded down, unlike jiff's
+    /// [`as_second`](Timestamp::as_second), so a time before 1970 has a positive fraction), then
+    /// whether it's a leap second, then the fraction.
+    fn key(self) -> (i64, bool, i32) {
+        let (seconds, nanos) = floor_second(self.time);
+        (seconds, self.leap_second, nanos)
     }
 }
 
+/// `time`'s second, rounded down, and the nanoseconds after it.
+fn floor_second(time: Timestamp) -> (i64, i32) {
+    let (seconds, nanos) = (time.as_second(), time.subsec_nanosecond());
+    if nanos < 0 { (seconds - 1, nanos + 1_000_000_000) } else { (seconds, nanos) }
+}
+
 /// In milliseconds.
-impl From<DateTime<Utc>> for UtcTimestamp {
-    fn from(time: DateTime<Utc>) -> Self {
+impl From<Timestamp> for UtcTimestamp {
+    fn from(time: Timestamp) -> Self {
         Self::new(time, Precision::Millis)
     }
 }
 
-impl From<UtcTimestamp> for DateTime<Utc> {
+impl From<UtcTimestamp> for Timestamp {
     fn from(t: UtcTimestamp) -> Self {
         t.time
     }
@@ -117,43 +147,46 @@ impl From<UtcTimestamp> for DateTime<Utc> {
 
 impl PartialEq for UtcTimestamp {
     fn eq(&self, other: &Self) -> bool {
-        self.time == other.time
+        self.key() == other.key()
     }
 }
 
 impl Eq for UtcTimestamp {}
 
 impl PartialOrd for UtcTimestamp {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for UtcTimestamp {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.time.cmp(&other.time)
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.key().cmp(&other.key())
     }
 }
 
 impl std::hash::Hash for UtcTimestamp {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.time.hash(state)
+        self.key().hash(state)
     }
 }
 
-impl Add<TimeDelta> for UtcTimestamp {
+/// Moves the instant; the result isn't a leap second. Panics past jiff's range (the years -9999
+/// to 9999), as jiff's own arithmetic does.
+impl Add<SignedDuration> for UtcTimestamp {
     type Output = Self;
 
-    fn add(self, delta: TimeDelta) -> Self {
-        Self { time: self.time + delta, ..self }
+    fn add(self, delta: SignedDuration) -> Self {
+        Self::new(self.time + delta, self.precision)
     }
 }
 
-impl Sub<TimeDelta> for UtcTimestamp {
+/// Moves the instant; the result isn't a leap second. Panics past jiff's range.
+impl Sub<SignedDuration> for UtcTimestamp {
     type Output = Self;
 
-    fn sub(self, delta: TimeDelta) -> Self {
-        Self { time: self.time - delta, ..self }
+    fn sub(self, delta: SignedDuration) -> Self {
+        Self::new(self.time - delta, self.precision)
     }
 }
 
@@ -172,37 +205,40 @@ impl FromFix for UtcTimestamp {
         }
         let date = parse_date(&b[..8]).ok_or(ValueError::Format)?;
         let (time, precision) = match parse_time(&b[9..]) {
-            Some((time, Some(precision), None)) => (time, precision),
+            Some(ParsedTime { time, precision: Some(precision), offset: None }) => (time, precision),
             _ => return Err(ValueError::Format),
         };
-        Ok(Self::new(NaiveDateTime::new(date, time).and_utc(), precision))
+        let instant = Offset::UTC.to_timestamp(date.to_datetime(time.time)).map_err(|_| ValueError::Format)?;
+        Ok(Self { time: instant, precision, leap_second: time.leap_second })
     }
 }
+
+/// The first second of the year 0, and the last of 9999: the timestamps the fast path writes.
+const FIRST_FOUR_DIGIT_SECOND: i64 = -62_167_219_200;
+const LAST_FOUR_DIGIT_SECOND: i64 = 253_402_300_799;
 
 impl ToFix for UtcTimestamp {
     fn write_fix(&self, out: &mut String) {
-        let t = &self.time;
-        // Leap seconds and years outside 0..=9999 are rare enough to leave to chrono.
-        if t.nanosecond() >= 1_000_000_000 || !(0..=9999).contains(&t.year()) {
-            return write_with_chrono(out, t, self.precision);
+        let (seconds, nanos) = floor_second(self.time);
+        // Leap seconds and years before 0 are rare enough for a slower path. jiff stops at 9999.
+        if self.leap_second || seconds < FIRST_FOUR_DIGIT_SECOND {
+            return write_rare(out, self);
         }
-        out.push_str(std::str::from_utf8(&seconds_prefix(t)).expect("ASCII"));
-        push_fraction(out, t.nanosecond(), self.precision);
+        debug_assert!(seconds <= LAST_FOUR_DIGIT_SECOND);
+        out.push_str(std::str::from_utf8(&seconds_prefix(seconds, self.time)).expect("ASCII"));
+        push_fraction(out, nanos.cast_unsigned(), self.precision);
     }
 }
 
-/// [`UtcTimestamp::write_fix`] for a leap second or a year outside 0..=9999, by chrono. Kept out
-/// of line so the common case stays small.
+/// [`UtcTimestamp::write_fix`] for a leap second or a year before 0. Kept out of line so the
+/// common case stays small.
 #[cold]
 #[inline(never)]
-fn write_with_chrono(out: &mut String, t: &DateTime<Utc>, precision: Precision) {
-    let fraction = match precision {
-        Precision::Seconds => "",
-        Precision::Millis => "%.3f",
-        Precision::Micros => "%.6f",
-        Precision::Nanos => "%.9f",
-    };
-    write!(out, "{}", t.format(&format!("%Y%m%d-%H:%M:%S{fraction}"))).expect("writing to a String cannot fail");
+fn write_rare(out: &mut String, t: &UtcTimestamp) {
+    let local = Offset::UTC.to_datetime(t.time);
+    push_date(out, local.date());
+    out.push('-');
+    push_time(out, ClockTime { time: local.time(), leap_second: t.leap_second }, Some(t.precision));
 }
 
 thread_local! {
@@ -210,29 +246,35 @@ thread_local! {
     static SECONDS_PREFIX: Cell<(i64, [u8; 17])> = const { Cell::new((i64::MIN, [0; 17])) };
 }
 
-/// `YYYYMMDD-HH:MM:SS` for `time`, which must have a four-digit year. Cached per thread, since
-/// a busy session formats the same second many times.
-fn seconds_prefix(time: &DateTime<Utc>) -> [u8; 17] {
-    debug_assert!((0..=9999).contains(&time.year()));
-    let seconds = time.timestamp();
+/// `YYYYMMDD-HH:MM:SS` for `time`, whose second (rounded down) is `seconds` and whose year has
+/// four digits. Cached per thread, since a busy session formats the same second many times.
+fn seconds_prefix(seconds: i64, time: Timestamp) -> [u8; 17] {
     SECONDS_PREFIX.with(|cache| {
         let (cached_seconds, prefix) = cache.get();
         if cached_seconds == seconds {
             return prefix;
         }
+        let local = Offset::UTC.to_datetime(time);
         let mut prefix = [0u8; 17];
-        put_digits(&mut prefix[0..4], time.year().cast_unsigned());
-        put_digits(&mut prefix[4..6], time.month());
-        put_digits(&mut prefix[6..8], time.day());
-        put_digits(&mut prefix[9..11], time.hour());
-        put_digits(&mut prefix[12..14], time.minute());
-        put_digits(&mut prefix[15..17], time.second());
+        put_digits(&mut prefix[0..4], digits_of(local.year()));
+        put_digits(&mut prefix[4..6], digits_of(local.month()));
+        put_digits(&mut prefix[6..8], digits_of(local.day()));
+        put_digits(&mut prefix[9..11], digits_of(local.hour()));
+        put_digits(&mut prefix[12..14], digits_of(local.minute()));
+        put_digits(&mut prefix[15..17], digits_of(local.second()));
         prefix[8] = b'-';
         prefix[11] = b':';
         prefix[14] = b':';
         cache.set((seconds, prefix));
         prefix
     })
+}
+
+/// A non-negative calendar or clock component, as `put_digits` takes it.
+fn digits_of(value: impl Into<i32>) -> u32 {
+    let value = value.into();
+    debug_assert!(value >= 0, "{value}");
+    value.unsigned_abs()
 }
 
 /// Writes `value`'s last `out.len()` decimal digits into `out`.
@@ -246,6 +288,7 @@ fn put_digits(out: &mut [u8], mut value: u32) {
 /// Appends `.` and the fraction of a second in `nanos` (under a billion) to `precision`,
 /// truncated; nothing for whole seconds.
 fn push_fraction(out: &mut String, nanos: u32, precision: Precision) {
+    debug_assert!(nanos < 1_000_000_000);
     let (value, width) = match precision {
         Precision::Seconds => return,
         // Milliseconds, the usual case, written directly.
@@ -266,44 +309,49 @@ fn push_fraction(out: &mut String, nanos: u32, precision: Precision) {
     out.push_str(std::str::from_utf8(&digits[..=width]).expect("ASCII"));
 }
 
-/// `HH:MM:SS` with the fraction `precision` asks for.
-fn push_time(out: &mut String, time: NaiveTime, precision: Option<Precision>) {
+/// A time of day that may be a leap second: then `time` is second 59, with the leap second's
+/// fraction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ClockTime {
+    time: Time,
+    leap_second: bool,
+}
+
+/// `HH:MM` and, unless `precision` is `None`, `:SS` and the fraction `precision` asks for.
+fn push_time(out: &mut String, time: ClockTime, precision: Option<Precision>) {
+    let ClockTime { time, leap_second } = time;
+    debug_assert!(!leap_second || time.second() == 59);
     let mut hms = [b':'; 8];
-    put_digits(&mut hms[0..2], time.hour());
-    put_digits(&mut hms[3..5], time.minute());
-    // A leap second is second 59 with a nanosecond count past a billion.
-    let second = if time.nanosecond() >= 1_000_000_000 { 60 } else { time.second() };
-    put_digits(&mut hms[6..8], second);
+    put_digits(&mut hms[0..2], digits_of(time.hour()));
+    put_digits(&mut hms[3..5], digits_of(time.minute()));
+    put_digits(&mut hms[6..8], if leap_second { 60 } else { digits_of(time.second()) });
     match precision {
         None => out.push_str(std::str::from_utf8(&hms[..5]).expect("ASCII")),
         Some(precision) => {
             out.push_str(std::str::from_utf8(&hms).expect("ASCII"));
-            // A leap second's extra second is the `60` already written.
-            push_fraction(out, time.nanosecond() % 1_000_000_000, precision);
+            push_fraction(out, digits_of(time.subsec_nanosecond()), precision);
         }
     }
 }
 
 /// `YYYYMMDD`, a valid date.
-fn parse_date(b: &[u8]) -> Option<NaiveDate> {
+fn parse_date(b: &[u8]) -> Option<Date> {
     if b.len() != 8 {
         return None;
     }
-    NaiveDate::from_ymd_opt(i32::try_from(number(&b[0..4])?).ok()?, number(&b[4..6])?, number(&b[6..8])?)
+    Date::new(narrow(number(&b[0..4])?)?, narrow(number(&b[4..6])?)?, narrow(number(&b[6..8])?)?).ok()
 }
 
 /// Writes `date` as `YYYYMMDD`.
-fn push_date(out: &mut String, date: NaiveDate) {
-    if let Ok(year) = u32::try_from(date.year())
-        && year <= 9999
-    {
+fn push_date(out: &mut String, date: Date) {
+    if date.year() >= 0 {
         let mut digits = [0u8; 8];
-        put_digits(&mut digits[0..4], year);
-        put_digits(&mut digits[4..6], date.month());
-        put_digits(&mut digits[6..8], date.day());
+        put_digits(&mut digits[0..4], digits_of(date.year()));
+        put_digits(&mut digits[4..6], digits_of(date.month()));
+        put_digits(&mut digits[6..8], digits_of(date.day()));
         out.push_str(std::str::from_utf8(&digits).expect("ASCII"));
     } else {
-        write!(out, "{}", date.format("%Y%m%d")).expect("writing to a String cannot fail");
+        write!(out, "{}", date.strftime("%Y%m%d")).expect("writing to a String cannot fail");
     }
 }
 
@@ -320,10 +368,16 @@ fn narrow<T: TryFrom<u32>>(n: u32) -> Option<T> {
     T::try_from(n).ok()
 }
 
+/// What [`parse_time`] read: the time, its precision (`None` for `HH:MM`) and the zone's offset.
+struct ParsedTime {
+    time: ClockTime,
+    precision: Option<Precision>,
+    offset: Option<Offset>,
+}
+
 /// `HH:MM`, then optionally `:SS` (60 for a leap second) and a fraction of 1 to 9 digits, then
-/// optionally a zone: `Z`, `±hh` or `±hh:mm`. Returns the time, its precision (`None` for `HH:MM`)
-/// and the zone's offset.
-fn parse_time(b: &[u8]) -> Option<(NaiveTime, Option<Precision>, Option<FixedOffset>)> {
+/// optionally a zone: `Z`, `±hh` or `±hh:mm`.
+fn parse_time(b: &[u8]) -> Option<ParsedTime> {
     if b.len() < 5 || b[2] != b':' {
         return None;
     }
@@ -344,13 +398,12 @@ fn parse_time(b: &[u8]) -> Option<(NaiveTime, Option<Precision>, Option<FixedOff
             at += 1 + digits;
         }
     }
-    let time = match second {
-        60 => NaiveTime::from_hms_nano_opt(hour, minute, 59, 1_000_000_000 + nanos)?,
-        _ => NaiveTime::from_hms_nano_opt(hour, minute, second, nanos)?,
-    };
+    let leap_second = second == 60;
+    let second = if leap_second { 59 } else { second };
+    let time = Time::new(narrow(hour)?, narrow(minute)?, narrow(second)?, narrow(nanos)?).ok()?;
     let offset = match &b[at..] {
         [] => None,
-        [b'Z'] => Some(FixedOffset::east_opt(0)?),
+        [b'Z'] => Some(Offset::UTC),
         [sign @ (b'+' | b'-'), rest @ ..] => {
             let (hours, minutes) = match rest {
                 [_, _] => (number(rest)?, 0),
@@ -361,16 +414,16 @@ fn parse_time(b: &[u8]) -> Option<(NaiveTime, Option<Precision>, Option<FixedOff
                 return None;
             }
             let seconds = i32::try_from(hours * 3600 + minutes * 60).ok()?;
-            Some(FixedOffset::east_opt(if *sign == b'-' { -seconds } else { seconds })?)
+            Some(Offset::from_seconds(if *sign == b'-' { -seconds } else { seconds }).ok()?)
         }
         _ => return None,
     };
-    Some((time, precision, offset))
+    Some(ParsedTime { time: ClockTime { time, leap_second }, precision, offset })
 }
 
 /// Writes a zone: `Z` for UTC, otherwise `±hh`, or `±hh:mm` when there are minutes.
-fn push_offset(out: &mut String, offset: FixedOffset) {
-    let seconds = offset.local_minus_utc();
+fn push_offset(out: &mut String, offset: Offset) {
+    let seconds = offset.seconds();
     if seconds == 0 {
         out.push('Z');
         return;
@@ -384,18 +437,18 @@ fn push_offset(out: &mut String, offset: FixedOffset) {
     out.push_str(std::str::from_utf8(&digits[..len]).expect("ASCII"));
 }
 
-/// UTCTimeOnly: a time of day in UTC, and the precision it's written with. It dereferences to
-/// chrono's [`NaiveTime`]; equality ignores the precision, as for [`UtcTimestamp`].
+/// UTCTimeOnly: a time of day in UTC, and the precision it's written with. Equality ignores the
+/// precision, as for [`UtcTimestamp`]; a leap second is kept, as there.
 #[derive(Debug, Clone, Copy)]
 pub struct UtcTimeOnly {
-    time: NaiveTime,
+    time: ClockTime,
     precision: Precision,
 }
 
 impl UtcTimeOnly {
     /// `time`, written with `precision`.
-    pub const fn new(time: NaiveTime, precision: Precision) -> Self {
-        Self { time, precision }
+    pub const fn new(time: Time, precision: Precision) -> Self {
+        Self { time: ClockTime { time, leap_second: false }, precision }
     }
 
     /// The same time, written with `precision`.
@@ -409,15 +462,20 @@ impl UtcTimeOnly {
         self.precision
     }
 
-    /// The time of day.
-    pub const fn time(self) -> NaiveTime {
-        self.time
+    /// The time of day. For a leap second, second 59 with its fraction.
+    pub const fn time(self) -> Time {
+        self.time.time
+    }
+
+    /// Whether it's a leap second: second 60.
+    pub const fn is_leap_second(self) -> bool {
+        self.time.leap_second
     }
 }
 
 /// In milliseconds.
-impl From<NaiveTime> for UtcTimeOnly {
-    fn from(time: NaiveTime) -> Self {
+impl From<Time> for UtcTimeOnly {
+    fn from(time: Time) -> Self {
         Self::new(time, Precision::Millis)
     }
 }
@@ -446,7 +504,7 @@ impl fmt::Display for UtcTimeOnly {
 impl FromFix for UtcTimeOnly {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
         match parse_time(s.as_bytes()) {
-            Some((time, Some(precision), None)) => Ok(Self::new(time, precision)),
+            Some(ParsedTime { time, precision: Some(precision), offset: None }) => Ok(Self { time, precision }),
             _ => Err(ValueError::Format),
         }
     }
@@ -459,13 +517,13 @@ impl ToFix for UtcTimeOnly {
 }
 
 /// UTCDateOnly, UTCDate and LocalMktDate: `YYYYMMDD`.
-impl FromFix for NaiveDate {
+impl FromFix for Date {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
         parse_date(s.as_bytes()).ok_or(ValueError::Format)
     }
 }
 
-impl ToFix for NaiveDate {
+impl ToFix for Date {
     fn write_fix(&self, out: &mut String) {
         push_date(out, *self)
     }
@@ -505,7 +563,7 @@ impl MonthYear {
 
     /// The same month, narrowed to `day`, which must exist in it.
     pub fn with_day(self, day: u8) -> Option<Self> {
-        NaiveDate::from_ymd_opt(self.year.into(), self.month.into(), day.into())?;
+        Date::new(i16::try_from(self.year).ok()?, i8::try_from(self.month).ok()?, i8::try_from(day).ok()?).ok()?;
         Some(Self { day_or_week: Some(DayOrWeek::Day(day)), ..self })
     }
 
@@ -578,25 +636,30 @@ impl ToFix for MonthYear {
 /// use turbojet::fields::{FromFix, ToFix, TzTimeOnly};
 ///
 /// let open = TzTimeOnly::from_fix("09:30-05").unwrap();
-/// assert_eq!(open.offset().map(|o| o.local_minus_utc()), Some(-5 * 3600));
+/// assert_eq!(open.offset().map(|o| o.seconds()), Some(-5 * 3600));
 /// assert_eq!(open.to_fix(), "09:30-05");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TzTimeOnly {
-    time: NaiveTime,
+    time: ClockTime,
     precision: Option<Precision>,
-    offset: Option<FixedOffset>,
+    offset: Option<Offset>,
 }
 
 impl TzTimeOnly {
     /// `time` at `offset` from UTC, if known, written to `precision`: `None` for `HH:MM`.
-    pub const fn new(time: NaiveTime, precision: Option<Precision>, offset: Option<FixedOffset>) -> Self {
-        Self { time, precision, offset }
+    pub const fn new(time: Time, precision: Option<Precision>, offset: Option<Offset>) -> Self {
+        Self { time: ClockTime { time, leap_second: false }, precision, offset }
     }
 
-    /// The local time of day.
-    pub const fn time(self) -> NaiveTime {
-        self.time
+    /// The local time of day. For a leap second, second 59 with its fraction.
+    pub const fn time(self) -> Time {
+        self.time.time
+    }
+
+    /// Whether it's a leap second: second 60.
+    pub const fn is_leap_second(self) -> bool {
+        self.time.leap_second
     }
 
     /// The precision it's written with; `None` for hours and minutes only.
@@ -605,7 +668,7 @@ impl TzTimeOnly {
     }
 
     /// The offset from UTC, if given.
-    pub const fn offset(self) -> Option<FixedOffset> {
+    pub const fn offset(self) -> Option<Offset> {
         self.offset
     }
 }
@@ -618,8 +681,8 @@ impl fmt::Display for TzTimeOnly {
 
 impl FromFix for TzTimeOnly {
     fn from_fix(s: &str) -> Result<Self, ValueError> {
-        let (time, precision, offset) = parse_time(s.as_bytes()).ok_or(ValueError::Format)?;
-        Ok(Self::new(time, precision, offset))
+        let ParsedTime { time, precision, offset } = parse_time(s.as_bytes()).ok_or(ValueError::Format)?;
+        Ok(Self { time, precision, offset })
     }
 }
 
@@ -639,26 +702,32 @@ impl ToFix for TzTimeOnly {
 /// use turbojet::fields::{FromFix, ToFix, TzTimestamp};
 ///
 /// let t = TzTimestamp::from_fix("20260930-07:39:00+01").unwrap();
-/// assert_eq!(t.datetime().unwrap().to_rfc3339(), "2026-09-30T07:39:00+01:00");
+/// assert_eq!(t.timestamp().unwrap().to_string(), "2026-09-30T06:39:00Z");
 /// assert_eq!(t.to_fix(), "20260930-07:39:00+01");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TzTimestamp {
-    local: NaiveDateTime,
+    date: Date,
+    time: ClockTime,
     precision: Option<Precision>,
-    offset: Option<FixedOffset>,
+    offset: Option<Offset>,
 }
 
 impl TzTimestamp {
     /// `local` at `offset` from UTC, if known, written to `precision`: `None` for hours and
     /// minutes only.
-    pub const fn new(local: NaiveDateTime, precision: Option<Precision>, offset: Option<FixedOffset>) -> Self {
-        Self { local, precision, offset }
+    pub fn new(local: DateTime, precision: Option<Precision>, offset: Option<Offset>) -> Self {
+        Self { date: local.date(), time: ClockTime { time: local.time(), leap_second: false }, precision, offset }
     }
 
-    /// The local date and time.
-    pub const fn local(self) -> NaiveDateTime {
-        self.local
+    /// The local date and time. For a leap second, second 59 with its fraction.
+    pub const fn local(self) -> DateTime {
+        DateTime::from_parts(self.date, self.time.time)
+    }
+
+    /// Whether it's a leap second: second 60.
+    pub const fn is_leap_second(self) -> bool {
+        self.time.leap_second
     }
 
     /// The precision it's written with; `None` for hours and minutes only.
@@ -667,20 +736,20 @@ impl TzTimestamp {
     }
 
     /// The offset from UTC, if given.
-    pub const fn offset(self) -> Option<FixedOffset> {
+    pub const fn offset(self) -> Option<Offset> {
         self.offset
     }
 
-    /// The instant, if the offset is given.
-    pub fn datetime(self) -> Option<DateTime<FixedOffset>> {
-        self.local.and_local_timezone(self.offset?).single()
+    /// The instant, if the offset is given (and it's within jiff's range).
+    pub fn timestamp(self) -> Option<Timestamp> {
+        self.offset?.to_timestamp(self.local()).ok()
     }
 }
 
-impl From<DateTime<FixedOffset>> for TzTimestamp {
+impl From<&jiff::ZonedDateTime> for TzTimestamp {
     /// In milliseconds.
-    fn from(time: DateTime<FixedOffset>) -> Self {
-        Self::new(time.naive_local(), Some(Precision::Millis), Some(*time.offset()))
+    fn from(time: &jiff::ZonedDateTime) -> Self {
+        Self::new(time.datetime(), Some(Precision::Millis), Some(time.offset()))
     }
 }
 
@@ -697,16 +766,16 @@ impl FromFix for TzTimestamp {
             return Err(ValueError::Format);
         }
         let date = parse_date(&b[..8]).ok_or(ValueError::Format)?;
-        let (time, precision, offset) = parse_time(&b[9..]).ok_or(ValueError::Format)?;
-        Ok(Self::new(NaiveDateTime::new(date, time), precision, offset))
+        let ParsedTime { time, precision, offset } = parse_time(&b[9..]).ok_or(ValueError::Format)?;
+        Ok(Self { date, time, precision, offset })
     }
 }
 
 impl ToFix for TzTimestamp {
     fn write_fix(&self, out: &mut String) {
-        push_date(out, self.local.date());
+        push_date(out, self.date);
         out.push('-');
-        push_time(out, self.local.time(), self.precision);
+        push_time(out, self.time, self.precision);
         if let Some(offset) = self.offset {
             push_offset(out, offset);
         }
@@ -715,7 +784,7 @@ impl ToFix for TzTimestamp {
 
 #[cfg(test)]
 mod tests {
-    use chrono::TimeZone;
+    use jiff::civil::date;
 
     use super::*;
 
@@ -767,6 +836,7 @@ mod tests {
             "20260927-03:20",
             "20260927-03:20:48Z",
             "20260927-03:20:48 ",
+            "20260927-03:20:61",
             "",
         ] {
             assert_eq!(UtcTimestamp::from_fix(bad), Err(ValueError::Format), "{bad:?}");
@@ -776,19 +846,26 @@ mod tests {
     #[test]
     fn leap_seconds_are_kept() {
         let t = ts("20161231-23:59:60.500");
-        assert_eq!(t.datetime().nanosecond(), 1_500_000_000);
+        assert!(t.is_leap_second());
+        assert_eq!(t.timestamp().to_string(), "2016-12-31T23:59:59.5Z", "second 59, as jiff has no 60");
         assert_eq!(t.to_fix(), "20161231-23:59:60.500");
         assert_eq!(t.with_precision(Precision::Micros).to_fix(), "20161231-23:59:60.500000");
+        // It sorts after the rest of its minute, and before the next one.
+        assert!(ts("20161231-23:59:59.999999999") < t);
+        assert!(t < ts("20161231-23:59:60.6"));
+        assert!(t < ts("20170101-00:00:00"));
+        assert_ne!(t, ts("20161231-23:59:59.500"));
+        assert!(!(t + SignedDuration::ZERO).is_leap_second(), "arithmetic leaves the leap second");
     }
 
-    /// What chrono produces for `precision`.
-    fn chrono_format(t: &DateTime<Utc>, precision: Precision) -> String {
+    /// What jiff's strftime produces for `precision`.
+    fn jiff_format(t: Timestamp, precision: Precision) -> String {
         let fraction = ["", "%.3f", "%.6f", "%.9f"][precision.digits() / 3];
-        t.format(&format!("%Y%m%d-%H:%M:%S{fraction}")).to_string()
+        t.strftime(&format!("%Y%m%d-%H:%M:%S{fraction}")).to_string()
     }
 
     #[test]
-    fn timestamp_formatting_matches_chrono() {
+    fn timestamp_formatting_matches_jiff() {
         // Deterministic pseudo-random instants from 1970 to 2199, with arbitrary nanoseconds.
         let mut state = 0x2545_f491_4f6c_dd1du64;
         let mut next = || {
@@ -799,43 +876,51 @@ mod tests {
         };
         for i in 0..20_000 {
             let seconds = i64::try_from(next() % 7_258_118_400).unwrap(); // up to 2200-01-01
-            let nanos = (next() % 1_000_000_000) as u32;
-            let time = Utc.timestamp_opt(seconds, nanos).unwrap();
+            let nanos = i32::try_from(next() % 1_000_000_000).unwrap();
+            let time = Timestamp::new(seconds, nanos).unwrap();
             let precision = [Precision::Seconds, Precision::Millis, Precision::Micros, Precision::Nanos][i % 4];
             let t = UtcTimestamp::new(time, precision);
-            assert_eq!(t.to_fix(), chrono_format(&time, precision), "{t:?}");
+            assert_eq!(t.to_fix(), jiff_format(time, precision), "{t:?}");
             // And again, now from the cache.
-            assert_eq!(t.to_fix(), chrono_format(&time, precision), "{t:?} (cached)");
+            assert_eq!(t.to_fix(), jiff_format(time, precision), "{t:?} (cached)");
         }
     }
 
     #[test]
-    fn timestamp_edge_cases_match_chrono() {
-        let at = |y, mo, d, h, mi, s, ns| {
-            NaiveDate::from_ymd_opt(y, mo, d).unwrap().and_hms_nano_opt(h, mi, s, ns).unwrap().and_utc()
-        };
+    fn timestamp_edge_cases_match_jiff() {
+        let at = |y, mo, d, h, mi, s, ns| Offset::UTC.to_timestamp(date(y, mo, d).at(h, mi, s, ns)).unwrap();
         let cases = [
             at(1970, 1, 1, 0, 0, 0, 0),
             at(2026, 12, 31, 23, 59, 59, 999_999_999), // truncated, not rounded, to .999
             at(2024, 2, 29, 12, 0, 0, 1_000_000),
-            at(9999, 12, 31, 23, 59, 59, 0),
-            at(10_000, 1, 1, 0, 0, 0, 0),                // five-digit year: chrono fallback
-            at(2016, 12, 31, 23, 59, 59, 1_500_000_000), // leap second: chrono fallback
-            Utc.timestamp_opt(-86_400, 0).unwrap(),      // before the epoch
+            at(9999, 12, 30, 21, 59, 59, 0), // near jiff's last instant, 9999-12-30T22:00:00Z
+            at(0, 1, 1, 0, 0, 0, 0),
+            at(-1, 6, 1, 0, 0, 0, 0),                  // a year before 0: the slow path
+            at(1969, 12, 31, 23, 59, 59, 250_000_000), // before the epoch: jiff's fraction is negative
+            Timestamp::from_second(-86_400).unwrap(),
         ];
         for time in cases {
-            assert_eq!(UtcTimestamp::from(time).to_fix(), chrono_format(&time, Precision::Millis), "{time:?}");
+            assert_eq!(UtcTimestamp::from(time).to_fix(), jiff_format(time, Precision::Millis), "{time:?}");
         }
+        assert_eq!(UtcTimestamp::from(at(1969, 12, 31, 23, 59, 59, 250_000_000)).to_fix(), "19691231-23:59:59.250");
+        assert_eq!(UtcTimestamp::from(at(0, 1, 1, 0, 0, 0, 0)).to_fix(), "00000101-00:00:00.000");
+    }
+
+    /// jiff's range ends a day short of 9999's end, so a later UTCTimestamp can't be held.
+    #[test]
+    fn timestamps_past_jiffs_range_are_refused() {
+        assert!(UtcTimestamp::from_fix("99991230-22:00:00").is_ok());
+        assert_eq!(UtcTimestamp::from_fix("99991231-12:00:00"), Err(ValueError::Format));
     }
 
     #[test]
     fn timestamp_cache_is_per_second_and_per_thread() {
         let base = ts("20260927-03:20:48.544");
-        let next_second = base + TimeDelta::milliseconds(700);
+        let next_second = base + SignedDuration::from_millis(700);
         assert_eq!(base.to_fix(), "20260927-03:20:48.544");
         assert_eq!(next_second.to_fix(), "20260927-03:20:49.244");
         assert_eq!(base.to_fix(), "20260927-03:20:48.544", "going back a second refreshes the cache");
-        let other = std::thread::spawn(move || (base + TimeDelta::days(1)).to_fix()).join().unwrap();
+        let other = std::thread::spawn(move || (base + SignedDuration::from_hours(24)).to_fix()).join().unwrap();
         assert_eq!(other, "20260928-03:20:48.544");
         assert_eq!(base.to_fix(), "20260927-03:20:48.544");
     }
@@ -845,7 +930,8 @@ mod tests {
         assert_eq!(UtcTimestamp::now().precision(), Precision::Millis);
         let t = UtcTimestamp::from_timestamp(1_790_000_000, 123_456_789).unwrap();
         assert_eq!(t.to_fix(), "20260921-14:13:20.123");
-        assert_eq!(DateTime::<Utc>::from(t).timestamp_subsec_nanos(), 123_456_789, "the instant is kept whole");
+        assert_eq!(Timestamp::from(t).subsec_nanosecond(), 123_456_789, "the instant is kept whole");
+        assert_eq!(UtcTimestamp::from_timestamp(0, 1_000_000_000), None);
     }
 
     #[test]
@@ -853,23 +939,25 @@ mod tests {
         for text in ["03:20:48", "03:20:48.544", "03:20:48.544123", "03:20:48.544123789", "23:59:60"] {
             assert_eq!(UtcTimeOnly::from_fix(text).unwrap().to_fix(), text);
         }
+        assert!(UtcTimeOnly::from_fix("23:59:60").unwrap().is_leap_second());
+        assert_ne!(UtcTimeOnly::from_fix("23:59:60").unwrap(), UtcTimeOnly::from_fix("23:59:59").unwrap());
         assert_eq!(UtcTimeOnly::from_fix("03:20:48.5").unwrap().to_fix(), "03:20:48.500");
         for bad in ["03:20", "3:20:48", "03:20:48.", "24:00:00", "03:60:00", "03:20:48Z", "03:20:61"] {
             assert_eq!(UtcTimeOnly::from_fix(bad), Err(ValueError::Format), "{bad}");
         }
-        let t = UtcTimeOnly::from(NaiveTime::from_hms_micro_opt(9, 30, 0, 250_100).unwrap());
+        let t = UtcTimeOnly::from(Time::new(9, 30, 0, 250_100_000).unwrap());
         assert_eq!(t.to_fix(), "09:30:00.250");
         assert_eq!(t.with_precision(Precision::Micros).to_fix(), "09:30:00.250100");
     }
 
     #[test]
     fn dates() {
-        let d = NaiveDate::from_fix("20240229").unwrap();
-        assert_eq!(d, NaiveDate::from_ymd_opt(2024, 2, 29).unwrap());
+        let d = Date::from_fix("20240229").unwrap();
+        assert_eq!(d, date(2024, 2, 29));
         assert_eq!(d.to_fix(), "20240229");
-        assert_eq!(NaiveDate::from_ymd_opt(7, 1, 2).unwrap().to_fix(), "00070102");
+        assert_eq!(date(7, 1, 2).to_fix(), "00070102");
         for bad in ["20230229", "2024022", "202402290", "2024-02-29", "20241301", "2024022a"] {
-            assert_eq!(NaiveDate::from_fix(bad), Err(ValueError::Format), "{bad}");
+            assert_eq!(Date::from_fix(bad), Err(ValueError::Format), "{bad}");
         }
     }
 
@@ -893,7 +981,7 @@ mod tests {
             assert_eq!(TzTimeOnly::from_fix(text).unwrap().to_fix(), text, "{text}");
         }
         let t = TzTimeOnly::from_fix("09:30-03:30").unwrap();
-        assert_eq!(t.offset().unwrap().local_minus_utc(), -(3 * 3600 + 30 * 60));
+        assert_eq!(t.offset().unwrap().seconds(), -(3 * 3600 + 30 * 60));
         assert_eq!(t.precision(), None);
         assert_eq!(TzTimeOnly::from_fix("09:30+00").unwrap().to_fix(), "09:30Z", "UTC is written Z");
         assert_eq!(TzTimeOnly::from_fix("09:30+05:00").unwrap().to_fix(), "09:30+05");
@@ -910,16 +998,18 @@ mod tests {
             "20060901-15:39+08",
             "20060901-13:09+05:30",
             "20060901-07:39:15.123456Z",
+            "20161231-23:59:60.5Z",
         ] {
-            assert_eq!(TzTimestamp::from_fix(text).unwrap().to_fix(), text, "{text}");
+            let t = TzTimestamp::from_fix(text).unwrap();
+            assert_eq!(t.to_fix(), text.replace(".5Z", ".500Z"), "{text}");
         }
         // The examples from the FIX specification are the same instant.
         let instants: Vec<_> = ["20060901-07:39Z", "20060901-02:39-05", "20060901-15:39+08", "20060901-13:09+05:30"]
             .into_iter()
-            .map(|text| TzTimestamp::from_fix(text).unwrap().datetime().unwrap())
+            .map(|text| TzTimestamp::from_fix(text).unwrap().timestamp().unwrap())
             .collect();
         assert!(instants.windows(2).all(|pair| pair[0] == pair[1]), "{instants:?}");
-        assert_eq!(TzTimestamp::from_fix("20060901-07:39").unwrap().datetime(), None, "no offset");
+        assert_eq!(TzTimestamp::from_fix("20060901-07:39").unwrap().timestamp(), None, "no offset");
         for bad in ["20060901-07", "2006091-07:39Z", "20060931-07:39Z", "20060901 07:39Z"] {
             assert_eq!(TzTimestamp::from_fix(bad), Err(ValueError::Format), "{bad}");
         }

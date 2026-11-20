@@ -884,7 +884,7 @@ fn resend_of(msg: Message) -> Message {
 // ---- Stricter checks ----
 
 fn at_offset(msg: Message, secs: i64) -> Message {
-    let time = UtcTimestamp::now() + chrono::TimeDelta::seconds(secs);
+    let time = UtcTimestamp::now() + jiff::SignedDuration::from_secs(secs);
     msg.with(tags::SENDING_TIME, time)
 }
 
@@ -960,7 +960,7 @@ fn orig_sending_time_after_sending_time_logs_out() {
     let h = Harness::new();
     let mut s = h.logged_on();
     s.recv(client(2, MsgType::Heartbeat), h.t0);
-    let later = (UtcTimestamp::now() + chrono::TimeDelta::seconds(10)).to_fix();
+    let later = (UtcTimestamp::now() + jiff::SignedDuration::from_secs(10)).to_fix();
     let out = s.recv(resend_of(client(2, MsgType::Heartbeat)).with(tags::ORIG_SENDING_TIME, later), h.t0);
     assert_eq!(types(&out), ["Reject", "Logout"]);
     assert_eq!(sent(&out)[0].get(tags::SESSION_REJECT_REASON), Some("10"));
@@ -3622,14 +3622,16 @@ mod metrics_tests {
 // ---- Schedules ----
 
 mod schedule_tests {
-    use chrono::{DateTime, NaiveDateTime, Utc};
+    use jiff::Timestamp;
+    use jiff::civil::{DateTime, date, time};
+    use jiff::tz::Offset;
 
     use super::*;
     use crate::schedule::{Clock, HolidayCalendar};
 
     /// A clock the test moves by hand.
     #[derive(Clone)]
-    struct ManualClock(Arc<Mutex<DateTime<Utc>>>);
+    struct ManualClock(Arc<Mutex<Timestamp>>);
 
     impl ManualClock {
         fn at(time: &str) -> Self {
@@ -3644,8 +3646,8 @@ mod schedule_tests {
         }
     }
 
-    fn utc(time: &str) -> DateTime<Utc> {
-        NaiveDateTime::parse_from_str(time, "%Y-%m-%d %H:%M:%S").unwrap().and_utc()
+    fn utc(time: &str) -> Timestamp {
+        Offset::UTC.to_timestamp(DateTime::strptime("%Y-%m-%d %H:%M:%S", time).unwrap()).unwrap()
     }
 
     fn scheduled(schedule: &str, clock: &ManualClock) -> Harness {
@@ -3777,7 +3779,7 @@ mod schedule_tests {
     fn a_mid_week_holiday_closes_a_weekly_session_without_resetting_it() {
         let clock = ManualClock::at("2026-09-29 23:59:00"); // Tuesday
         let mut h = scheduled("weekly sun 17:00-fri 17:00", &clock);
-        let holiday = chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
+        let holiday = date(2026, 9, 30);
         h.config.schedule = h.config.schedule.map(|s| s.with_holidays([holiday].into_iter().collect()));
         let mut s = h.session();
         assert_eq!(logon_reply_seq(&s.recv(logon(1), h.t0)), Some("1"));
@@ -3798,8 +3800,7 @@ mod schedule_tests {
     fn an_early_close_ends_a_daily_session_then() {
         let clock = ManualClock::at("2026-09-28 12:59:00");
         let mut h = scheduled("daily 08:00-17:00", &clock);
-        let close =
-            (chrono::NaiveDate::from_ymd_opt(2026, 9, 28).unwrap(), chrono::NaiveTime::from_hms_opt(13, 0, 0).unwrap());
+        let close = (date(2026, 9, 28), time(13, 0, 0, 0));
         h.config.schedule =
             h.config.schedule.map(|s| s.with_holidays(HolidayCalendar::default().with_early_closes([close])));
         let mut s = h.session();
@@ -3821,8 +3822,7 @@ mod schedule_tests {
     fn an_early_close_closes_a_weekly_session_until_midnight_without_resetting_it() {
         let clock = ManualClock::at("2026-09-30 12:59:00"); // Wednesday
         let mut h = scheduled("weekly sun 17:00-fri 17:00", &clock);
-        let close =
-            (chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(), chrono::NaiveTime::from_hms_opt(13, 0, 0).unwrap());
+        let close = (date(2026, 9, 30), time(13, 0, 0, 0));
         h.config.schedule =
             h.config.schedule.map(|s| s.with_holidays(HolidayCalendar::default().with_early_closes([close])));
         let mut s = h.session();
