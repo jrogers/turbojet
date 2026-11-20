@@ -81,6 +81,14 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 turbojet-config = { workspace = true, features = ["tls", "tz", "metrics"] }
 # Another FAST implementation, to check turbojet::fast against (tests/fast_fastlib.rs).
 fastlib = { version = "0.4.1", default-features = false }
+# The fix-tester example's orders file.
+serde.workspace = true
+serde_json.workspace = true
+# The fix-tester example's terminal UI.
+ratatui = "0.30.2"
+# Reads keys from /dev/tty when the orders are piped to stdin: the default reader can't wait on it
+# on macOS.
+crossterm = { version = "0.29", features = ["use-dev-tty"] }
 turbojet-fix = { workspace = true, features = ["fix42", "fix44", "fix50sp2"] }
 
 # Benchmarks use criterion; keep the libtest bench harness out of `cargo bench` so criterion
@@ -137,6 +145,10 @@ name = "ack"
 # Both roles in one program, logging on and placing an order: the readme's first program.
 [[example]]
 name = "quickstart"
+
+# Enters the orders a JSON file lists on a FIX 4.2 venue, prints their updates and cancels them.
+[[example]]
+name = "fix-tester"
 
 [lints]
 workspace = true

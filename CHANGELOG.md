@@ -26,6 +26,9 @@ Notable changes to the published crates.
   A leap second is still written back as it came.
 - **Changed:** a UTCTimestamp after 9999-12-30T22:00:00Z, the end of jiff's range, is refused as
   malformed.
+- **Added:** a `fix-tester` example: logs on to a FIX 4.2 venue, enters the orders a JSON file
+  lists (with any venue-specific tags), shows their ExecutionReports in a terminal table and
+  cancels them from the keyboard. Without a terminal it prints the updates one per line.
 
 ## 0.11.2 (2026-11-15)
 
