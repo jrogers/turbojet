@@ -3,24 +3,24 @@
 //!
 //! ```sh
 //! cargo run --example gateway --all-features -- --allow CLIENT1     # a venue to try it on
-//! cargo run --example fix-tester -- --field 6751=TRADER1 < orders.json
+//! cargo run --example fix-tester -- --field 9001=TRADER1 < orders.json
 //! ```
 //!
 //! The orders are a JSON array, read from `--orders FILE` or, by default, from stdin:
 //!
 //! ```json
 //! [
-//!   {"symbol": "SHOP", "side": "buy", "qty": 100, "price": "85.10", "ex_destination": "ASPC"},
-//!   {"cl_ord_id": "mid-1", "symbol": "RY", "side": "sell", "qty": 500, "ord_type": "pegged",
-//!    "time_in_force": "ioc", "ex_destination": "INCC", "fields": {"18": "M", "110": "200"}}
+//!   {"symbol": "ACME", "side": "buy", "qty": 100, "price": "85.10", "ex_destination": "LIT"},
+//!   {"cl_ord_id": "mid-1", "symbol": "WIDG", "side": "sell", "qty": 500, "ord_type": "pegged",
+//!    "time_in_force": "ioc", "ex_destination": "DARK", "fields": {"18": "M", "110": "200"}}
 //! ]
 //! ```
 //!
 //! `side` is buy, sell or sell_short; `ord_type` market, limit or pegged (default limit if there's
 //! a price, else market); `time_in_force` day, ioc, gtc or gtd (default day). `cl_ord_id` defaults
-//! to one made up for this run. `fields` adds any other tags, such as a venue's own (CIX's
-//! UMIRUserID(6751), ExecInst(18) for its pegs, ExpireTime(126) for GTT); `--field TAG=VALUE` adds
-//! one to every order.
+//! to one made up for this run. `fields` adds any other tags, such as ExecInst(18) for a peg,
+//! ExpireTime(126) for GTD, or a venue's own user-defined tags; `--field TAG=VALUE` adds one to
+//! every order.
 //!
 //! On a terminal it shows the orders in a table above a log of updates: ↑/↓ (or j/k) select an
 //! order, `c` cancels it, `a` cancels every open order, `q` or Ctrl-C logs out. Otherwise (stdout
@@ -498,7 +498,7 @@ impl Blotter {
         });
         request.order_qty = Some(order.qty);
         let mut msg = Message::from(request);
-        // Not a FIX 4.2 OrderCancelRequest field, but some venues (CIX among them) require it.
+        // Not a FIX 4.2 OrderCancelRequest field, but some venues require it.
         msg.set(40, order.ord_type.code());
         let line = format!("-> {}: cancel {cl_ord_id}", order.label);
         session.send(msg)?;
@@ -607,7 +607,7 @@ Usage: fix-tester [ADDR] [--orders FILE] [--sender ID] [--target ID] [--field TA
   --orders FILE      Read the orders from FILE (default: stdin)
   --sender ID        Our SenderCompID (default CLIENT1)
   --target ID        The venue's CompID (default GATEWAY)
-  --field TAG=VALUE  Add a field to every order, e.g. --field 6751=TRADER1";
+  --field TAG=VALUE  Add a field to every order, e.g. --field 9001=TRADER1";
 
 fn parse_args() -> Result<Args, Box<dyn Error>> {
     let mut parsed = Args {
