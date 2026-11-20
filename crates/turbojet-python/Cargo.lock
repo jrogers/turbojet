@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "compact_str",
  "jiff",
@@ -1096,7 +1096,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-config"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "serde",
  "tokio",
@@ -1107,7 +1107,7 @@ dependencies = [
 
 [[package]]
 name = "turbojet-message"
-version = "0.11.2"
+version = "0.12.0"
 dependencies = [
  "compact_str",
  "jiff",
